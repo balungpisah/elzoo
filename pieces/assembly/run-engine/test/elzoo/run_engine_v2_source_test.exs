@@ -2006,6 +2006,68 @@ defmodule Elzoo.RunEngineV2SourceTest do
       assert Agent.get(calls, & &1.heads) == if(fault == :before_input, do: 2, else: 1)
       assert Agent.get(calls, & &1.reads) == 0
       assert Agent.get(pattern_calls, & &1) == 0
+
+      if fault in [:after_input, :after_result] do
+        recovered_wait =
+          recovered
+          |> Map.put(:event_ticket, ticket)
+          |> Map.put(:event_source_id, "events")
+
+        stale = event(recovered_wait, "stale-at-cursor", %{"accepted" => true}, recovered.cursor)
+        stale_head = %{revision: recovered.cursor + 1, low_water: 0}
+
+        assert stale.sequence == recovered.cursor
+        assert stale_head.revision >= stale.sequence
+
+        Agent.update(
+          calls,
+          &Map.put(&1, :read, {:ok, %{head: stale_head, event: stale}})
+        )
+
+        before_stale_rows = rows(c)
+        before_stale_state = DurableUnit.snapshot(restarted.unit)
+        assert before_stale_state.slots[occurrence].event_cursor == recovered.cursor
+
+        assert {:error, :invalid_correlation} =
+                 RunEngine.input(
+                   restarted.engine,
+                   "stale-after-restart",
+                   input(recovered_wait, stale.id),
+                   context(recovered_wait)
+                 )
+
+        assert rows(c) == before_stale_rows
+        assert DurableUnit.snapshot(restarted.unit) == before_stale_state
+        assert Agent.get(calls, & &1.reads) == 1
+
+        later =
+          event(
+            recovered_wait,
+            "later-after-cursor",
+            %{"accepted" => true},
+            recovered.cursor + 1
+          )
+
+        Agent.update(
+          calls,
+          &Map.put(&1, :read, {:ok, %{head: stale_head, event: later}})
+        )
+
+        assert {:ok, :applied} =
+                 RunEngine.input(
+                   restarted.engine,
+                   "later-after-restart",
+                   input(recovered_wait, later.id),
+                   context(recovered_wait)
+                 )
+
+        accepted = stored_input_record(c, "later-after-restart")
+        assert accepted.input["event_id"] == later.id
+        assert accepted.correlation.source_sequence == recovered.cursor + 1
+        assert accepted.correlation.source_head_revision == stale_head.revision
+        assert Agent.get(calls, & &1.heads) == 1
+        assert Agent.get(calls, & &1.reads) == 2
+      end
     end
   end
 

@@ -190,6 +190,17 @@ defmodule Elzoo.RunEngineV2ReaderProofTest do
     configure = input_row(v1, &(&1.kind == :configure))
     {1, {_, configure_record}} = :erlang.binary_to_term(configure.payload, [:safe])
     refute Map.has_key?(configure_record.control, :protocol_version)
+    refute Keyword.has_key?(v1.opts, :event_source)
+
+    v1_with_nil_source = reader_fixture([], protocol_version: 1)
+
+    v1_nil_engine =
+      start_run(v1_with_nil_source,
+        event_source: nil,
+        result_reader: %{evidence_store: v1_with_nil_source.evidence_store, retention_count: 1_024}
+      )
+
+    assert {:ok, %{waits: []}} = event_waits(v1_nil_engine)
 
     v2 = reader_fixture([request_v2([])])
     v2_engine = start_run(v2)
@@ -345,6 +356,95 @@ defmodule Elzoo.RunEngineV2ReaderProofTest do
 
     engine = start_waiting(c)
     assert {:ok, %{waits: [_]}} = event_waits(engine)
+  end
+
+  test "recovery binds selected protocol and event-source identity to the retained Unit" do
+    c = reader_fixture([request_v2([action("wait", "wait_event")])])
+    engine = start_waiting(c)
+    assert {:ok, %{waits: [original_wait]}} = event_waits(engine)
+    {:ok, unit} = DynamicUnits.find(c.directory, c.opts[:identity])
+    retained_rows = rows(c)
+    retained_state = DurableUnit.snapshot(unit)
+    retained_fingerprint = retained_state.control.fingerprint
+    callbacks_before = callback_counts(c)
+
+    GenServer.stop(engine)
+    assert Process.alive?(unit)
+    assert rows(c) == retained_rows
+    assert DurableUnit.snapshot(unit) == retained_state
+
+    replacement_calls =
+      ExUnit.Callbacks.start_supervised!(
+        {Agent, fn -> %{head: 0, read: 0} end},
+        id: make_ref()
+      )
+
+    source_for = fn id, version ->
+      %{
+        id: id,
+        version: version,
+        head: fn _ ->
+          Agent.update(replacement_calls, &Map.update!(&1, :head, fn n -> n + 1 end))
+          {:ok, %{revision: 0, low_water: 0}}
+        end,
+        read: fn _, _ ->
+          Agent.update(replacement_calls, &Map.update!(&1, :read, fn n -> n + 1 end))
+          {:error, :not_found}
+        end
+      }
+    end
+
+    replacement_source = source_for.("events", 1)
+    recovered = start(c, event_source: replacement_source)
+    assert {:ok, %{waits: [recovered_wait]}} = event_waits(recovered)
+    assert recovered_wait.occurrence == original_wait.occurrence
+    assert recovered_wait.correlation_id == original_wait.correlation_id
+    assert DurableUnit.snapshot(unit).control.fingerprint == retained_fingerprint
+    assert rows(c) == retained_rows
+    assert DurableUnit.snapshot(unit) == retained_state
+    assert callback_counts(c) == callbacks_before
+    assert Agent.get(replacement_calls, & &1) == %{head: 0, read: 0}
+    GenServer.stop(recovered)
+
+    refuse_recovery = fn options ->
+      assert {:error, :incompatible_recovery} = RunEngine.start_link(options)
+      assert rows(c) == retained_rows
+      assert DurableUnit.snapshot(unit) == retained_state
+      assert callback_counts(c) == callbacks_before
+      assert Agent.get(replacement_calls, & &1) == %{head: 0, read: 0}
+    end
+
+    refuse_recovery.(
+      c.opts
+      |> Keyword.delete(:protocol_version)
+      |> Keyword.delete(:event_source)
+    )
+
+    refuse_recovery.(
+      c.opts
+      |> Keyword.put(:protocol_version, 1)
+      |> Keyword.delete(:event_source)
+    )
+
+    refuse_recovery.(Keyword.put(c.opts, :event_source, source_for.("other-events", 1)))
+    refuse_recovery.(Keyword.put(c.opts, :event_source, source_for.("events", 2)))
+
+    v1 = reader_fixture([], protocol_version: 1)
+    {:ok, v1_unit} = DynamicUnits.start(v1.directory, v1.opts[:identity])
+    v1_empty_state = DurableUnit.snapshot(v1_unit)
+    v1_empty_rows = rows(v1)
+    assert v1_empty_state == %{version: 1, control: nil, slots: %{}, requests: %{}}
+
+    assert {:error, :incompatible_recovery} =
+             RunEngine.start_link(
+               v1.opts
+               |> Keyword.put(:protocol_version, 2)
+               |> Keyword.put(:event_source, source_for.("events", 1))
+             )
+
+    assert DurableUnit.snapshot(v1_unit) == v1_empty_state
+    assert rows(v1) == v1_empty_rows
+    assert Agent.get(replacement_calls, & &1) == %{head: 0, read: 0}
   end
 
   test "intermediate request-cache JSON requires the selected request version" do
@@ -780,6 +880,27 @@ defmodule Elzoo.RunEngineV2ReaderProofTest do
     end
   end
 
+  test "pure activation step requires a ready wait_event slot" do
+    c = reader_fixture([request_v2([action("wait", "wait_event")])])
+    start_waiting(c)
+    activation = input_row(c, &(&1.kind == :event_activation))
+    before = result_row(c, activation.sequence - 1)
+    {1, {_, state}} = :erlang.binary_to_term(before.payload, [:safe])
+    {1, {_, record}} = :erlang.binary_to_term(activation.payload, [:safe])
+    key = record.occurrence
+
+    assert state.slots[key].kind == "wait_event"
+    assert state.slots[key].phase == :ready
+    before_callbacks = callback_counts(c)
+    wrong_kind = put_in(state.slots[key].kind, "local_work")
+
+    assert {:Transition, after_state, :none} = RunEngine.step(wrong_kind, record)
+    assert after_state.slots[key].kind == "local_work"
+    assert after_state.slots[key].phase == :ready
+    refute Map.has_key?(after_state.slots[key], :activation_id)
+    assert callback_counts(c) == before_callbacks
+  end
+
   test "the first event receipt must match its paired source record exactly" do
     c =
       reader_fixture([
@@ -804,7 +925,7 @@ defmodule Elzoo.RunEngineV2ReaderProofTest do
 
     original = :erlang.binary_to_term(final.payload, [:safe])
 
-    for mutation <- [:extra_key, :input_id, :sequence] do
+    for mutation <- [:input_id, :extra_key, :sequence] do
       rewrite_row(c, final, fn {1, {id, state}} ->
         [key] = for {key, slot} <- state.slots, slot.kind == "wait_event", do: key
 

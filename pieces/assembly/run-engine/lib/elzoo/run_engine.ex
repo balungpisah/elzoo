@@ -630,6 +630,7 @@ defmodule Elzoo.RunEngine do
       slot.phase == :ready and slot.attempt_id == record.attempt_id and
       control.attempt_id == record.attempt_id and slot.deadline_ms == record.deadline_ms and
       record.source_id == source.id and record.source_version == source.version and
+      slot.kind == "wait_event" and
       is_integer(record.cursor) and record.cursor >= 0 and is_integer(record.at_ms) and
       record.at_ms > 0 and permitted?(state, slot, record.at_ms) and
       record.id ==
@@ -4790,7 +4791,7 @@ defmodule Elzoo.RunEngine do
   defp valid_result_limits?(_), do: false
 
   defp reader_config(s) do
-    source = Map.get(s.opts, :event_source, %{})
+    source = Map.get(s.opts, :event_source) || %{}
 
     %{
       version: protocol_version(s),
