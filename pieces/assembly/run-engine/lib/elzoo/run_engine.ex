@@ -4633,7 +4633,7 @@ defmodule Elzoo.RunEngine do
   @doc false
   def event_ticket(tenant, principal, run_id, attempt_id, occurrence, source_id) do
     identity = {run_id, attempt_id, occurrence, source_id}
-    stable_id("event-ticket:", {tenant, principal, identity})
+    stable_id("event-ticket-", {tenant, principal, identity})
   end
 
   @doc false

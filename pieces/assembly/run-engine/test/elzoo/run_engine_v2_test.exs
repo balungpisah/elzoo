@@ -137,6 +137,9 @@ defmodule Elzoo.RunEngineV2Test do
 
     assert waiting.occurrence == key
     assert waiting.status == :waiting
+    assert is_binary(waiting.correlation_id)
+    assert byte_size(waiting.correlation_id) in 1..128
+    assert Regex.match?(~r/\A[A-Za-z0-9._-]+\z/, waiting.correlation_id)
     assert is_nil(waiting.accepted_event)
     assert {:error, :scope} = RunEngine.event_waits(engine, %{scope | tenant: "other"}, limits)
 
