@@ -209,10 +209,17 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     policy = Keyword.get(options, :policy, fn _mode, _event, _now -> policy() end)
 
     authority =
-      Keyword.get(options, :authority, fn mode, _event, _request, _facts ->
-        if mode == :release,
-          do: %{approver: %{identity: "reviewer", authority: []}, now: now.(), revoked: false},
-          else: %{}
+      Keyword.get(options, :authority, fn mode, _event, request, facts ->
+        cond do
+          reply_profile? and mode in [:release, :reply_release] ->
+            reply_release_authority(profile, handles, now, mode, request, facts)
+
+          mode == :release ->
+            %{approver: %{identity: "reviewer", authority: []}, now: now.(), revoked: false}
+
+          true ->
+            %{}
+        end
       end)
 
     host_options = [
@@ -633,6 +640,28 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       "enabled" => true,
       "target" => profile.native_target
     }
+  end
+
+  defp reply_release_authority(profile, handles, now, mode, request, facts) do
+    handle = if mode == :reply_release, do: handles.reply_input, else: handles.input
+    prepared_facts = %{tenant: profile.tenant, actor: profile.actor, data: facts}
+
+    with {:ok, snapshot} <-
+           Elzoo.CheckedCommand.resource(
+             handle,
+             scope(profile),
+             profile.conversation_id
+           ),
+         {:ok, writes, _} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
+             snapshot,
+             request,
+             prepared_facts
+           ) do
+      %{approver: %{identity: "reviewer", authority: writes}, now: now.(), revoked: []}
+    else
+      _ -> %{}
+    end
   end
 
   defp unit_options(unit_opts, unit_store, identity) do

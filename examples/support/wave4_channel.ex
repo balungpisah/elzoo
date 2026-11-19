@@ -16,6 +16,7 @@ defmodule Elzoo.Wave4ChannelExample do
   }
 
   @destination "wave4-channel-input"
+  @reply_destination "wave4-channel-reply"
   @max_view_bytes 1_048_576
   @outbox_limit 64
   @result_limits %{max_records: 2_048, max_bytes: 16_777_216}
@@ -69,7 +70,9 @@ defmodule Elzoo.Wave4ChannelExample do
          phase: :idle,
          current: nil,
          reply: nil,
+         latest_native: nil,
          latest_run: nil,
+         completed_pair: nil,
          ambiguous_reply: false,
          approval: nil,
          engine: nil,
@@ -119,11 +122,325 @@ defmodule Elzoo.Wave4ChannelExample do
     {:reply, read_view(state, trusted_scope), state}
   end
 
-  defp admit_reply_event(state, _event, _trusted_scope),
+  defp admit_reply_event(%{poison: poison} = state, _, _) when not is_nil(poison),
     do: {{:error, :unavailable}, state}
 
-  defp release_reply_event(state, _event, _trusted_scope, _evidence),
-    do: {{:error, :unavailable}, state}
+  defp admit_reply_event(state, event, trusted_scope) do
+    with true <- reply_profile?(state.profile),
+         :ok <- valid_event(event),
+         :ok <- valid_admission_scope(state.profile, event, trusted_scope),
+         operation_id <- input_operation(state.profile.reply_source_id, event.event_id),
+         identity <- {state.profile.tenant, state.profile.actor, operation_id},
+         result <-
+           CheckedCommand.result(state.handles.reply_input, result_scope(state.profile), identity),
+         {:ok, decision} <- existing_reply_or_capacity(state, event, operation_id, result) do
+      execute_reply_input(state, event, operation_id, decision)
+    else
+      {:error, :expired} -> {{:rejected, :conflict}, state}
+      {:error, :busy} -> {{:error, :unavailable}, state}
+      {:error, :scope} -> {{:rejected, :forbidden}, state}
+      {:error, :ticket} -> {{:rejected, :conflict}, state}
+      {:error, :capacity} -> {{:rejected, :conflict}, state}
+      {:error, :unknown} -> {{:error, :unavailable}, state}
+      false -> {{:rejected, :invalid}, state}
+      _ -> {{:rejected, :invalid}, state}
+    end
+  rescue
+    _ -> {{:error, :unavailable}, state}
+  catch
+    :exit, _ -> {{:error, :unavailable}, state}
+    _, _ -> {{:error, :unavailable}, state}
+  end
+
+  defp existing_reply_or_capacity(state, event, operation_id, {:unknown, :not_observed}) do
+    with nil <- state.reply,
+         %{run_id: run_id} = current when not is_nil(current) <- state.current,
+         :result <- state.phase,
+         true <- is_nil(state.approval) and is_nil(state.poison),
+         {:ok, wait} <- live_reply_wait(state, event, run_id),
+         :ok <- primary_reply_pending?(state),
+         true <- before_reply_deadlines?(state, wait),
+         :ok <- reply_capacity_preflight(state, event, operation_id),
+         {:ok, current_wait} <- live_reply_wait(state, event, run_id),
+         true <- current_wait.occurrence == wait.occurrence,
+         true <- before_reply_deadlines?(state, current_wait) do
+      {:ok, {:fresh, wait}}
+    else
+      false -> {:error, :ticket}
+      nil -> {:error, :busy}
+      :busy -> {:error, :busy}
+      {:error, _} = error -> error
+      _ -> {:error, :ticket}
+    end
+  rescue
+    _ -> {:error, :unknown}
+  catch
+    :exit, _ -> {:error, :unknown}
+    _, _ -> {:error, :unknown}
+  end
+
+  defp existing_reply_or_capacity(_state, _event, _operation_id, {:unknown, _}),
+    do: {:error, :unknown}
+
+  defp existing_reply_or_capacity(_state, _event, _operation_id, result)
+       when is_tuple(result) and elem(result, 0) in [:error, :unavailable],
+       do: {:error, :unknown}
+
+  defp existing_reply_or_capacity(_state, _event, _operation_id, _retained),
+    do: {:ok, :replay}
+
+  defp live_reply_wait(
+         %{engine: engine, native: native, current: current, profile: profile},
+         event,
+         run_id
+       )
+       when is_pid(engine) and is_map(current) do
+    scope = %{tenant: profile.tenant, principal: profile.actor, run_id: run_id}
+
+    with true <- Process.alive?(engine),
+         {:ok, %{waits: [wait]}} <- RunEngine.event_waits(engine, scope, @result_limits),
+         {:ok, run} <- RunApprovalRelease.status(native.run_owner, run_id),
+         true <-
+           run.operation_id == native_operation(run_id, %{profile: profile}) and
+             run.current_attempt == attempt_id(run_id, %{profile: profile}) and
+             is_nil(run.outcome),
+         true <-
+           wait.status == :waiting and wait.action_id == "reply" and
+             wait.source_id == profile.reply_source_id and
+             wait.correlation_id == event.input_id and is_tuple(wait.occurrence) and
+             is_integer(wait.deadline_ms) do
+      {:ok, wait}
+    else
+      _ -> {:error, :ticket}
+    end
+  rescue
+    _ -> {:error, :unknown}
+  catch
+    :exit, _ -> {:error, :unknown}
+    _, _ -> {:error, :unknown}
+  end
+
+  defp live_reply_wait(_, _, _), do: {:error, :ticket}
+
+  defp primary_reply_pending?(state) do
+    case Outbox.pending(state.command_store, checked_stream(state.profile.tenant), @outbox_limit) do
+      {:ok, items} ->
+        primary? =
+          Enum.any?(items, fn item ->
+            item.idempotency_key == state.current.item.key and item.destination == @destination
+          end)
+
+        reply? = Enum.any?(items, &(&1.destination == @reply_destination))
+        if primary? and not reply?, do: :ok, else: {:error, :busy}
+
+      _ ->
+        {:error, :unknown}
+    end
+  rescue
+    _ -> {:error, :unknown}
+  catch
+    :exit, _ -> {:error, :unknown}
+    _, _ -> {:error, :unknown}
+  end
+
+  defp before_reply_deadlines?(state, wait) do
+    now = state.clock.()
+    is_integer(now) and now < state.profile.deadline_ms and now < wait.deadline_ms
+  rescue
+    _ -> false
+  catch
+    _, _ -> false
+  end
+
+  defp reply_capacity_preflight(state, event, operation_id),
+    do: reply_capacity_preflight(state, event, operation_id, 1020)
+
+  defp reply_capacity_preflight(state, event, operation_id, head_limit) do
+    stream = checked_stream(state.profile.tenant)
+    projected_reply_key = projected_reply_key(state.profile, operation_id)
+    run_id = state.current.run_id
+
+    with {:ok, head} <- DurableLog.Store.read(state.command_store, :head, [stream]),
+         true <- reply_preflight_head?(head, head_limit),
+         {:ok, snapshot} <-
+           CheckedCommand.resource(
+             state.handles.input,
+             resource_scope(state.profile),
+             state.profile.conversation_id
+           ),
+         true <- snapshot.revision == event.expected_revision,
+         true <- resource_snapshot_fits?(snapshot),
+         {:ok, clean_snapshot} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
+             snapshot,
+             state.profile.tenant
+           ),
+         {:ok, _} <- Conversation.view(clean_snapshot, resource_scope(state.profile)),
+         request <- input_request(event, operation_id),
+         {:ok, reply_writes, _} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
+             snapshot,
+             request,
+             prepare_facts(state.profile, input_facts())
+           ),
+         reply_snapshot <- apply_writes(snapshot, reply_writes),
+         true <- resource_snapshot_fits?(reply_snapshot),
+         association_request <-
+           command_request(
+             state.profile,
+             event.conversation_id,
+             reply_snapshot.revision,
+             association_operation(operation_id, event.input_id, state.profile),
+             %{"message_id" => event.input_id}
+           ),
+         {:ok, association_writes, _} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_association(
+             reply_snapshot,
+             association_request,
+             prepare_facts(
+               state.profile,
+               reply_association_facts(run_id, state.current.item.key, projected_reply_key)
+             )
+           ),
+         association_snapshot <- apply_writes(reply_snapshot, association_writes),
+         true <- resource_snapshot_fits?(association_snapshot),
+         answer_request <-
+           command_request(
+             state.profile,
+             event.conversation_id,
+             association_snapshot.revision,
+             state.current.answer_operation,
+             %{
+               "message_id" => answer_id(state.current.input_id),
+               "text" => "answer:" <> String.duplicate("a", 64)
+             }
+           ),
+         {:ok, answer_writes, _} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_answer(
+             association_snapshot,
+             answer_request,
+             prepare_facts(state.profile, answer_facts(run_id, state.current.input_id, true))
+           ),
+         true <- resource_snapshot_fits?(apply_writes(association_snapshot, answer_writes)),
+         {:ok, after_head} <- DurableLog.Store.read(state.command_store, :head, [stream]),
+         true <- reply_preflight_head?(after_head, head_limit),
+         true <- stable_projection_heads?(head, after_head) do
+      :ok
+    else
+      false -> {:error, :capacity}
+      _ -> {:error, :capacity}
+    end
+  rescue
+    _ -> {:error, :unknown}
+  catch
+    _, _ -> {:error, :unknown}
+  end
+
+  defp reply_preflight_head?(%{revision: revision, low_water: 0}, head_limit)
+       when is_integer(head_limit) and is_integer(revision) and revision in 0..head_limit//1,
+       do: true
+
+  defp reply_preflight_head?(_, _), do: false
+
+  defp execute_reply_input(state, event, operation_id, decision) do
+    request = input_request(event, operation_id)
+    result = execute_checked(state, :reply_input, event, request, input_facts())
+
+    case {decision, result} do
+      {:replay, {:completed, %{revision: revision}}} ->
+        {{:committed, revision}, state}
+
+      {:replay, {:approval_pending, _pending}} ->
+        {{:pending, :approval}, state}
+
+      {:replay, {:conflict, _}} ->
+        {{:rejected, :conflict}, state}
+
+      {:replay, {:denied, _}} ->
+        {{:rejected, :forbidden}, state}
+
+      {{:fresh, wait}, {:completed, %{revision: revision, response: response}}}
+      when revision == event.expected_revision + 1 ->
+        with {:ok, ticket, ^revision} <- receipt_input(response),
+             true <- ticket == event.input_id do
+          reply = %{
+            event: event,
+            operation_id: operation_id,
+            request: request,
+            ticket: ticket,
+            wait: wait,
+            resource_revision: revision,
+            item: nil,
+            text: nil,
+            association_operation: association_operation(operation_id, ticket, state.profile),
+            association_revision: nil
+          }
+
+          {{:committed, revision}, %{state | reply: reply, phase: :reply_observe}}
+        else
+          _ -> {{:unknown, :reply_identity}, %{state | poison: {:reply_input, operation_id}}}
+        end
+
+      {{:fresh, wait}, {:approval_pending, pending}} ->
+        reply = %{
+          event: event,
+          operation_id: operation_id,
+          request: request,
+          facts: input_facts(),
+          key: pending.key,
+          requirement: pending.requirement,
+          pending: pending,
+          wait: wait,
+          release_state: :pending
+        }
+
+        {{:pending, :approval}, %{state | reply: reply}}
+
+      {{:fresh, _wait}, {:denied, {:authorization, _}}} ->
+        {{:rejected, :forbidden}, state}
+
+      {{:fresh, _wait}, {:denied, _}} ->
+        {{:rejected, :forbidden}, state}
+
+      {{:fresh, _wait}, {:conflict, _}} ->
+        {{:rejected, :conflict}, state}
+
+      {{:fresh, _wait}, {:refused, _}} ->
+        {{:rejected, :invalid}, state}
+
+      {{:fresh, wait}, {:unknown, _}} ->
+        reply = %{
+          event: event,
+          operation_id: operation_id,
+          request: request,
+          facts: input_facts(),
+          wait: wait,
+          release_state: :unknown
+        }
+
+        {{:unknown, :reply_input}, %{state | reply: reply, poison: {:reply_input, operation_id}}}
+
+      {_, {:unavailable, _}} ->
+        {{:error, :unavailable}, state}
+
+      _ ->
+        {{:error, :unavailable}, state}
+    end
+  rescue
+    _ -> {{:unknown, :reply_input}, %{state | poison: {:reply_input, operation_id}}}
+  catch
+    _, _ -> {{:unknown, :reply_input}, %{state | poison: {:reply_input, operation_id}}}
+  end
+
+  defp release_reply_event(%{poison: poison} = state, _event, _trusted_scope, _evidence)
+       when not is_nil(poison),
+       do: {{:error, :unavailable}, state}
+
+  defp release_reply_event(%{profile: profile} = state, event, trusted_scope, evidence) do
+    if reply_profile?(profile),
+      do: release_v2(state, :reply, event, trusted_scope, evidence),
+      else: {{:error, :unavailable}, state}
+  end
 
   @impl true
   def handle_info({:DOWN, reference, :process, pid, reason}, state) do
@@ -179,17 +496,20 @@ defmodule Elzoo.Wave4ChannelExample do
       not before_deadline?(state) ->
         {:error, :expired}
 
-      unfinished?(state) ->
-        {:error, :busy}
-
       event.conversation_id != state.profile.conversation_id ->
         {:error, :scope}
 
       true ->
-        case pending_input?(state) do
-          {:ok, true} -> {:error, :busy}
-          {:ok, false} -> capacity?(state, event, operation_id)
-          _ -> {:error, :unknown}
+        case fresh_primary_ready?(state) do
+          :ok ->
+            case pending_input?(state) do
+              {:ok, true} -> {:error, :busy}
+              {:ok, false} -> capacity?(state, event, operation_id)
+              _ -> {:error, :unknown}
+            end
+
+          {:error, _} = error ->
+            error
         end
     end
   end
@@ -233,14 +553,17 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
-  defp reply_capacity?(state, event, operation_id) do
+  defp reply_capacity?(state, event, operation_id),
+    do: reply_capacity?(state, event, operation_id, 1017)
+
+  defp reply_capacity?(state, event, operation_id, head_limit) do
     stream = checked_stream(state.profile.tenant)
     run_id = run_id(event, operation_id, state)
     primary_key = projected_command_key(state.profile, operation_id, 4095, "wave4-channel-input")
     reply_key = projected_reply_key(state.profile, operation_id)
 
     with {:ok, head} <- Elzoo.DurableLog.Store.read(state.command_store, :head, [stream]),
-         true <- fresh_projection_head?(head),
+         true <- fresh_projection_head?(head, head_limit),
          {:ok, snapshot} <-
            CheckedCommand.resource(
              state.handles.input,
@@ -345,11 +668,17 @@ defmodule Elzoo.Wave4ChannelExample do
     _ -> {:error, :unknown}
   end
 
-  defp fresh_projection_head?(%{revision: revision, low_water: 0})
-       when is_integer(revision) and revision in 0..1017,
+  defp fresh_projection_head?(%{revision: revision, low_water: 0}, head_limit)
+       when is_integer(head_limit) and is_integer(revision) and revision in 0..head_limit//1,
        do: true
 
-  defp fresh_projection_head?(_), do: false
+  defp fresh_projection_head?(_, _), do: false
+
+  defp answer_projection_head?(%{revision: revision, low_water: 0})
+       when is_integer(revision) and revision in 0..1023,
+       do: true
+
+  defp answer_projection_head?(_), do: false
 
   defp stable_projection_heads?(before, after_head) do
     Map.drop(before, [:capabilities]) == Map.drop(after_head, [:capabilities])
@@ -463,6 +792,16 @@ defmodule Elzoo.Wave4ChannelExample do
           requirement: pending.requirement
         }
 
+        approval =
+          if reply_profile?(state.profile),
+            do:
+              Map.merge(approval, %{
+                request: request,
+                facts: input_facts(),
+                release_state: :pending
+              }),
+            else: approval
+
         {{:pending, :approval}, %{state | approval: approval}}
 
       {:denied, {:authorization, _}} ->
@@ -486,6 +825,16 @@ defmodule Elzoo.Wave4ChannelExample do
       {:unknown, _} = unknown ->
         approval = %{event: event, operation_id: operation_id, key: nil, requirement: nil}
 
+        approval =
+          if reply_profile?(state.profile),
+            do:
+              Map.merge(approval, %{
+                request: request,
+                facts: input_facts(),
+                release_state: :unknown
+              }),
+            else: approval
+
         {{:unknown, :unavailable},
          %{state | approval: approval, poison: {:input, operation_id, unknown}}}
 
@@ -506,12 +855,16 @@ defmodule Elzoo.Wave4ChannelExample do
     do: {{:error, :unavailable}, state}
 
   defp release_event(state, event, trusted_scope, evidence) do
-    case release_plan(state, event, trusted_scope, evidence) do
-      {:ready, operation_id, facts, request, context} ->
-        execute_release(state, event, operation_id, facts, request, context, evidence)
+    if reply_profile?(state.profile) do
+      release_v2(state, :primary, event, trusted_scope, evidence)
+    else
+      case release_plan(state, event, trusted_scope, evidence) do
+        {:ready, operation_id, facts, request, context} ->
+          execute_release(state, event, operation_id, facts, request, context, evidence)
 
-      {:reply, reply} ->
-        {reply, state}
+        {:reply, reply} ->
+          {reply, state}
+      end
     end
   end
 
@@ -616,14 +969,391 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> {:error, :evidence}
   end
 
+  defp release_v2(state, kind, event, trusted_scope, evidence) do
+    with :ok <- valid_event(event),
+         :ok <- fixed_release_scope(state.profile, event),
+         :ok <- valid_admission_scope(state.profile, event, trusted_scope),
+         :ok <- valid_v2_release_evidence(state.profile, evidence),
+         operation_id <- input_operation(release_source_id(state.profile, kind), event.event_id),
+         result <-
+           CheckedCommand.result(
+             release_handle(state, kind),
+             result_scope(state.profile),
+             {state.profile.tenant, state.profile.actor, operation_id}
+           ),
+         {:ok, record} <- v2_release_record(state, kind, event, operation_id) do
+      release_v2_result(state, kind, event, operation_id, record, result, evidence)
+    else
+      {:error, :scope} -> {{:rejected, :forbidden}, state}
+      {:error, :forbidden} -> {{:rejected, :forbidden}, state}
+      {:error, :purpose} -> {{:rejected, :invalid}, state}
+      {:error, :event} -> {{:rejected, :invalid}, state}
+      {:error, :identity} -> {{:rejected, :conflict}, state}
+      _ -> {{:error, :unavailable}, state}
+    end
+  rescue
+    _ -> {{:error, :unavailable}, state}
+  catch
+    :exit, _ -> {{:error, :unavailable}, state}
+    _, _ -> {{:error, :unavailable}, state}
+  end
+
+  defp release_v2_result(state, kind, event, operation_id, record, result, evidence) do
+    case result do
+      {:completed, %{revision: revision, response: response}}
+      when revision == event.expected_revision + 1 ->
+        if Map.get(record, :release_state) in [:committed, :committed_expired] do
+          {{:committed, revision}, state}
+        else
+          case record_v2_release_completion(
+                 state,
+                 kind,
+                 event,
+                 operation_id,
+                 record,
+                 revision,
+                 response
+               ) do
+            {:ok, state} -> {{:committed, revision}, state}
+            :error -> v2_release_unknown(state, kind, operation_id, record, :receipt)
+          end
+        end
+
+      {:approval_pending, pending} ->
+        if v2_pending_matches?(record, pending) and
+             Map.get(record, :release_state) in [:pending, :unknown] do
+          release_v2_pending(state, kind, event, operation_id, record, evidence)
+        else
+          {{:rejected, :conflict}, state}
+        end
+
+      {:unknown, :not_observed} ->
+        {{:rejected, :conflict}, state}
+
+      {:unknown, _reason} = unknown ->
+        v2_release_unknown(state, kind, operation_id, record, unknown)
+
+      {:conflict, :stale_revision} ->
+        {{:rejected, :conflict}, state}
+
+      {:denied, {:authorization, _}} ->
+        {{:rejected, :forbidden}, state}
+
+      {:denied, _} ->
+        {{:rejected, :forbidden}, state}
+
+      {:unavailable, _} ->
+        {{:error, :unavailable}, state}
+
+      _ ->
+        {{:rejected, :conflict}, state}
+    end
+  end
+
+  defp release_v2_pending(state, kind, event, operation_id, record, evidence) do
+    case v2_release_preflight(state, kind, event, operation_id, record) do
+      :ok ->
+        mode = release_mode(kind)
+
+        with {:ok, context} <- release_context_v2(state, mode, event, record.request, record.facts) do
+          execute_v2_release(state, kind, event, operation_id, record, context, evidence)
+        else
+          _ -> {{:error, :unavailable}, state}
+        end
+
+      {:error, :unknown} ->
+        {{:error, :unavailable}, state}
+
+      _ ->
+        {{:rejected, :conflict}, state}
+    end
+  end
+
+  defp execute_v2_release(state, kind, event, operation_id, record, context, evidence) do
+    result =
+      try do
+        CheckedCommand.release(
+          release_handle(state, kind),
+          context,
+          {state.profile.tenant, state.profile.actor, operation_id},
+          evidence
+        )
+      rescue
+        _ -> {:unknown, :exception}
+      catch
+        _, _ -> {:unknown, :exception}
+      end
+
+    case result do
+      {:completed, %{revision: revision, response: response}}
+      when revision == event.expected_revision + 1 ->
+        case record_v2_release_completion(
+               state,
+               kind,
+               event,
+               operation_id,
+               record,
+               revision,
+               response
+             ) do
+          {:ok, state} -> {{:committed, revision}, state}
+          :error -> v2_release_unknown(state, kind, operation_id, record, :receipt)
+        end
+
+      {:approval_pending, _pending} ->
+        {{:pending, :approval}, state}
+
+      {:release_refused, reason} ->
+        {{:rejected, if(reason == :invalid_request, do: :invalid, else: :forbidden)}, state}
+
+      {:conflict, :stale_revision} ->
+        {{:rejected, :conflict}, state}
+
+      {:unknown, _} = unknown ->
+        v2_release_unknown(state, kind, operation_id, record, unknown)
+
+      {:unavailable, _} ->
+        {{:error, :unavailable}, state}
+
+      other ->
+        v2_release_unknown(state, kind, operation_id, record, other)
+    end
+  rescue
+    _ -> v2_release_unknown(state, kind, operation_id, record, :exception)
+  catch
+    _, _ -> v2_release_unknown(state, kind, operation_id, record, :exception)
+  end
+
+  defp v2_release_preflight(state, :primary, event, operation_id, _record) do
+    cond do
+      not is_nil(state.current) or state.phase != :idle or not is_nil(state.poison) ->
+        {:error, :busy}
+
+      not before_deadline?(state) ->
+        {:error, :expired}
+
+      true ->
+        case reply_capacity?(state, event, operation_id, 1018) do
+          {:ok, :new} -> :ok
+          {:ok, :capacity} -> {:error, :capacity}
+          _ -> {:error, :unknown}
+        end
+    end
+  rescue
+    _ -> {:error, :unknown}
+  catch
+    _, _ -> {:error, :unknown}
+  end
+
+  defp v2_release_preflight(state, :reply, event, operation_id, record) do
+    with %{run_id: run_id} when state.phase == :result <- state.current,
+         true <- is_nil(state.poison),
+         {:ok, wait} <- live_reply_wait(state, event, run_id),
+         true <- same_release_wait?(record.wait, wait),
+         :ok <- primary_reply_pending?(state),
+         true <- before_reply_deadlines?(state, wait),
+         :ok <- reply_capacity_preflight(state, event, operation_id, 1021),
+         {:ok, current_wait} <- live_reply_wait(state, event, run_id),
+         true <- same_release_wait?(wait, current_wait),
+         true <- before_reply_deadlines?(state, current_wait) do
+      :ok
+    else
+      {:error, :unknown} -> {:error, :unknown}
+      _ -> {:error, :ticket}
+    end
+  rescue
+    _ -> {:error, :unknown}
+  catch
+    _, _ -> {:error, :unknown}
+  end
+
+  defp release_context_v2(state, mode, event, request, facts) do
+    with true <- Map.has_key?(request, :operation_id),
+         {:ok, context} <- command_context(state, mode, event, request, facts),
+         fresh when is_map(fresh) <- state.authority.(mode, event, request, facts),
+         true <-
+           Map.has_key?(fresh, :approver) and Map.has_key?(fresh, :now) and
+             Map.has_key?(fresh, :revoked) do
+      {:ok, Map.merge(context, fresh)}
+    else
+      _ -> {:error, :evidence}
+    end
+  rescue
+    _ -> {:error, :evidence}
+  catch
+    _, _ -> {:error, :evidence}
+  end
+
+  defp record_v2_release_completion(
+         state,
+         :primary,
+         event,
+         _operation_id,
+         record,
+         revision,
+         response
+       ) do
+    with {:ok, input_id, ^revision} <- receipt_input(response),
+         true <- input_id == event.input_id do
+      release_state = if primary_deadline_live?(state), do: :committed, else: :committed_expired
+      approval = Map.merge(record, %{release_state: release_state, release_revision: revision})
+      {:ok, %{state | approval: approval}}
+    else
+      _ -> :error
+    end
+  rescue
+    _ -> :error
+  catch
+    _, _ -> :error
+  end
+
+  defp record_v2_release_completion(state, :reply, event, operation_id, record, revision, response) do
+    with {:ok, ticket, ^revision} <- receipt_input(response),
+         true <- ticket == event.input_id do
+      live? = reply_release_live?(state, event, record)
+      release_state = if live?, do: :committed, else: :committed_expired
+
+      reply =
+        Map.merge(record, %{
+          ticket: ticket,
+          resource_revision: revision,
+          item: nil,
+          text: nil,
+          association_operation: association_operation(operation_id, ticket, state.profile),
+          association_revision: nil,
+          pending: nil,
+          release_state: release_state,
+          release_revision: revision
+        })
+
+      phase = if live?, do: :reply_observe, else: state.phase
+      {:ok, %{state | reply: reply, phase: phase}}
+    else
+      _ -> :error
+    end
+  rescue
+    _ -> :error
+  catch
+    _, _ -> :error
+  end
+
+  defp reply_release_live?(state, event, record) do
+    with %{run_id: run_id} when state.phase == :result <- state.current,
+         {:ok, wait} <- live_reply_wait(state, event, run_id),
+         true <- same_release_wait?(record.wait, wait),
+         true <- before_reply_deadlines?(state, wait) do
+      true
+    else
+      _ -> false
+    end
+  rescue
+    _ -> false
+  catch
+    _, _ -> false
+  end
+
+  defp same_release_wait?(saved, current) when is_map(saved) and is_map(current) do
+    Enum.all?([:action_id, :source_id, :correlation_id, :occurrence, :deadline_ms], fn key ->
+      Map.get(saved, key) == Map.get(current, key)
+    end)
+  end
+
+  defp same_release_wait?(_, _), do: false
+
+  defp v2_release_record(state, :primary, event, operation_id) do
+    case state.approval do
+      %{event: saved_event, operation_id: ^operation_id, request: request, facts: facts} = record ->
+        if saved_event == event and request == input_request(event, operation_id) and
+             facts == input_facts() and
+             Map.get(record, :release_state) in [
+               :pending,
+               :unknown,
+               :committed,
+               :committed_expired
+             ],
+           do: {:ok, record},
+           else: {:error, :identity}
+
+      _ ->
+        {:error, :identity}
+    end
+  end
+
+  defp v2_release_record(state, :reply, event, operation_id) do
+    case state.reply do
+      %{
+        event: saved_event,
+        operation_id: ^operation_id,
+        request: request,
+        facts: facts,
+        wait: wait
+      } = record ->
+        if saved_event == event and request == input_request(event, operation_id) and
+             facts == input_facts() and is_map(wait) and
+             Map.get(record, :release_state) in [
+               :pending,
+               :unknown,
+               :committed,
+               :committed_expired
+             ],
+           do: {:ok, record},
+           else: {:error, :identity}
+
+      _ ->
+        {:error, :identity}
+    end
+  end
+
+  defp v2_pending_matches?(record, pending) do
+    Map.get(record, :key) == Map.get(pending, :key) and
+      Map.get(record, :requirement) == Map.get(pending, :requirement)
+  end
+
+  defp v2_release_unknown(state, kind, operation_id, record, reason) do
+    poison =
+      {:v2_release, kind, operation_id, record.facts, record.request, Map.get(record, :wait),
+       reason}
+
+    {{:unknown, :unavailable}, %{state | poison: poison}}
+  end
+
+  defp valid_v2_release_evidence(profile, evidence)
+       when is_map(evidence) and not is_struct(evidence) do
+    if Map.get(evidence, :purpose) == :command and Map.get(evidence, :tenant) == profile.tenant and
+         is_map(Map.get(evidence, :evidence)) do
+      :ok
+    else
+      {:error, :purpose}
+    end
+  end
+
+  defp valid_v2_release_evidence(_, _), do: {:error, :purpose}
+
+  defp fixed_release_scope(profile, event) do
+    if event.conversation_id == profile.conversation_id, do: :ok, else: {:error, :scope}
+  end
+
+  defp release_source_id(profile, :primary), do: profile.source_id
+  defp release_source_id(profile, :reply), do: profile.reply_source_id
+  defp release_handle(state, :primary), do: state.handles.input
+  defp release_handle(state, :reply), do: state.handles.reply_input
+  defp release_mode(:primary), do: :release
+  defp release_mode(:reply), do: :reply_release
+
   defp advance_once(%{poison: {:ack, key, nonce, receipt}} = state),
     do: reconcile_ack(state, key, nonce, receipt)
 
   defp advance_once(%{poison: {:input, operation, _}} = state),
     do: reconcile_input(state, operation)
 
+  defp advance_once(%{poison: {:reply_input, operation}} = state),
+    do: reconcile_reply_input(state, operation)
+
   defp advance_once(%{poison: {:release, operation, _facts, _request, _}} = state),
     do: reconcile_release(state, operation)
+
+  defp advance_once(%{poison: {:v2_release, kind, operation, _, _, _, _}} = state),
+    do: reconcile_v2_release(state, kind, operation)
 
   defp advance_once(%{poison: {:association, operation, _}} = state),
     do: reconcile_association(state, operation)
@@ -643,6 +1373,18 @@ defmodule Elzoo.Wave4ChannelExample do
   defp advance_once(%{poison: poison} = state) when not is_nil(poison),
     do: {{:blocked, elem(poison, 0)}, state}
 
+  defp advance_once(%{approval: %{release_state: :committed_expired}} = state),
+    do: {{:pending, :expired}, state}
+
+  defp advance_once(%{approval: %{input_state: :committed_expired}} = state),
+    do: {{:pending, :expired}, state}
+
+  defp advance_once(%{reply: %{release_state: :committed_expired}} = state),
+    do: {{:pending, :expired}, state}
+
+  defp advance_once(%{reply: %{input_state: :committed_expired}} = state),
+    do: {{:pending, :expired}, state}
+
   defp advance_once(%{phase: :idle} = state), do: observe_input(state)
   defp advance_once(%{phase: :association} = state), do: associate(state)
   defp advance_once(%{phase: :create_run} = state), do: create_run(state)
@@ -651,6 +1393,10 @@ defmodule Elzoo.Wave4ChannelExample do
   defp advance_once(%{phase: :start_input} = state), do: start_input(state)
   defp advance_once(%{phase: :result} = state), do: observe_result(state)
   defp advance_once(%{phase: :answer} = state), do: append_answer(state)
+  defp advance_once(%{phase: :reply_observe} = state), do: observe_reply(state)
+  defp advance_once(%{phase: :reply_association} = state), do: associate_reply(state)
+  defp advance_once(%{phase: :reply_input} = state), do: submit_reply_input(state)
+  defp advance_once(%{phase: :reply_ack} = state), do: acknowledge_reply(state)
   defp advance_once(%{phase: :ack} = state), do: acknowledge(state)
   defp advance_once(state), do: {{:blocked, :invalid_phase}, state}
 
@@ -668,6 +1414,7 @@ defmodule Elzoo.Wave4ChannelExample do
                    recover_input(state, item),
                  {:ok, input, text, snapshot, conversation} <-
                    input_from_resource(state, event, resource_revision),
+                 {:ok, state} <- retire_previous_native(state),
                  {:ok, phase, current} <-
                    retained_phase(
                      state,
@@ -692,7 +1439,7 @@ defmodule Elzoo.Wave4ChannelExample do
                      snapshot,
                      conversation
                    ) do
-              {{:observed, input}, %{state | current: current, phase: phase}}
+              {{:observed, input}, %{state | current: current, phase: phase, approval: nil}}
             else
               _ ->
                 {{:unknown, :input_observation}, %{state | poison: {:input_observation, :unknown}}}
@@ -757,7 +1504,16 @@ defmodule Elzoo.Wave4ChannelExample do
     with true <- event.conversation_id == state.profile.conversation_id,
          {:ok, snapshot} <-
            CheckedCommand.resource(state.handles.input, scope, state.profile.conversation_id),
-         {:ok, view} <- Conversation.view(snapshot, scope),
+         {:ok, conversation_snapshot} <-
+           if(reply_profile?(state.profile),
+             do:
+               Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
+                 snapshot,
+                 state.profile.tenant
+               ),
+             else: {:ok, snapshot}
+           ),
+         {:ok, view} <- Conversation.view(conversation_snapshot, scope),
          %{message_id: id, role: "source", text: text} <-
            Enum.find(view.messages, &(&1.message_id == event.input_id)),
          true <- snapshot.revision >= revision do
@@ -1279,6 +2035,311 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
+  defp observe_reply(%{reply: reply, current: current} = state)
+       when is_map(reply) and is_map(current) do
+    with {:ok, pending} <-
+           Outbox.pending(state.command_store, checked_stream(state.profile.tenant), @outbox_limit),
+         true <- Enum.any?(pending, &(&1.idempotency_key == current.item.key)),
+         [candidate] <- Enum.filter(pending, &(&1.destination == @reply_destination)),
+         key when is_binary(key) <- candidate.idempotency_key,
+         {:ok, item} <- read_reply_item(state, key),
+         {:ok, notice_value} <- reply_notice(item, state.profile),
+         true <-
+           notice_value["operation_id"] == reply.operation_id and
+             notice_value["revision"] == reply.resource_revision,
+         {:completed, result} <-
+           CheckedCommand.result(
+             state.handles.reply_input,
+             result_scope(state.profile),
+             {state.profile.tenant, state.profile.actor, reply.operation_id}
+           ),
+         true <- result.revision == reply.resource_revision,
+         {:ok, ticket, response_revision} <- receipt_input(result.response),
+         true <- ticket == reply.ticket and response_revision == result.revision,
+         {:ok, snapshot} <-
+           CheckedCommand.resource(
+             state.handles.input,
+             resource_scope(state.profile),
+             state.profile.conversation_id
+           ),
+         {:ok, clean} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
+             snapshot,
+             state.profile.tenant
+           ),
+         {:ok, conversation} <- Conversation.view(clean, resource_scope(state.profile)),
+         true <-
+           Enum.any?(
+             conversation.messages,
+             &(&1.message_id == ticket and &1.text == reply.event.text)
+           ),
+         true <- has_run_association?(conversation.associations, current.input_id, current.run_id) do
+      reply = %{reply | item: item, text: reply.event.text}
+      {{:reply_observed, item.idempotency_key}, %{state | reply: reply, phase: :reply_association}}
+    else
+      _ -> {{:blocked, :reply_observation}, %{state | poison: {:reply_observation, :unavailable}}}
+    end
+  rescue
+    _ -> {{:blocked, :reply_observation}, %{state | poison: {:reply_observation, :unavailable}}}
+  catch
+    _, _ -> {{:blocked, :reply_observation}, %{state | poison: {:reply_observation, :unavailable}}}
+  end
+
+  defp observe_reply(state), do: {{:blocked, :reply_state}, state}
+
+  defp read_reply_item(state, key) do
+    with {:ok, {stream, sequence, 1}} <- Outbox.parse_id(key),
+         true <- stream == checked_stream(state.profile.tenant),
+         {:ok, item} when is_map(item) <-
+           DurableLog.Store.read(state.command_store, :read_ack, [key]),
+         canonical <- Outbox.new(stream, sequence, 1, @reply_destination, item.payload, item.nonce),
+         true <-
+           item.stream == stream and item.sequence == sequence and item.position == 1 and
+             item.destination == @reply_destination and item.idempotency_key == key and
+             item.nonce == canonical.nonce and item.digest == canonical.digest and
+             is_binary(item.nonce) and byte_size(item.nonce) == 16 and
+             item.state in [:pending, :acked] do
+      {:ok, item}
+    else
+      _ -> {:error, :unavailable}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
+  end
+
+  defp reply_notice(%{payload: payload, destination: destination}, profile) do
+    with {:ok, notice} <- Jason.decode(payload),
+         true <- destination == @reply_destination,
+         true <-
+           Map.keys(notice) |> Enum.sort() == [
+             "actor",
+             "operation_id",
+             "resource",
+             "revision",
+             "tenant",
+             "type",
+             "version"
+           ],
+         true <-
+           notice["type"] == "checked_command" and is_integer(notice["version"]) and
+             notice["version"] == 1,
+         true <- notice["tenant"] == profile.tenant and notice["actor"] == profile.actor,
+         true <- notice["resource"] == profile.conversation_id,
+         true <- is_binary(notice["operation_id"]) and byte_size(notice["operation_id"]) in 1..128,
+         true <- is_integer(notice["revision"]) and notice["revision"] > 0 do
+      {:ok, notice}
+    else
+      _ -> {:error, :notice}
+    end
+  rescue
+    _ -> {:error, :notice}
+  end
+
+  defp associate_reply(%{reply: reply, current: current} = state)
+       when is_map(reply) and is_map(current) and is_map(reply.item) do
+    request =
+      command_request(
+        state.profile,
+        reply.event.conversation_id,
+        reply.resource_revision,
+        reply.association_operation,
+        %{"message_id" => reply.ticket}
+      )
+
+    facts = reply_association_facts(current.run_id, current.item.key, reply.item.idempotency_key)
+
+    case execute_checked(state, :reply_association, reply.event, request, facts) do
+      {:completed, %{revision: revision, response: response}}
+      when revision == reply.resource_revision + 1 ->
+        if association_receipt?(response, reply.ticket, current.run_id) and
+             confirm_reply_association(state, reply, current) do
+          reply = %{reply | association_revision: revision}
+          {{:reply_associated, revision}, %{state | reply: reply, phase: :reply_input}}
+        else
+          {{:unknown, :reply_association}, %{state | poison: {:reply_association, :identity}}}
+        end
+
+      {:unknown, _} = result ->
+        {{:unknown, :reply_association},
+         %{state | poison: {:reply_association, reply.association_operation, result}}}
+
+      {:unavailable, _} ->
+        {{:error, :unavailable}, state}
+
+      _ ->
+        {{:blocked, :reply_association}, %{state | poison: {:reply_association, :conflict}}}
+    end
+  rescue
+    _ -> {{:unknown, :reply_association}, %{state | poison: {:reply_association, :exception}}}
+  catch
+    _, _ -> {{:unknown, :reply_association}, %{state | poison: {:reply_association, :exception}}}
+  end
+
+  defp associate_reply(state), do: {{:blocked, :reply_state}, state}
+
+  defp confirm_reply_association(state, reply, current) do
+    with {:ok, snapshot} <-
+           CheckedCommand.resource(
+             state.handles.input,
+             resource_scope(state.profile),
+             state.profile.conversation_id
+           ),
+         {:ok, clean} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
+             snapshot,
+             state.profile.tenant
+           ),
+         {:ok, conversation} <- Conversation.view(clean, resource_scope(state.profile)),
+         true <- has_run_association?(conversation.associations, current.input_id, current.run_id),
+         true <- has_run_association?(conversation.associations, reply.ticket, current.run_id) do
+      true
+    else
+      _ -> false
+    end
+  rescue
+    _ -> false
+  catch
+    _, _ -> false
+  end
+
+  defp has_run_association?(associations, message_id, run_id) do
+    Enum.any?(associations, fn association ->
+      association.input_message_id == message_id and association.run_id == run_id
+    end)
+  end
+
+  defp submit_reply_input(%{reply: reply, current: current, engine: engine} = state)
+       when is_map(reply) and is_map(current) and is_map(reply.item) and is_pid(engine) do
+    id =
+      stable_id("reply-native-input", [
+        current.run_id,
+        reply.item.idempotency_key,
+        reply.wait.occurrence
+      ])
+
+    input = %{
+      "type" => "input",
+      "version" => 2,
+      "kind" => "outside_event",
+      "action_id" => "reply",
+      "source_id" => state.profile.reply_source_id,
+      "correlation_id" => reply.ticket,
+      "event_id" => reply.item.idempotency_key,
+      "schema_id" => "message/v1",
+      "schema_version" => 1,
+      "payload" => %{"text" => reply.text}
+    }
+
+    context = %{
+      run_id: current.run_id,
+      attempt_id: attempt_id(current.run_id, state),
+      occurrence: reply.wait.occurrence,
+      actual: 0,
+      dispatch: "not_dispatched"
+    }
+
+    case reply_answer_preflight(state) do
+      :ok ->
+        case safe_native_input(engine, id, input, context) do
+          {:ok, {:ok, result}} when result in [:applied, :duplicate] ->
+            reply = Map.put(reply, :native_input_id, id)
+            {{:native_reply, result}, %{state | reply: reply, phase: :result}}
+
+          other ->
+            {{:unknown, :native_reply}, %{state | poison: {:reply_native_input, other}}}
+        end
+
+      {:error, reason} ->
+        {{:blocked, :reply_preflight}, %{state | poison: {:reply_preflight, reason}}}
+    end
+  rescue
+    _ -> {{:unknown, :native_reply}, %{state | poison: {:reply_native_input, :exception}}}
+  catch
+    _, _ -> {{:unknown, :native_reply}, %{state | poison: {:reply_native_input, :exception}}}
+  end
+
+  defp submit_reply_input(state), do: {{:blocked, :reply_state}, state}
+
+  defp reply_answer_preflight(%{reply: reply, current: current} = state)
+       when is_map(reply) and is_map(current) and is_map(reply.item) do
+    stream = checked_stream(state.profile.tenant)
+    primary_key = current.item.key
+    reply_key = reply.item.idempotency_key
+
+    with {:ok, head} <- Elzoo.DurableLog.Store.read(state.command_store, :head, [stream]),
+         true <- answer_projection_head?(head),
+         {:completed, %{revision: revision, response: response}} <-
+           CheckedCommand.result(
+             state.handles.reply_association,
+             result_scope(state.profile),
+             {state.profile.tenant, state.profile.actor, reply.association_operation}
+           ),
+         true <-
+           revision == reply.association_revision and
+             association_receipt?(response, reply.ticket, current.run_id),
+         {:ok, snapshot} <-
+           CheckedCommand.resource(
+             state.handles.input,
+             resource_scope(state.profile),
+             state.profile.conversation_id
+           ),
+         true <-
+           snapshot.revision == revision and
+             reply_metadata_matches?(snapshot, current.run_id, primary_key, reply_key),
+         {:ok, clean_snapshot} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
+             snapshot,
+             state.profile.tenant
+           ),
+         {:ok, conversation} <- Conversation.view(clean_snapshot, resource_scope(state.profile)),
+         true <- has_run_association?(conversation.associations, current.input_id, current.run_id),
+         true <- has_run_association?(conversation.associations, reply.ticket, current.run_id),
+         %{role: "source", text: text} <-
+           Enum.find(conversation.messages, &(&1.message_id == reply.ticket)),
+         true <- text == reply.text,
+         answer_request <-
+           command_request(
+             state.profile,
+             state.profile.conversation_id,
+             snapshot.revision,
+             current.answer_operation,
+             %{"message_id" => answer_id(current.input_id), "text" => String.duplicate("x", 71)}
+           ),
+         {:ok, writes, _} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_answer(
+             snapshot,
+             answer_request,
+             prepare_facts(state.profile, answer_facts(current.run_id, current.input_id, true))
+           ),
+         projected <- apply_writes(snapshot, writes),
+         true <- resource_snapshot_fits?(projected),
+         {:ok, after_head} <- Elzoo.DurableLog.Store.read(state.command_store, :head, [stream]),
+         true <- answer_projection_head?(after_head) and stable_projection_heads?(head, after_head) do
+      :ok
+    else
+      _ -> {:error, :capacity}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
+  end
+
+  defp reply_metadata_matches?(snapshot, run_id, primary_key, reply_key) do
+    expected =
+      {:record,
+       Enum.sort([
+         {"primary_key", {:text, primary_key}},
+         {"reply_key", {:text, reply_key}},
+         {"run_id", {:text, run_id}},
+         {"version", {:text, "1"}}
+       ])}
+
+    Map.get(snapshot.fields, "wave4_reply") == expected
+  end
+
   defp safe_native_input(engine, id, input, context) do
     {:ok, RunEngine.input(engine, id, input, context)}
   rescue
@@ -1315,8 +2376,12 @@ defmodule Elzoo.Wave4ChannelExample do
       {:ok, result} ->
         expected_operation = native_operation(c.run_id, state)
 
+        expected_action =
+          if reply_profile?(state.profile) and is_map(state.reply), do: "hash", else: "work"
+
         if result.run_id == c.run_id and result.operation_id == expected_operation and
-             result.attempt_id == attempt_id(c.run_id, state) and result.action_id == "work" and
+             result.attempt_id == attempt_id(c.run_id, state) and
+             result.action_id == expected_action and
              result.schema_id == "answer/v1" and result.schema_version == 1 and
              valid_answer_payload?(result.payload) do
           {{:result, :completed},
@@ -1329,8 +2394,16 @@ defmodule Elzoo.Wave4ChannelExample do
         if reply_profile?(state.profile) do
           case native_event_waits(state) do
             {:ok, %{waits: [wait]}}
-            when wait.status == :waiting and wait.source_id == state.profile.reply_source_id ->
-              {{:pending, :event_waiting}, %{state | native_wait: wait}}
+            when is_map(wait) ->
+              if valid_native_reply_wait?(state, c, wait) do
+                next_state = %{state | native_wait: wait}
+
+                if wait.status == :waiting,
+                  do: {{:pending, :event_waiting}, next_state},
+                  else: {{:pending, reason}, next_state}
+              else
+                {{:pending, reason}, state}
+              end
 
             _ ->
               {{:pending, reason}, state}
@@ -1356,14 +2429,30 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> {{:pending, :result_unavailable}, state}
   end
 
+  defp valid_native_reply_wait?(state, _current, wait) do
+    expected_ticket =
+      case state.reply do
+        %{wait: %{correlation_id: ticket}} when is_binary(ticket) -> ticket
+        _ -> nil
+      end
+
+    wait.status in [:waiting, :settled, :closed] and wait.action_id == "reply" and
+      wait.source_id == state.profile.reply_source_id and is_binary(wait.correlation_id) and
+      is_tuple(wait.occurrence) and
+      (is_nil(expected_ticket) or wait.correlation_id == expected_ticket)
+  rescue
+    _ -> false
+  end
+
   defp append_answer(state) do
     c = state.current
+    expected_revision = answer_expected_revision(state, c)
 
     request =
       command_request(
         state.profile,
         c.event.conversation_id,
-        c.resource_revision + 1,
+        expected_revision,
         c.answer_operation,
         %{"message_id" => answer_id(c.input_id), "text" => c.answer}
       )
@@ -1379,11 +2468,17 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp classify_answer(state, c, result) do
+    expected_revision = answer_expected_revision(state, c)
+
     case result do
       {:completed, %{revision: revision, response: response}}
-      when revision == c.resource_revision + 2 ->
+      when revision == expected_revision + 1 ->
         if answer_receipt?(response, c.input_id, c.run_id, answer_id(c.input_id)) do
-          {{:answered, revision}, %{state | phase: :ack}}
+          next_phase =
+            if reply_profile?(state.profile) and is_map(state.reply), do: :reply_ack, else: :ack
+
+          {{:answered, revision},
+           %{state | current: Map.put(c, :answer_revision, revision), phase: next_phase}}
         else
           {{:unknown, :answer_receipt}, %{state | poison: {:answer, :receipt}}}
         end
@@ -1404,6 +2499,46 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ ->
       {{:unknown, :answer}, %{state | poison: {:answer, c.answer_operation, :exception}}}
   end
+
+  defp answer_expected_revision(%{reply: %{association_revision: revision}}, _current)
+       when is_integer(revision),
+       do: revision
+
+  defp answer_expected_revision(_state, current), do: current.resource_revision + 1
+
+  defp acknowledge_reply(%{reply: %{item: item}, current: current} = state)
+       when is_map(item) and is_map(current) and not is_nil(current.answer) do
+    key = item.idempotency_key
+    nonce = item.nonce
+
+    case Outbox.ack(state.command_store, key, nonce) do
+      {:committed, _} ->
+        {{:reply_acknowledged, key}, %{state | phase: :ack}}
+
+      {:indeterminate, receipt} ->
+        request = Elzoo.DurableLog.Codec.ack_receipt(key, nonce)
+
+        if ack_evidence_matches?(receipt, request) and
+             match?({:committed, _}, DurableLog.confirm_ack(state.command_store, request)) do
+          {{:reply_acknowledged, key}, %{state | phase: :ack}}
+        else
+          {{:unknown, :reply_ack}, %{state | poison: {:reply_ack, key, nonce, receipt}}}
+        end
+
+      other ->
+        {{:unknown, :reply_ack}, %{state | poison: {:reply_ack, key, nonce, other}}}
+    end
+  rescue
+    _ ->
+      {{:unknown, :reply_ack},
+       %{state | poison: {:reply_ack, item.idempotency_key, item.nonce, :unknown}}}
+  catch
+    _, _ ->
+      {{:unknown, :reply_ack},
+       %{state | poison: {:reply_ack, item.idempotency_key, item.nonce, :unknown}}}
+  end
+
+  defp acknowledge_reply(state), do: {{:blocked, :reply_state}, state}
 
   defp acknowledge(state) do
     c = state.current
@@ -1479,6 +2614,48 @@ defmodule Elzoo.Wave4ChannelExample do
   defp finish_input(state) do
     c = state.current
 
+    if reply_profile?(state.profile) and is_map(state.reply) do
+      completed = %{c.input_id => %{run_id: c.run_id, outcome: :completed}}
+
+      pair = %{
+        run_id: c.run_id,
+        operation_id: c.operation_id,
+        input_id: c.input_id,
+        answer_operation: c.answer_operation,
+        answer_id: answer_id(c.input_id),
+        answer: c.answer,
+        answer_revision: c.answer_revision,
+        primary_key: c.item.key,
+        primary_nonce: c.item.nonce,
+        reply_operation: state.reply.operation_id,
+        reply_ticket: state.reply.ticket,
+        reply_key: state.reply.item.idempotency_key,
+        reply_nonce: state.reply.item.nonce
+      }
+
+      latest_native = %{
+        run_id: c.run_id,
+        engine: state.engine,
+        wait: state.native_wait,
+        unit_id: unit_id(c.run_id, state)
+      }
+
+      {{:acknowledged, c.input_id},
+       %{
+         state
+         | current: nil,
+           phase: :idle,
+           completed: completed,
+           completed_pair: pair,
+           latest_native: latest_native,
+           poison: nil
+       }}
+    else
+      finish_input_fenced(state, c)
+    end
+  end
+
+  defp finish_input_fenced(state, c) do
     case fence_native(state) do
       :ok ->
         completed =
@@ -1513,7 +2690,12 @@ defmodule Elzoo.Wave4ChannelExample do
         case state.approval do
           %{event: event, operation_id: ^operation}
           when revision == event.expected_revision + 1 ->
-            {{:reconciled, :input}, %{state | poison: nil, approval: nil}}
+            if reply_profile?(state.profile) and not primary_deadline_live?(state) do
+              approval = Map.put(state.approval, :input_state, :committed_expired)
+              {{:reconciled, :input}, %{state | poison: nil, approval: approval}}
+            else
+              {{:reconciled, :input}, %{state | poison: nil, approval: nil}}
+            end
 
           _ ->
             {{:unknown, :input}, state}
@@ -1522,12 +2704,26 @@ defmodule Elzoo.Wave4ChannelExample do
       {:approval_pending, pending} ->
         case state.approval do
           %{event: event, operation_id: ^operation} ->
-            approval = %{
-              event: event,
-              operation_id: operation,
-              key: pending.key,
-              requirement: pending.requirement
-            }
+            approval =
+              if reply_profile?(state.profile) do
+                state.approval
+                |> Map.merge(%{
+                  event: event,
+                  operation_id: operation,
+                  key: pending.key,
+                  requirement: pending.requirement,
+                  request: Map.get(state.approval, :request, input_request(event, operation)),
+                  facts: Map.get(state.approval, :facts, input_facts()),
+                  release_state: :pending
+                })
+              else
+                %{
+                  event: event,
+                  operation_id: operation,
+                  key: pending.key,
+                  requirement: pending.requirement
+                }
+              end
 
             {{:reconciled, :approval_pending}, %{state | poison: nil, approval: approval}}
 
@@ -1595,6 +2791,125 @@ defmodule Elzoo.Wave4ChannelExample do
   rescue
     _ -> {{:unknown, :release}, state}
   end
+
+  defp reconcile_reply_input(state, operation) do
+    case state.reply do
+      %{event: event, operation_id: ^operation, request: _request, wait: _wait} = reply ->
+        case CheckedCommand.result(
+               state.handles.reply_input,
+               result_scope(state.profile),
+               {state.profile.tenant, state.profile.actor, operation}
+             ) do
+          {:completed, %{revision: revision, response: response}}
+          when revision == event.expected_revision + 1 ->
+            with {:ok, ticket, ^revision} <- receipt_input(response),
+                 true <- ticket == event.input_id do
+              live? = reply_release_live?(state, event, reply)
+              input_state = if live?, do: :committed, else: :committed_expired
+              release_state = if live?, do: nil, else: :input_committed
+
+              reply =
+                Map.merge(reply, %{
+                  ticket: ticket,
+                  resource_revision: revision,
+                  item: nil,
+                  text: nil,
+                  association_operation: association_operation(operation, ticket, state.profile),
+                  association_revision: nil,
+                  pending: nil,
+                  release_state: release_state,
+                  input_state: input_state
+                })
+
+              phase = if live?, do: :reply_observe, else: state.phase
+              result = if live?, do: :reply_input, else: :reply_input_expired
+              {{:reconciled, result}, %{state | poison: nil, reply: reply, phase: phase}}
+            else
+              _ -> {{:unknown, :reply_input}, state}
+            end
+
+          {:approval_pending, pending} ->
+            if is_nil(Map.get(reply, :pending)) or v2_pending_matches?(reply, pending) do
+              reply =
+                Map.merge(reply, %{
+                  pending: pending,
+                  key: pending.key,
+                  requirement: pending.requirement,
+                  release_state: :pending
+                })
+
+              {{:reconciled, :approval_pending}, %{state | poison: nil, reply: reply}}
+            else
+              {{:unknown, :reply_input}, state}
+            end
+
+          _ ->
+            {{:unknown, :reply_input}, state}
+        end
+
+      _ ->
+        {{:unknown, :reply_input}, state}
+    end
+  rescue
+    _ -> {{:unknown, :reply_input}, state}
+  catch
+    _, _ -> {{:unknown, :reply_input}, state}
+  end
+
+  defp reconcile_v2_release(state, kind, operation) do
+    record = if kind == :primary, do: state.approval, else: state.reply
+
+    if is_map(record) and Map.get(record, :operation_id) == operation do
+      handle = release_handle(state, kind)
+
+      case CheckedCommand.result(
+             handle,
+             result_scope(state.profile),
+             {state.profile.tenant, state.profile.actor, operation}
+           ) do
+        {:completed, %{revision: revision, response: response}}
+        when revision == record.event.expected_revision + 1 ->
+          case record_v2_release_completion(
+                 state,
+                 kind,
+                 record.event,
+                 operation,
+                 record,
+                 revision,
+                 response
+               ) do
+            {:ok, state} -> {{:reconciled, :release}, %{state | poison: nil}}
+            :error -> {{:unknown, :release}, state}
+          end
+
+        {:approval_pending, pending} ->
+          if v2_pending_matches?(record, pending) do
+            record = Map.merge(record, %{release_state: :pending, pending: pending})
+            state = put_v2_release_record(%{state | poison: nil}, kind, record)
+            {{:reconciled, :approval_pending}, state}
+          else
+            {{:unknown, :release}, state}
+          end
+
+        {:conflict, :stale_revision} ->
+          record = Map.put(record, :release_state, :conflict)
+          state = put_v2_release_record(%{state | poison: nil}, kind, record)
+          {{:reconciled, :release_conflict}, state}
+
+        _ ->
+          {{:unknown, :release}, state}
+      end
+    else
+      {{:unknown, :release}, state}
+    end
+  rescue
+    _ -> {{:unknown, :release}, state}
+  catch
+    _, _ -> {{:unknown, :release}, state}
+  end
+
+  defp put_v2_release_record(state, :primary, record), do: %{state | approval: record}
+  defp put_v2_release_record(state, :reply, record), do: %{state | reply: record}
 
   defp reconcile_association(state, operation) do
     c = state.current
@@ -1701,7 +3016,12 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp command_context(state, mode, event, request, facts) do
-    handle = if mode == :release, do: state.handles.input, else: state.handles[mode]
+    handle =
+      case mode do
+        :release -> state.handles.input
+        :reply_release -> state.handles.reply_input
+        _ -> state.handles[mode]
+      end
 
     with {:ok, snapshot} <-
            CheckedCommand.resource(
@@ -1721,7 +3041,35 @@ defmodule Elzoo.Wave4ChannelExample do
                 prepared_facts
               )
 
+            :reply_input ->
+              Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
+                snapshot,
+                request,
+                prepared_facts
+              )
+
+            :release ->
+              Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
+                snapshot,
+                request,
+                prepared_facts
+              )
+
+            :reply_release ->
+              Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
+                snapshot,
+                request,
+                prepared_facts
+              )
+
             :association ->
+              Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_association(
+                snapshot,
+                request,
+                prepared_facts
+              )
+
+            :reply_association ->
               Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_association(
                 snapshot,
                 request,
@@ -1823,8 +3171,9 @@ defmodule Elzoo.Wave4ChannelExample do
       not reply_profile?(profile) ->
         {:ok, nil}
 
-      not is_nil(state.native_wait) ->
-        native_event_waits_for_live_reader(state, metadata_present?)
+      match?({:ok, _}, native_reader(state)) and metadata_present? ->
+        {:ok, reader} = native_reader(state)
+        native_event_waits_for_live_reader(state, reader)
 
       known_pre_native?(state) and
           (not metadata_present? or pre_native_metadata_matches?(snapshot, state.current)) ->
@@ -1839,24 +3188,43 @@ defmodule Elzoo.Wave4ChannelExample do
     :exit, _ -> {:error, :unavailable}
   end
 
-  defp native_event_waits_for_live_reader(
-         %{current: %{run_id: run_id}, engine: engine, native_wait: native_wait} = state,
-         true
-       )
-       when is_pid(engine) do
+  defp native_reader(%{current: %{run_id: run_id}, engine: engine} = state) when is_pid(engine),
+    do: {:ok, %{run_id: run_id, engine: engine, wait: state.native_wait}}
+
+  defp native_reader(%{latest_native: %{run_id: run_id, engine: engine, wait: wait}})
+       when is_pid(engine),
+       do: {:ok, %{run_id: run_id, engine: engine, wait: wait}}
+
+  defp native_reader(_), do: :unavailable
+
+  defp native_event_waits_for_live_reader(state, %{run_id: run_id, engine: engine, wait: known_wait}) do
     if Process.alive?(engine) and is_nil(state.poison) do
       scope = %{tenant: state.profile.tenant, principal: state.profile.actor, run_id: run_id}
 
       case RunEngine.event_waits(engine, scope, @result_limits) do
-        {:ok, %{waits: [wait]} = waits}
-        when wait.status == :waiting and wait.correlation_id == native_wait.correlation_id and
-               wait.source_id == state.profile.reply_source_id ->
-          {:ok,
-           Map.update!(waits, :waits, fn entries ->
-             Enum.map(entries, fn item ->
-               Map.update!(item, :occurrence, &Tuple.to_list/1)
-             end)
-           end)}
+        {:ok, %{waits: waits} = result} when is_list(waits) ->
+          ticket = if is_map(known_wait), do: known_wait.correlation_id, else: nil
+
+          valid? =
+            Enum.all?(waits, fn wait ->
+              wait.status in [:waiting, :settled, :closed] and
+                wait.action_id == "reply" and
+                wait.source_id == state.profile.reply_source_id and
+                (is_nil(ticket) or wait.correlation_id == ticket) and
+                is_tuple(wait.occurrence)
+            end)
+
+          if valid? do
+            {:ok,
+             Map.update!(result, :waits, fn entries ->
+               Enum.map(
+                 entries,
+                 &Map.update!(&1, :occurrence, fn occurrence -> Tuple.to_list(occurrence) end)
+               )
+             end)}
+          else
+            {:error, :unavailable}
+          end
 
         _ ->
           {:error, :unavailable}
@@ -1864,22 +3232,32 @@ defmodule Elzoo.Wave4ChannelExample do
     else
       {:error, :unavailable}
     end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
   end
-
-  defp native_event_waits_for_live_reader(_, _), do: {:error, :unavailable}
-
-  defp known_pre_native?(%{engine: nil, native_wait: nil, poison: nil, current: nil, phase: phase}),
-    do: phase in [:idle, :observe, :associate, :create_run, :begin_attempt, :start_engine]
 
   defp known_pre_native?(%{
          engine: nil,
          native_wait: nil,
+         latest_native: nil,
+         poison: nil,
+         current: nil,
+         phase: phase
+       }),
+       do: phase in [:idle, :observe, :association, :create_run, :begin_attempt, :start_engine]
+
+  defp known_pre_native?(%{
+         engine: nil,
+         native_wait: nil,
+         latest_native: nil,
          poison: nil,
          current: current,
          phase: phase
        })
        when is_map(current),
-       do: phase in [:associate, :create_run, :begin_attempt, :start_engine]
+       do: phase in [:association, :create_run, :begin_attempt, :start_engine]
 
   defp known_pre_native?(_), do: false
 
@@ -1908,7 +3286,13 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp run_summaries(state, associations) do
-    Enum.reduce_while(associations, {:ok, []}, fn association, {:ok, acc} ->
+    associations =
+      if reply_profile?(state.profile),
+        do: Enum.uniq_by(associations, & &1.run_id),
+        else: associations
+
+    associations
+    |> Enum.reduce_while({:ok, []}, fn association, {:ok, acc} ->
       run_id = association.run_id
 
       case RunApprovalRelease.status(state.native.run_owner, run_id) do
@@ -2183,14 +3567,21 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> {:error, :exit}
   end
 
-  defp stop_native_unit(%{current: current, native: %{directory: directory}} = state)
-       when not is_nil(current) do
-    if Process.alive?(directory),
-      do: DynamicUnits.stop(directory, unit_id(current.run_id, state)),
-      else: {:error, :directory_unavailable}
+  defp stop_native_unit(%{native: %{directory: directory}} = state) do
+    case native_run_id(state) do
+      nil ->
+        :ok
+
+      run_id ->
+        if Process.alive?(directory),
+          do: DynamicUnits.stop(directory, unit_id(run_id, state)),
+          else: {:error, :directory_unavailable}
+    end
   end
 
-  defp stop_native_unit(_state), do: :ok
+  defp native_run_id(%{current: %{run_id: run_id}}), do: run_id
+  defp native_run_id(%{latest_native: %{run_id: run_id}}), do: run_id
+  defp native_run_id(_), do: nil
 
   defp demonitor_native(state) do
     Enum.each([state.engine_ref, state.async_work_ref, state.writer_ref], fn
@@ -2257,7 +3648,14 @@ defmodule Elzoo.Wave4ChannelExample do
       else: :ok
   end
 
-  defp no_live_native_unit(%{current: %{run_id: run_id}} = state) do
+  defp no_live_native_unit(state) do
+    case native_run_id(state) do
+      nil -> :ok
+      run_id -> no_live_native_unit(state, run_id)
+    end
+  end
+
+  defp no_live_native_unit(state, run_id) do
     id = unit_id(run_id, state)
 
     with :ok <- no_live_native_registrations(state, id) do
@@ -2281,8 +3679,6 @@ defmodule Elzoo.Wave4ChannelExample do
       end
     end
   end
-
-  defp no_live_native_unit(_), do: :ok
 
   defp no_live_native_registrations(state, id) do
     case {native_registration_status(state.native.registry, id),
@@ -2372,6 +3768,15 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp before_deadline?(state), do: state.clock.() < state.profile.deadline_ms
 
+  defp primary_deadline_live?(state) do
+    now = state.clock.()
+    is_integer(now) and now < state.profile.deadline_ms
+  rescue
+    _ -> false
+  catch
+    _, _ -> false
+  end
+
   defp pending_input?(state) do
     case Outbox.pending(state.command_store, checked_stream(state.profile.tenant), @outbox_limit) do
       {:ok, items} -> {:ok, Enum.any?(items, &(&1.destination == @destination))}
@@ -2384,7 +3789,141 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp unfinished?(state),
-    do: not is_nil(state.current) or not is_nil(state.approval) or state.phase != :idle
+    do:
+      not is_nil(state.current) or not is_nil(state.approval) or not is_nil(state.latest_native) or
+        state.phase != :idle
+
+  defp fresh_primary_ready?(state) do
+    cond do
+      not is_nil(state.current) or not is_nil(state.approval) or state.phase != :idle ->
+        {:error, :busy}
+
+      reply_profile?(state.profile) and is_map(state.latest_native) ->
+        completed_pair_proven?(state)
+
+      reply_profile?(state.profile) and is_nil(state.completed_pair) and is_nil(state.reply) ->
+        :ok
+
+      reply_profile?(state.profile) ->
+        {:error, :unknown}
+
+      unfinished?(state) ->
+        {:error, :busy}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp completed_pair_proven?(%{completed_pair: pair, latest_native: reader} = state)
+       when is_map(pair) and is_map(reader) do
+    with true <- reader.run_id == pair.run_id and reader.unit_id == unit_id(pair.run_id, state),
+         engine when is_pid(engine) <- reader.engine,
+         true <- Process.alive?(engine),
+         scope <- %{
+           tenant: state.profile.tenant,
+           principal: state.profile.actor,
+           run_id: pair.run_id
+         },
+         {:ok, result} <- RunEngine.result(engine, scope, @result_limits),
+         true <-
+           result.run_id == pair.run_id and
+             result.operation_id == native_operation(pair.run_id, state) and
+             result.attempt_id == attempt_id(pair.run_id, state) and result.action_id == "hash" and
+             result.schema_id == "answer/v1" and result.schema_version == 1 and
+             valid_answer_payload?(result.payload) and result.payload["answer"] == pair.answer,
+         {:completed, %{revision: answer_revision, response: answer_response}} <-
+           CheckedCommand.result(
+             state.handles.answer,
+             result_scope(state.profile),
+             {state.profile.tenant, state.profile.actor, pair.answer_operation}
+           ),
+         true <-
+           answer_revision == pair.answer_revision and
+             answer_receipt?(answer_response, pair.input_id, pair.run_id, pair.answer_id),
+         {:ok, snapshot} <-
+           CheckedCommand.resource(
+             state.handles.input,
+             resource_scope(state.profile),
+             state.profile.conversation_id
+           ),
+         true <- snapshot.revision >= answer_revision and completed_pair_metadata?(snapshot, pair),
+         {:ok, clean_snapshot} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
+             snapshot,
+             state.profile.tenant
+           ),
+         {:ok, conversation} <- Conversation.view(clean_snapshot, resource_scope(state.profile)),
+         %{role: "assistant", text: answer} <-
+           Enum.find(conversation.messages, &(&1.message_id == pair.answer_id)),
+         true <-
+           answer == pair.answer and
+             has_run_association?(conversation.associations, pair.input_id, pair.run_id) and
+             has_run_association?(conversation.associations, pair.reply_ticket, pair.run_id),
+         :ok <-
+           acknowledged_outbox_item(state, pair.reply_key, pair.reply_nonce, @reply_destination),
+         :ok <- acknowledged_outbox_item(state, pair.primary_key, pair.primary_nonce, @destination) do
+      :ok
+    else
+      _ -> {:error, :unknown}
+    end
+  rescue
+    _ -> {:error, :unknown}
+  catch
+    _, _ -> {:error, :unknown}
+  end
+
+  defp completed_pair_proven?(_), do: {:error, :unknown}
+
+  defp completed_pair_metadata?(snapshot, pair) do
+    expected =
+      {:record,
+       Enum.sort([
+         {"primary_key", {:text, pair.primary_key}},
+         {"reply_key", {:text, pair.reply_key}},
+         {"run_id", {:text, pair.run_id}},
+         {"version", {:text, "1"}}
+       ])}
+
+    Map.get(snapshot.fields, "wave4_reply") == expected
+  end
+
+  defp acknowledged_outbox_item(state, key, nonce, destination) do
+    with {:ok, {stream, sequence, position}} <- Outbox.parse_id(key),
+         true <- position == 1,
+         true <- stream == checked_stream(state.profile.tenant),
+         {:ok, item} when is_map(item) <-
+           Elzoo.DurableLog.Store.read(state.command_store, :read_ack, [key]),
+         canonical <- Outbox.new(stream, sequence, position, destination, item.payload, item.nonce),
+         true <-
+           item.stream == stream and item.sequence == sequence and item.position == position and
+             item.destination == destination and item.idempotency_key == key and
+             item.nonce == nonce and item.digest == canonical.digest and item.state == :acked do
+      :ok
+    else
+      _ -> {:error, :ack}
+    end
+  rescue
+    _ -> {:error, :ack}
+  catch
+    _, _ -> {:error, :ack}
+  end
+
+  defp retire_previous_native(%{latest_native: nil} = state), do: {:ok, state}
+
+  defp retire_previous_native(state) do
+    with :ok <- completed_pair_proven?(state),
+         :ok <- fence_native(state) do
+      state = clear_native_children(state)
+      {:ok, %{state | latest_native: nil, native_wait: nil, reply: nil}}
+    else
+      _ -> {:error, :previous_native}
+    end
+  rescue
+    _ -> {:error, :previous_native}
+  catch
+    _, _ -> {:error, :previous_native}
+  end
 
   defp input_request(event, operation_id),
     do:
@@ -2711,6 +4250,11 @@ defmodule Elzoo.Wave4ChannelExample do
 
     def step(%{stage: :hash} = state, input) do
       case input do
+        %{"kind" => "outside_event", "action_id" => "reply", "payload" => %{"text" => text}}
+        when is_binary(text) ->
+          {:Transition, %{state | stage: :finish},
+           {:some, request([action("hash", "local_work", "work/v1", %{"text" => text})])}}
+
         %{"action_id" => "reply", "outcome" => "completed", "payload" => %{"text" => text}}
         when is_binary(text) and not is_map_key(input, "kind") ->
           {:Transition, %{state | stage: :finish},
@@ -3339,7 +4883,9 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
              "type",
              "version"
            ],
-         true <- notice["type"] == "checked_command" and notice["version"] == 1,
+         true <-
+           notice["type"] == "checked_command" and is_integer(notice["version"]) and
+             notice["version"] == 1,
          true <- notice["tenant"] == profile.tenant and notice["actor"] == profile.actor,
          true <- notice["resource"] == profile.conversation_id,
          true <- bounded_id?(notice["operation_id"]),
@@ -3672,10 +5218,25 @@ defmodule Elzoo.Wave4ChannelExample.CommandBindings do
     end
   end
 
-  defp reply_metadata(snapshot, run_id, primary_key, nil, _tenant) do
-    if not Map.has_key?(snapshot.fields, @reply_metadata_field),
-      do: {:ok, metadata_record(run_id, primary_key, nil)},
-      else: {:error, :metadata}
+  defp reply_metadata(snapshot, run_id, primary_key, nil, tenant) do
+    case Map.fetch(snapshot.fields, @reply_metadata_field) do
+      :error ->
+        {:ok, metadata_record(run_id, primary_key, nil)}
+
+      {:ok, {:record, fields} = metadata} ->
+        previous_run = field_value(fields, "run_id")
+        previous_reply = field_value(fields, "reply_key")
+
+        if valid_metadata?(metadata, tenant) and match?({:text, _}, previous_reply) and
+             previous_run != {:text, run_id} do
+          {:ok, metadata_record(run_id, primary_key, nil)}
+        else
+          {:error, :metadata}
+        end
+
+      _ ->
+        {:error, :metadata}
+    end
   end
 
   defp reply_metadata(snapshot, run_id, primary_key, reply_key, tenant) do
