@@ -311,6 +311,24 @@ defmodule Elzoo.RunEngine.TestHelper do
   def fixture(overrides \\ []) do
     {effect_bindings, overrides} = Keyword.pop(overrides, :effect_bindings, %{})
     {unit_store, overrides} = Keyword.pop(overrides, :unit_store)
+    protocol_version_set? = Keyword.has_key?(overrides, :protocol_version)
+    {protocol_version, overrides} = Keyword.pop(overrides, :protocol_version, 1)
+    event_source_set? = Keyword.has_key?(overrides, :event_source)
+    {event_source, overrides} = Keyword.pop(overrides, :event_source)
+
+    event_source =
+      if not event_source_set? and protocol_version == 2 do
+        %{
+          id: "events",
+          version: 1,
+          head: fn _ -> {:ok, %{revision: 0, low_water: 0}} end,
+          read: fn _, _ -> {:error, :not_found} end
+        }
+      else
+        event_source
+      end
+
+    unit_version = if protocol_version == 2, do: 2, else: 1
     prefix = "engine_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
 
     Ecto.Adapters.SQL.query!(TestRepo, "CREATE SCHEMA #{Postgres.identifier(prefix)}", [],
@@ -338,7 +356,8 @@ defmodule Elzoo.RunEngine.TestHelper do
       )
 
     unit_opts = [
-      operator: {RunEngine, :step, %{version: 1, control: nil, slots: %{}, requests: %{}}},
+      operator:
+        {RunEngine, :step, %{version: unit_version, control: nil, slots: %{}, requests: %{}}},
       retention_count: 1_024,
       max_record_bytes: 16_777_216,
       max_checkpoint_bytes: 33_554_432,
@@ -583,6 +602,11 @@ defmodule Elzoo.RunEngine.TestHelper do
       "model_call" => %{base | effect_class: "publish"}
     }
 
+    bindings =
+      if protocol_version == 2,
+        do: Map.put(bindings, "wait_event", computation),
+        else: bindings
+
     opts = [
       name: name,
       identity: prefix,
@@ -608,7 +632,20 @@ defmodule Elzoo.RunEngine.TestHelper do
       evidence: %{writer: evidence, stream: "evidence"}
     ]
 
-    opts = Keyword.merge(opts, overrides)
+    version_opts =
+      if protocol_version_set? or protocol_version == 2,
+        do: [protocol_version: protocol_version],
+        else: []
+
+    source_opts =
+      if event_source_set? or protocol_version == 2, do: [event_source: event_source], else: []
+
+    reader_opts =
+      if protocol_version == 2,
+        do: [result_reader: %{evidence_store: evidence_store, retention_count: 1_024}],
+        else: []
+
+    opts = Keyword.merge(opts, version_opts ++ source_opts ++ reader_opts ++ overrides)
 
     c = %{
       opts: opts,
@@ -708,6 +745,7 @@ defmodule Elzoo.RunEngine.TestHelper do
   end
 
   def request(actions), do: %{"type" => "request", "version" => 1, "actions" => actions}
+  def request_v2(actions), do: %{"type" => "request", "version" => 2, "actions" => actions}
 
   def start_input,
     do: %{
@@ -718,6 +756,8 @@ defmodule Elzoo.RunEngine.TestHelper do
       "schema_version" => 1,
       "payload" => %{}
     }
+
+  def start_input_v2, do: Map.put(start_input(), "version", 2)
 
   def wake, do: %{"type" => "input", "version" => 1, "kind" => "wake"}
 
