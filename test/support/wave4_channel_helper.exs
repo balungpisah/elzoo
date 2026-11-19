@@ -208,19 +208,10 @@ defmodule Elzoo.Wave4ChannelTestHelper do
 
     policy = Keyword.get(options, :policy, fn _mode, _event, _now -> policy() end)
 
+    default_authority? = not Keyword.has_key?(options, :authority)
+
     authority =
-      Keyword.get(options, :authority, fn mode, _event, request, facts ->
-        cond do
-          reply_profile? and mode in [:release, :reply_release] ->
-            reply_release_authority(profile, handles, now, mode, request, facts)
-
-          mode == :release ->
-            %{approver: %{identity: "reviewer", authority: []}, now: now.(), revoked: false}
-
-          true ->
-            %{}
-        end
-      end)
+      Keyword.get(options, :authority, default_authority(profile, handles, now, reply_profile?))
 
     host_options = [
       profile: profile,
@@ -251,6 +242,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       native: native,
       host: host,
       host_options: host_options,
+      default_authority?: default_authority?,
       gates: gates,
       run_store: run_store,
       unit_supervisor: unit_supervisor,
@@ -398,14 +390,24 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     if listener, do: stop_listener!(listener)
 
     host_state = :sys.get_state(fixture.host)
-    native_pids = [host_state.engine, host_state.async_work, host_state.writer]
+    latest_reader = Map.get(host_state, :latest_native) || %{}
+
+    native_pids =
+      Enum.uniq([
+        host_state.engine,
+        host_state.async_work,
+        host_state.writer,
+        latest_reader[:engine]
+      ])
+
+    native_run_id = (host_state.current && host_state.current.run_id) || latest_reader[:run_id]
 
     :ok = GenServer.stop(fixture.host, :normal, 5_000)
     true = not Process.alive?(fixture.host)
     true = Enum.all?(native_pids, &(not (is_pid(&1) and Process.alive?(&1))))
 
-    if host_state.current do
-      unit_id = unit_id(host_state.current.run_id)
+    if native_run_id do
+      unit_id = unit_id(native_run_id)
       :ok = await_native_cleanup!(fixture, unit_id, System.monotonic_time(:millisecond) + 5_000)
     end
 
@@ -466,7 +468,14 @@ defmodule Elzoo.Wave4ChannelTestHelper do
         id: directory_id
       )
 
-    {:ok, handles} = Elzoo.Wave4ChannelExample.CommandBindings.build(command_store, fixture.gates)
+    handles_result =
+      if is_binary(Map.get(fixture.profile, :reply_source_id)) do
+        Elzoo.Wave4ChannelExample.CommandBindings.build_reply(command_store, fixture.gates)
+      else
+        Elzoo.Wave4ChannelExample.CommandBindings.build(command_store, fixture.gates)
+      end
+
+    {:ok, handles} = handles_result
 
     native = %{
       fixture.native
@@ -498,11 +507,25 @@ defmodule Elzoo.Wave4ChannelTestHelper do
         evidence_store: evidence_store
     }
 
+    authority =
+      if fixture.default_authority? and
+           host_state.authority == Keyword.get(fixture.host_options, :authority) do
+        default_authority(
+          fixture.profile,
+          handles,
+          fixture.clock,
+          is_binary(Map.get(fixture.profile, :reply_source_id))
+        )
+      else
+        host_state.authority
+      end
+
     host_options =
       Keyword.merge(fixture.host_options,
         command_store: command_store,
         handles: handles,
-        native: native
+        native: native,
+        authority: authority
       )
 
     fixture = %{fixture | host_options: host_options}
@@ -661,6 +684,21 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       %{approver: %{identity: "reviewer", authority: writes}, now: now.(), revoked: []}
     else
       _ -> %{}
+    end
+  end
+
+  defp default_authority(profile, handles, now, reply_profile?) do
+    fn mode, _event, request, facts ->
+      cond do
+        reply_profile? and mode in [:release, :reply_release] ->
+          reply_release_authority(profile, handles, now, mode, request, facts)
+
+        mode == :release ->
+          %{approver: %{identity: "reviewer", authority: []}, now: now.(), revoked: false}
+
+        true ->
+          %{}
+      end
     end
   end
 
