@@ -1706,7 +1706,10 @@ defmodule Elzoo.RunEngine do
 
   def handle_call({:input, id, input, context}, _, s) do
     {reply, s} = ingest(s, id, input, context)
-    {:reply, reply, s}
+
+    if Map.get(s, :fence_after_reply),
+      do: {:stop, :normal, reply, Map.delete(s, :fence_after_reply)},
+      else: {:reply, reply, s}
   end
 
   def handle_call({:control, id, command, context}, _, s) do
@@ -1725,8 +1728,10 @@ defmodule Elzoo.RunEngine do
       ) do
     try do
       case find_input_fenced(s, id) do
-        {:ok, ^record} ->
-          commit_and_drain_input(s, id, record)
+        {:ok, ^record, pairing} ->
+          if record.input["kind"] == "outside_event" and pairing in [:paired, :unpaired],
+            do: {:noreply, s},
+            else: commit_and_drain_input(s, id, record)
 
         :absent ->
           if local_work_protocol_record?(id, record),
@@ -1839,6 +1844,25 @@ defmodule Elzoo.RunEngine do
 
   defp local_work_protocol_record?(_, _), do: false
 
+  defp ingest(%{halted: reason, opts: %{protocol_version: 2}} = s, id, neutral, context)
+       when not is_nil(reason) do
+    with true <- text?(id, 160) and is_map(neutral) and is_map(context),
+         true <- text?(context[:run_id], 200) and text?(context[:attempt_id], 200),
+         false <- Map.has_key?(neutral, "at_ms"),
+         "outside_event" <- neutral["kind"],
+         :ok <- outside_context(context) do
+      case recorded_outside_event(s, id, neutral, context) do
+        {:ok, _, :paired} -> {{:ok, :unchanged}, s}
+        {:ok, _, :unpaired} -> fence_unpaired(s, reason)
+        :absent -> {{:error, reason}, s}
+        {:error, lookup_reason} -> {{:error, lookup_reason}, s}
+      end
+    else
+      {:error, validation_reason} -> {{:error, validation_reason}, s}
+      _ -> {{:error, reason}, s}
+    end
+  end
+
   defp ingest(%{halted: reason} = s, _, _, _) when not is_nil(reason), do: {{:error, reason}, s}
 
   defp ingest(s, id, neutral, context) do
@@ -1864,7 +1888,8 @@ defmodule Elzoo.RunEngine do
   defp ingest_outside_event(s, id, neutral, context) do
     with :ok <- outside_context(context) do
       case recorded_outside_event(s, id, neutral, context) do
-        {:ok, record} -> replay_outside_event(s, id, record)
+        {:ok, _record, :paired} -> {{:ok, :unchanged}, s}
+        {:ok, _record, :unpaired} -> fence_unpaired(s)
         :absent -> fresh_outside_event(s, id, neutral, context)
         {:error, reason} -> {{:error, reason}, s}
       end
@@ -1882,6 +1907,45 @@ defmodule Elzoo.RunEngine do
        else: {:error, :invalid_correlation}
   end
 
+  defp fence_unpaired(s, reply_reason \\ :delivery_unknown) do
+    unit_stop =
+      try do
+        DynamicUnits.stop(s.opts.directory, s.opts.identity)
+      rescue
+        _ -> {:error, :unavailable}
+      catch
+        _, _ -> {:error, :unavailable}
+      end
+
+    work_stop =
+      try do
+        case GenServer.whereis(s.opts.async_work) do
+          pid when is_pid(pid) -> GenServer.stop(pid, :normal, @call_limit)
+          _ -> {:error, :unavailable}
+        end
+      rescue
+        _ -> {:error, :unavailable}
+      catch
+        _, _ -> {:error, :unavailable}
+      end
+
+    if unit_stop == :ok and work_stop == :ok do
+      s = %{
+        s
+        | unit: nil,
+          halted: reply_reason,
+          state: nil,
+          decoded: %{},
+          work: %{},
+          intents: %{}
+      }
+
+      {{:error, reply_reason}, Map.put(s, :fence_after_reply, true)}
+    else
+      {{:error, :stop_unknown}, %{s | halted: :stop_unknown, state: nil, decoded: %{}}}
+    end
+  end
+
   defp recorded_outside_event(s, id, neutral, context) do
     case find_input_fenced(s, id) do
       :absent ->
@@ -1889,46 +1953,24 @@ defmodule Elzoo.RunEngine do
 
       {:ok,
        %{kind: :protocol, input: input, correlation: correlation, context: original_context} =
-           record} ->
+           record, pairing} ->
         if Map.delete(input, "at_ms") == neutral and record.run_id == context.run_id and
              record.attempt_id == context.attempt_id and
              correlation[:occurrence] == context[:occurrence] and
              Map.take(original_context, [:pause_deadline]) == Map.take(context, [:pause_deadline]),
-           do: {:ok, record},
+           do: {:ok, record, pairing},
            else: {:error, :input_id_conflict}
 
-      {:ok, _} ->
+      {:ok, _, _} ->
         {:error, :input_id_conflict}
 
       {:error, reason} ->
         {:error, reason}
     end
   rescue
-    _ -> {:error, :source_gap}
+    _ -> {:error, :source_unavailable}
   catch
-    _, _ -> {:error, :source_gap}
-  end
-
-  defp replay_outside_event(s, id, record) do
-    case DynamicUnits.start(s.opts.directory, s.opts.identity) do
-      {:ok, pid} ->
-        case commit(%{s | unit: pid, state: nil}, id, record) do
-          {:ok, :unchanged, s} ->
-            {{:ok, :unchanged}, s}
-
-          {:ok, :applied, s} ->
-            case drain(s) do
-              {:ok, s} -> {{:ok, :applied}, s}
-              {:error, reason, s} -> {{:error, reason}, s}
-            end
-
-          {:error, reason, s} ->
-            {{:error, reason}, s}
-        end
-
-      _ ->
-        {{:error, :unavailable}, s}
-    end
+    _, _ -> {:error, :source_unavailable}
   end
 
   defp fresh_outside_event(s, id, neutral, context) do
@@ -2437,50 +2479,87 @@ defmodule Elzoo.RunEngine do
   end
 
   defp find_input_fenced(s, id) do
+    version = protocol_version(s)
+
     fold =
       DurableUnit.fold(
-        operator: {__MODULE__, :step, empty_state(protocol_version(s))},
+        operator: {__MODULE__, :step, empty_state(version)},
         retention_count: 1
       )
 
-    with {:ok, record, head} <-
-           fenced_input_pages(s.opts.store, s.opts.identity, id, 1, nil, nil, fold),
+    with {:ok, record, model, paired, head} <-
+           fenced_input_pages(
+             s.opts.store,
+             s.opts.identity,
+             id,
+             1,
+             nil,
+             nil,
+             fold.initial,
+             false,
+             fold,
+             version
+           ),
          {:ok, [], current_head} <-
            Elzoo.DurableLog.read(s.opts.store, s.opts.identity, head.revision + 1, 1),
          :ok <- fenced_unit_head(current_head),
          true <- fenced_head_identity(head) == fenced_head_identity(current_head) do
-      if is_nil(record), do: :absent, else: {:ok, record}
+      cond do
+        not is_nil(record) -> {:ok, record, if(paired, do: :paired, else: :unpaired)}
+        is_nil(model.pending) -> :absent
+        true -> {:error, :source_unavailable}
+      end
     else
+      {:error, :input_id_conflict} -> {:error, :input_id_conflict}
       {:error, {:pruned, _}} -> {:error, :source_gap}
       {:error, :source_gap} -> {:error, :source_gap}
       {:error, _} -> {:error, :source_unavailable}
-      _ -> {:error, :source_gap}
+      false -> {:error, :source_unavailable}
+      _ -> {:error, :source_unavailable}
     end
   rescue
     _ -> {:error, :source_unavailable}
   catch
     :exit, _ -> {:error, :source_unavailable}
-    _, _ -> {:error, :source_gap}
+    _, _ -> {:error, :source_unavailable}
   end
 
-  defp fenced_input_pages(store, stream, id, from, head, found, fold) do
+  defp fenced_input_pages(store, stream, id, from, head, found, model, paired, fold, version) do
     case Elzoo.DurableLog.read(store, stream, from, 1_000) do
       {:ok, rows, current_head} when is_list(rows) and is_map(current_head) ->
         head = head || current_head
 
         with :ok <- fenced_unit_head(current_head),
              true <- fenced_head_identity(head) == fenced_head_identity(current_head),
-             true <- from > head.revision or length(rows) == min(1_000, head.revision - from + 1),
-             {:ok, found} <- fenced_input_rows(rows, stream, from, id, found, fold) do
+             :ok <-
+               if(from > head.revision or length(rows) == min(1_000, head.revision - from + 1),
+                 do: :ok,
+                 else: {:error, :source_gap}
+               ),
+             {:ok, found, model, paired} <-
+               fenced_input_rows(rows, stream, from, id, found, model, paired, fold, version) do
           if from > head.revision do
-            if rows == [], do: {:ok, found, head}, else: {:error, :source_gap}
+            if rows == [], do: {:ok, found, model, paired, head}, else: {:error, :source_gap}
           else
             last = List.last(rows)
-            fenced_input_pages(store, stream, id, last.sequence + 1, head, found, fold)
+
+            fenced_input_pages(
+              store,
+              stream,
+              id,
+              last.sequence + 1,
+              head,
+              found,
+              model,
+              paired,
+              fold,
+              version
+            )
           end
         else
           {:error, _} = error -> error
-          _ -> {:error, :source_gap}
+          false -> {:error, :source_unavailable}
+          _ -> {:error, :source_unavailable}
         end
 
       {:error, {:pruned, _}} ->
@@ -2490,49 +2569,28 @@ defmodule Elzoo.RunEngine do
         {:error, :source_unavailable}
     end
   rescue
-    _ -> {:error, :source_gap}
+    _ -> {:error, :source_unavailable}
   catch
-    _, _ -> {:error, :source_gap}
+    _, _ -> {:error, :source_unavailable}
   end
 
-  defp fenced_input_rows(rows, stream, first, id, found, fold) do
-    Enum.reduce_while(Enum.with_index(rows), {:ok, found}, fn {row, index}, {:ok, current} ->
-      sequence = first + index
+  defp fenced_input_rows(rows, stream, first, id, found, model, paired, fold, version) do
+    Enum.reduce_while(Enum.with_index(rows), {:ok, found, model, paired}, fn
+      {row, index}, {:ok, current, current_model, current_paired} ->
+        sequence = first + index
 
-      if row.stream == stream and row.sequence == sequence and
-           Elzoo.DurableLog.validate_row(row, fold, %{max_record_bytes: @record_bytes}) == :ok do
-        case row.kind do
-          "input" ->
-            case :erlang.binary_to_term(row.payload, [:safe]) do
-              {1, {input_id, record}}
-              when is_binary(input_id) and byte_size(input_id) in 1..160 and is_map(record) ->
-                cond do
-                  input_id != id ->
-                    {:cont, {:ok, current}}
-
-                  is_nil(current) ->
-                    {:cont, {:ok, record}}
-
-                  current == record ->
-                    {:cont, {:ok, current}}
-
-                  true ->
-                    {:halt, {:error, :source_gap}}
-                end
-
-              _ ->
-                {:halt, {:error, :source_gap}}
-            end
-
-          "result" ->
-            {:cont, {:ok, current}}
-
-          _ ->
-            {:halt, {:error, :source_gap}}
+        if row.stream == stream and row.sequence == sequence and
+             Elzoo.DurableLog.validate_row(row, fold, %{max_record_bytes: @record_bytes}) == :ok do
+          with {:ok, next_found} <- fenced_input_record(row, id, current, version),
+               {:ok, next_model} <- reduce_fenced_input_row(fold, current_model, row, version) do
+            completed_target = row.kind == "result" and match?({^id, _}, current_model.pending)
+            {:cont, {:ok, next_found, next_model, current_paired or completed_target}}
+          else
+            {:error, _} = error -> {:halt, error}
+          end
+        else
+          {:halt, {:error, :source_gap}}
         end
-      else
-        {:halt, {:error, :source_gap}}
-      end
     end)
   rescue
     _ -> {:error, :source_gap}
@@ -2540,15 +2598,69 @@ defmodule Elzoo.RunEngine do
     _, _ -> {:error, :source_gap}
   end
 
+  defp fenced_input_record(%{kind: "input", payload: payload}, id, current, version) do
+    case :erlang.binary_to_term(payload, [:safe]) do
+      {1, {input_id, record}}
+      when is_binary(input_id) and byte_size(input_id) in 1..160 and is_map(record) ->
+        cond do
+          not Elzoo.RunEngine.HistoryVersion.valid_record?(record, input_id, version) ->
+            {:error, :source_unavailable}
+
+          input_id != id ->
+            {:ok, current}
+
+          is_nil(current) ->
+            {:ok, record}
+
+          current == record ->
+            {:ok, current}
+
+          true ->
+            {:error, :input_id_conflict}
+        end
+
+      _ ->
+        {:error, :source_gap}
+    end
+  end
+
+  defp fenced_input_record(%{kind: "result"}, _, current, _), do: {:ok, current}
+  defp fenced_input_record(_, _, _, _), do: {:error, :source_gap}
+
+  defp reduce_fenced_input_row(fold, model, row, version) do
+    next = fold.reduce.(model, row.kind, row.schema_version, row.payload)
+
+    if is_map(next.state) and next.state.version == version,
+      do: {:ok, next},
+      else: {:error, :source_unavailable}
+  rescue
+    _ -> {:error, :source_unavailable}
+  catch
+    _, _ -> {:error, :source_unavailable}
+  end
+
   defp fenced_unit_head(head) when is_map(head) do
     revision = Map.get(head, :revision)
     low_water = Map.get(head, :low_water)
     capabilities = get_in(head, [:capabilities, :append_visibility])
 
-    if is_integer(revision) and revision >= 0 and low_water == 0 and
-         capabilities in [:atomic, :staged_uncommitted_tail] and is_nil(Map.get(head, :staged_tail)),
-       do: :ok,
-       else: {:error, :source_gap}
+    cond do
+      not is_integer(revision) or revision < 0 or not is_integer(low_water) or low_water < 0 ->
+        {:error, :source_unavailable}
+
+      low_water > revision ->
+        {:error, :source_unavailable}
+
+      low_water > 0 ->
+        {:error, :source_gap}
+
+      capabilities not in [:atomic, :staged_uncommitted_tail] or
+          not is_nil(Map.get(head, :staged_tail)) ->
+        {:error, :source_unavailable}
+
+      true ->
+        :ok
+    end
   end
 
   defp fenced_unit_head(_), do: {:error, :source_gap}
@@ -3217,7 +3329,7 @@ defmodule Elzoo.RunEngine do
       )
 
     case find_input_fenced(s, activation_id) do
-      {:ok, %{kind: :event_activation} = original} ->
+      {:ok, %{kind: :event_activation} = original, _pairing} ->
         if valid_activation?(state, original, key, state.slots[key]) do
           case commit(s, activation_id, original) do
             {:ok, _, s} -> {:ok, s}
@@ -3277,7 +3389,7 @@ defmodule Elzoo.RunEngine do
           _ -> {:error, :source_unavailable, s}
         end
 
-      {:ok, _} ->
+      {:ok, _, _} ->
         {:error, :input_id_conflict, s}
 
       {:error, :source_gap} ->
@@ -4585,6 +4697,7 @@ defmodule Elzoo.RunEngine do
                      s.opts.result_reader.retention_count,
                      limits,
                      s.opts.bindings,
+                     reader_config(s),
                      {__MODULE__, :step, empty_state(protocol_version(s))}
                    ),
                  {:ok, current} <- result_owner(s),
@@ -4630,6 +4743,18 @@ defmodule Elzoo.RunEngine do
 
   defp valid_result_limits?(_), do: false
 
+  defp reader_config(s) do
+    source = Map.get(s.opts, :event_source, %{})
+
+    %{
+      version: protocol_version(s),
+      tenant: s.opts.tenant,
+      principal: s.opts.principal,
+      source_id: Map.get(source, :id),
+      source_version: Map.get(source, :version)
+    }
+  end
+
   defp result_owner(s) do
     case Run.status(s.opts.run_owner, s.opts.run_id) do
       {:ok, owner} when is_map(owner) -> {:ok, owner}
@@ -4657,6 +4782,7 @@ defmodule Elzoo.RunEngine do
              reader.retention_count,
              limits,
              s.opts.bindings,
+             reader_config(s),
              {__MODULE__, :step, empty_state(protocol_version(s))}
            ),
          {:ok, current} <- result_owner(s),
@@ -4745,6 +4871,26 @@ defmodule Elzoo.RunEngine.EventIdentity do
     do: :crypto.hash(:sha256, :erlang.term_to_binary(term, [:deterministic, {:minor_version, 2}]))
 end
 
+defmodule Elzoo.RunEngine.HistoryVersion do
+  def valid_record?(%{version: version, kind: kind} = record, input_id, expected_version)
+      when is_binary(input_id) do
+    version == expected_version and
+      case kind do
+        :protocol ->
+          is_map(record.input) and Map.get(record.input, "version") == expected_version and
+            (expected_version != 2 or Map.get(record, :id) == input_id)
+
+        :event_activation ->
+          expected_version == 2 and Map.get(record, :id) == input_id
+
+        _ ->
+          true
+      end
+  end
+
+  def valid_record?(_, _, _), do: false
+end
+
 defmodule Elzoo.RunEngine.ResultReader do
   alias Elzoo.{DurableLog, DurableUnit}
 
@@ -4752,7 +4898,7 @@ defmodule Elzoo.RunEngine.ResultReader do
   @completion_keys [:action_id, :attempt_id, :operation_id, :run_id]
   @initial_state %{version: 1, control: nil, slots: %{}, requests: %{}}
 
-  def event_waits(unit_store, unit_stream, owner, retention, limits, bindings, operator) do
+  def event_waits(unit_store, unit_stream, owner, retention, limits, bindings, audit, operator) do
     fold = DurableUnit.fold(operator: operator, retention_count: retention)
     counters = %{records: 0, bytes: 0}
     version = elem(operator, 2).version
@@ -4764,6 +4910,9 @@ defmodule Elzoo.RunEngine.ResultReader do
              1,
              nil,
              fold,
+             version,
+             bindings,
+             audit,
              limits,
              counters,
              fold.initial,
@@ -4771,14 +4920,14 @@ defmodule Elzoo.RunEngine.ResultReader do
            ),
          :ok <- if(is_nil(model.pending), do: :ok, else: {:error, :history}),
          :ok <-
-           if(valid_state?(model.state) and model.state.version == version,
+           if(valid_model_version?(model, version),
              do: :ok,
              else: {:error, :history}
            ),
          true <- model.state.control.run_id == owner.id,
          true <- model.state.control.operation_id == owner.operation_id,
          true <- model.state.control.attempt_id == owner.current_attempt,
-         {:ok, waits} <- project_event_waits(model.state, provenance, owner, bindings),
+         {:ok, waits} <- project_event_waits(model.state, provenance, owner, bindings, audit),
          {:ok, _counters} <-
            recheck_head(
              unit_store,
@@ -4801,10 +4950,10 @@ defmodule Elzoo.RunEngine.ResultReader do
     _, _ -> {:error, :history}
   end
 
-  defp project_event_waits(state, provenance, owner, _bindings) do
+  defp project_event_waits(state, provenance, owner, bindings, audit) do
     control = state.control
 
-    with true <- control.run_id == owner.id and control.operation_id == owner.operation_id,
+    with :ok <- valid_audit_control(control, owner, audit),
          {:ok, waits} <-
            state.slots
            |> Enum.filter(fn {_, slot} ->
@@ -4814,7 +4963,7 @@ defmodule Elzoo.RunEngine.ResultReader do
            end)
            |> Enum.sort_by(&elem(&1, 0))
            |> Enum.reduce_while({:ok, []}, fn {key, slot}, {:ok, acc} ->
-             case project_event_wait(state, provenance, owner, key, slot) do
+             case project_event_wait(state, provenance, owner, key, slot, bindings, audit) do
                {:ok, wait} -> {:cont, {:ok, [wait | acc]}}
                {:error, _} = error -> {:halt, error}
              end
@@ -4830,7 +4979,7 @@ defmodule Elzoo.RunEngine.ResultReader do
     _ -> {:error, :history}
   end
 
-  defp project_event_wait(state, provenance, owner, key, slot) do
+  defp project_event_wait(state, provenance, owner, key, slot, _bindings, audit) do
     control = state.control
     activation = Map.get(provenance, {:activation, owner.id, slot.attempt_id, key})
     settlement = Map.get(provenance, {owner.id, slot.attempt_id, key})
@@ -4849,23 +4998,9 @@ defmodule Elzoo.RunEngine.ResultReader do
          true <- slot.event_source_id == source_id and slot.event_source_version == source_version,
          true <- slot.event_ticket == ticket and slot.event_cursor == cursor,
          true <- slot.deadline_ms == deadline,
-         {:ok, accepted_event} <- accepted_event_projection(slot, settlement) do
-      status =
-        cond do
-          not is_nil(slot[:close_reason]) ->
-            :closed
-
-          slot.phase == :waiting and
-              (not is_nil(owner.outcome) or control.lifecycle.phase == :terminal) ->
-            :closed
-
-          slot.phase == :waiting ->
-            :waiting
-
-          true ->
-            :settled
-        end
-
+         :ok <- valid_activation_projection(activation, control, slot, owner, audit, key),
+         {:ok, accepted_event} <- accepted_event_projection(slot, settlement),
+         {:ok, status, outcome} <- projected_wait_state(control, owner, slot) do
       {:ok,
        %{
          occurrence: key,
@@ -4875,7 +5010,7 @@ defmodule Elzoo.RunEngine.ResultReader do
          cursor: cursor,
          deadline_ms: deadline,
          status: status,
-         outcome: slot[:outcome],
+         outcome: outcome,
          accepted_event: accepted_event
        }}
     else
@@ -4884,19 +5019,33 @@ defmodule Elzoo.RunEngine.ResultReader do
   end
 
   defp accepted_event_projection(slot, settlement) when is_map(slot) do
-    case {Map.get(slot, :event_receipt), settlement} do
-      {nil, nil} ->
+    receipt = Map.get(slot, :event_receipt)
+
+    cond do
+      slot.phase == :waiting and is_nil(slot[:outcome]) and is_nil(receipt) and is_nil(settlement) ->
         {:ok, nil}
 
-      {nil, %{accepted_event: nil}} ->
+      slot.phase == :settled and slot.outcome == "completed" and
+        is_map(receipt) and not is_struct(receipt) and map_size(receipt) == 2 and
+        Enum.sort(Map.keys(receipt)) == [:input_id, :sequence] and
+        is_map(settlement) and is_map(settlement[:accepted_event]) ->
+        event = settlement.accepted_event
+
+        if Map.keys(event) |> Enum.sort() == [:event_id, :input_id, :sequence] and
+             is_binary(event.event_id) and is_binary(event.input_id) and
+             receipt.input_id == event.input_id and receipt.sequence == event.sequence and
+             is_integer(event.sequence) and event.sequence > 0 do
+          {:ok, event}
+        else
+          {:error, :history}
+        end
+
+      slot.phase == :settled and is_binary(slot.outcome) and slot.outcome != "completed" and
+        is_nil(receipt) and
+          (is_nil(settlement) or settlement[:accepted_event] == nil) ->
         {:ok, nil}
 
-      {%{input_id: input_id, sequence: sequence},
-       %{accepted_event: %{event_id: event_id, input_id: input_id, sequence: sequence}}}
-      when is_binary(event_id) and is_binary(input_id) and is_integer(sequence) and sequence > 0 ->
-        {:ok, %{event_id: event_id, input_id: input_id, sequence: sequence}}
-
-      _ ->
+      true ->
         {:error, :history}
     end
   end
@@ -4910,10 +5059,12 @@ defmodule Elzoo.RunEngine.ResultReader do
         retention,
         limits,
         bindings,
+        audit,
         operator
       ) do
     fold = DurableUnit.fold(operator: operator, retention_count: retention)
     counters = %{records: 0, bytes: 0}
+    version = elem(operator, 2).version
 
     with {:ok, model, candidates, counters, unit_head} <-
            read_unit_history(
@@ -4922,13 +5073,17 @@ defmodule Elzoo.RunEngine.ResultReader do
              1,
              nil,
              fold,
+             version,
+             bindings,
+             audit,
              limits,
              counters,
              fold.initial,
              %{}
            ),
          :ok <- if(is_nil(model.pending), do: :ok, else: {:error, :history}),
-         :ok <- if(valid_state?(model.state), do: :ok, else: {:error, :history}),
+         :ok <- if(valid_model_version?(model, version), do: :ok, else: {:error, :history}),
+         {:ok, _waits} <- project_event_waits(model.state, candidates, owner, bindings, audit),
          {:ok, source} <- completed_source(model.state, candidates, owner, bindings),
          {:ok, completion, counters, evidence_head} <-
            read_completion(
@@ -4972,10 +5127,24 @@ defmodule Elzoo.RunEngine.ResultReader do
     _, _ -> {:error, :history}
   end
 
-  defp read_unit_history(store, stream, sequence, head, fold, limits, counters, model, candidates) do
+  defp read_unit_history(
+         store,
+         stream,
+         sequence,
+         head,
+         fold,
+         version,
+         bindings,
+         audit,
+         limits,
+         counters,
+         model,
+         candidates
+       ) do
     with {:ok, rows, current_head} <- read_page(store, stream, sequence),
          :ok <- unit_head(current_head),
-         :ok <- stable_head(head, current_head) do
+         :ok <- stable_head(head, current_head),
+         :ok <- if(valid_model_version?(model, version), do: :ok, else: {:error, :history}) do
       head = head || current_head
 
       cond do
@@ -4992,13 +5161,17 @@ defmodule Elzoo.RunEngine.ResultReader do
 
           with {:ok, counters} <- charge(row, counters, limits),
                :ok <- valid_row(row, stream, sequence, fold),
-               {:ok, model, candidates} <- reduce_row(row, model, candidates, fold) do
+               {:ok, model, candidates} <-
+                 reduce_row(row, model, candidates, fold, version, bindings, audit) do
             read_unit_history(
               store,
               stream,
               sequence + 1,
               head,
               fold,
+              version,
+              bindings,
+              audit,
               limits,
               counters,
               model,
@@ -5009,24 +5182,42 @@ defmodule Elzoo.RunEngine.ResultReader do
     end
   end
 
-  defp reduce_row(%{kind: "input"} = row, model, candidates, fold) do
+  defp reduce_row(
+         %{kind: "input", payload: payload} = row,
+         model,
+         candidates,
+         fold,
+         version,
+         _bindings,
+         _audit
+       ) do
+    true = valid_input_wire_version?(payload, version)
     next = fold.reduce.(model, row.kind, row.schema_version, row.payload)
-    if valid_model?(next), do: {:ok, next, candidates}, else: {:error, :history}
+    if valid_model_version?(next, version), do: {:ok, next, candidates}, else: {:error, :history}
   rescue
     _ -> {:error, :history}
   catch
     _, _ -> {:error, :history}
   end
 
-  defp reduce_row(%{kind: "result"} = row, model, candidates, fold) do
+  defp reduce_row(
+         %{kind: "result"} = row,
+         model,
+         candidates,
+         fold,
+         version,
+         bindings,
+         audit
+       ) do
     before = model
+    true = valid_result_wire_version?(row.payload, version)
     next = fold.reduce.(model, row.kind, row.schema_version, row.payload)
 
-    if valid_model?(next) do
-      candidates = accepted_activation(before, next, candidates)
+    if valid_model_version?(next, version) do
+      candidates = accepted_activation(before, next, candidates, version, audit)
 
       candidates =
-        case accepted_settlement(before, next, candidates) do
+        case accepted_settlement(before, next, candidates, version, bindings, audit) do
           {:ok, key, candidate} ->
             Map.put_new(candidates, {candidate.run_id, candidate.attempt_id, key}, candidate)
 
@@ -5044,12 +5235,14 @@ defmodule Elzoo.RunEngine.ResultReader do
     _, _ -> {:error, :history}
   end
 
-  defp reduce_row(_, _, _, _), do: {:error, :history}
+  defp reduce_row(_, _, _, _, _, _, _), do: {:error, :history}
 
   defp accepted_activation(
          %{pending: {input_id, record}, state: before},
          %{state: after_state},
-         provenance
+         provenance,
+         _version,
+         audit
        )
        when is_map(record) and is_map(before) and is_map(after_state) do
     key = record[:occurrence]
@@ -5057,8 +5250,7 @@ defmodule Elzoo.RunEngine.ResultReader do
     with %{kind: :event_activation, version: 2} <- record,
          true <- before.version == 2 and after_state.version == 2,
          true <- input_id == record.id,
-         {:Transition, expected, :none} <- Elzoo.RunEngine.step(before, record),
-         true <- expected == after_state,
+         true <- valid_activation_pair?(record, input_id, before, after_state, audit),
          %{kind: "wait_event", phase: :ready} <- before.slots[key],
          %{kind: "wait_event", phase: :waiting} = slot <- after_state.slots[key],
          true <- slot.activation_id == record.id,
@@ -5071,8 +5263,12 @@ defmodule Elzoo.RunEngine.ResultReader do
       activation = %{
         run_id: before.control.run_id,
         attempt_id: record.attempt_id,
+        operation_id: before.control.operation_id,
+        tenant: before.control.tenant,
+        principal: before.control.principal,
         source_id: record.source_id,
         source_version: record.source_version,
+        version: 2,
         ticket: record.ticket,
         cursor: record.cursor,
         deadline_ms: record.deadline_ms,
@@ -5094,16 +5290,155 @@ defmodule Elzoo.RunEngine.ResultReader do
     _, _ -> provenance
   end
 
-  defp accepted_activation(_, _, provenance), do: provenance
+  defp accepted_activation(_, _, provenance, _, _), do: provenance
+
+  defp valid_model_version?(%{state: %{version: version}, pending: pending} = model, version) do
+    valid_model?(model) and
+      case pending do
+        nil -> true
+        {id, record} -> Elzoo.RunEngine.HistoryVersion.valid_record?(record, id, version)
+        _ -> false
+      end
+  end
+
+  defp valid_model_version?(_, _), do: false
+
+  defp valid_input_wire_version?(payload, version) do
+    case :erlang.binary_to_term(payload, [:safe]) do
+      {1, {id, record}} -> Elzoo.RunEngine.HistoryVersion.valid_record?(record, id, version)
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp valid_result_wire_version?(payload, version) do
+    case :erlang.binary_to_term(payload, [:safe]) do
+      {1, {id, %{version: ^version}}} when is_binary(id) -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp valid_audit_control(control, owner, %{version: 1}) when is_map(control) do
+    if control.run_id == owner.id and control.operation_id == owner.operation_id and
+         control.attempt_id == owner.current_attempt,
+       do: :ok,
+       else: {:error, :history}
+  end
+
+  defp valid_audit_control(%{protocol_version: 2} = control, owner, %{version: 2} = audit) do
+    if audit.version == 2 and control.protocol_version == 2 and
+         control.run_id == owner.id and control.operation_id == owner.operation_id and
+         control.attempt_id == owner.current_attempt and control.tenant == audit.tenant and
+         control.principal == audit.principal and
+         control.event_source == %{id: audit.source_id, version: audit.source_version},
+       do: :ok,
+       else: {:error, :history}
+  end
+
+  defp valid_audit_control(_, _, _), do: {:error, :history}
+
+  defp valid_activation_pair?(record, input_id, before, after_state, audit) do
+    control = before.control
+    slot = before.slots[record.occurrence]
+    after_slot = after_state.slots[record.occurrence]
+
+    audit.version == 2 and record.id == input_id and record.version == 2 and
+      record.kind == :event_activation and control.protocol_version == 2 and
+      control.tenant == audit.tenant and control.principal == audit.principal and
+      control.attempt_id == record.attempt_id and
+      control.event_source == %{id: audit.source_id, version: audit.source_version} and
+      record.source_id == audit.source_id and record.source_version == audit.source_version and
+      slot.kind == "wait_event" and slot.phase == :ready and
+      slot.attempt_id == record.attempt_id and slot.deadline_ms == record.deadline_ms and
+      is_integer(record.cursor) and record.cursor >= 0 and is_integer(record.at_ms) and
+      record.at_ms > 0 and record.at_ms < record.deadline_ms and
+      record.id ==
+        Elzoo.RunEngine.EventIdentity.activation_id(
+          control.run_id,
+          record.attempt_id,
+          record.occurrence,
+          audit.source_id
+        ) and
+      record.ticket ==
+        Elzoo.RunEngine.EventIdentity.ticket(
+          audit.tenant,
+          audit.principal,
+          control.run_id,
+          record.attempt_id,
+          record.occurrence,
+          audit.source_id
+        ) and after_state.control.event_source == control.event_source and
+      after_slot.phase == :waiting and after_slot.activation_id == record.id and
+      after_slot.activation_at_ms == record.at_ms and after_slot.event_ticket == record.ticket and
+      after_slot.event_cursor == record.cursor and after_slot.deadline_ms == record.deadline_ms
+  rescue
+    _ -> false
+  end
+
+  defp valid_activation_projection(activation, control, slot, owner, audit, key) do
+    if audit.version == 2 and activation.run_id == owner.id and
+         activation.attempt_id == owner.current_attempt and
+         activation.operation_id == owner.operation_id and activation.tenant == audit.tenant and
+         activation.principal == audit.principal and activation.source_id == audit.source_id and
+         activation.source_version == audit.source_version and
+         activation.activation_id == slot.activation_id and
+         control.tenant == audit.tenant and control.principal == audit.principal and
+         control.event_source == %{id: audit.source_id, version: audit.source_version} and
+         activation.activation_id ==
+           Elzoo.RunEngine.EventIdentity.activation_id(
+             owner.id,
+             owner.current_attempt,
+             key,
+             audit.source_id
+           ) and
+         activation.ticket ==
+           Elzoo.RunEngine.EventIdentity.ticket(
+             audit.tenant,
+             audit.principal,
+             owner.id,
+             owner.current_attempt,
+             key,
+             audit.source_id
+           ),
+       do: :ok,
+       else: {:error, :history}
+  rescue
+    _ -> {:error, :history}
+  end
+
+  defp projected_wait_state(_control, _owner, %{phase: :settled, outcome: outcome})
+       when is_binary(outcome),
+       do: {:ok, :settled, outcome}
+
+  defp projected_wait_state(control, owner, %{phase: :waiting} = slot) do
+    if is_nil(slot[:outcome]) and is_nil(slot[:event_receipt]) do
+      closed =
+        not is_nil(slot[:close_reason]) or not is_nil(control.stop_pending) or
+          control.lifecycle.phase == :terminal or not is_nil(owner.outcome)
+
+      {:ok, if(closed, do: :closed, else: :waiting), nil}
+    else
+      {:error, :history}
+    end
+  end
+
+  defp projected_wait_state(_, _, _), do: {:error, :history}
 
   defp accepted_settlement(
-         %{pending: {_id, record}, state: before},
+         %{pending: {outer_id, record}, state: before},
          %{state: after_state},
-         provenance
+         provenance,
+         version,
+         bindings,
+         audit
        )
        when is_map(record) and is_map(before) and is_map(after_state) do
     with {:ok, effective, key} <- effective_protocol(record, before),
          {:ok, input} <- decode_input(effective.input),
+         true <- version != 2 or record.kind != :protocol or outer_id == record.id,
          activation <-
            Map.get(provenance, {:activation, effective.run_id, effective.attempt_id, key}),
          before_control when is_map(before_control) <- Map.get(before, :control),
@@ -5112,7 +5447,16 @@ defmodule Elzoo.RunEngine.ResultReader do
          after_slot when is_map(after_slot) <- Map.get(after_state.slots, key),
          {:ok, before_action} <- recorded_action(before, key),
          {:ok, accepted_event} <-
-           accepted_settlement_event(before, after_state, effective, input, key, activation),
+           accepted_settlement_event(
+             before,
+             after_state,
+             effective,
+             input,
+             key,
+             activation,
+             bindings,
+             audit
+           ),
          true <- before_control.run_id == effective.run_id,
          true <- after_control.run_id == effective.run_id,
          true <- before_control.attempt_id == effective.attempt_id,
@@ -5150,13 +5494,22 @@ defmodule Elzoo.RunEngine.ResultReader do
     _ -> :none
   end
 
-  defp accepted_settlement(_, _, _), do: :none
+  defp accepted_settlement(_, _, _, _, _, _), do: :none
 
-  defp accepted_settlement_event(before, after_state, record, input, key, activation) do
+  defp accepted_settlement_event(
+         before,
+         after_state,
+         record,
+         input,
+         key,
+         activation,
+         bindings,
+         audit
+       ) do
     slot = before.slots[key]
 
     if slot.kind == "wait_event" do
-      accepted_outside_event(before, after_state, record, input, key, activation)
+      accepted_outside_event(before, after_state, record, input, key, activation, bindings, audit)
     else
       if input["kind"] in ["action_outcome", "person_answer"] and accepted_completion?(input),
         do: {:ok, nil},
@@ -5164,12 +5517,13 @@ defmodule Elzoo.RunEngine.ResultReader do
     end
   end
 
-  defp accepted_outside_event(before, after_state, record, input, key, activation) do
+  defp accepted_outside_event(before, after_state, record, input, key, activation, bindings, audit) do
     slot = before.slots[key]
     after_slot = after_state.slots[key]
     correlation = record.correlation
 
     with true <- before.version == 2,
+         true <- audit.version == 2,
          %{
            run_id: run_id,
            attempt_id: attempt,
@@ -5180,11 +5534,26 @@ defmodule Elzoo.RunEngine.ResultReader do
            activation_id: activation_id
          } <- activation,
          true <- record.kind == :protocol and record.version == 2,
+         true <-
+           Map.keys(record) |> Enum.sort() == [
+             :attempt_id,
+             :context,
+             :correlation,
+             :id,
+             :input,
+             :kind,
+             :run_id,
+             :version
+           ],
+         true <-
+           is_map(record.context) and Enum.all?(Map.keys(record.context), &(&1 == :pause_deadline)),
          true <- record.run_id == run_id and record.attempt_id == attempt,
          true <- slot.attempt_id == attempt and slot.phase == :waiting,
          true <- slot.activation_id == activation_id,
          true <- slot.event_source_id == source_id and slot.event_source_version == source_version,
          true <- slot.event_ticket == ticket and slot.event_cursor == cursor,
+         true <- input["at_ms"] > 0 and input["at_ms"] < slot.deadline_ms,
+         {:ok, _checked_input} <- Elzoo.PatternStep.decode(input, 2),
          true <- input["kind"] == "outside_event" and input["action_id"] == slot.action_id,
          true <- input["source_id"] == source_id and input["correlation_id"] == ticket,
          true <-
@@ -5200,11 +5569,16 @@ defmodule Elzoo.RunEngine.ResultReader do
              ]),
          true <- correlation.occurrence == key and correlation.actual == 0,
          true <- correlation.source_version == source_version,
+         true <- source_id == audit.source_id and source_version == audit.source_version,
+         true <-
+           before.control.tenant == audit.tenant and before.control.principal == audit.principal,
+         true <- before.control.event_source == %{id: source_id, version: source_version},
          true <- correlation.activation_id == activation_id,
          true <- is_integer(correlation.source_sequence) and correlation.source_sequence > cursor,
          true <-
            is_integer(correlation.source_head_revision) and
              correlation.source_head_revision >= correlation.source_sequence,
+         true <- correlation.source_head_revision >= cursor,
          true <- is_binary(input["event_id"]),
          true <-
            correlation.event_digest ==
@@ -5218,8 +5592,20 @@ defmodule Elzoo.RunEngine.ResultReader do
                input["schema_version"],
                input["payload"]
              ),
-         {:Transition, expected, _} <- Elzoo.RunEngine.step(before, record),
-         true <- expected == after_state,
+         {:ok, before_action} <- recorded_action(before, key),
+         {:ok, {expected_schema, expected_schema_version}} <-
+           result_schema(bindings, "wait_event", before_action),
+         true <-
+           {input["schema_id"], input["schema_version"]} ==
+             {expected_schema, expected_schema_version},
+         true <- before.control.run_id == run_id and after_state.control.run_id == run_id,
+         true <- before.control.attempt_id == attempt and after_state.control.attempt_id == attempt,
+         true <- before.control.operation_id == after_state.control.operation_id,
+         true <-
+           before.control.tenant == audit.tenant and before.control.principal == audit.principal,
+         true <-
+           after_state.control.tenant == audit.tenant and
+             after_state.control.principal == audit.principal,
          true <- after_slot.phase == :settled and after_slot.outcome == "completed",
          true <- is_nil(slot[:event_receipt]),
          true <-

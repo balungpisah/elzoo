@@ -112,6 +112,10 @@ defmodule Elzoo.RunEngineV2Test do
       end)
 
     key = Enum.find_value(wait.slots, fn {key, slot} -> if slot.kind == "wait_event", do: key end)
+    native_wait = DurableUnit.snapshot(unit).slots[key]
+    assert native_wait.phase == :waiting
+    refute Map.has_key?(native_wait, :outcome)
+
     scope = %{tenant: "tenant", principal: "principal", run_id: "run"}
     limits = %{max_records: 65_536, max_bytes: 536_870_912}
 

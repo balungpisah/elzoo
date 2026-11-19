@@ -1,12 +1,160 @@
 ## SPDX-License-Identifier: Apache-2.0
 Code.require_file("../support/run_engine_test_helper.exs", __DIR__)
 
+defmodule Elzoo.RunEngine.TestHistoryStore do
+  def new(store, control), do: {__MODULE__, %{store: store, control: control}}
+
+  def arm_read_failure(control), do: Agent.update(control, &Map.put(&1, :read_failure, true))
+
+  def arm_input_commit_failure(control),
+    do: Agent.update(control, &Map.put(&1, :input_failure, :armed))
+
+  def arm_result_barrier(control, parent, token) do
+    Agent.update(control, fn state ->
+      state
+      |> Map.put(:result_barrier, :armed)
+      |> Map.put(:parent, parent)
+      |> Map.put(:token, token)
+    end)
+  end
+
+  def capabilities(store), do: delegate(store, :capabilities, [])
+  def head(store, stream), do: delegate(store, :head, [stream])
+
+  def append(store, stream, expected, records, items) do
+    result = delegate(store, :append, [stream, expected, records, items])
+
+    input_failure =
+      if match?({:committed, _}, result) and
+           Enum.any?(records, fn
+             %{kind: "input"} -> true
+             _ -> false
+           end) do
+        Agent.get_and_update(store_config(store).control, fn state ->
+          if Map.get(state, :input_failure) == :armed,
+            do: {:fail, Map.put(state, :input_failure, :consumed)},
+            else: {:none, state}
+        end)
+      else
+        :none
+      end
+
+    if input_failure == :fail do
+      {:indeterminate, %{cause: :unavailable}}
+    else
+      if match?({:committed, _}, result) and
+           Enum.any?(records, fn
+             %{kind: "result"} -> true
+             _ -> false
+           end) do
+        case Agent.get_and_update(store_config(store).control, fn state ->
+               if state.result_barrier == :armed do
+                 {{:block, state.parent, state.token}, %{state | result_barrier: :blocked}}
+               else
+                 {:none, state}
+               end
+             end) do
+          {:block, parent, token} ->
+            send(parent, {:result_committed, token, self(), result})
+            receive do: ({:release_result, ^token} -> :ok)
+
+          :none ->
+            :ok
+        end
+      end
+
+      result
+    end
+  end
+
+  def read(store, stream, from, limit) do
+    case Agent.get_and_update(store_config(store).control, fn state ->
+           if state.read_failure,
+             do: {:fail, %{state | read_failure: false}},
+             else: {:read, state}
+         end) do
+      :fail -> {:error, :unavailable}
+      :read -> delegate(store, :read, [stream, from, limit])
+    end
+  end
+
+  def read_at(store, stream, sequence), do: delegate(store, :read_at, [stream, sequence])
+  def put_checkpoint(store, checkpoint), do: delegate(store, :put_checkpoint, [checkpoint])
+
+  def latest_checkpoint(store, stream, low_water),
+    do: delegate(store, :latest_checkpoint, [stream, low_water])
+
+  def retain(store, stream, from, through, nonce),
+    do: delegate(store, :retain, [stream, from, through, nonce])
+
+  def pending(store, stream, from), do: delegate(store, :pending, [stream, from])
+  def ack(store, stream, nonce), do: delegate(store, :ack, [stream, nonce])
+  def read_ack(store, stream), do: delegate(store, :read_ack, [stream])
+
+  def read_checkpoint(store, stream, revision, limit),
+    do: delegate(store, :read_checkpoint, [stream, revision, limit])
+
+  def read_maintenance(store, stream, kind), do: delegate(store, :read_maintenance, [stream, kind])
+
+  def repair_torn_tail(store, stream, expected, nonce, digest),
+    do: delegate(store, :repair_torn_tail, [stream, expected, nonce, digest])
+
+  defp store_config({__MODULE__, config}), do: config
+
+  defp delegate(store, operation, args) do
+    config = store_config(store)
+    {module, options} = config.store
+    options = Map.new(options)
+
+    options =
+      if config[:repair_owner],
+        do: Map.put(options, :repair_owner, config.repair_owner),
+        else: options
+
+    apply(module, operation, [{module, options} | args])
+  end
+end
+
+defmodule Elzoo.RunEngine.RecoveryPattern do
+  def step(%{token: token} = state, input) do
+    options = :persistent_term.get({__MODULE__, token}, %{})
+
+    if input["kind"] == "outside_event" do
+      if options[:counter], do: Agent.update(options.counter, &(&1 + 1))
+
+      case options[:mode] do
+        {:block, parent} ->
+          send(parent, {:recovery_step_blocked, self(), token})
+          receive do: ({:release_recovery_step, ^token} -> :ok)
+
+        _ ->
+          :ok
+      end
+
+      {:Transition, state, :none}
+    else
+      if input["kind"] == "start" do
+        request =
+          Elzoo.RunEngine.TestHelper.request_v2([
+            Elzoo.RunEngine.TestHelper.action("wait", "wait_event")
+          ])
+
+        {:Transition, state, {:some, request}}
+      else
+        {:Transition, state, :none}
+      end
+    end
+  end
+end
+
 defmodule Elzoo.RunEngineV2SourceTest do
   use ExUnit.Case, async: false
   import Elzoo.RunEngine.TestHelper
-  alias Elzoo.{DurableLog, RunEngine}
+  alias Elzoo.{AsyncWork, DurableLog, DurableUnit, DynamicUnits, Run, RunEngine}
+  alias Elzoo.RunEngine.TestHistoryStore
   alias Elzoo.Budget
-  alias Elzoo.DurableLog.{Codec, Postgres, Record}
+  alias Elzoo.DurableLog.{Codec, Postgres, Record, Writer}
+  alias Elzoo.Lease
   alias Elzoo.RunEngine.TestRepo
 
   @stream "source-events"
@@ -815,6 +963,633 @@ defmodule Elzoo.RunEngineV2SourceTest do
       |> Map.put(:pending_input, pending)
 
     slot_bytes(slot)
+  end
+
+  test "paired retries and notifications leave a paused later input and fenced Unit untouched" do
+    calls = agent(%{heads: 0, reads: 0, head: {:ok, %{revision: 0, low_water: 0}}, read: nil})
+    clock_calls = agent(0)
+
+    clock = fn ->
+      Agent.update(clock_calls, &(&1 + 1))
+      2_000
+    end
+
+    c = v2_fixture(source(calls), clock: clock)
+    engine = start(c)
+
+    assert {:ok, :applied} = RunEngine.input(engine, "start", start_input_v2(), verified())
+    wait = wait_slot(engine)
+
+    assert {:ok, :applied} =
+             RunEngine.control(
+               engine,
+               "pause-before-replay",
+               %{kind: :pause, pause_deadline: 50_000},
+               verified()
+             )
+
+    event = event(wait, "event-after-pause", %{"accepted" => true})
+
+    Agent.update(
+      calls,
+      &Map.put(&1, :read, {:ok, %{head: %{revision: 1, low_water: 0}, event: event}})
+    )
+
+    event_id = "paired-replay-input"
+    outside_input = input(wait, event.id)
+    outside_context = context(wait)
+    assert {:ok, :applied} = RunEngine.input(engine, event_id, outside_input, outside_context)
+
+    settled = unit_state(c).slots[wait.occurrence]
+    pending = settled.pending_input
+    refute is_nil(pending)
+    before = rows(c)
+    record = stored_input_record(c, event_id)
+    assert record.input["at_ms"] == 2_000
+
+    Agent.update(calls, &Map.put(&1, :read, {:error, :unavailable}))
+    {:ok, unit} = DynamicUnits.find(c.directory, c.opts[:identity])
+    assert :ok = DynamicUnits.stop(c.directory, c.opts[:identity])
+    refute Process.alive?(unit)
+    :sys.replace_state(engine, &Map.put(&1, :halted, :delivery_unknown))
+    clock_before = Agent.get(clock_calls, & &1)
+
+    assert {:ok, :unchanged} = RunEngine.input(engine, event_id, outside_input, outside_context)
+
+    assert {:error, :input_id_conflict} =
+             RunEngine.input(
+               engine,
+               event_id,
+               Map.put(outside_input, "payload", %{"changed" => true}),
+               outside_context
+             )
+
+    assert {:error, :input_id_conflict} =
+             RunEngine.input(
+               engine,
+               event_id,
+               outside_input,
+               Map.put(outside_context, :run_id, "run-two")
+             )
+
+    assert {:error, :delivery_unknown} =
+             RunEngine.input(
+               engine,
+               "fresh-while-halted",
+               input(wait, "fresh-event"),
+               outside_context
+             )
+
+    send(engine, {:durable_unit_input, event_id, record})
+    _ = :sys.get_state(engine)
+
+    send(
+      engine,
+      {:durable_unit_input, "notification-only",
+       Map.put(record, :input, input(wait, "not-admitted-event"))}
+    )
+
+    _ = :sys.get_state(engine)
+
+    assert :not_found = DynamicUnits.find(c.directory, c.opts[:identity])
+    assert rows(c) == before
+    assert Agent.get(calls, & &1.reads) == 1
+    assert Agent.get(clock_calls, & &1) == clock_before
+    assert settled.pending_input == pending
+  end
+
+  test "history lookup distinguishes store uncertainty, confirmed absence, and pruned history" do
+    control = agent(%{read_failure: false, result_barrier: :disabled, parent: nil, token: nil})
+
+    calls =
+      agent(%{
+        heads: 0,
+        reads: 0,
+        head: {:ok, %{revision: 0, low_water: 0}},
+        read: {:error, :not_found}
+      })
+
+    c = v2_fixture(source(calls)) |> wrap_unit_store(control)
+    tree = start_owned_tree(c, c.run)
+    on_exit(fn -> stop_owned_tree(tree) end)
+
+    assert {:ok, :applied} = RunEngine.input(tree.engine, "start", start_input_v2(), verified())
+    wait = wait_slot(tree.engine)
+    before = rows(c)
+    TestHistoryStore.arm_read_failure(control)
+
+    assert {:error, :source_unavailable} =
+             RunEngine.input(tree.engine, "unknown-history", input(wait, "missing"), context(wait))
+
+    assert rows(c) == before
+    assert Agent.get(calls, & &1.reads) == 0
+
+    assert {:error, :source_not_found} =
+             RunEngine.input(tree.engine, "confirmed-absent", input(wait, "missing"), context(wait))
+
+    assert Agent.get(calls, & &1.reads) == 1
+    event = event(wait, "accepted-event", %{"accepted" => true})
+
+    Agent.update(
+      calls,
+      &Map.put(&1, :read, {:ok, %{head: %{revision: 1, low_water: 0}, event: event}})
+    )
+
+    event_id = "pruned-original"
+    outside_input = input(wait, event.id)
+    outside_context = context(wait)
+    assert {:ok, :applied} = RunEngine.input(tree.engine, event_id, outside_input, outside_context)
+    assert Agent.get(calls, & &1.reads) == 2
+
+    assert {:committed, revision} = DurableUnit.checkpoint(tree.unit)
+
+    assert {:ok, pending} = Postgres.pending(c.postgres_unit_store, c.opts[:identity], 128)
+
+    Enum.each(pending, fn item ->
+      assert {:committed, _} =
+               Postgres.ack(c.postgres_unit_store, item.idempotency_key, item.nonce)
+    end)
+
+    assert {:ok, []} = Postgres.pending(c.postgres_unit_store, c.opts[:identity], 128)
+
+    assert {:committed, ^revision} =
+             Postgres.retain(
+               c.postgres_unit_store,
+               c.opts[:identity],
+               0,
+               revision,
+               :crypto.strong_rand_bytes(16)
+             )
+
+    assert {:ok, %{revision: ^revision, low_water: low_water}} =
+             Postgres.head(c.postgres_unit_store, c.opts[:identity])
+
+    assert low_water > 0
+
+    before_pruned_retry = Postgres.head(c.postgres_unit_store, c.opts[:identity])
+
+    assert {:error, :source_gap} =
+             RunEngine.input(tree.engine, event_id, outside_input, outside_context)
+
+    assert Postgres.head(c.postgres_unit_store, c.opts[:identity]) == before_pruned_retry
+    assert Agent.get(calls, & &1.reads) == 2
+  end
+
+  test "retrying a committed unpaired original fences the active Engine, Unit, and work owner" do
+    control = agent(%{read_failure: false, result_barrier: :disabled, parent: nil, token: nil})
+    calls = agent(%{heads: 0, reads: 0, head: {:ok, %{revision: 0, low_water: 0}}, read: nil})
+    pattern_calls = agent(0)
+    token = "faulted-input-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+
+    :persistent_term.put(
+      {Elzoo.RunEngine.RecoveryPattern, token},
+      %{mode: :continue, counter: pattern_calls}
+    )
+
+    on_exit(fn -> :persistent_term.erase({Elzoo.RunEngine.RecoveryPattern, token}) end)
+
+    c =
+      v2_fixture(source(calls),
+        pattern: {Elzoo.RunEngine.RecoveryPattern, :step, %{token: token}}
+      )
+      |> wrap_unit_store(control)
+
+    tree = start_owned_tree(c, c.run)
+    on_exit(fn -> stop_owned_tree(tree) end)
+    assert {:ok, :applied} = RunEngine.input(tree.engine, "start", start_input_v2(), verified())
+    wait = wait_slot(tree.engine)
+    event = event(wait, "committed-before-lost-reply", %{"accepted" => true})
+
+    Agent.update(
+      calls,
+      &Map.put(&1, :read, {:ok, %{head: %{revision: 1, low_water: 0}, event: event}})
+    )
+
+    event_id = "unpaired-after-fault"
+    outside_input = input(wait, event.id)
+    outside_context = context(wait)
+    TestHistoryStore.arm_input_commit_failure(control)
+
+    assert {:error, :storage_unknown} =
+             RunEngine.input(tree.engine, event_id, outside_input, outside_context)
+
+    before_retry = rows(c)
+    original = stored_input_record(c, event_id)
+    assert original.input["at_ms"] == 2_000
+    refute has_result_row?(before_retry, event_id)
+    assert Agent.get(pattern_calls, & &1) == 0
+
+    engine_monitor = Process.monitor(tree.engine)
+    async_monitor = Process.monitor(tree.async_work)
+    unit_monitor = Process.monitor(tree.unit)
+    writer_monitor = Process.monitor(tree.writer)
+
+    assert {:error, :storage_unknown} =
+             RunEngine.input(tree.engine, event_id, outside_input, outside_context)
+
+    assert_receive {:DOWN, ^engine_monitor, :process, engine, _}, 5_000
+    assert engine == tree.engine
+    assert_receive {:DOWN, ^async_monitor, :process, async_work, _}, 5_000
+    assert async_work == tree.async_work
+    assert_receive {:DOWN, ^unit_monitor, :process, unit, _}, 5_000
+    assert unit == tree.unit
+    assert_receive {:DOWN, ^writer_monitor, :process, writer, _}, 5_000
+    assert writer == tree.writer
+
+    assert :not_found = DynamicUnits.find(tree.directory, c.opts[:identity])
+    assert rows(c) == before_retry
+    assert stored_input_record(c, event_id) == original
+    assert Agent.get(pattern_calls, & &1) == 0
+    assert Agent.get(calls, & &1.reads) == 1
+  end
+
+  test "an unpaired retry does not claim a fence when its work owner is unavailable" do
+    control = agent(%{read_failure: false, result_barrier: :disabled, parent: nil, token: nil})
+    calls = agent(%{heads: 0, reads: 0, head: {:ok, %{revision: 0, low_water: 0}}, read: nil})
+    pattern_calls = agent(0)
+    token = "failed-fence-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+
+    :persistent_term.put(
+      {Elzoo.RunEngine.RecoveryPattern, token},
+      %{mode: :continue, counter: pattern_calls}
+    )
+
+    on_exit(fn -> :persistent_term.erase({Elzoo.RunEngine.RecoveryPattern, token}) end)
+
+    c =
+      v2_fixture(source(calls),
+        pattern: {Elzoo.RunEngine.RecoveryPattern, :step, %{token: token}}
+      )
+      |> wrap_unit_store(control)
+
+    tree = start_owned_tree(c, c.run)
+    on_exit(fn -> stop_owned_tree(tree) end)
+    assert {:ok, :applied} = RunEngine.input(tree.engine, "start", start_input_v2(), verified())
+    wait = wait_slot(tree.engine)
+    event = event(wait, "failed-fence-original", %{"accepted" => true})
+
+    Agent.update(
+      calls,
+      &Map.put(&1, :read, {:ok, %{head: %{revision: 1, low_water: 0}, event: event}})
+    )
+
+    event_id = "unpaired-with-unavailable-work"
+    outside_input = input(wait, event.id)
+    outside_context = context(wait)
+    TestHistoryStore.arm_input_commit_failure(control)
+
+    assert {:error, :storage_unknown} =
+             RunEngine.input(tree.engine, event_id, outside_input, outside_context)
+
+    before_retry = rows(c)
+    assert :ok = GenServer.stop(tree.async_work, :normal, 5_000)
+
+    assert {:error, :stop_unknown} =
+             RunEngine.input(tree.engine, event_id, outside_input, outside_context)
+
+    assert Process.alive?(tree.engine)
+    assert :not_found = DynamicUnits.find(tree.directory, c.opts[:identity])
+    assert rows(c) == before_retry
+    assert Agent.get(pattern_calls, & &1) == 0
+    assert Agent.get(calls, & &1.reads) == 1
+  end
+
+  test "unpaired original input resumes from stored time and facts after owner-tree fencing" do
+    control = agent(%{read_failure: false, result_barrier: :disabled, parent: nil, token: nil})
+    calls = agent(%{heads: 0, reads: 0, head: {:ok, %{revision: 0, low_water: 0}}, read: nil})
+    pattern_calls = agent(0)
+    token = "recovery-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+
+    :persistent_term.put(
+      {Elzoo.RunEngine.RecoveryPattern, token},
+      %{mode: {:block, self()}, counter: pattern_calls}
+    )
+
+    on_exit(fn -> :persistent_term.erase({Elzoo.RunEngine.RecoveryPattern, token}) end)
+
+    c =
+      v2_fixture(source(calls), pattern: {Elzoo.RunEngine.RecoveryPattern, :step, %{token: token}})
+
+    c = wrap_unit_store(c, control)
+    tree = start_owned_tree(c, c.run)
+    on_exit(fn -> stop_owned_tree(tree) end)
+
+    assert {:ok, :applied} = RunEngine.input(tree.engine, "start", start_input_v2(), verified())
+    wait = wait_slot(tree.engine)
+    event = event(wait, "recovery-event", %{"accepted" => true})
+
+    Agent.update(
+      calls,
+      &Map.put(&1, :read, {:ok, %{head: %{revision: 1, low_water: 0}, event: event}})
+    )
+
+    event_id = "unpaired-original"
+    outside_input = input(wait, event.id)
+    outside_context = context(wait)
+    parent = self()
+
+    spawn(fn ->
+      result =
+        try do
+          RunEngine.input(tree.engine, event_id, outside_input, outside_context)
+        catch
+          :exit, _ -> :caller_fenced
+        end
+
+      send(parent, {:outside_call_finished, token, result})
+    end)
+
+    unit = tree.unit
+    assert_receive {:recovery_step_blocked, ^unit, ^token}, 5_000
+    rows_before_fence = rows(c)
+    original = stored_input_record(c, event_id)
+    assert original.input["at_ms"] == 2_000
+    assert original.correlation.source_sequence == 1
+    assert original.correlation.source_head_revision == 1
+    refute has_result_row?(rows_before_fence, event_id)
+
+    fence_tree(tree, [])
+    assert_receive {:outside_call_finished, ^token, :caller_fenced}, 5_000
+    assert rows(c) == rows_before_fence
+
+    :persistent_term.put(
+      {Elzoo.RunEngine.RecoveryPattern, token},
+      %{mode: :continue, counter: pattern_calls}
+    )
+
+    new_run = restart_run_owner(c)
+    restarted = start_owned_tree(c, new_run)
+    on_exit(fn -> stop_owned_tree(restarted) end)
+    recovered_rows = rows(c)
+    assert stored_input_record(c, event_id) == original
+    assert has_result_row?(recovered_rows, event_id)
+    assert Agent.get(pattern_calls, & &1) == 2
+    assert Agent.get(calls, & &1.reads) == 1
+
+    assert {:ok, :unchanged} =
+             RunEngine.input(restarted.engine, event_id, outside_input, outside_context)
+
+    assert rows(c) == recovered_rows
+    assert Agent.get(pattern_calls, & &1) == 2
+    assert Agent.get(calls, & &1.reads) == 1
+  end
+
+  test "a result committed before reply loss replays without rerunning the Operator" do
+    control = agent(%{read_failure: false, result_barrier: :disabled, parent: nil, token: nil})
+    calls = agent(%{heads: 0, reads: 0, head: {:ok, %{revision: 0, low_water: 0}}, read: nil})
+    pattern_calls = agent(0)
+    pattern_token = "paired-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+
+    :persistent_term.put(
+      {Elzoo.RunEngine.RecoveryPattern, pattern_token},
+      %{mode: :continue, counter: pattern_calls}
+    )
+
+    on_exit(fn -> :persistent_term.erase({Elzoo.RunEngine.RecoveryPattern, pattern_token}) end)
+
+    c =
+      v2_fixture(source(calls),
+        pattern: {Elzoo.RunEngine.RecoveryPattern, :step, %{token: pattern_token}}
+      )
+      |> wrap_unit_store(control)
+
+    tree = start_owned_tree(c, c.run)
+    on_exit(fn -> stop_owned_tree(tree) end)
+    assert {:ok, :applied} = RunEngine.input(tree.engine, "start", start_input_v2(), verified())
+    wait = wait_slot(tree.engine)
+    event = event(wait, "after-result-commit", %{"accepted" => true})
+
+    Agent.update(
+      calls,
+      &Map.put(&1, :read, {:ok, %{head: %{revision: 1, low_water: 0}, event: event}})
+    )
+
+    event_id = "paired-after-commit"
+    outside_input = input(wait, event.id)
+    outside_context = context(wait)
+    barrier = make_ref()
+    TestHistoryStore.arm_result_barrier(control, self(), barrier)
+    parent = self()
+
+    caller =
+      spawn(fn ->
+        result = RunEngine.input(tree.engine, event_id, outside_input, outside_context)
+        send(parent, {:outside_call_finished, barrier, result})
+      end)
+
+    assert_receive {:result_committed, ^barrier, _writer, {:committed, _}}, 5_000
+    rows_after_commit = rows(c)
+    original = stored_input_record(c, event_id)
+    assert has_result_row?(rows_after_commit, event_id)
+    assert original.input["at_ms"] == 2_000
+    refute_receive {:outside_call_finished, ^barrier, _}, 0
+
+    fence_tree(tree, [caller])
+    assert rows(c) == rows_after_commit
+
+    new_run = restart_run_owner(c)
+    restarted = start_owned_tree(c, new_run)
+    on_exit(fn -> stop_owned_tree(restarted) end)
+    recovered_rows = rows(c)
+    assert stored_input_record(c, event_id) == original
+    assert has_result_row?(recovered_rows, event_id)
+    assert Agent.get(pattern_calls, & &1) == 1
+    assert Agent.get(calls, & &1.reads) == 1
+
+    assert {:ok, :unchanged} =
+             RunEngine.input(restarted.engine, event_id, outside_input, outside_context)
+
+    assert rows(c) == recovered_rows
+    assert Agent.get(pattern_calls, & &1) == 1
+    assert Agent.get(calls, & &1.reads) == 1
+  end
+
+  test "an authoritative Run cancellation wins a source-read barrier race" do
+    test_pid = self()
+    token = make_ref()
+    calls = agent(%{heads: 0, reads: 0, head: {:ok, %{revision: 0, low_water: 0}}, read: nil})
+    {c, engine, wait} = start_wait(source(calls))
+    before = rows(c)
+
+    Agent.update(calls, fn state ->
+      Map.put(state, :read, fn _scope, event_id ->
+        send(test_pid, {:source_read_blocked, token, self()})
+
+        receive do
+          {:release_source_read, ^token} ->
+            {:ok,
+             %{
+               head: %{revision: 1, low_water: 0},
+               event: %{
+                 id: event_id,
+                 source_id: "events",
+                 correlation_id: wait.event_ticket,
+                 sequence: 1,
+                 schema_id: "result",
+                 schema_version: 1,
+                 payload: %{"accepted" => true}
+               }
+             }}
+        end
+      end)
+    end)
+
+    task =
+      Task.async(fn ->
+        RunEngine.input(engine, "cancel-race", input(wait, "race-event"), context(wait))
+      end)
+
+    assert_receive {:source_read_blocked, ^token, source_pid}
+    {:ok, owner} = Run.status(c.run, "run")
+
+    assert {:ok, _, _} =
+             Run.command(c.run, %{
+               kind: :cancel,
+               run_id: "run",
+               attempt_id: "attempt",
+               expected_revision: owner.revision
+             })
+
+    send(source_pid, {:release_source_read, token})
+    assert {:error, :invalid_correlation} = Task.await(task, 5_000)
+    assert rows(c) == before
+    assert Agent.get(calls, & &1.reads) == 1
+  end
+
+  defp wrap_unit_store(c, control) do
+    store = TestHistoryStore.new(c.postgres_unit_store, control)
+
+    %{
+      c
+      | store: store,
+        unit_opts: Keyword.put(c.unit_opts, :store, store),
+        opts: Keyword.put(c.opts, :store, store)
+    }
+  end
+
+  defp start_owned_tree(c, run_owner) do
+    {:ok, supervisor} = DynamicSupervisor.start_link(strategy: :one_for_one, max_children: 2)
+    Process.unlink(supervisor)
+    {:ok, task_supervisor} = Task.Supervisor.start_link()
+    Process.unlink(task_supervisor)
+
+    evidence_state = :sys.get_state(c.evidence)
+
+    {:ok, evidence_writer} =
+      Writer.start_link(
+        store: evidence_state.store,
+        stream: evidence_state.stream,
+        fold: evidence_state.fold,
+        limits: evidence_state.limits
+      )
+
+    Process.unlink(evidence_writer)
+
+    {:ok, async_work} =
+      AsyncWork.start_link(
+        owner: c.opts[:name],
+        task_supervisor: task_supervisor,
+        max_concurrency: 4
+      )
+
+    Process.unlink(async_work)
+
+    {:ok, directory} =
+      DynamicUnits.start_link(
+        registry: Elzoo.RunEngine.UnitRegistry,
+        supervisor: supervisor,
+        unit_options: fn _ -> c.unit_opts end,
+        idle_ms: 60_000
+      )
+
+    Process.unlink(directory)
+
+    engine_opts =
+      c.opts
+      |> Keyword.merge(
+        directory: directory,
+        async_work: async_work,
+        run_owner: run_owner
+      )
+      |> Keyword.put(:evidence, Map.put(c.opts[:evidence], :writer, evidence_writer))
+
+    {:ok, engine} = RunEngine.start_link(engine_opts)
+    Process.unlink(engine)
+    {:ok, unit} = DynamicUnits.find(directory, c.opts[:identity])
+    writer = :sys.get_state(unit).writer
+
+    %{
+      engine: engine,
+      directory: directory,
+      supervisor: supervisor,
+      task_supervisor: task_supervisor,
+      async_work: async_work,
+      unit: unit,
+      writer: writer,
+      evidence_writer: evidence_writer,
+      run_owner: run_owner
+    }
+  end
+
+  defp restart_run_owner(c) do
+    {:held, held} = Lease.hold(c.lease, c.held.live.key, c.held.owner)
+
+    {:ok, run_owner} =
+      Run.start_link(
+        store: c.run_store,
+        lease: c.lease,
+        held: held,
+        effect_intent: c.opts[:effect_intent]
+      )
+
+    Process.unlink(run_owner)
+    run_owner
+  end
+
+  defp stop_owned_tree(tree) do
+    tree
+    |> Map.values()
+    |> Enum.filter(&is_pid/1)
+    |> Enum.each(fn pid ->
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
+    end)
+  end
+
+  defp fence_tree(tree, extra) do
+    pids =
+      (Map.values(tree) ++ extra)
+      |> Enum.filter(&is_pid/1)
+      |> Enum.uniq()
+
+    monitors = Enum.map(pids, &{&1, Process.monitor(&1)})
+    Enum.each(pids, &Process.exit(&1, :kill))
+
+    Enum.each(monitors, fn {pid, reference} ->
+      assert_receive {:DOWN, ^reference, :process, ^pid, _reason}, 5_000
+    end)
+  end
+
+  defp stored_input_record(c, id) do
+    Enum.find_value(rows(c), fn
+      %{kind: "input", payload: payload} ->
+        case :erlang.binary_to_term(payload, [:safe]) do
+          {1, {^id, record}} -> record
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end) || flunk("missing durable input #{id}")
+  end
+
+  defp has_result_row?(rows, id) do
+    Enum.any?(rows, fn
+      %{kind: "result", payload: payload} ->
+        match?({1, {^id, _}}, :erlang.binary_to_term(payload, [:safe]))
+
+      _ ->
+        false
+    end)
   end
 
   defp start_unfed(source) do
