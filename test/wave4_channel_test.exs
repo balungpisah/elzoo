@@ -1,5 +1,72 @@
 Code.require_file("support/wave4_channel_helper.exs", __DIR__)
 
+defmodule Elzoo.Wave4ChannelTest.ReadProbe do
+  alias Elzoo.{DurableLog.Store, Outbox}
+
+  def attach(store) do
+    {:ok, observer} = Agent.start_link(fn -> %{calls: [], counts: %{}, transforms: %{}} end)
+    {{__MODULE__, %{store: store, observer: observer}}, observer}
+  end
+
+  def calls(observer), do: Agent.get(observer, &Enum.reverse(&1.calls))
+
+  def reset(observer),
+    do: Agent.update(observer, &%{&1 | calls: [], counts: %{}, transforms: %{}})
+
+  def transform(observer, operation, fun),
+    do: Agent.update(observer, &put_in(&1.transforms[operation], fun))
+
+  def rewrite_item(item, payload) do
+    rebuilt =
+      Outbox.new(item.stream, item.sequence, item.position, item.destination, payload, item.nonce)
+
+    Map.merge(item, Map.from_struct(rebuilt))
+  end
+
+  def capabilities({__MODULE__, state}) do
+    record(state.observer, :capabilities)
+    Store.read(state.store, :capabilities, [])
+  end
+
+  def head({__MODULE__, state}, stream) do
+    count = record(state.observer, :head)
+    result = Store.read(state.store, :head, [stream])
+    apply_transform(state.observer, :head, count, result)
+  end
+
+  def read({__MODULE__, state}, stream, from, limit) do
+    count = record(state.observer, :read)
+    result = Store.read(state.store, :read, [stream, from, limit])
+    apply_transform(state.observer, :read, count, result)
+  end
+
+  def read_ack({__MODULE__, state}, key) do
+    count = record(state.observer, :read_ack)
+    result = Store.read(state.store, :read_ack, [key])
+    apply_transform(state.observer, :read_ack, count, result)
+  end
+
+  defp record(observer, operation) do
+    Agent.get_and_update(observer, fn state ->
+      count = Map.get(state.counts, operation, 0) + 1
+
+      {count,
+       %{
+         state
+         | calls: [operation | state.calls],
+           counts: Map.put(state.counts, operation, count)
+       }}
+    end)
+  end
+
+  defp apply_transform(observer, operation, count, result) do
+    case Agent.get(observer, &Map.get(&1.transforms, operation)) do
+      fun when is_function(fun, 2) -> fun.(result, count)
+      _ -> result
+    end
+  end
+end
+
 defmodule Elzoo.Wave4ChannelTest do
   use ExUnit.Case, async: false
 
@@ -20,8 +87,657 @@ defmodule Elzoo.Wave4ChannelTest do
     :ok
   end
 
-  setup do
-    {:ok, fixture: Elzoo.Wave4ChannelTestHelper.fixture()}
+  setup context do
+    fixture =
+      if context[:reply_source],
+        do: Elzoo.Wave4ChannelTestHelper.reply_fixture(),
+        else: Elzoo.Wave4ChannelTestHelper.fixture()
+
+    {:ok, fixture: fixture}
+  end
+
+  @tag :reply_source
+  test "fixed reply source reads checked primary and reply evidence from PostgreSQL", %{
+    fixture: fixture
+  } do
+    profile =
+      fixture.profile
+      |> Map.merge(%{
+        tenant: String.duplicate("t", 128),
+        actor: String.duplicate("a", 128),
+        conversation_id: String.duplicate("c", 128),
+        source_id: String.duplicate("s", 128),
+        reply_source_id: String.duplicate("r", 128),
+        native_target: Wave4ChannelExample.NativeBindings.reply_target()
+      })
+
+    gates = %{input: fixture.gates.input, reply: fixture.gates.input}
+
+    assert {:ok, handles} =
+             Wave4ChannelExample.CommandBindings.build_reply(fixture.command_store, gates)
+
+    denied_gates = %{input: fn _, _ -> :deny end, reply: fixture.gates.input}
+
+    assert {:ok, denied_handles} =
+             Wave4ChannelExample.CommandBindings.build_reply(fixture.command_store, denied_gates)
+
+    event_id = "primary-webhook"
+    input_id = "primary-message"
+    run_id = Elzoo.Wave4ChannelTestHelper.run_id(profile, event_id, input_id)
+    primary_operation = Elzoo.Wave4ChannelTestHelper.input_operation(profile, event_id)
+
+    primary_facts =
+      {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]}
+
+    denied_operation = Elzoo.Wave4ChannelTestHelper.input_operation(profile, "denied-before-reply")
+
+    denied_request = %{
+      operation_id: denied_operation,
+      resource: profile.conversation_id,
+      expected_revision: 0,
+      payload: %{"message_id" => "denied-message", "text" => "denied"}
+    }
+
+    assert {:denied, {:gate, _}} =
+             execute_reply_command(
+               denied_handles.input,
+               profile,
+               denied_request,
+               primary_facts,
+               &Wave4ChannelExample.CommandBindings.prepare_reply_input/3
+             )
+
+    assert {:ok, %{revision: 0}} =
+             CheckedCommand.resource(
+               denied_handles.input,
+               Elzoo.Wave4ChannelTestHelper.scope(profile),
+               profile.conversation_id
+             )
+
+    assert {:denied, {:gate, _}} =
+             CheckedCommand.result(
+               handles.input,
+               %{tenant: profile.tenant, actor: profile.actor},
+               {profile.tenant, profile.actor, denied_operation}
+             )
+
+    assert {:ok, []} =
+             Elzoo.Wave4ChannelTestHelper.pending_outbox(%{fixture | profile: profile})
+
+    primary_request = %{
+      operation_id: primary_operation,
+      resource: profile.conversation_id,
+      expected_revision: 0,
+      payload: %{"message_id" => input_id, "text" => "question"}
+    }
+
+    assert {:completed, %{revision: 1}} =
+             execute_reply_command(
+               handles.input,
+               profile,
+               primary_request,
+               primary_facts,
+               &Wave4ChannelExample.CommandBindings.prepare_reply_input/3
+             )
+
+    assert {:ok, [primary_item]} =
+             Elzoo.Wave4ChannelTestHelper.pending_outbox(%{fixture | profile: profile})
+
+    assert byte_size(primary_item.idempotency_key) > 128
+
+    primary_association_facts =
+      {:record,
+       [
+         {"mode", {:text, "associate_run"}},
+         {"primary_key", {:text, primary_item.idempotency_key}},
+         {"run_id", {:text, run_id}}
+       ]}
+
+    primary_association = %{
+      operation_id:
+        Elzoo.Wave4ChannelTestHelper.association_operation_for(profile, primary_operation, input_id),
+      resource: profile.conversation_id,
+      expected_revision: 1,
+      payload: %{"message_id" => input_id}
+    }
+
+    assert {:completed, %{revision: 2}} =
+             execute_reply_command(
+               handles.association,
+               profile,
+               primary_association,
+               primary_association_facts,
+               &Wave4ChannelExample.CommandBindings.prepare_reply_association/3
+             )
+
+    reply_event_id = "reply-webhook"
+    reply_operation = Elzoo.Wave4ChannelTestHelper.reply_operation(profile, reply_event_id)
+    ticket = "native-ticket-1"
+    reply_facts = {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]}
+
+    reply_request = %{
+      operation_id: reply_operation,
+      resource: profile.conversation_id,
+      expected_revision: 2,
+      payload: %{"message_id" => ticket, "text" => "exact retained reply"}
+    }
+
+    assert {:completed, %{revision: 3}} =
+             execute_reply_command(
+               handles.reply_input,
+               profile,
+               reply_request,
+               reply_facts,
+               &Wave4ChannelExample.CommandBindings.prepare_reply_input/3
+             )
+
+    assert {:ok, [primary_item, reply_item]} =
+             Elzoo.Wave4ChannelTestHelper.pending_outbox(%{fixture | profile: profile})
+
+    assert byte_size(reply_item.idempotency_key) > 128
+
+    reply_association_facts =
+      {:record,
+       [
+         {"mode", {:text, "associate_run"}},
+         {"primary_key", {:text, primary_item.idempotency_key}},
+         {"reply_key", {:text, reply_item.idempotency_key}},
+         {"run_id", {:text, run_id}}
+       ]}
+
+    reply_association = %{
+      operation_id:
+        Elzoo.Wave4ChannelTestHelper.association_operation_for(profile, reply_operation, ticket),
+      resource: profile.conversation_id,
+      expected_revision: 3,
+      payload: %{"message_id" => ticket}
+    }
+
+    assert {:completed, %{revision: 4}} =
+             execute_reply_command(
+               handles.reply_association,
+               profile,
+               reply_association,
+               reply_association_facts,
+               &Wave4ChannelExample.CommandBindings.prepare_reply_association/3
+             )
+
+    assert {:completed, %{revision: 1, response: {:record, _}}} =
+             CheckedCommand.result(
+               handles.input,
+               %{tenant: profile.tenant, actor: profile.actor},
+               {profile.tenant, profile.actor, primary_operation}
+             )
+
+    assert {:completed, %{revision: 3, response: {:record, _}}} =
+             CheckedCommand.result(
+               handles.reply_input,
+               %{tenant: profile.tenant, actor: profile.actor},
+               {profile.tenant, profile.actor, reply_operation}
+             )
+
+    assert {:completed, %{revision: 2, response: {:record, _}}} =
+             CheckedCommand.result(
+               handles.association,
+               %{tenant: profile.tenant, actor: profile.actor},
+               {profile.tenant, profile.actor,
+                Elzoo.Wave4ChannelTestHelper.association_operation_for(
+                  profile,
+                  primary_operation,
+                  input_id
+                )}
+             )
+
+    assert {:completed, %{revision: 4, response: {:record, _}}} =
+             CheckedCommand.result(
+               handles.reply_association,
+               %{tenant: profile.tenant, actor: profile.actor},
+               {profile.tenant, profile.actor,
+                Elzoo.Wave4ChannelTestHelper.association_operation_for(
+                  profile,
+                  reply_operation,
+                  ticket
+                )}
+             )
+
+    scope = %{tenant: profile.tenant, principal: profile.actor, run_id: run_id}
+
+    assert {:ok, %{revision: 5, low_water: 0}} =
+             Elzoo.DurableLog.Store.read(
+               fixture.command_store,
+               :head,
+               [Elzoo.Wave4ChannelTestHelper.command_stream(profile.tenant)]
+             )
+
+    assert {:ok, rows, _} =
+             Elzoo.DurableLog.read(
+               fixture.command_store,
+               Elzoo.Wave4ChannelTestHelper.command_stream(profile.tenant),
+               1,
+               5
+             )
+
+    assert Enum.map(rows, & &1.sequence) == [1, 2, 3, 4, 5]
+
+    assert {:ok, snapshot} =
+             CheckedCommand.resource(
+               handles.input,
+               %{
+                 tenant: profile.tenant,
+                 actor: profile.actor,
+                 resources: [profile.conversation_id]
+               },
+               profile.conversation_id
+             )
+
+    assert {:ok, clean_snapshot} =
+             Wave4ChannelExample.CommandBindings.conversation_snapshot(snapshot, profile.tenant)
+
+    assert {:ok, view} =
+             Conversation.view(
+               clean_snapshot,
+               %{tenant: profile.tenant, actor: profile.actor, resources: [profile.conversation_id]}
+             )
+
+    assert Enum.any?(
+             view.messages,
+             &(&1.message_id == ticket and &1.text == "exact retained reply")
+           )
+
+    oversized_metadata =
+      {:record,
+       [
+         {"primary_key", {:text, primary_item.idempotency_key}},
+         {"reply_key", {:text, reply_item.idempotency_key}},
+         {"run_id", {:text, String.duplicate("r", 129)}},
+         {"version", {:text, "1"}}
+       ]}
+
+    assert {:error, :metadata} =
+             Wave4ChannelExample.CommandBindings.conversation_snapshot(
+               %{snapshot | fields: Map.put(snapshot.fields, "wave4_reply", oversized_metadata)},
+               profile.tenant
+             )
+
+    primary = %{
+      key: primary_item.idempotency_key,
+      operation_id: primary_operation,
+      input_id: input_id,
+      run_id: run_id
+    }
+
+    {probe_store, read_probe} =
+      Elzoo.Wave4ChannelTest.ReadProbe.attach(fixture.command_store)
+
+    on_exit(fn -> if Process.alive?(read_probe), do: Agent.stop(read_probe) end)
+
+    assert {:ok, %{head: head, event: event}} =
+             Elzoo.Wave4ChannelExample.ReplySource.read(
+               scope,
+               reply_item.idempotency_key,
+               profile,
+               run_id,
+               probe_store,
+               handles,
+               primary
+             )
+
+    assert head.revision == 5
+    assert reply_item.sequence == 4
+
+    assert Elzoo.Wave4ChannelTest.ReadProbe.calls(read_probe) ==
+             [:head, :capabilities, :read, :read_ack, :head]
+
+    assert event == %{
+             id: reply_item.idempotency_key,
+             source_id: profile.reply_source_id,
+             correlation_id: ticket,
+             sequence: reply_item.sequence,
+             schema_id: "message/v1",
+             schema_version: 1,
+             payload: %{"text" => "exact retained reply"}
+           }
+
+    stream = Elzoo.Wave4ChannelTestHelper.command_stream(profile.tenant)
+
+    assert {:rejected, :invalid_retention_range} =
+             Elzoo.DurableLog.Postgres.retain(fixture.command_store, stream, 0, 0, <<11::128>>)
+
+    retention_receipt = Elzoo.DurableLog.Codec.receipt(:retain, stream, 0, 0, <<12::128>>)
+    Elzoo.Wave4ChannelTest.ReadProbe.reset(read_probe)
+
+    Elzoo.Wave4ChannelTest.ReadProbe.transform(read_probe, :head, fn
+      {:ok, native_head}, _count ->
+        {:ok, Map.put(native_head, :last_retention, retention_receipt)}
+
+      result, _count ->
+        result
+    end)
+
+    Elzoo.Wave4ChannelTest.ReadProbe.transform(read_probe, :read, fn
+      {:ok, records, native_head}, _count ->
+        {:ok, records, Map.put(native_head, :last_retention, retention_receipt)}
+
+      result, _count ->
+        result
+    end)
+
+    assert {:ok, normalized_head} =
+             Elzoo.Wave4ChannelExample.ReplySource.head(scope, profile, run_id, probe_store)
+
+    assert normalized_head == %{revision: 5, low_water: 0}
+    assert Elzoo.Wave4ChannelTest.ReadProbe.calls(read_probe) == [:head]
+
+    assert {:ok, %{head: retained_head, event: ^event}} =
+             Elzoo.Wave4ChannelExample.ReplySource.read(
+               scope,
+               reply_item.idempotency_key,
+               profile,
+               run_id,
+               probe_store,
+               handles,
+               primary
+             )
+
+    assert retained_head == %{revision: 5, low_water: 0}
+
+    assert Elzoo.Wave4ChannelTest.ReadProbe.calls(read_probe) ==
+             [:head, :head, :capabilities, :read, :read_ack, :head]
+
+    Elzoo.Wave4ChannelTest.ReadProbe.reset(read_probe)
+
+    assert %{facts: facts} =
+             Wave4ChannelExample.NativeBindings.build(profile).bindings["wait_event"]
+
+    assert facts.(%{}).estimate == 0
+
+    assert Wave4ChannelExample.NativeBindings.build(profile).bindings["local_work"].facts.(%{}).estimate ==
+             1
+
+    future =
+      Outbox.new(
+        Elzoo.Wave4ChannelTestHelper.command_stream(profile.tenant),
+        6,
+        1,
+        "wave4-channel-reply",
+        "{}",
+        <<0::128>>
+      )
+
+    assert {:error, :not_found} =
+             Elzoo.Wave4ChannelExample.ReplySource.read(
+               scope,
+               future.idempotency_key,
+               profile,
+               run_id,
+               probe_store,
+               handles,
+               primary
+             )
+
+    non_event =
+      Outbox.new(
+        Elzoo.Wave4ChannelTestHelper.command_stream(profile.tenant),
+        3,
+        1,
+        "wave4-channel-reply",
+        "{}",
+        <<1::128>>
+      )
+
+    assert {:error, :not_found} =
+             Elzoo.Wave4ChannelExample.ReplySource.read(
+               scope,
+               non_event.idempotency_key,
+               profile,
+               run_id,
+               probe_store,
+               handles,
+               primary
+             )
+
+    assert {:error, :unavailable} =
+             Elzoo.Wave4ChannelExample.ReplySource.read(
+               scope,
+               reply_item.idempotency_key,
+               profile,
+               run_id,
+               probe_store,
+               handles,
+               %{primary | operation_id: "wrong-operation"}
+             )
+
+    for invalid_scope <- [Map.put(scope, :extra, true), %{scope | principal: "wrong-principal"}] do
+      Elzoo.Wave4ChannelTest.ReadProbe.reset(read_probe)
+      Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :inject, [:head, :unavailable])
+
+      assert {:error, :unavailable} =
+               Elzoo.Wave4ChannelExample.ReplySource.read(
+                 invalid_scope,
+                 reply_item.idempotency_key,
+                 profile,
+                 run_id,
+                 probe_store,
+                 handles,
+                 primary
+               )
+
+      assert Elzoo.Wave4ChannelTest.ReadProbe.calls(read_probe) == []
+
+      assert {:error, :unavailable} =
+               Elzoo.Wave4ChannelExample.ReplySource.head(
+                 scope,
+                 profile,
+                 run_id,
+                 probe_store
+               )
+
+      assert Elzoo.Wave4ChannelTest.ReadProbe.calls(read_probe) == [:head]
+    end
+
+    Elzoo.Wave4ChannelTest.ReadProbe.reset(read_probe)
+    Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :inject, [:head, :unavailable])
+
+    assert {:error, :unavailable} =
+             Elzoo.Wave4ChannelExample.ReplySource.read(
+               scope,
+               reply_item.idempotency_key,
+               profile,
+               run_id,
+               probe_store,
+               handles,
+               primary
+             )
+
+    assert Elzoo.Wave4ChannelTest.ReadProbe.calls(read_probe) == [:head]
+
+    Elzoo.Wave4ChannelTest.ReadProbe.reset(read_probe)
+
+    Elzoo.Wave4ChannelTest.ReadProbe.transform(read_probe, :head, fn
+      {:ok, head}, 2 -> {:ok, %{head | revision: head.revision + 1}}
+      result, _count -> result
+    end)
+
+    assert {:error, :unavailable} =
+             Elzoo.Wave4ChannelExample.ReplySource.read(
+               scope,
+               reply_item.idempotency_key,
+               profile,
+               run_id,
+               probe_store,
+               handles,
+               primary
+             )
+
+    assert Elzoo.Wave4ChannelTest.ReadProbe.calls(read_probe) ==
+             [:head, :capabilities, :read, :read_ack, :head]
+
+    for {name, mutate} <- [
+          {"item key", &Map.put(&1, :idempotency_key, "not-canonical")},
+          {"item nonce", &Map.put(&1, :nonce, <<0::128>>)},
+          {"item digest", &Map.put(&1, :digest, <<0::256>>)},
+          {"item destination", &Map.put(&1, :destination, "wrong-destination")}
+        ] do
+      Elzoo.Wave4ChannelTest.ReadProbe.reset(read_probe)
+      transform_reply_item(read_probe, reply_item.idempotency_key, mutate)
+
+      assert {:error, :unavailable} =
+               Elzoo.Wave4ChannelExample.ReplySource.read(
+                 scope,
+                 reply_item.idempotency_key,
+                 profile,
+                 run_id,
+                 probe_store,
+                 handles,
+                 primary
+               ),
+             name
+    end
+
+    for {name, mutate} <- [
+          {"extra notice field", &Map.put(&1, "extra", true)},
+          {"wrong notice resource", &Map.put(&1, "resource", "other-resource")},
+          {"wrong notice actor", &Map.put(&1, "actor", "other-actor")},
+          {"wrong notice tenant", &Map.put(&1, "tenant", "other-tenant")},
+          {"wrong notice operation", &Map.put(&1, "operation_id", "other-operation")}
+        ] do
+      Elzoo.Wave4ChannelTest.ReadProbe.reset(read_probe)
+
+      transform_reply_item(read_probe, reply_item.idempotency_key, fn item ->
+        rewrite_notice(item, mutate)
+      end)
+
+      assert {:error, :unavailable} =
+               Elzoo.Wave4ChannelExample.ReplySource.read(
+                 scope,
+                 reply_item.idempotency_key,
+                 profile,
+                 run_id,
+                 probe_store,
+                 handles,
+                 primary
+               ),
+             name
+    end
+
+    Elzoo.Wave4ChannelTest.ReadProbe.reset(read_probe)
+
+    transform_reply_item(read_probe, reply_item.idempotency_key, fn item ->
+      Elzoo.Wave4ChannelTest.ReadProbe.rewrite_item(item, "not-json")
+    end)
+
+    assert {:error, :unavailable} =
+             Elzoo.Wave4ChannelExample.ReplySource.read(
+               scope,
+               reply_item.idempotency_key,
+               profile,
+               run_id,
+               probe_store,
+               handles,
+               primary
+             )
+
+    Elzoo.Wave4ChannelTest.ReadProbe.reset(read_probe)
+
+    assert {:ok, %{head: valid_head, event: valid_event}} =
+             Elzoo.Wave4ChannelExample.ReplySource.read(
+               scope,
+               reply_item.idempotency_key,
+               profile,
+               run_id,
+               probe_store,
+               handles,
+               primary
+             )
+
+    assert valid_head == %{revision: 5, low_water: 0}
+    assert valid_event == event
+
+    Elzoo.Wave4ChannelTest.ReadProbe.reset(read_probe)
+    secondary_fixture = Elzoo.Wave4ChannelTestHelper.fixture()
+
+    assert {:ok, secondary_handles} =
+             Wave4ChannelExample.CommandBindings.build_reply(
+               secondary_fixture.command_store,
+               gates
+             )
+
+    mismatched_handles = %{handles | reply_association: secondary_handles.reply_association}
+
+    assert {:error, :unavailable} =
+             Elzoo.Wave4ChannelExample.ReplySource.read(
+               scope,
+               reply_item.idempotency_key,
+               profile,
+               run_id,
+               probe_store,
+               mismatched_handles,
+               primary
+             )
+
+    stream = Elzoo.Wave4ChannelTestHelper.command_stream(profile.tenant)
+    {:ok, gap_rows, gap_head} = Elzoo.DurableLog.read(fixture.command_store, stream, 1, 5)
+
+    fold = %{
+      initial: %{},
+      kinds: %{"checked_command" => :state_bearing},
+      versions: [1],
+      reduce: fn model, _, _, _ -> model end
+    }
+
+    replay = Elzoo.DurableLog.replay(gap_rows, gap_head, fold)
+
+    assert {:committed, 5} =
+             Elzoo.Checkpoint.take(
+               {fixture.command_store, replay, %{max_checkpoint_bytes: 1_048_576}},
+               stream,
+               1,
+               &:erlang.term_to_binary/1
+             )
+
+    assert {:committed, 1} =
+             Elzoo.DurableLog.Postgres.retain(fixture.command_store, stream, 0, 1, <<10::128>>)
+
+    assert {:error, :gap} =
+             Elzoo.Wave4ChannelExample.ReplySource.read(
+               scope,
+               reply_item.idempotency_key,
+               profile,
+               run_id,
+               fixture.command_store,
+               handles,
+               primary
+             )
+  end
+
+  defp transform_reply_item(observer, key, transform) do
+    Elzoo.Wave4ChannelTest.ReadProbe.transform(observer, :read_ack, fn
+      {:ok, item}, _count when item.idempotency_key == key -> {:ok, transform.(item)}
+      result, _count -> result
+    end)
+  end
+
+  defp rewrite_notice(item, transform) do
+    payload = item.payload |> Jason.decode!() |> transform.() |> Jason.encode!()
+    Elzoo.Wave4ChannelTest.ReadProbe.rewrite_item(item, payload)
+  end
+
+  defp execute_reply_command(handle, profile, request, data, prepare) do
+    scope = Elzoo.Wave4ChannelTestHelper.scope(profile)
+    assert {:ok, snapshot} = CheckedCommand.resource(handle, scope, profile.conversation_id)
+    facts = %{tenant: profile.tenant, actor: profile.actor, data: data}
+    assert {:ok, writes, _} = prepare.(snapshot, request, facts)
+
+    context = %{
+      tenant: profile.tenant,
+      actor: profile.actor,
+      policy: Elzoo.Wave4ChannelTestHelper.policy(),
+      own: writes,
+      parent: :none,
+      facts: data
+    }
+
+    CheckedCommand.execute(handle, context, request)
   end
 
   test "startup requires a unique compatible binding and the fixed ASCII profile", %{
@@ -4756,6 +5472,183 @@ defmodule Elzoo.Wave4ChannelTest do
         Process.sleep(1)
         wait_for_unit_supervisor_cleanup!(supervisor, deadline)
     end
+  end
+
+  test "reply profile activates a primary wait and keeps GET and reply intake read-only" do
+    {:ok, callbacks} = Agent.start_link(fn -> %{clock: 0, policy: 0, authority: 0} end)
+    on_exit(fn -> if Process.alive?(callbacks), do: Agent.stop(callbacks) end)
+
+    clock = fn ->
+      Agent.update(callbacks, &Map.update!(&1, :clock, fn count -> count + 1 end))
+      System.system_time(:millisecond)
+    end
+
+    policy = fn _mode, _event, _now ->
+      Agent.update(callbacks, &Map.update!(&1, :policy, fn count -> count + 1 end))
+      Elzoo.Wave4ChannelTestHelper.policy()
+    end
+
+    authority = fn _mode, _event, _request, _facts ->
+      Agent.update(callbacks, &Map.update!(&1, :authority, fn count -> count + 1 end))
+      %{}
+    end
+
+    fixture =
+      Elzoo.Wave4ChannelTestHelper.reply_fixture(
+        clock: clock,
+        policy: policy,
+        authority: authority
+      )
+
+    {primary_listener, reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
+    refute primary_listener.port == reply_listener.port
+    event = Elzoo.Wave4ChannelTestHelper.event(%{"event_id" => "reply-profile-primary"})
+
+    assert {:ok, {{_, 202, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(primary_listener, event)
+
+    assert {:observed, observed_input} = Elzoo.Wave4ChannelExample.advance(fixture.host)
+    assert observed_input == event["input_id"]
+    {source_store, source_probe} = Elzoo.Wave4ChannelTest.ReadProbe.attach(fixture.command_store)
+    :sys.replace_state(fixture.host, &%{&1 | command_store: source_store})
+
+    Enum.each(1..11, fn _ -> Elzoo.Wave4ChannelExample.advance(fixture.host) end)
+
+    primary_run =
+      Elzoo.Wave4ChannelTestHelper.run_id(
+        fixture.profile,
+        event["event_id"],
+        event["input_id"]
+      )
+
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+    assert {:ok, view} = Elzoo.Wave4ChannelExample.view(fixture.host, scope)
+    assert %{waits: [wait]} = view.event_waits
+    assert wait.status == :waiting
+    assert wait.source_id == fixture.profile.reply_source_id
+    assert byte_size(wait.correlation_id) in 1..128
+    assert Regex.match?(~r/\A[A-Za-z0-9._-]+\z/, wait.correlation_id)
+    assert is_list(wait.occurrence)
+    assert length(wait.occurrence) == 2
+
+    assert Enum.any?(view.associations, fn association ->
+             association.input_message_id == event["input_id"] and association.run_id == primary_run
+           end)
+
+    stream = checked_stream(fixture.profile.tenant)
+    {:ok, head_before} = Elzoo.DurableLog.Store.read(fixture.command_store, :head, [stream])
+
+    assert {:ok, [primary_item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert primary_item.destination == "wave4-channel-input"
+    assert primary_item.sequence == 1
+    assert {:ok, {^stream, 1, 1}} = Elzoo.Outbox.parse_id(primary_item.idempotency_key)
+
+    assert wait.cursor == head_before.revision
+
+    host_state = :sys.get_state(fixture.host)
+    assert {:ok, native_status} = Elzoo.RunEngine.status(host_state.engine)
+    assert [%{kind: "wait_event", phase: :waiting}] = Map.values(native_status.slots)
+    assert Task.Supervisor.children(fixture.native.task_supervisor) == []
+
+    native_engine_state = :sys.get_state(host_state.engine)
+    assert [native_wait_slot] = Map.values(native_engine_state.state.slots)
+    assert native_wait_slot.kind == "wait_event"
+    assert native_wait_slot.phase == :waiting
+    assert native_wait_slot.reservation == nil
+    assert native_wait_slot.actual == 0
+
+    budget = native_engine_state.state.control.budgets["root"]
+
+    {:Transition, _, {:some, {:status, budget_status}}} =
+      Elzoo.Budget.step(budget.state, {System.system_time(:millisecond), :status})
+
+    assert budget_status.committed == 0
+    assert budget_status.reserved == 0
+
+    assert %{facts: wait_facts} =
+             Elzoo.Wave4ChannelExample.NativeBindings.build(fixture.profile).bindings["wait_event"]
+
+    assert wait_facts.(%{}).estimate == 0
+
+    {:ok, resource_before} =
+      Elzoo.CheckedCommand.resource(
+        fixture.handles.input,
+        %{
+          tenant: fixture.profile.tenant,
+          actor: fixture.profile.actor,
+          resources: [fixture.profile.conversation_id]
+        },
+        fixture.profile.conversation_id
+      )
+
+    callbacks_before_get = Agent.get(callbacks, & &1)
+    Elzoo.Wave4ChannelTest.ReadProbe.reset(source_probe)
+    trace_native_hash(fixture.native.task_supervisor)
+    trace_engine_input(fixture.host)
+    host_engine_before_get = host_state.engine
+    native_tasks_before_get = Task.Supervisor.children(fixture.native.task_supervisor)
+
+    assert {:ok, {{_, 200, _}, _, first_body}} =
+             Elzoo.Wave4ChannelTestHelper.get(primary_listener, fixture.profile.conversation_id)
+
+    assert {:ok, {{_, 200, _}, _, second_body}} =
+             Elzoo.Wave4ChannelTestHelper.get(reply_listener, fixture.profile.conversation_id)
+
+    assert Jason.decode!(first_body) == Jason.decode!(second_body)
+
+    assert wait.occurrence ==
+             Jason.decode!(first_body)["view"]["event_waits"]["waits"]
+             |> hd()
+             |> Map.fetch!("occurrence")
+
+    assert Agent.get(callbacks, & &1) == callbacks_before_get
+    assert Elzoo.Wave4ChannelTest.ReadProbe.calls(source_probe) == []
+    assert take_hash_calls() == []
+    assert take_engine_input_ids() == []
+    assert Task.Supervisor.children(fixture.native.task_supervisor) == native_tasks_before_get
+    assert :sys.get_state(fixture.host).engine == host_engine_before_get
+
+    assert {:ok, ^head_before} = Elzoo.DurableLog.Store.read(fixture.command_store, :head, [stream])
+
+    assert {:ok, ^resource_before} =
+             Elzoo.CheckedCommand.resource(
+               fixture.handles.input,
+               %{
+                 tenant: fixture.profile.tenant,
+                 actor: fixture.profile.actor,
+                 resources: [fixture.profile.conversation_id]
+               },
+               fixture.profile.conversation_id
+             )
+
+    reply_event = Elzoo.Wave4ChannelTestHelper.event(%{"event_id" => "reply-profile-refused-reply"})
+
+    assert {:ok, {{_, 503, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(reply_listener, reply_event)
+
+    assert {:ok, ^head_before} = Elzoo.DurableLog.Store.read(fixture.command_store, :head, [stream])
+
+    assert {:ok, ^resource_before} =
+             Elzoo.CheckedCommand.resource(
+               fixture.handles.input,
+               %{
+                 tenant: fixture.profile.tenant,
+                 actor: fixture.profile.actor,
+                 resources: [fixture.profile.conversation_id]
+               },
+               fixture.profile.conversation_id
+             )
+
+    mismatched_profile =
+      Map.put(fixture.profile, :native_target, Elzoo.Wave4ChannelExample.NativeBindings.target())
+
+    assert {:stop, :invalid_options} =
+             Task.async(fn ->
+               Elzoo.Wave4ChannelExample.init(
+                 Keyword.put(fixture.host_options, :profile, mismatched_profile)
+               )
+             end)
+             |> Task.await()
   end
 
   defp expected_answer(event),

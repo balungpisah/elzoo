@@ -13,8 +13,10 @@ defmodule Elzoo.Wave4ChannelTestHelper do
   @tenant "channel-tenant"
   @actor "channel-actor"
   @source "channel-source"
+  @reply_source "channel-reply-source"
   @conversation "channel-conversation"
   @signing_key String.duplicate("k", 32)
+  @reply_signing_key String.duplicate("r", 32)
 
   def start_database!, do: Elzoo.RunEngine.TestHelper.database()
 
@@ -30,12 +32,17 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     Process.unlink(controller)
     {:ok, native_controller} = PostgresHarness.start_link([])
     Process.unlink(native_controller)
+    reply_profile? = Keyword.get(options, :reply_profile, false)
 
     command_fold = %{
       initial: %{},
       kinds: %{"checked_command" => :state_bearing},
       versions: [1],
-      destinations: ["wave4-channel-input"],
+      destinations:
+        if(reply_profile?,
+          do: ["wave4-channel-input", "wave4-channel-reply"],
+          else: ["wave4-channel-input"]
+        ),
       reduce: fn model, _, _, _ -> model end
     }
 
@@ -48,14 +55,28 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     command_store =
       PostgresHarness.attach(TestRepo, prefix, command_fold, command_limits, controller)
 
-    gates =
-      Keyword.get(options, :gates, %{
-        input: fn _frame, _context -> :allow end,
-        association: fn _frame, _context -> :allow end,
-        answer: fn _frame, _context -> :allow end
-      })
+    default_gates = %{
+      input: fn _frame, _context -> :allow end,
+      association: fn _frame, _context -> :allow end,
+      answer: fn _frame, _context -> :allow end
+    }
 
-    {:ok, handles} = Elzoo.Wave4ChannelExample.CommandBindings.build(command_store, gates)
+    default_gates =
+      if reply_profile?,
+        do: Map.put(default_gates, :reply, fn _frame, _context -> :allow end),
+        else: default_gates
+
+    gates = Keyword.get(options, :gates, default_gates)
+
+    gates =
+      if reply_profile? and is_map(gates) and not Map.has_key?(gates, :reply),
+        do: Map.put(gates, :reply, fn _frame, _context -> :allow end),
+        else: gates
+
+    {:ok, handles} =
+      if reply_profile?,
+        do: Elzoo.Wave4ChannelExample.CommandBindings.build_reply(command_store, gates),
+        else: Elzoo.Wave4ChannelExample.CommandBindings.build(command_store, gates)
 
     run_store =
       PostgresHarness.attach(
@@ -90,7 +111,9 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     now = Keyword.get(options, :clock, fn -> System.system_time(:millisecond) end)
 
     unit_opts = [
-      operator: {Elzoo.RunEngine, :step, %{version: 1, control: nil, slots: %{}, requests: %{}}},
+      operator:
+        {Elzoo.RunEngine, :step,
+         %{version: if(reply_profile?, do: 2, else: 1), control: nil, slots: %{}, requests: %{}}},
       retention_count: 1_024,
       max_record_bytes: 16_777_216,
       max_checkpoint_bytes: 33_554_432
@@ -145,7 +168,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     evidence_store =
       PostgresHarness.attach(TestRepo, prefix, evidence_fold, evidence_limits, native_controller)
 
-    profile =
+    base_profile =
       Map.merge(
         %{
           tenant: @tenant,
@@ -153,10 +176,19 @@ defmodule Elzoo.Wave4ChannelTestHelper do
           conversation_id: @conversation,
           source_id: @source,
           deadline_ms: Keyword.get(options, :deadline_ms, now.() + 120_000),
-          native_target: Elzoo.Wave4ChannelExample.NativeBindings.target()
+          native_target:
+            if(reply_profile?,
+              do: Elzoo.Wave4ChannelExample.NativeBindings.reply_target(),
+              else: Elzoo.Wave4ChannelExample.NativeBindings.target()
+            )
         },
         Keyword.get(options, :profile_overrides, %{})
       )
+
+    profile =
+      if reply_profile?,
+        do: Map.put_new(base_profile, :reply_source_id, @reply_source),
+        else: base_profile
 
     native = %{
       run_owner: owner,
@@ -229,10 +261,14 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     fixture
   end
 
+  def reply_fixture(options \\ []), do: fixture(Keyword.put(options, :reply_profile, true))
+
   def listener!(fixture, options \\ []) do
     ref = make_ref()
     profile = fixture.profile
     host = Keyword.get(options, :host, fixture.host)
+    source_id = Keyword.get(options, :source_id, profile.source_id)
+    signing_key = Keyword.get(options, :signing_key, @signing_key)
 
     webhook_principal =
       Keyword.get(options, :webhook_principal, fn _conn -> {:ok, scope(profile)} end)
@@ -241,11 +277,14 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       Keyword.get(options, :principal, fn _conn -> {:ok, scope(profile)} end)
 
     webhook = [
-      source_id: profile.source_id,
-      key: Keyword.get(options, :key, fn -> {:ok, @signing_key} end),
+      source_id: source_id,
+      key: Keyword.get(options, :key, fn -> {:ok, signing_key} end),
       clock: fn -> System.system_time(:second) end,
       principal: webhook_principal,
-      admit: fn event, trusted -> Elzoo.Wave4ChannelExample.admit(host, event, trusted) end
+      admit:
+        Keyword.get(options, :admit, fn event, trusted ->
+          Elzoo.Wave4ChannelExample.admit(host, event, trusted)
+        end)
     ]
 
     router_options = [
@@ -265,7 +304,29 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     Process.unlink(pid)
     port = :ranch.get_port(ref)
     ExUnit.Callbacks.on_exit(fn -> Plug.Cowboy.shutdown(ref) end)
-    %{port: port, url: "http://127.0.0.1:#{port}", ref: ref}
+
+    %{
+      port: port,
+      url: "http://127.0.0.1:#{port}",
+      ref: ref,
+      source_id: source_id,
+      signing_key: signing_key
+    }
+  end
+
+  def reply_listeners!(fixture) do
+    primary = listener!(fixture)
+
+    reply =
+      listener!(fixture,
+        source_id: fixture.profile.reply_source_id,
+        signing_key: @reply_signing_key,
+        admit: fn event, trusted ->
+          Elzoo.Wave4ChannelExample.admit_reply(fixture.host, event, trusted)
+        end
+      )
+
+    {primary, reply}
   end
 
   def post(listener, event, options \\ []) do
@@ -273,13 +334,19 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     timestamp = Keyword.get(options, :timestamp, Integer.to_string(System.system_time(:second)))
     path = Keyword.get(options, :path, "/elzoo/v1/messages")
     method = Keyword.get(options, :method, :post)
-    frame = "elzoo-webhook-v1\n#{@source}\nPOST\n/elzoo/v1/messages\n#{timestamp}\n#{body}"
+
+    frame =
+      "elzoo-webhook-v1\n#{listener.source_id}\nPOST\n/elzoo/v1/messages\n#{timestamp}\n#{body}"
 
     signature =
       Keyword.get(
         options,
         :signature,
-        "v1=" <> Base.encode16(:crypto.mac(:hmac, :sha256, @signing_key, frame), case: :lower)
+        "v1=" <>
+          Base.encode16(
+            :crypto.mac(:hmac, :sha256, listener.signing_key, frame),
+            case: :lower
+          )
       )
 
     headers = [
@@ -505,16 +572,21 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       profile.actor,
       operation,
       input_id,
-      Elzoo.Wave4ChannelExample.NativeBindings.target()
+      profile.native_target
     ])
   end
 
-  def input_operation(profile, event_id), do: stable_id("input", [profile.source_id, event_id])
+  def input_operation(profile, event_id), do: input_operation_for(profile.source_id, event_id)
+  def reply_operation(profile, event_id), do: input_operation_for(profile.reply_source_id, event_id)
+  def input_operation_for(source_id, event_id), do: stable_id("input", [source_id, event_id])
 
   def association_operation(profile, event_id, input_id) do
     operation = input_operation(profile, event_id)
-    stable_id("association", [profile.tenant, profile.actor, operation, input_id])
+    association_operation_for(profile, operation, input_id)
   end
+
+  def association_operation_for(profile, operation, input_id),
+    do: stable_id("association", [profile.tenant, profile.actor, operation, input_id])
 
   def answer_operation(profile, event_id, input_id) do
     operation = input_operation(profile, event_id)
@@ -559,7 +631,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       "schema_id" => "elzoo.message/v1",
       "schema_version" => 1,
       "enabled" => true,
-      "target" => Elzoo.Wave4ChannelExample.NativeBindings.target()
+      "target" => profile.native_target
     }
   end
 

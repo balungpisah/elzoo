@@ -25,10 +25,21 @@ defmodule Elzoo.Wave4ChannelExample do
   def admit(host, event, trusted_scope),
     do: GenServer.call(host, {:admit, event, trusted_scope}, 65_000)
 
+  def admit_reply(host, event, trusted_scope),
+    do: GenServer.call(host, {:admit_reply, event, trusted_scope}, 65_000)
+
   def advance(host), do: GenServer.call(host, :advance, 65_000)
 
   def release(host, event, trusted_scope, command_purpose_evidence),
     do: GenServer.call(host, {:release, event, trusted_scope, command_purpose_evidence}, 65_000)
+
+  def release_reply(host, event, trusted_scope, command_purpose_evidence),
+    do:
+      GenServer.call(
+        host,
+        {:release_reply, event, trusted_scope, command_purpose_evidence},
+        65_000
+      )
 
   def view(host, trusted_scope), do: GenServer.call(host, {:view, trusted_scope}, 65_000)
 
@@ -39,7 +50,7 @@ defmodule Elzoo.Wave4ChannelExample do
     with {:ok, profile} <- profile(Keyword.fetch!(opts, :profile)),
          {:ok, target} <- select_target(profile, Keyword.fetch!(opts, :bindings)),
          handles when is_map(handles) <- Keyword.fetch!(opts, :handles),
-         true <- handles?(handles),
+         true <- handles?(handles, profile),
          {:ok, native} <- native(Keyword.fetch!(opts, :native), profile, target),
          authority when is_function(authority, 4) <- Keyword.fetch!(opts, :authority),
          policy when is_function(policy, 3) <- Keyword.fetch!(opts, :policy),
@@ -57,6 +68,9 @@ defmodule Elzoo.Wave4ChannelExample do
          clock: clock,
          phase: :idle,
          current: nil,
+         reply: nil,
+         latest_run: nil,
+         ambiguous_reply: false,
          approval: nil,
          engine: nil,
          engine_ref: nil,
@@ -65,6 +79,7 @@ defmodule Elzoo.Wave4ChannelExample do
          writer: nil,
          writer_ref: nil,
          poison: nil,
+         native_wait: nil,
          completed: %{}
        }}
     else
@@ -80,6 +95,11 @@ defmodule Elzoo.Wave4ChannelExample do
     {:reply, reply, state}
   end
 
+  def handle_call({:admit_reply, event, trusted_scope}, _from, state) do
+    {reply, state} = admit_reply_event(state, event, trusted_scope)
+    {:reply, reply, state}
+  end
+
   def handle_call(:advance, _from, state) do
     {reply, state} = advance_once(state)
     {:reply, reply, state}
@@ -90,9 +110,20 @@ defmodule Elzoo.Wave4ChannelExample do
     {:reply, reply, state}
   end
 
+  def handle_call({:release_reply, event, trusted_scope, evidence}, _from, state) do
+    {reply, state} = release_reply_event(state, event, trusted_scope, evidence)
+    {:reply, reply, state}
+  end
+
   def handle_call({:view, trusted_scope}, _from, state) do
     {:reply, read_view(state, trusted_scope), state}
   end
+
+  defp admit_reply_event(state, _event, _trusted_scope),
+    do: {{:error, :unavailable}, state}
+
+  defp release_reply_event(state, _event, _trusted_scope, _evidence),
+    do: {{:error, :unavailable}, state}
 
   @impl true
   def handle_info({:DOWN, reference, :process, pid, reason}, state) do
@@ -169,6 +200,14 @@ defmodule Elzoo.Wave4ChannelExample do
   defp existing_or_capacity(_state, _event, _operation_id, _retained), do: {:ok, :replay}
 
   defp capacity?(state, event, operation_id) do
+    if reply_profile?(state.profile) do
+      reply_capacity?(state, event, operation_id)
+    else
+      capacity_v1?(state, event, operation_id)
+    end
+  end
+
+  defp capacity_v1?(state, event, operation_id) do
     request = input_request(event, operation_id)
     facts = input_facts()
 
@@ -192,6 +231,157 @@ defmodule Elzoo.Wave4ChannelExample do
     else
       _ -> {:error, :unknown}
     end
+  end
+
+  defp reply_capacity?(state, event, operation_id) do
+    stream = checked_stream(state.profile.tenant)
+    run_id = run_id(event, operation_id, state)
+    primary_key = projected_command_key(state.profile, operation_id, 4095, "wave4-channel-input")
+    reply_key = projected_reply_key(state.profile, operation_id)
+
+    with {:ok, head} <- Elzoo.DurableLog.Store.read(state.command_store, :head, [stream]),
+         true <- fresh_projection_head?(head),
+         {:ok, snapshot} <-
+           CheckedCommand.resource(
+             state.handles.input,
+             resource_scope(state.profile),
+             event.conversation_id
+           ),
+         {:ok, input_writes, _} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
+             snapshot,
+             input_request(event, operation_id),
+             prepare_facts(state.profile, input_facts())
+           ),
+         input_snapshot <- apply_writes(snapshot, input_writes),
+         true <- resource_snapshot_fits?(input_snapshot),
+         {:ok, conversation_snapshot} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
+             input_snapshot,
+             state.profile.tenant
+           ),
+         {:ok, conversation} <-
+           Conversation.view(conversation_snapshot, resource_scope(state.profile)),
+         {:ok, reply_id} <- projected_reply_id(conversation.messages, operation_id),
+         reply_operation <- stable_id("reply-input-projection", [operation_id, reply_id]),
+         primary_association_request <-
+           command_request(
+             state.profile,
+             event.conversation_id,
+             input_snapshot.revision,
+             association_operation(operation_id, event.input_id, state.profile),
+             %{"message_id" => event.input_id}
+           ),
+         primary_association_facts <-
+           reply_primary_association_facts(run_id, primary_key),
+         {:ok, primary_association_writes, _} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_association(
+             input_snapshot,
+             primary_association_request,
+             prepare_facts(state.profile, primary_association_facts)
+           ),
+         primary_snapshot <- apply_writes(input_snapshot, primary_association_writes),
+         true <- resource_snapshot_fits?(primary_snapshot),
+         reply_request <-
+           command_request(
+             state.profile,
+             event.conversation_id,
+             primary_snapshot.revision,
+             reply_operation,
+             %{"message_id" => reply_id, "text" => String.duplicate("x", 4096)}
+           ),
+         {:ok, reply_writes, _} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
+             primary_snapshot,
+             reply_request,
+             prepare_facts(state.profile, input_facts())
+           ),
+         reply_snapshot <- apply_writes(primary_snapshot, reply_writes),
+         true <- resource_snapshot_fits?(reply_snapshot),
+         reply_association_request <-
+           command_request(
+             state.profile,
+             event.conversation_id,
+             reply_snapshot.revision,
+             association_operation(reply_operation, reply_id, state.profile),
+             %{"message_id" => reply_id}
+           ),
+         {:ok, reply_association_writes, _} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_association(
+             reply_snapshot,
+             reply_association_request,
+             prepare_facts(
+               state.profile,
+               reply_association_facts(run_id, primary_key, reply_key)
+             )
+           ),
+         reply_associated_snapshot <- apply_writes(reply_snapshot, reply_association_writes),
+         true <- resource_snapshot_fits?(reply_associated_snapshot),
+         answer_request <-
+           command_request(
+             state.profile,
+             event.conversation_id,
+             reply_associated_snapshot.revision,
+             answer_operation(operation_id, event.input_id, state.profile),
+             %{"message_id" => answer_id(event.input_id), "text" => String.duplicate("x", 71)}
+           ),
+         {:ok, answer_writes, _} <-
+           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_answer(
+             reply_associated_snapshot,
+             answer_request,
+             prepare_facts(state.profile, answer_facts(run_id, event.input_id, true))
+           ),
+         answer_snapshot <- apply_writes(reply_associated_snapshot, answer_writes),
+         true <- resource_snapshot_fits?(answer_snapshot),
+         {:ok, after_head} <- Elzoo.DurableLog.Store.read(state.command_store, :head, [stream]),
+         true <- stable_projection_heads?(head, after_head) do
+      {:ok, :new}
+    else
+      false -> {:ok, :capacity}
+      {:refused, _} -> {:ok, :capacity}
+      _ -> {:error, :unknown}
+    end
+  rescue
+    _ -> {:error, :unknown}
+  end
+
+  defp fresh_projection_head?(%{revision: revision, low_water: 0})
+       when is_integer(revision) and revision in 0..1017,
+       do: true
+
+  defp fresh_projection_head?(_), do: false
+
+  defp stable_projection_heads?(before, after_head) do
+    Map.drop(before, [:capabilities]) == Map.drop(after_head, [:capabilities])
+  end
+
+  defp projected_reply_id(messages, operation_id) do
+    retained_ids = MapSet.new(messages, & &1.message_id)
+
+    case Enum.find_value(0..4095, fn candidate ->
+           digest =
+             :crypto.hash(
+               :sha256,
+               :erlang.term_to_binary({:reply_projection, operation_id, candidate})
+             )
+
+           id =
+             ("projection-" <> Base.url_encode64(digest, padding: false))
+             |> String.pad_trailing(128, "x")
+
+           if MapSet.member?(retained_ids, id), do: nil, else: id
+         end) do
+      nil -> {:error, :projection_id}
+      id -> {:ok, id}
+    end
+  end
+
+  defp projected_command_key(profile, operation_id, sequence, destination) do
+    nonce =
+      :crypto.hash(:sha256, :erlang.term_to_binary({profile.tenant, operation_id, sequence}))
+      |> binary_part(0, 16)
+
+    Elzoo.Outbox.new(checked_stream(profile.tenant), sequence, 1, destination, "{}", nonce).idempotency_key
   end
 
   defp capacity_after_input(state, event, operation_id, snapshot, input_snapshot) do
@@ -664,7 +854,12 @@ defmodule Elzoo.Wave4ChannelExample do
         %{"message_id" => c.input_id}
       )
 
-    facts = association_facts(c.run_id)
+    facts =
+      if reply_profile?(state.profile) do
+        reply_primary_association_facts(c.run_id, c.item.key)
+      else
+        association_facts(c.run_id)
+      end
 
     result = execute_checked(state, :association, c.event, request, facts)
     classify_association(state, c, result)
@@ -1018,8 +1213,7 @@ defmodule Elzoo.Wave4ChannelExample do
         {{:unknown, :engine_start}, %{state | poison: {:engine_start, reason}}}
 
       {:error, state, cleanup_reason} ->
-        {{:unknown, :engine_start},
-         %{state | poison: {:engine_start, {reason, cleanup_reason}}}}
+        {{:unknown, :engine_start}, %{state | poison: {:engine_start, {reason, cleanup_reason}}}}
     end
   end
 
@@ -1062,7 +1256,11 @@ defmodule Elzoo.Wave4ChannelExample do
     c = state.current
     id = native_input_id(c.run_id, state)
 
-    input = %{"type" => "input", "version" => 1, "kind" => "wake"}
+    input = %{
+      "type" => "input",
+      "version" => if(reply_profile?(state.profile), do: 2, else: 1),
+      "kind" => "wake"
+    }
 
     context = %{run_id: c.run_id, attempt_id: attempt_id(c.run_id, state)}
 
@@ -1128,7 +1326,18 @@ defmodule Elzoo.Wave4ChannelExample do
         end
 
       {:pending, reason} ->
-        {{:pending, reason}, state}
+        if reply_profile?(state.profile) do
+          case native_event_waits(state) do
+            {:ok, %{waits: [wait]}}
+            when wait.status == :waiting and wait.source_id == state.profile.reply_source_id ->
+              {{:pending, :event_waiting}, %{state | native_wait: wait}}
+
+            _ ->
+              {{:pending, reason}, state}
+          end
+        else
+          {{:pending, reason}, state}
+        end
 
       {:terminal, outcome} when outcome in [:failed, :cancelled, :out_of_budget, :out_of_time] ->
         current = Map.put(c, :terminal, outcome)
@@ -1500,8 +1709,41 @@ defmodule Elzoo.Wave4ChannelExample do
              resource_scope(state.profile),
              state.profile.conversation_id
            ) do
+      prepared =
+        if reply_profile?(state.profile) do
+          prepared_facts = prepare_facts(state.profile, facts)
+
+          case mode do
+            :input ->
+              Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
+                snapshot,
+                request,
+                prepared_facts
+              )
+
+            :association ->
+              Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_association(
+                snapshot,
+                request,
+                prepared_facts
+              )
+
+            :answer ->
+              Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_answer(
+                snapshot,
+                request,
+                prepared_facts
+              )
+
+            _ ->
+              Conversation.prepare(snapshot, request, prepared_facts)
+          end
+        else
+          Conversation.prepare(snapshot, request, prepare_facts(state.profile, facts))
+        end
+
       writes =
-        case Conversation.prepare(snapshot, request, prepare_facts(state.profile, facts)) do
+        case prepared do
           {:ok, writes, _} -> writes
           _ -> []
         end
@@ -1534,8 +1776,10 @@ defmodule Elzoo.Wave4ChannelExample do
 
         with {:ok, snapshot} <-
                CheckedCommand.resource(state.handles.input, scope, state.profile.conversation_id),
-             {:ok, conversation} <- Conversation.view(snapshot, scope),
+             {:ok, conversation_snapshot} <- read_conversation_snapshot(snapshot, state.profile),
+             {:ok, conversation} <- Conversation.view(conversation_snapshot, scope),
              {:ok, summaries} <- run_summaries(state, conversation.associations),
+             {:ok, event_waits} <- native_event_waits_view(state, snapshot),
              view <- %{
                tenant: state.profile.tenant,
                resource: state.profile.conversation_id,
@@ -1544,6 +1788,11 @@ defmodule Elzoo.Wave4ChannelExample do
                associations: conversation.associations,
                runs: summaries
              },
+             view <-
+               if(reply_profile?(state.profile),
+                 do: Map.put(view, :event_waits, event_waits),
+                 else: view
+               ),
              {:ok, response} <- Jason.encode(%{status: "ok", view: view}),
              true <- byte_size(response) <= @max_view_bytes do
           {:ok, view}
@@ -1551,6 +1800,107 @@ defmodule Elzoo.Wave4ChannelExample do
           _ -> {:error, :unavailable}
         end
     end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  defp read_conversation_snapshot(snapshot, profile) do
+    if reply_profile?(profile),
+      do:
+        Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
+          snapshot,
+          profile.tenant
+        ),
+      else: {:ok, snapshot}
+  end
+
+  defp native_event_waits_view(%{profile: profile} = state, snapshot) do
+    metadata_present? = Map.has_key?(snapshot.fields, "wave4_reply")
+
+    cond do
+      not reply_profile?(profile) ->
+        {:ok, nil}
+
+      not is_nil(state.native_wait) ->
+        native_event_waits_for_live_reader(state, metadata_present?)
+
+      known_pre_native?(state) and
+          (not metadata_present? or pre_native_metadata_matches?(snapshot, state.current)) ->
+        {:ok, nil}
+
+      true ->
+        {:error, :unavailable}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  defp native_event_waits_for_live_reader(
+         %{current: %{run_id: run_id}, engine: engine, native_wait: native_wait} = state,
+         true
+       )
+       when is_pid(engine) do
+    if Process.alive?(engine) and is_nil(state.poison) do
+      scope = %{tenant: state.profile.tenant, principal: state.profile.actor, run_id: run_id}
+
+      case RunEngine.event_waits(engine, scope, @result_limits) do
+        {:ok, %{waits: [wait]} = waits}
+        when wait.status == :waiting and wait.correlation_id == native_wait.correlation_id and
+               wait.source_id == state.profile.reply_source_id ->
+          {:ok,
+           Map.update!(waits, :waits, fn entries ->
+             Enum.map(entries, fn item ->
+               Map.update!(item, :occurrence, &Tuple.to_list/1)
+             end)
+           end)}
+
+        _ ->
+          {:error, :unavailable}
+      end
+    else
+      {:error, :unavailable}
+    end
+  end
+
+  defp native_event_waits_for_live_reader(_, _), do: {:error, :unavailable}
+
+  defp known_pre_native?(%{engine: nil, native_wait: nil, poison: nil, current: nil, phase: phase}),
+    do: phase in [:idle, :observe, :associate, :create_run, :begin_attempt, :start_engine]
+
+  defp known_pre_native?(%{
+         engine: nil,
+         native_wait: nil,
+         poison: nil,
+         current: current,
+         phase: phase
+       })
+       when is_map(current),
+       do: phase in [:associate, :create_run, :begin_attempt, :start_engine]
+
+  defp known_pre_native?(_), do: false
+
+  defp pre_native_metadata_matches?(snapshot, %{run_id: run_id, item: %{key: primary_key}}) do
+    case Map.get(snapshot.fields, "wave4_reply") do
+      {:record, fields} ->
+        List.keyfind(fields, "run_id", 0) == {"run_id", {:text, run_id}} and
+          List.keyfind(fields, "primary_key", 0) == {"primary_key", {:text, primary_key}} and
+          is_nil(List.keyfind(fields, "reply_key", 0))
+
+      _ ->
+        false
+    end
+  end
+
+  defp pre_native_metadata_matches?(_, _), do: false
+
+  defp native_event_waits(state) do
+    c = state.current
+    scope = %{tenant: state.profile.tenant, principal: state.profile.actor, run_id: c.run_id}
+    RunEngine.event_waits(state.engine, scope, @result_limits)
   rescue
     _ -> {:error, :unavailable}
   catch
@@ -1616,14 +1966,23 @@ defmodule Elzoo.Wave4ChannelExample do
         state.current.run_id == run_id
 
   defp profile(profile) when is_map(profile) and not is_struct(profile) do
-    required = [:tenant, :actor, :conversation_id, :source_id, :deadline_ms, :native_target]
+    base = [:tenant, :actor, :conversation_id, :source_id, :deadline_ms, :native_target]
+    immediate? = Enum.sort(Map.keys(profile)) == Enum.sort(base)
+    reply? = Enum.sort(Map.keys(profile)) == Enum.sort(base ++ [:reply_source_id])
 
-    if Enum.sort(Map.keys(profile)) == Enum.sort(required) and
+    valid_target? =
+      (immediate? and profile.native_target == Elzoo.Wave4ChannelExample.NativeBindings.target()) or
+        (reply? and
+           profile.native_target == Elzoo.Wave4ChannelExample.NativeBindings.reply_target())
+
+    valid_reply_source? =
+      not reply? or
+        (bounded_text?(profile.reply_source_id) and profile.reply_source_id != profile.source_id)
+
+    if (immediate? or reply?) and valid_target? and valid_reply_source? and
          Enum.all?([profile.tenant, profile.actor, profile.source_id], &bounded_text?/1) and
-         bounded_ascii?(profile.conversation_id) and
-         profile.native_target == Elzoo.Wave4ChannelExample.NativeBindings.target() and
-         is_integer(profile.deadline_ms) and profile.deadline_ms > 0 and
-         is_map(profile.native_target) do
+         bounded_ascii?(profile.conversation_id) and is_integer(profile.deadline_ms) and
+         profile.deadline_ms > 0 and is_map(profile.native_target) do
       {:ok, profile}
     else
       {:error, :profile}
@@ -1632,10 +1991,13 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp profile(_), do: {:error, :profile}
 
+  defp reply_profile?(profile),
+    do: is_map(profile) and Map.has_key?(profile, :reply_source_id)
+
   defp select_target(profile, bindings) do
     scope = %{tenant: profile.tenant, source: profile.source_id}
     schema = %{"schema_id" => "elzoo.message/v1", "schema_version" => 1}
-    expected_target = Elzoo.Wave4ChannelExample.NativeBindings.target()
+    expected_target = profile.native_target
 
     case TriggerBinding.select(bindings, scope, schema) do
       {:ok, %{target: ^expected_target} = selected} when profile.native_target == expected_target ->
@@ -1648,11 +2010,14 @@ defmodule Elzoo.Wave4ChannelExample do
     _ -> {:error, :binding}
   end
 
-  defp handles?(handles),
-    do:
-      Enum.all?([:input, :association, :answer], fn key ->
-        match?(%CheckedCommand.Handle{}, handles[key])
-      end)
+  defp handles?(handles, profile) do
+    required =
+      if reply_profile?(profile),
+        do: [:input, :reply_input, :association, :reply_association, :answer],
+        else: [:input, :association, :answer]
+
+    Enum.all?(required, &match?(%CheckedCommand.Handle{}, handles[&1]))
+  end
 
   defp native(native, profile, target) when is_map(native) do
     required = [
@@ -1674,7 +2039,8 @@ defmodule Elzoo.Wave4ChannelExample do
     if Enum.all?(required, &Map.has_key?(native, &1)) and
          is_pid(native.run_owner) and is_pid(native.directory) and is_atom(native.registry) and
          not is_nil(Process.whereis(native.registry)) and is_atom(native.unit_registry) and
-         not is_nil(Process.whereis(native.unit_registry)) and engine_configuration?(native.engine) do
+         not is_nil(Process.whereis(native.unit_registry)) and
+         engine_configuration?(native.engine, profile) do
       {:ok, Map.merge(native, %{target: target.target, profile: profile})}
     else
       {:error, :native}
@@ -1683,11 +2049,24 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp native(_, _, _), do: {:error, :native}
 
-  defp engine_configuration?(configuration) when is_map(configuration) do
+  defp engine_configuration?(configuration, profile) when is_map(configuration) do
+    {binding_keys, schema_keys} =
+      if reply_profile?(profile) do
+        {["finish", "local_work", "wait_event"],
+         [
+           {"answer/v1", 1},
+           {"finish/v1", 1},
+           {"message/v1", 1},
+           {"wait/v1", 1},
+           {"work/v1", 1}
+         ]}
+      else
+        {["finish", "local_work"], [{"answer/v1", 1}, {"finish/v1", 1}, {"work/v1", 1}]}
+      end
+
     Map.keys(configuration) |> Enum.sort() == [:bindings, :context, :gate, :policy, :schemas] and
-      Map.keys(configuration.bindings) |> Enum.sort() == ["finish", "local_work"] and
-      Map.keys(configuration.schemas) |> Enum.sort() ==
-        [{"answer/v1", 1}, {"finish/v1", 1}, {"work/v1", 1}] and
+      Map.keys(configuration.bindings) |> Enum.sort() == binding_keys and
+      Map.keys(configuration.schemas) |> Enum.sort() == schema_keys and
       is_function(configuration.context, 0) and is_map(configuration.gate) and
       is_function(Map.get(configuration.gate, :call), 2) and
       match?({:ok, _}, Elzoo.Authorization.validate_policy(configuration.policy))
@@ -1695,14 +2074,14 @@ defmodule Elzoo.Wave4ChannelExample do
     _ -> false
   end
 
-  defp engine_configuration?(_), do: false
+  defp engine_configuration?(_, _), do: false
 
   defp engine_options(state, c, _attempt_id, unit_id, engine_name, async, writer) do
     native = state.native
     engine = native.engine
     run_id = c.run_id
 
-    [
+    options = [
       name: engine_name,
       identity: unit_id,
       directory: native.directory,
@@ -1727,6 +2106,43 @@ defmodule Elzoo.Wave4ChannelExample do
       evidence: %{writer: writer, stream: evidence_stream(run_id)},
       result_reader: %{evidence_store: native.evidence_store, retention_count: 1_024}
     ]
+
+    if reply_profile?(state.profile) do
+      Keyword.merge(options,
+        pattern: {__MODULE__.WaitThenHash, :step, %{stage: :wait}},
+        protocol_version: 2,
+        event_source: reply_event_source(state, c)
+      )
+    else
+      options
+    end
+  end
+
+  defp reply_event_source(state, c) do
+    profile = state.profile
+    store = state.command_store
+    handles = state.handles
+    run_id = c.run_id
+    primary = %{key: c.item.key, operation_id: c.operation_id, input_id: c.input_id, run_id: run_id}
+
+    %{
+      id: profile.reply_source_id,
+      version: 1,
+      head: fn scope ->
+        Elzoo.Wave4ChannelExample.ReplySource.head(scope, profile, run_id, store)
+      end,
+      read: fn scope, event_id ->
+        Elzoo.Wave4ChannelExample.ReplySource.read(
+          scope,
+          event_id,
+          profile,
+          run_id,
+          store,
+          handles,
+          primary
+        )
+      end
+    }
   end
 
   defp start_evidence_writer(state, run_id) do
@@ -1999,6 +2415,41 @@ defmodule Elzoo.Wave4ChannelExample do
   defp association_facts(run_id),
     do: portable_facts(%{"mode" => {:text, "associate_run"}, "run_id" => {:text, run_id}})
 
+  defp reply_primary_association_facts(run_id, primary_key),
+    do:
+      portable_facts(%{
+        "mode" => {:text, "associate_run"},
+        "run_id" => {:text, run_id},
+        "primary_key" => {:text, primary_key}
+      })
+
+  defp reply_association_facts(run_id, primary_key, reply_key),
+    do:
+      portable_facts(%{
+        "mode" => {:text, "associate_run"},
+        "run_id" => {:text, run_id},
+        "primary_key" => {:text, primary_key},
+        "reply_key" => {:text, reply_key}
+      })
+
+  defp projected_reply_key(profile, operation_id) do
+    nonce =
+      :crypto.hash(
+        :sha256,
+        :erlang.term_to_binary({profile.tenant, operation_id, :reply_projection})
+      )
+      |> binary_part(0, 16)
+
+    Elzoo.Outbox.new(
+      checked_stream(profile.tenant),
+      4096,
+      1,
+      "wave4-channel-reply",
+      "{}",
+      nonce
+    ).idempotency_key
+  end
+
   defp answer_facts(run_id, input_id, completed),
     do:
       portable_facts(%{
@@ -2252,6 +2703,69 @@ defmodule Elzoo.Wave4ChannelExample do
       }
   end
 
+  defmodule WaitThenHash do
+    def step(%{stage: :wait} = state, %{"kind" => "wake"}) do
+      {:Transition, %{state | stage: :hash},
+       {:some, request([action("reply", "wait_event", "wait/v1", %{})])}}
+    end
+
+    def step(%{stage: :hash} = state, input) do
+      case input do
+        %{"action_id" => "reply", "outcome" => "completed", "payload" => %{"text" => text}}
+        when is_binary(text) and not is_map_key(input, "kind") ->
+          {:Transition, %{state | stage: :finish},
+           {:some, request([action("hash", "local_work", "work/v1", %{"text" => text})])}}
+
+        %{
+          "kind" => "action_outcome",
+          "action_id" => "reply",
+          "outcome" => "completed",
+          "payload" => %{"text" => text}
+        }
+        when is_binary(text) ->
+          {:Transition, %{state | stage: :finish},
+           {:some, request([action("hash", "local_work", "work/v1", %{"text" => text})])}}
+
+        _ ->
+          {:Transition, state, :none}
+      end
+    end
+
+    def step(%{stage: :finish} = state, input) do
+      case input do
+        %{"action_id" => "hash", "outcome" => "completed", "payload" => %{"answer" => _}}
+        when not is_map_key(input, "kind") ->
+          {:Transition, %{state | stage: :done},
+           {:some, request([action("finish", "finish", "finish/v1", %{"action_id" => "hash"})])}}
+
+        %{
+          "kind" => "action_outcome",
+          "action_id" => "hash",
+          "outcome" => "completed",
+          "payload" => %{"answer" => _}
+        } ->
+          {:Transition, %{state | stage: :done},
+           {:some, request([action("finish", "finish", "finish/v1", %{"action_id" => "hash"})])}}
+
+        _ ->
+          {:Transition, state, :none}
+      end
+    end
+
+    def step(state, _), do: {:Transition, state, :none}
+
+    defp action(id, kind, schema_id, payload),
+      do: %{
+        "id" => id,
+        "kind" => kind,
+        "schema_id" => schema_id,
+        "schema_version" => 1,
+        "payload" => payload
+      }
+
+    defp request(actions), do: %{"type" => "request", "version" => 2, "actions" => actions}
+  end
+
   defmodule NativeWork do
     def hash(text) when is_binary(text),
       do: %{"answer" => "answer:" <> Base.encode16(:crypto.hash(:sha256, text), case: :lower)}
@@ -2266,16 +2780,23 @@ defmodule Elzoo.Wave4ChannelExample do
       "callable" => "hash"
     }
 
+    @reply_target %{
+      "bot_ref" => "channel-bot-reply",
+      "package_digest" => String.duplicate("b", 64),
+      "callable" => "wait_then_hash"
+    }
+
     @work_resource "local-work"
     @work_writes [%{target: @work_resource, field: "result", value: true}]
 
     def target, do: @target
+    def reply_target, do: @reply_target
 
     def build(profile) do
       policy = policy()
 
       %{
-        schemas: schemas(),
+        schemas: schemas(profile),
         bindings: bindings(profile),
         policy: policy,
         context: fn ->
@@ -2285,8 +2806,8 @@ defmodule Elzoo.Wave4ChannelExample do
       }
     end
 
-    defp schemas do
-      %{
+    defp schemas(profile) do
+      base = %{
         {"work/v1", 1} =>
           schema("work/v1", %{
             "type" => "object",
@@ -2309,6 +2830,30 @@ defmodule Elzoo.Wave4ChannelExample do
             "additionalProperties" => false
           })
       }
+
+      if profile.native_target == @reply_target do
+        base
+        |> Map.put(
+          {"message/v1", 1},
+          schema("message/v1", %{
+            "type" => "object",
+            "properties" => %{"text" => %{"type" => "string"}},
+            "required" => ["text"],
+            "additionalProperties" => false
+          })
+        )
+        |> Map.put(
+          {"wait/v1", 1},
+          schema("wait/v1", %{
+            "type" => "object",
+            "properties" => %{},
+            "required" => [],
+            "additionalProperties" => false
+          })
+        )
+      else
+        base
+      end
     end
 
     defp schema(id, json_schema) do
@@ -2342,7 +2887,20 @@ defmodule Elzoo.Wave4ChannelExample do
           end
         })
 
-      %{"local_work" => work, "finish" => Map.put(base, :result, {"finish/v1", 1})}
+      bindings = %{"local_work" => work, "finish" => Map.put(base, :result, {"finish/v1", 1})}
+
+      if profile.native_target == @reply_target do
+        wait_event =
+          base
+          |> Map.put(:result, {"message/v1", 1})
+          |> Map.put(:facts, fn _ ->
+            %{estimate: 0, unit: "work", deadline_ms: profile.deadline_ms}
+          end)
+
+        Map.put(bindings, "wait_event", wait_event)
+      else
+        bindings
+      end
     end
 
     defp policy do
@@ -2362,10 +2920,521 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 end
 
+defmodule Elzoo.Wave4ChannelExample.ReplySource do
+  alias Elzoo.{CheckedCommand, Conversation, DurableLog, Outbox}
+  alias Elzoo.DurableLog.Codec
+  alias Elzoo.DurableLog.Store
+
+  @destination "wave4-channel-reply"
+  @primary_destination "wave4-channel-input"
+  @metadata_field "wave4_reply"
+  @max_records 4_096
+  @max_record_bytes 1_048_576
+  @max_bytes @max_records * @max_record_bytes
+
+  def head(scope, profile, run_id, store) do
+    with :ok <- valid_scope(scope, profile, run_id),
+         {:ok, native_head} <- Store.read(store, :head, [stream(profile.tenant)]),
+         :ok <- valid_head_shape(native_head, stream(profile.tenant)) do
+      if native_head.low_water > 0,
+        do: {:error, :gap},
+        else: {:ok, Map.take(native_head, [:revision, :low_water])}
+    else
+      {:error, :gap} -> {:error, :gap}
+      _ -> {:error, :unavailable}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
+  end
+
+  def read(scope, event_id, profile, run_id, store, handles, primary) do
+    target_stream = stream(profile.tenant)
+
+    with :ok <- valid_scope(scope, profile, run_id),
+         {:ok, sequence} <- key_sequence(event_id, profile.tenant),
+         {:ok, before} <- Store.read(store, :head, [target_stream]),
+         :ok <- valid_head_shape(before, target_stream) do
+      result =
+        cond do
+          sequence > before.revision ->
+            {:error, :not_found}
+
+          before.low_water > 0 ->
+            {:error, :gap}
+
+          true ->
+            read_event(store, before, event_id, sequence, profile, run_id, handles, primary)
+        end
+
+      stable_result(store, target_stream, before, result)
+    else
+      _ -> {:error, :unavailable}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
+  end
+
+  defp valid_head_shape(%{revision: revision, low_water: low_water} = head, expected_stream)
+       when is_integer(revision) and revision in 0..@max_records and is_integer(low_water) and
+              low_water in 0..@max_records do
+    valid_retention =
+      case Map.fetch(head, :last_retention) do
+        :error ->
+          Enum.sort(Map.keys(head)) == [:low_water, :revision]
+
+        {:ok, receipt} ->
+          Enum.sort(Map.keys(head)) == [:last_retention, :low_water, :revision] and
+            Codec.receipt_valid?(receipt) and receipt.operation == :retain and
+            receipt.stream == expected_stream and receipt.target == low_water and
+            receipt.expected <= receipt.target
+      end
+
+    if valid_retention and low_water <= revision,
+      do: :ok,
+      else: {:error, :unavailable}
+  end
+
+  defp valid_head_shape(_, _), do: {:error, :unavailable}
+
+  defp key_sequence(key, tenant) do
+    case Outbox.parse_id(key) do
+      {:ok, {target_stream, sequence, 1}} ->
+        if target_stream == stream(tenant) and sequence in 1..@max_records,
+          do: {:ok, sequence},
+          else: {:error, :key}
+
+      _ ->
+        {:error, :key}
+    end
+  end
+
+  defp read_event(store, before, event_id, sequence, profile, run_id, handles, primary) do
+    target_stream = stream(profile.tenant)
+
+    with {:ok, records, read_head} <- DurableLog.read(store, target_stream, 1, before.revision),
+         true <- Map.delete(read_head, :capabilities) == before,
+         :ok <- complete_range(records, before),
+         {:ok, :absent} <- Store.read(store, :read_ack, [event_id]) do
+      {:error, :not_found}
+    else
+      {:ok, item} when is_map(item) ->
+        with :ok <- valid_item(item, event_id, sequence, profile, @destination),
+             {:ok, event} <- source_event(item, event_id, profile, run_id, handles, primary) do
+          {:ok, event}
+        else
+          _ -> {:error, :unavailable}
+        end
+
+      {:error, :not_found} ->
+        {:error, :not_found}
+
+      _ ->
+        {:error, :unavailable}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
+  end
+
+  defp stable_result(store, target_stream, before, result) do
+    case Store.read(store, :head, [target_stream]) do
+      {:ok, ^before} ->
+        case result do
+          {:ok, event} ->
+            {:ok, %{head: Map.take(before, [:revision, :low_water]), event: event}}
+
+          {:error, reason} when reason in [:not_found, :gap] ->
+            {:error, reason}
+
+          _ ->
+            {:error, :unavailable}
+        end
+
+      _ ->
+        {:error, :unavailable}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
+  end
+
+  defp complete_range(records, %{revision: revision}) when is_list(records) do
+    sequences = Enum.map(records, & &1.sequence)
+    expected = if revision == 0, do: [], else: Enum.to_list(1..revision)
+
+    bytes =
+      Enum.reduce_while(records, 0, fn row, total ->
+        size = if is_binary(row.payload), do: byte_size(row.payload), else: @max_record_bytes + 1
+        next = total + size
+
+        if size <= @max_record_bytes and next <= @max_bytes,
+          do: {:cont, next},
+          else: {:halt, @max_bytes + 1}
+      end)
+
+    if sequences == expected and length(records) <= @max_records and bytes <= @max_bytes,
+      do: :ok,
+      else: {:error, :unavailable}
+  rescue
+    _ -> {:error, :unavailable}
+  end
+
+  defp complete_range(_, _), do: {:error, :unavailable}
+
+  defp valid_item(item, event_id, sequence, profile, destination) when is_map(item) do
+    canonical =
+      Outbox.new(
+        stream(profile.tenant),
+        sequence,
+        1,
+        destination,
+        item.payload,
+        item.nonce
+      )
+
+    if item.stream == canonical.stream and item.sequence == sequence and item.position == 1 and
+         item.destination == destination and item.idempotency_key == event_id and
+         item.nonce == canonical.nonce and item.digest == canonical.digest and
+         is_binary(item.nonce) and byte_size(item.nonce) == 16 and item.state in [:pending, :acked] do
+      :ok
+    else
+      {:error, :item}
+    end
+  end
+
+  defp source_event(item, event_id, profile, run_id, handles, primary) do
+    with :ok <- valid_primary_capture(primary, profile, run_id),
+         {:ok, reply_notice} <- notice(item, @destination, profile),
+         reply_operation when is_binary(reply_operation) <- reply_notice["operation_id"],
+         {:completed, reply_result} <-
+           CheckedCommand.result(
+             handles.reply_input,
+             result_scope(profile),
+             {profile.tenant, profile.actor, reply_operation}
+           ),
+         true <- reply_result.revision == reply_notice["revision"],
+         {:ok, ticket, reply_response_revision} <- receipt(reply_result.response),
+         true <- reply_response_revision == reply_result.revision,
+         true <- bounded_id?(ticket),
+         {:ok, primary_item} <-
+           read_item(
+             handles.input.store,
+             primary.key,
+             profile,
+             @primary_destination
+           ),
+         {:ok, primary_notice} <- notice(primary_item, @primary_destination, profile),
+         true <- primary_notice["operation_id"] == primary.operation_id,
+         {:completed, primary_result} <-
+           CheckedCommand.result(
+             handles.input,
+             result_scope(profile),
+             {profile.tenant, profile.actor, primary.operation_id}
+           ),
+         true <- primary_result.revision == primary_notice["revision"],
+         {:ok, primary_id, primary_response_revision} <- receipt(primary_result.response),
+         true <- primary_response_revision == primary_result.revision,
+         true <- primary_id == primary.input_id,
+         :ok <-
+           same_run_associations(
+             handles,
+             profile,
+             run_id,
+             primary,
+             reply_operation,
+             ticket,
+             event_id,
+             primary_notice,
+             primary_result.revision,
+             reply_notice,
+             reply_result.revision
+           ),
+         {:ok, text} <-
+           conversation_text(
+             handles.input,
+             profile,
+             ticket,
+             "source",
+             run_id,
+             primary.key,
+             event_id
+           ) do
+      {:ok,
+       %{
+         id: event_id,
+         source_id: profile.reply_source_id,
+         correlation_id: ticket,
+         sequence: item.sequence,
+         schema_id: "message/v1",
+         schema_version: 1,
+         payload: %{"text" => text}
+       }}
+    else
+      _ -> {:error, :unavailable}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
+  end
+
+  defp valid_primary_capture(primary, profile, run_id) when is_map(primary) do
+    expected_run =
+      stable_id("run", [
+        profile.tenant,
+        profile.actor,
+        primary.operation_id,
+        primary.input_id,
+        profile.native_target
+      ])
+
+    if Enum.sort(Map.keys(primary)) == [:input_id, :key, :operation_id, :run_id] and
+         bounded_id?(primary.operation_id) and bounded_id?(primary.input_id) and
+         primary.run_id == run_id and primary.run_id == expected_run and
+         match?({:ok, _}, key_sequence(primary.key, profile.tenant)),
+       do: :ok,
+       else: {:error, :identity}
+  rescue
+    _ -> {:error, :identity}
+  end
+
+  defp valid_primary_capture(_, _, _), do: {:error, :identity}
+
+  defp same_run_associations(
+         handles,
+         profile,
+         run_id,
+         primary,
+         reply_operation,
+         ticket,
+         reply_key,
+         primary_notice,
+         primary_revision,
+         reply_notice,
+         reply_revision
+       ) do
+    with true <- reply_notice["resource"] == profile.conversation_id,
+         true <- primary_notice["resource"] == profile.conversation_id,
+         {:ok, snapshot} <- resource_snapshot(handles.input, profile),
+         true <- metadata_matches?(snapshot, profile, run_id, primary.key, reply_key),
+         {:ok, conversation_snapshot} <-
+           conversation_snapshot(snapshot, profile, run_id, primary.key, reply_key),
+         {:ok, conversation} <- Conversation.view(conversation_snapshot, resource_scope(profile)),
+         true <- has_association?(conversation.associations, primary.input_id, run_id),
+         true <- has_association?(conversation.associations, ticket, run_id),
+         true <-
+           association_result?(
+             handles.association,
+             profile,
+             primary.operation_id,
+             primary.input_id,
+             run_id,
+             primary_revision + 1
+           ),
+         true <-
+           association_result?(
+             handles.reply_association,
+             profile,
+             reply_operation,
+             ticket,
+             run_id,
+             reply_revision + 1
+           ) do
+      :ok
+    else
+      _ -> {:error, :association}
+    end
+  end
+
+  defp association_result?(handle, profile, operation, message_id, run_id, revision) do
+    association = association_operation(operation, message_id, profile)
+
+    case CheckedCommand.result(
+           handle,
+           result_scope(profile),
+           {profile.tenant, profile.actor, association}
+         ) do
+      {:completed, %{revision: ^revision, response: {:record, fields}}} ->
+        fields ==
+          Enum.sort([
+            {"message_id", {:text, message_id}},
+            {"revision", revision},
+            {"run_id", {:text, run_id}}
+          ])
+
+      _ ->
+        false
+    end
+  end
+
+  defp metadata_matches?(snapshot, profile, run_id, primary_key, reply_key) do
+    Map.get(snapshot.fields, @metadata_field) ==
+      metadata_record(run_id, primary_key, reply_key, profile.tenant)
+  end
+
+  defp conversation_text(handle, profile, message_id, role, run_id, primary_key, reply_key) do
+    with {:ok, snapshot} <- resource_snapshot(handle, profile),
+         {:ok, conversation_snapshot} <-
+           conversation_snapshot(snapshot, profile, run_id, primary_key, reply_key),
+         {:ok, conversation} <- Conversation.view(conversation_snapshot, resource_scope(profile)),
+         %{role: ^role, text: text} <-
+           Enum.find(conversation.messages, &(&1.message_id == message_id)),
+         true <- is_binary(text) and byte_size(text) in 1..4_096 do
+      {:ok, text}
+    else
+      _ -> {:error, :message}
+    end
+  end
+
+  defp resource_snapshot(handle, profile),
+    do: CheckedCommand.resource(handle, resource_scope(profile), profile.conversation_id)
+
+  defp conversation_snapshot(snapshot, profile, run_id, primary_key, reply_key) do
+    if metadata_matches?(snapshot, profile, run_id, primary_key, reply_key),
+      do: {:ok, %{snapshot | fields: Map.delete(snapshot.fields, @metadata_field)}},
+      else: {:error, :metadata}
+  end
+
+  defp metadata_record(run_id, primary_key, reply_key, tenant) do
+    with true <- bounded_id?(run_id),
+         {:ok, _} <- key_sequence(primary_key, tenant),
+         {:ok, _} <- key_sequence(reply_key, tenant) do
+      {:record,
+       Enum.sort_by(
+         [
+           {"primary_key", {:text, primary_key}},
+           {"reply_key", {:text, reply_key}},
+           {"run_id", {:text, run_id}},
+           {"version", {:text, "1"}}
+         ],
+         &elem(&1, 0)
+       )}
+    else
+      _ -> nil
+    end
+  end
+
+  defp has_association?(associations, message_id, run_id),
+    do:
+      Enum.any?(associations, fn association ->
+        association.input_message_id == message_id and association.run_id == run_id
+      end)
+
+  defp notice(%{payload: payload, destination: item_destination}, destination, profile) do
+    with {:ok, notice} <- Jason.decode(payload),
+         true <- item_destination == destination,
+         true <-
+           Map.keys(notice) |> Enum.sort() == [
+             "actor",
+             "operation_id",
+             "resource",
+             "revision",
+             "tenant",
+             "type",
+             "version"
+           ],
+         true <- notice["type"] == "checked_command" and notice["version"] == 1,
+         true <- notice["tenant"] == profile.tenant and notice["actor"] == profile.actor,
+         true <- notice["resource"] == profile.conversation_id,
+         true <- bounded_id?(notice["operation_id"]),
+         true <- is_integer(notice["revision"]) and notice["revision"] > 0 do
+      {:ok, notice}
+    else
+      _ -> {:error, :notice}
+    end
+  end
+
+  defp read_item(store, key, profile, destination) do
+    with {:ok, sequence} <- key_sequence(key, profile.tenant) do
+      case Store.read(store, :read_ack, [key]) do
+        {:ok, item} when is_map(item) ->
+          with :ok <- valid_item(item, key, sequence, profile, destination), do: {:ok, item}
+
+        {:ok, :absent} ->
+          {:error, :not_found}
+
+        _ ->
+          {:error, :unavailable}
+      end
+    else
+      _ -> {:error, :item}
+    end
+  end
+
+  defp receipt({:record, fields}) when is_list(fields) do
+    with true <- Enum.sort(Enum.map(fields, &elem(&1, 0))) == ["message_id", "revision"],
+         true <- length(Enum.uniq_by(fields, &elem(&1, 0))) == 2,
+         {:text, id} <- field_value(fields, "message_id"),
+         true <- bounded_id?(id),
+         revision when is_integer(revision) and revision > 0 <- field_value(fields, "revision") do
+      {:ok, id, revision}
+    else
+      _ -> {:error, :receipt}
+    end
+  end
+
+  defp receipt(_), do: {:error, :receipt}
+
+  defp field_value(fields, key) do
+    case List.keyfind(fields, key, 0) do
+      {^key, value} -> value
+      _ -> nil
+    end
+  end
+
+  defp association_operation(operation, message_id, profile),
+    do: stable_id("association", [profile.tenant, profile.actor, operation, message_id])
+
+  defp stable_id(domain, terms) do
+    digest =
+      :crypto.hash(
+        :sha256,
+        :erlang.term_to_binary({:wave4_channel, 1, domain, terms}, [:deterministic])
+      )
+
+    domain <> ":" <> Base.url_encode64(digest, padding: false)
+  end
+
+  defp stream(tenant),
+    do:
+      "cc1:" <>
+        Base.url_encode64(:erlang.term_to_binary({:cc, 1, tenant}, [:deterministic]),
+          padding: false
+        )
+
+  defp result_scope(profile), do: %{tenant: profile.tenant, actor: profile.actor}
+
+  defp resource_scope(profile),
+    do: %{tenant: profile.tenant, actor: profile.actor, resources: [profile.conversation_id]}
+
+  defp valid_scope(scope, profile, run_id) when is_map(scope) and not is_struct(scope) do
+    if map_size(scope) == 3 and Map.keys(scope) |> Enum.sort() == [:principal, :run_id, :tenant] and
+         scope.tenant == profile.tenant and scope.principal == profile.actor and
+         scope.run_id == run_id,
+       do: :ok,
+       else: {:error, :scope}
+  end
+
+  defp valid_scope(_, _, _), do: {:error, :scope}
+
+  defp bounded_id?(value),
+    do:
+      is_binary(value) and byte_size(value) in 1..128 and String.valid?(value) and
+        not String.contains?(value, <<0>>)
+end
+
 defmodule Elzoo.Wave4ChannelExample.CommandBindings do
-  alias Elzoo.{CheckedCommand, Conversation, PayloadSchema}
+  alias Elzoo.{CheckedCommand, Conversation, Outbox, PayloadSchema}
 
   @destination "wave4-channel-input"
+  @reply_destination "wave4-channel-reply"
+  @reply_metadata_field "wave4_reply"
 
   def build(store, gates) when is_map(gates) do
     with input_gate when is_function(input_gate, 2) <- Map.get(gates, :input),
@@ -2393,6 +3462,128 @@ defmodule Elzoo.Wave4ChannelExample.CommandBindings do
   end
 
   def build(_, _), do: {:error, :commands}
+
+  def build_reply(store, gates) when is_map(gates) do
+    with input_gate when is_function(input_gate, 2) <- Map.get(gates, :input),
+         reply_gate when is_function(reply_gate, 2) <- Map.get(gates, :reply),
+         {:ok, input_schema} <- command_schema("wave4/channel-input", ["message_id", "text"]),
+         {:ok, reply_schema} <- command_schema("wave4/channel-reply", ["message_id", "text"]),
+         {:ok, association_schema} <- command_schema("wave4/channel-association", ["message_id"]),
+         {:ok, reply_association_schema} <-
+           command_schema("wave4/channel-reply-association", ["message_id"]),
+         {:ok, answer_schema} <- command_schema("wave4/channel-answer", ["message_id", "text"]),
+         {:ok, input} <-
+           CheckedCommand.new(
+             store,
+             descriptor(
+               "wave4/input",
+               input_schema,
+               @destination,
+               input_gate,
+               &prepare_reply_input/3
+             )
+           ),
+         {:ok, reply_input} <-
+           CheckedCommand.new(
+             store,
+             descriptor(
+               "wave4/reply",
+               reply_schema,
+               @reply_destination,
+               reply_gate,
+               &prepare_reply_input/3
+             )
+           ),
+         always_allow <- fn _, _ -> :allow end,
+         {:ok, association} <-
+           CheckedCommand.new(
+             store,
+             descriptor(
+               "wave4/association",
+               association_schema,
+               nil,
+               always_allow,
+               &prepare_reply_association/3
+             )
+           ),
+         {:ok, reply_association} <-
+           CheckedCommand.new(
+             store,
+             descriptor(
+               "wave4/reply-association",
+               reply_association_schema,
+               nil,
+               always_allow,
+               &prepare_reply_association/3
+             )
+           ),
+         {:ok, answer} <-
+           CheckedCommand.new(
+             store,
+             descriptor(
+               "wave4/answer",
+               answer_schema,
+               nil,
+               always_allow,
+               &prepare_reply_answer/3
+             )
+           ) do
+      {:ok,
+       %{
+         input: input,
+         reply_input: reply_input,
+         association: association,
+         reply_association: reply_association,
+         answer: answer
+       }}
+    else
+      _ -> {:error, :commands}
+    end
+  end
+
+  def build_reply(_, _), do: {:error, :commands}
+
+  def prepare_reply_input(snapshot, request, facts) do
+    with {:ok, clean_snapshot} <- conversation_snapshot(snapshot, facts.tenant),
+         do: Conversation.prepare(clean_snapshot, request, facts)
+  end
+
+  def prepare_reply_answer(snapshot, request, facts) do
+    with {:ok, clean_snapshot} <- conversation_snapshot(snapshot, facts.tenant),
+         do: Conversation.prepare(clean_snapshot, request, facts)
+  end
+
+  def conversation_snapshot(%{fields: fields} = snapshot, tenant) when is_map(fields) do
+    case Map.fetch(fields, @reply_metadata_field) do
+      :error ->
+        {:ok, snapshot}
+
+      {:ok, metadata} ->
+        if valid_metadata?(metadata, tenant),
+          do: {:ok, %{snapshot | fields: Map.delete(fields, @reply_metadata_field)}},
+          else: {:error, :metadata}
+    end
+  end
+
+  def conversation_snapshot(_, _), do: {:error, :snapshot}
+
+  def prepare_reply_association(snapshot, request, facts) do
+    with {:ok, run_id, primary_key, reply_key, clean_facts} <- association_facts(facts),
+         {:ok, clean_snapshot} <- conversation_snapshot(snapshot, facts.tenant),
+         {:ok, writes, response} <-
+           Conversation.prepare(clean_snapshot, request, clean_facts),
+         {:ok, metadata} <- reply_metadata(snapshot, run_id, primary_key, reply_key, facts.tenant) do
+      {:ok, writes ++ [%{target: request.resource, field: @reply_metadata_field, value: metadata}],
+       response}
+    else
+      {:refused, _} = refused -> refused
+      _ -> {:refused, "invalid_facts"}
+    end
+  rescue
+    _ -> {:refused, "invalid_facts"}
+  catch
+    _, _ -> {:refused, "invalid_facts"}
+  end
 
   defp command_schema(id, required) do
     port = %{"id" => id, "direction" => "input", "schema_id" => id, "schema_version" => 1}
@@ -2425,4 +3616,145 @@ defmodule Elzoo.Wave4ChannelExample.CommandBindings do
       outbox: outbox
     }
   end
+
+  defp descriptor(id, %{port: port, compiled: schema}, outbox, gate, prepare) do
+    %{
+      id: id,
+      version: 1,
+      content_hash: :crypto.hash(:sha256, id),
+      effect_class: "conversation.write",
+      port: port,
+      schema: schema,
+      prepare: prepare,
+      gate: %{call: gate},
+      approval: %{verifiers: ["wave4-command-approver"], max_age: 60_000},
+      outbox: outbox
+    }
+  end
+
+  defp association_facts(%{tenant: tenant, actor: actor, data: {:record, fields}} = facts)
+       when map_size(facts) == 3 and is_list(fields) do
+    keys = Enum.map(fields, fn {key, _} -> key end)
+
+    with true <- Enum.all?(fields, &match?({key, _} when is_binary(key), &1)),
+         true <- length(keys) == length(Enum.uniq(keys)),
+         {:text, "associate_run"} <- field_value(fields, "mode"),
+         {:text, run_id} <- field_value(fields, "run_id"),
+         {:text, primary_key} <- field_value(fields, "primary_key"),
+         true <- bounded_id?(run_id) and canonical_key?(primary_key, tenant),
+         {:ok, reply_key} <- optional_reply_key(fields, tenant),
+         true <-
+           keys ==
+             if(is_nil(reply_key),
+               do: ["mode", "primary_key", "run_id"],
+               else: ["mode", "primary_key", "reply_key", "run_id"]
+             ),
+         clean_data <- {:record, [{"mode", {:text, "associate_run"}}, {"run_id", {:text, run_id}}]},
+         clean <- %{tenant: tenant, actor: actor, data: clean_data} do
+      {:ok, run_id, primary_key, reply_key, clean}
+    else
+      _ -> {:error, :facts}
+    end
+  end
+
+  defp association_facts(_), do: {:error, :facts}
+
+  defp optional_reply_key(fields, tenant) do
+    case field_value(fields, "reply_key") do
+      nil ->
+        {:ok, nil}
+
+      {:text, key} when is_binary(key) ->
+        if(canonical_key?(key, tenant), do: {:ok, key}, else: {:error, :facts})
+
+      _ ->
+        {:error, :facts}
+    end
+  end
+
+  defp reply_metadata(snapshot, run_id, primary_key, nil, _tenant) do
+    if not Map.has_key?(snapshot.fields, @reply_metadata_field),
+      do: {:ok, metadata_record(run_id, primary_key, nil)},
+      else: {:error, :metadata}
+  end
+
+  defp reply_metadata(snapshot, run_id, primary_key, reply_key, tenant) do
+    case snapshot.fields[@reply_metadata_field] do
+      {:record, _fields} = metadata ->
+        if metadata == metadata_record(run_id, primary_key, nil) and
+             valid_metadata?(metadata, tenant) do
+          {:ok, metadata_record(run_id, primary_key, reply_key)}
+        else
+          {:error, :metadata}
+        end
+
+      _ ->
+        {:error, :metadata}
+    end
+  end
+
+  defp metadata_record(run_id, primary_key, reply_key) do
+    fields = [
+      {"primary_key", {:text, primary_key}},
+      {"run_id", {:text, run_id}},
+      {"version", {:text, "1"}}
+    ]
+
+    fields = if is_binary(reply_key), do: [{"reply_key", {:text, reply_key}} | fields], else: fields
+    {:record, Enum.sort_by(fields, &elem(&1, 0))}
+  end
+
+  defp valid_metadata?({:record, fields} = metadata, tenant) when is_list(fields) do
+    run_id = field_value(fields, "run_id")
+    primary_key = field_value(fields, "primary_key")
+    reply_key = field_value(fields, "reply_key")
+
+    expected =
+      case {run_id, primary_key, reply_key} do
+        {{:text, run}, {:text, primary}, nil} -> metadata_record(run, primary, nil)
+        {{:text, run}, {:text, primary}, {:text, reply}} -> metadata_record(run, primary, reply)
+        _ -> nil
+      end
+
+    valid_run_id =
+      case run_id do
+        {:text, value} -> bounded_id?(value)
+        _ -> false
+      end
+
+    metadata == expected and valid_run_id and canonical_key?(primary_key, tenant) and
+      (is_nil(reply_key) or canonical_key?(reply_key, tenant))
+  end
+
+  defp valid_metadata?(_, _), do: false
+
+  defp canonical_key?({:text, key}, tenant) when is_binary(key), do: canonical_key?(key, tenant)
+
+  defp canonical_key?(key, tenant) when is_binary(key) do
+    case Outbox.parse_id(key) do
+      {:ok, {stream, sequence, 1}} -> stream == stream(tenant) and sequence in 1..4_096
+      _ -> false
+    end
+  end
+
+  defp canonical_key?(_, _), do: false
+
+  defp stream(tenant),
+    do:
+      "cc1:" <>
+        Base.url_encode64(:erlang.term_to_binary({:cc, 1, tenant}, [:deterministic]),
+          padding: false
+        )
+
+  defp field_value(fields, key) do
+    case List.keyfind(fields, key, 0) do
+      {^key, value} -> value
+      _ -> nil
+    end
+  end
+
+  defp bounded_id?(value),
+    do:
+      is_binary(value) and byte_size(value) in 1..128 and String.valid?(value) and
+        not String.contains?(value, <<0>>)
 end
