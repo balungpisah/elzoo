@@ -900,7 +900,7 @@
       "phase": "demand-led",
       "status": "ready",
       "manifest": "pieces/workflow/pattern-step/piece.json",
-      "reason": "Bot platform wave 1 (P13). Closed, versioned sets of action kinds, input kinds and outcome classes, as data and pure validation, so that the engine and every pattern use one vocabulary. The step shape is ready core/operator, unchanged."
+      "reason": "Bot platform wave 1 (P13). Closed, versioned v1/v2 sets of action kinds, input kinds and outcome classes; v2 adds wait_event and outside_event. Pure validation and per-request settlement; no runtime, payload-schema validation or Run-wide identity registry. The step shape remains the ready core/operator."
     },
     {
       "id": "core/payload-schema",
