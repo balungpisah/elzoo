@@ -7,11 +7,15 @@ defmodule Elzoo.BotRunLifecycle do
   @waits [:model, :tool, :approval, :person, :child_run, :outside_event, :resource_event]
 
   @doc "See the bundle README for exact state, checked protocol and host Control operands."
-  def step(state, input, context) do
-    with true <- state?(state) and context?(context),
-         {:ok, event} <- input(input),
-         true <- operands?(state, event, context) do
-      {classification, candidate, wait_id} = classify(state, event, context)
+  def step(state, input, context), do: step_version(state, input, context, 1)
+  def step(state, input, context, 2), do: step_version(state, input, context, 2)
+  def step(_, _, _, _), do: {:error, :invalid_shape}
+
+  defp step_version(state, input, context, version) do
+    with true <- state?(state, version) and context?(context),
+         {:ok, event} <- input(input, version),
+         true <- operands?(state, event, context, version) do
+      {classification, candidate, wait_id} = classify(state, event, context, version)
 
       decision =
         apply(:"Cure.Elzoo.BotRunLifecycle", :decide, [
@@ -30,12 +34,16 @@ defmodule Elzoo.BotRunLifecycle do
     _ in [FunctionClauseError, KeyError, BadMapError, MatchError] -> {:error, :invalid_shape}
   end
 
-  defp input({:PatternStep, %{"type" => "input"} = map}) do
+  defp input({:PatternStep, %{"type" => "input"} = map}, 1) do
     with {:ok, _} <- PatternStep.decode(map), do: {:ok, map}
   end
 
-  defp input(%{control: :pause, at_ms: at, attempt_id: id, pause_deadline: deadline} = map)
-       when map_size(map) == 4 do
+  defp input({:PatternStepV2, %{"type" => "input"} = map}, 2) do
+    with {:ok, _} <- PatternStep.decode(map, 2), do: {:ok, map}
+  end
+
+  defp input(%{control: :pause, at_ms: at, attempt_id: id, pause_deadline: deadline} = map, version)
+       when version in [1, 2] and map_size(map) == 4 do
     if time?(at) and text?(id) and time?(deadline) and deadline > at,
       do: {:ok, map},
       else: {:error, :invalid_shape}
@@ -43,33 +51,38 @@ defmodule Elzoo.BotRunLifecycle do
 
   defp input(
          %{control: :continue, at_ms: at, attempt_id: id, person_id: person, run_deadline: deadline} =
-           map
+           map,
+         version
        )
-       when map_size(map) == 5 do
+       when version in [1, 2] and map_size(map) == 5 do
     if time?(at) and text?(id) and text?(person) and time?(deadline) and deadline > at,
       do: {:ok, map},
       else: {:error, :invalid_shape}
   end
 
-  defp input(_), do: {:error, :invalid_shape}
+  defp input(_, _), do: {:error, :invalid_shape}
+
+  defp state?(state, 1), do: state?(state, :PatternStepTracker)
+  defp state?(state, 2), do: state?(state, :PatternStepTrackerV2)
 
   defp state?(
          %{
            phase: phase,
            waits: waits,
-           tracker: {:PatternStepTracker, actions},
+           tracker: {tag, actions},
            outcome: outcome,
            run_deadline: deadline,
            pause_deadline: pause
-         } = state
+         } = state,
+         expected_tag
        )
-       when map_size(state) == 6 and is_map(waits) and is_map(actions) do
+       when map_size(state) == 6 and is_map(waits) and is_map(actions) and tag == expected_tag do
     Map.has_key?(@phases, phase) and time?(deadline) and
       (is_nil(pause) or time?(pause)) and (phase != :paused or time?(pause)) and
       if(phase == :terminal, do: Run.outcome?(outcome), else: is_nil(outcome)) and
       Enum.all?(waits, fn
         {id, %{kind: kind, attempt_id: attempt, one_shot: once} = wait} ->
-          map_size(wait) == 3 and text?(id) and text?(attempt) and kind in @waits and
+          wait_shape?(wait, kind, expected_tag) and text?(id) and text?(attempt) and kind in @waits and
             is_boolean(once) and (kind == :resource_event or once)
 
         _ ->
@@ -77,7 +90,13 @@ defmodule Elzoo.BotRunLifecycle do
       end)
   end
 
-  defp state?(_), do: false
+  defp state?(_, _), do: false
+
+  defp wait_shape?(wait, :outside_event, :PatternStepTrackerV2) do
+    map_size(wait) == 5 and text?(wait[:source_id]) and text?(wait[:correlation_id])
+  end
+
+  defp wait_shape?(wait, _, _), do: map_size(wait) == 3
 
   defp context?(%{
          current_attempt: current,
@@ -91,23 +110,39 @@ defmodule Elzoo.BotRunLifecycle do
 
   defp context?(_), do: false
 
-  defp operands?(_state, event, context) do
-    cond do
-      event["kind"] == "run_ended" ->
-        match?(%{outcome: _}, event["payload"]) and Run.outcome?(event["payload"].outcome)
+  defp operands?(_state, event, context, version) do
+    if version == 2 and event["kind"] == "outside_event" do
+      verified_event?(context[:verified_event], event)
+    else
+      cond do
+        event["kind"] == "run_ended" ->
+          match?(%{outcome: _}, event["payload"]) and Run.outcome?(event["payload"].outcome)
 
-      event[:control] == :continue ->
-        text?(context[:verified_person]) and context.verified_person == event.person_id
+        event[:control] == :continue ->
+          text?(context[:verified_person]) and context.verified_person == event.person_id
 
-      event["kind"] == "person_answer" ->
-        text?(context[:verified_person]) and context.verified_person == event["person_id"]
+        event["kind"] == "person_answer" ->
+          text?(context[:verified_person]) and context.verified_person == event["person_id"]
 
-      true ->
-        true
+        true ->
+          true
+      end
     end
   end
 
-  defp classify(state, event, context) do
+  defp verified_event?(
+         %{source_id: source, correlation_id: correlation, event_id: id} = facts,
+         event
+       )
+       when map_size(facts) == 3 do
+    text?(source) and text?(correlation) and text?(id) and
+      source == event["source_id"] and correlation == event["correlation_id"] and
+      id == event["event_id"]
+  end
+
+  defp verified_event?(_, _), do: false
+
+  defp classify(state, event, context, version) do
     origin = event[:attempt_id] || event["attempt_id"] || context.originating_attempt
 
     cond do
@@ -134,14 +169,17 @@ defmodule Elzoo.BotRunLifecycle do
         {:Continue, state, nil}
 
       event["kind"] in ["action_outcome", "person_answer", "resource_event"] ->
-        correlate(state, event, context)
+        correlate(state, event, context, version)
+
+      event["kind"] == "outside_event" ->
+        correlate(state, event, context, version)
 
       true ->
         {:Work, state, nil}
     end
   end
 
-  defp correlate(state, event, context) do
+  defp correlate(state, event, context, version) do
     id = event["action_id"] || context[:wait_id]
 
     case Map.get(state.waits, id) do
@@ -155,28 +193,50 @@ defmodule Elzoo.BotRunLifecycle do
               do: {:Accepted, settle(state, id, wait.one_shot), id},
               else: {:ClosedWait, state, id}
 
-          wait.kind not in [:model, :tool, :person] ->
+          event["kind"] == "outside_event" ->
+            if version == 2 and wait.kind == :outside_event and
+                 wait.source_id == event["source_id"] and
+                 wait.correlation_id == event["correlation_id"] do
+              accept(state, event, id, version)
+            else
+              {:ClosedWait, state, id}
+            end
+
+          wait.kind not in [:model, :tool, :person] and
+              not (version == 2 and event["kind"] == "action_outcome" and
+                       wait.kind == :outside_event) ->
             {:Incompatible, state, id}
 
           true ->
-            {:ok, checked} = PatternStep.decode(event)
-
-            case PatternStep.accept(state.tracker, checked) do
-              {:applied, tracker} ->
-                {:Accepted, %{settle(state, id, true) | tracker: tracker}, id}
-
-              {:late, _} ->
-                {:ClosedWait, state, id}
-
-              {:refused, _, _} ->
-                {:Incompatible, state, id}
-            end
+            accept(state, event, id, version)
         end
 
       nil ->
         {:ClosedWait, state, id}
     end
   end
+
+  defp accept(state, event, id, version) do
+    case decode_event(event, version) do
+      {:ok, checked} ->
+        case PatternStep.accept(state.tracker, checked) do
+          {:applied, tracker} ->
+            {:Accepted, %{settle(state, id, true) | tracker: tracker}, id}
+
+          {:late, _} ->
+            {:ClosedWait, state, id}
+
+          {:refused, _, _} ->
+            {:Incompatible, state, id}
+        end
+
+      _ ->
+        {:Incompatible, state, id}
+    end
+  end
+
+  defp decode_event(event, 1), do: PatternStep.decode(event)
+  defp decode_event(event, 2), do: PatternStep.decode(event, 2)
 
   defp settle(state, id, true), do: %{state | waits: Map.delete(state.waits, id)}
   defp settle(state, _, false), do: state

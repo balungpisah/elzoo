@@ -7,17 +7,18 @@
   "kind": "owned",
   "providers": ["cure", "elixir"],
   "dependencies": ["workflow/run", "workflow/pattern-step"],
-  "contract": "Pure total Run lifecycle decision over phase, simultaneous caller-owned waits, targeted execution Attempt inputs, pause/continue and recorded deadlines/budget; ready Run owns identity and committed outcomes, ready PatternStep owns protocol validation and first settlement. No runtime or durability.",
+  "contract": "Pure total Run lifecycle decision over phase, simultaneous caller-owned waits, targeted execution Attempt inputs, pause/continue and recorded deadlines/budget; ready Run owns identity and committed outcomes, ready PatternStep owns versioned protocol validation and first settlement. Strict v1 remains unchanged; selected v2 adds outside-event waits with verified-fact validation and source/ticket/Attempt correlation. No runtime or durability.",
   "limits": [
     "No Store, clock, timer, runtime, transport, dispatch, authorization service or statechart framework; requests for terminal outcomes require a separate ready Run commit before further work.",
     "Selected Cure laws cover supplied classifications only; Elixir validation, identity lookup and native time comparisons are finite-test/upstream grounded.",
     "Host serializes/preserves authentic state/trackers and supplies durable Run facts, truthful action correlation, verified person/Control authority, recorded time, budget facts and wakes.",
-    "Child/outside/approval waits are caller data, not new v1 actions or inputs; no effect reconciliation, physical cancellation or new restart protocol."
+    "Child-run, approval and v1 outside-event waits remain caller data, with no new v1 actions or inputs. V2 outside-event identity facts are caller-supplied and do not authenticate a source; source/ticket correlation uses the current caller-owned wait after existing Run precedence. Event IDs are not persisted; no effect reconciliation, physical cancellation or new restart protocol."
   ],
   "files": [
     "cure/elzoo/bot_run_lifecycle.cure",
     "lib/elzoo/bot_run_lifecycle.ex",
     "test/elzoo/bot_run_lifecycle_test.exs",
+    "test/elzoo/bot_run_lifecycle_v2_test.exs",
     "examples/bot_run_lifecycle.exs"
   ],
   "grounding": [
@@ -25,10 +26,11 @@
     {"kind": "proof", "file": "cure/elzoo/bot_run_lifecycle.cure", "symbol": "old_attempt_unchanged", "claim": "Old-Attempt supplied classification returns unchanged in every phase for both Boolean budget operands; excludes identity lookup."},
     {"kind": "proof", "file": "cure/elzoo/bot_run_lifecycle.cure", "symbol": "closed_wait_late", "claim": "Closed-wait supplied classification in waiting phase returns late for both Boolean budget operands; excludes lookup and native expiry precedence."},
     {"kind": "type", "file": "cure/elzoo/bot_run_lifecycle.cure", "claim": "Pinned Cure checks types and totality of the production finite classification table; selected law/source audit excludes axioms, holes and unresolved or unproved-total definitions."},
-    {"kind": "test", "file": "test/elzoo/bot_run_lifecycle_test.exs", "claim": "Seven named lifecycle table, several waits, Attempt/cancel, pause/continue, budget/time, protocol distinctions and Cure laws/example groups; temporary closed-wait production mutation is a negative control. Finite scenarios, not a durable replay or authentication proof."},
+    {"kind": "test", "file": "test/elzoo/bot_run_lifecycle_test.exs", "claim": "The seven named v1 lifecycle table, several waits, Attempt/cancel, pause/continue, budget/time, protocol distinctions and Cure laws/example groups remain unchanged; temporary closed-wait production mutation is the v1 negative control. Finite scenarios, not a durable replay or authentication proof."},
+    {"kind": "test", "file": "test/elzoo/bot_run_lifecycle_v2_test.exs", "claim": "Explicit v2 inputs/Controls, exact verified-event facts and outside-wait shapes, source/ticket/Attempt correlation, Run precedence, generic outcome compatibility, first settlement, pause and budget retention. A temporary source-comparison bypass must fail the named source-mismatch test. Finite scenarios, not a source-authentication or durability proof."},
     {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Pinned Cure compilation, reduction checking and BEAM decision semantics; compiler soundness not locally proved."},
-    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir immutable maps and native integer comparison; ready Run currentness/outcome and PatternStep validation/settlement contracts are reused unchanged."},
-    {"kind": "assumption", "claim": "Serialized host preserves authentic opaque trackers and state, supplies durable identity/outcome/correlation facts, verifies person and Control authority, records time and budget truthfully, and commits requested termination through Run before further work."}
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir immutable maps and native integer comparison; ready Run currentness/outcome and versioned PatternStep validation/settlement contracts are reused unchanged."},
+    {"kind": "assumption", "claim": "Serialized host preserves authentic opaque trackers and state, supplies durable identity/outcome/correlation and verified-event facts, verifies source authority outside this Piece plus person and Control authority, records time and budget truthfully, and commits requested termination through Run before further work."}
   ],
   "operations": {
     "telemetry": {"status": "not_applicable", "contract": "Pure callable emits no observations; host owns instrumentation."},

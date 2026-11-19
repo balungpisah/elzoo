@@ -1,6 +1,7 @@
 # workflow/bot-run-lifecycle
 
-`Elzoo.BotRunLifecycle.step(state, input, context)` is one pure callable returning
+`Elzoo.BotRunLifecycle.step(state, input, context)` is the strict v1 pure callable;
+`step(state, input, context, 2)` explicitly selects v2. Both return
 `{:ok, new_state, decision}` or `{:error, :invalid_shape}` without echoing operands.
 It owns phase, simultaneous open waits, pause and continue, not Run identity or
 durability. No process, Store, clock, timer, dispatch, authorization service or
@@ -15,7 +16,7 @@ State is an exact atom-keyed map:
 | --- | --- |
 | `phase` | `:active`, `:waiting`, `:paused` or `:terminal` |
 | `waits` | map from stable wait/action text ID to `%{kind: kind, attempt_id: execution_attempt, one_shot: boolean}` |
-| `tracker` | authentic opaque tracker returned by `PatternStep.open/1` and preserved from each subsequent step |
+| `tracker` | authentic opaque tracker returned by `PatternStep.open/1` for the selected version and preserved from each subsequent step |
 | `outcome` | nil unless terminal; otherwise an already committed ready Run outcome |
 | `run_deadline` | recorded nonnegative Unix milliseconds |
 | `pause_deadline` | recorded nonnegative Unix milliseconds when paused; otherwise nil or a recorded deadline |
@@ -30,10 +31,14 @@ ready request's fixed 1..64-action bound. Callers own wait installation and
 phase selection when beginning work. Waiting and active are distinct: waiting
 does not permit new work just because a message arrived.
 
-Protocol input is the checked `{:PatternStep, map}` from `PatternStep.decode/1`;
-it is rechecked through that same boundary. Unknown versions, fields, kinds and
-shapes are refused, not inferred. The only additional inputs are host-recorded
-Control maps (not PatternStep kinds):
+For `step/3`, protocol input is checked `{:PatternStep, map}` from
+`PatternStep.decode/1` and rechecked through that strict v1 boundary. Selector
+2 accepts checked `{:PatternStepV2, map}` inputs and rechecks
+`PatternStep.decode(map, 2)`; tags and trackers are never translated between
+versions. Unknown versions, fields, kinds and shapes are refused, not inferred.
+The only additional inputs are host-recorded Control maps (not PatternStep
+kinds); their exact shapes are unchanged and the selected version is the
+`step/4` selector, not a Control field:
 
 ```elixir
 %{control: :pause, at_ms: recorded_time, attempt_id: execution_attempt,
@@ -73,10 +78,33 @@ caller obtains this fact from ready Run and supplies no speculative completion.
 Run's committed evidence record; this pure callable cannot establish that fact.
 Action `unknown` and other action classifications never become Run outcomes.
 
-Approval, child-Run and outside-event waits remain caller data. This Piece
+Approval, child-Run and v1 outside-event waits remain caller data. This Piece
 does not invent v1 actions or approval inputs to open/resolve them, dispatch
 child Runs or implement approval persistence. RC-50 owns that routing and ready
 Run owns approval/restart semantics. A text message never settles an ask.
+
+## Version 2 outside-event waits
+
+V1 `step/3`, its six state keys, wait shapes and strict PatternStep tag remain
+unchanged. V2 uses the same six state keys and existing transition/Cure decision
+pipeline with a `{:PatternStepTrackerV2, actions}` tracker. A v2 outside-event
+wait is exactly `%{kind: :outside_event, attempt_id: text, one_shot: true,
+source_id: text, correlation_id: text}`; all other wait shapes retain their
+existing fields. The event ID is not stored in state or the wait.
+
+The v2 `outside_event` input has the existing typed payload plus exactly
+`action_id`, `source_id`, `correlation_id` and `event_id`. Context must
+supply an exact three-key `verified_event` map with those identity values,
+equal to the input. These caller-supplied facts are checked before terminal,
+Attempt or deadline precedence, but do not authenticate the source. After
+existing Run/Attempt/time precedence, the action must identify a current open
+outside-event wait whose source and correlation ticket both match. Missing,
+retired or mismatched waits are late and unchanged; an applied PatternStep
+settlement consumes only that one-shot wait. Generic completed outcomes and
+person answers cannot satisfy an outside-event wait; accepted non-completed
+failures retain PatternStep's existing semantics. Late results do not consume.
+No event source authentication, I/O, callbacks, timers or persistence are
+introduced.
 
 ## Decisions and precedence
 
@@ -117,13 +145,16 @@ independent effect reconciliation stays separate and may retain late evidence.
 
 ## Grounding and example
 
-`mix test pieces/workflow/bot-run-lifecycle/test` has exactly seven named scenario
-groups from ELZ-124: Total lifecycle table; Several waits; Attempt and cancel;
+`mix test pieces/workflow/bot-run-lifecycle/test` retains the seven named v1
+scenario groups from ELZ-124: Total lifecycle table; Several waits; Attempt and cancel;
 Pause and continue; Budget/time boundaries; Owner-approved protocol distinctions;
 Selected Cure laws and example. Independent expected table entries, both time
-boundaries and both budget choices exercise the actual Elixir callable. These
-finite scenarios test validation, lookup and native time arithmetic; they are
-not universal proofs or a durable replay claim. Serializing and replaying
+boundaries and both budget choices exercise the actual Elixir callable. The
+separate v2 test file covers explicit-version inputs, exact outside-event
+facts/waits, correlation, precedence, settlement, pause and budget behavior,
+including a source-mismatch negative-control target. These finite scenarios
+test validation, lookup and native time arithmetic; they are not universal
+proofs or a durable replay claim. Serializing and replaying
 supplied state demonstrates only pure state preservation.
 
 The production Cure `decide/4` is checked total over its supplied Phase/Event/
@@ -139,7 +170,8 @@ The checked example in `examples/bot_run_lifecycle.exs` shows two waits, pause,
 settlement of one during pause, and continue with only the other remaining.
 
 Needs: serialized caller state, authentic checked PatternStep trackers, truthful
-Run currentness/outcomes and action-to-Attempt correlation, host-verified person
+Run currentness/outcomes and action-to-Attempt correlation, caller-supplied
+verified-event identity facts (not source authentication), host-verified person
 and Control authority, recorded time, actual budget facts and host wakes. No
 proof of host authentication, durable timers, budget charging, effect settlement,
 physical cancellation or Store replay is claimed. Modules are application-owned
