@@ -1067,6 +1067,108 @@ defmodule Elzoo.RunEngineV2ReaderProofTest do
              )
   end
 
+  test "public readers retain older activations across a new Run source change" do
+    c =
+      reader_fixture([
+        request_v2([action("wait", "wait_event")]),
+        request_v2([finish_action("finish", %{"action_id" => "wait"})])
+      ])
+
+    engine = start_waiting(c)
+    assert {:ok, %{waits: [_]}} = event_waits(engine)
+    assert {:ok, owner} = RunApprovalRelease.status(c.run, "run")
+    {:ok, unit} = DynamicUnits.start(c.directory, c.opts[:identity])
+
+    assert {:ok, _, _} =
+             RunApprovalRelease.command(c.run, %{
+               kind: :complete,
+               run_id: "run",
+               attempt_id: owner.current_attempt,
+               expected_revision: owner.revision,
+               outcome: :failed,
+               reason: "engine",
+               evidence_ref: nil
+             })
+
+    assert {:ok, :applied} = append_wake(engine, "reader-terminal-wake")
+    assert DurableUnit.snapshot(unit).control.lifecycle.phase == :terminal
+    activation = input_row(c, &(&1.kind == :event_activation))
+    {1, {_, activation_record}} = :erlang.binary_to_term(activation.payload, [:safe])
+    assert activation_record.source_id == "events"
+    assert activation_record.source_version == 1
+    GenServer.stop(engine)
+
+    assert {:ok, old_owner} = RunApprovalRelease.status(c.run, "run")
+
+    assert {:ok, revision, _} =
+             RunApprovalRelease.command(c.run, %{
+               kind: :create,
+               run_id: "run-two",
+               operation_id: "operation-two",
+               provider_refs: %{},
+               expected_revision: old_owner.revision
+             })
+
+    assert {:ok, _, _} =
+             RunApprovalRelease.command(c.run, %{
+               kind: :begin_attempt,
+               run_id: "run-two",
+               attempt_id: "attempt-two",
+               expected_revision: revision
+             })
+
+    source = next_event_source(c)
+    new_engine = start(c, run_id: "run-two", event_source: source)
+    assert {:ok, ^unit} = DynamicUnits.find(c.directory, c.opts[:identity])
+    assert DurableUnit.snapshot(unit).control.event_source == %{id: "events-next", version: 2}
+
+    assert {:ok, :applied} =
+             RunEngine.input(
+               new_engine,
+               "reader-start-two",
+               start_input_v2(),
+               verified(%{run_id: "run-two", attempt_id: "attempt-two"})
+             )
+
+    scope = %{tenant: "tenant", principal: "principal", run_id: "run-two"}
+
+    _view =
+      wait_for(new_engine, fn view ->
+        Enum.any?(view.slots, fn {_, slot} ->
+          slot.kind == "wait_event" and slot.phase == :waiting
+        end)
+      end)
+
+    event_waits_result = RunEngine.event_waits(new_engine, scope, result_limits())
+
+    assert {:ok, %{run_id: "run-two", attempt_id: "attempt-two", waits: [wait]}} =
+             event_waits_result
+
+    assert wait.source_id == "events-next"
+    assert wait.status == :waiting
+
+    event_id = "run-two-source-event"
+
+    assert {:ok, :applied} =
+             RunEngine.input(
+               new_engine,
+               event_id,
+               outside_event(c, wait, event_id),
+               verified(%{
+                 run_id: "run-two",
+                 attempt_id: "attempt-two",
+                 occurrence: wait.occurrence,
+                 actual: 0,
+                 dispatch: "not_dispatched"
+               })
+             )
+
+    assert wait_for(new_engine, &(&1.outcome == :completed)).outcome == :completed
+    result = RunEngine.result(new_engine, scope, result_limits())
+
+    assert {:ok, %{action_id: "wait", payload: %{"accepted" => true}}} = result
+  end
+
   test "advancing only the clock past a wait deadline does not expire it during inspection" do
     c = reader_fixture([request_v2([action("wait", "wait_event")])])
     engine = start_waiting(c)
@@ -1577,6 +1679,34 @@ defmodule Elzoo.RunEngineV2ReaderProofTest do
     end)
 
     engine
+  end
+
+  defp next_event_source(c) do
+    %{
+      id: "events-next",
+      version: 2,
+      head: fn _ ->
+        Agent.update(c.callbacks.source, &Map.update!(&1, :head, fn count -> count + 1 end))
+        {:ok, %{revision: 0, low_water: 0}}
+      end,
+      read: fn _, event_id ->
+        Agent.update(c.callbacks.source, &Map.update!(&1, :read, fn count -> count + 1 end))
+
+        {:ok,
+         %{
+           head: %{revision: 1, low_water: 0},
+           event: %{
+             id: event_id,
+             source_id: "events-next",
+             correlation_id: Agent.get(c.callbacks.source, & &1.ticket),
+             sequence: 1,
+             schema_id: "result",
+             schema_version: 1,
+             payload: %{"accepted" => true}
+           }
+         }}
+      end
+    }
   end
 
   defp start_run(c, overrides \\ []) do

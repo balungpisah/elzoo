@@ -5805,6 +5805,7 @@ defmodule Elzoo.RunEngine.ResultReader do
 
   defp valid_activation_pair?(record, input_id, before, after_state, audit) do
     control = before.control
+    source = control[:event_source]
     slot = before.slots[record.occurrence]
     after_slot = after_state.slots[record.occurrence]
     wait = get_in(after_state, [:control, :lifecycle, :waits, slot.action_id])
@@ -5826,12 +5827,12 @@ defmodule Elzoo.RunEngine.ResultReader do
     audit.version == 2 and record.id == input_id and record.version == 2 and
       record.kind == :event_activation and control.protocol_version == 2 and
       Enum.sort(Map.keys(record)) == Enum.sort(activation_keys) and
-      control.tenant == audit.tenant and control.principal == audit.principal and
+      historical_text?(control.tenant, 200) and historical_text?(control.principal, 200) and
+      historical_event_source?(source) and
       control.lifecycle.phase not in [:paused, :terminal] and is_nil(control.stop_pending) and
       not control.generation_closed and slot.attempt_id == control.attempt_id and
       control.attempt_id == record.attempt_id and
-      control.event_source == %{id: audit.source_id, version: audit.source_version} and
-      record.source_id == audit.source_id and record.source_version == audit.source_version and
+      record.source_id == source.id and record.source_version == source.version and
       slot.kind == "wait_event" and slot.phase == :ready and
       slot.attempt_id == record.attempt_id and slot.deadline_ms == record.deadline_ms and
       is_integer(record.cursor) and record.cursor >= 0 and is_integer(record.at_ms) and
@@ -5841,16 +5842,16 @@ defmodule Elzoo.RunEngine.ResultReader do
           control.run_id,
           record.attempt_id,
           record.occurrence,
-          audit.source_id
+          source.id
         ) and
       record.ticket ==
         Elzoo.RunEngine.event_ticket(
-          audit.tenant,
-          audit.principal,
+          control.tenant,
+          control.principal,
           control.run_id,
           record.attempt_id,
           record.occurrence,
-          audit.source_id
+          source.id
         ) and after_state.control.event_source == control.event_source and
       is_map(wait) and
       wait == %{
@@ -5865,6 +5866,18 @@ defmodule Elzoo.RunEngine.ResultReader do
       after_slot.event_cursor == record.cursor and after_slot.deadline_ms == record.deadline_ms
   rescue
     _ -> false
+  end
+
+  defp historical_event_source?(%{id: id, version: version} = source) do
+    not is_struct(source) and map_size(source) == 2 and historical_text?(id, 200) and
+      is_integer(version) and version > 0
+  end
+
+  defp historical_event_source?(_), do: false
+
+  defp historical_text?(value, limit) do
+    is_binary(value) and byte_size(value) in 1..limit and String.valid?(value) and
+      not String.contains?(value, <<0>>)
   end
 
   defp valid_activation_projection(activation, control, slot, owner, audit, key) do
