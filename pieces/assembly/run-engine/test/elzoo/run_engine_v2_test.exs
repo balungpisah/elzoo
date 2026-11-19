@@ -290,10 +290,22 @@ defmodule Elzoo.RunEngineV2Test do
       )
 
     parent = self()
+    wait_estimate = 0
+    local_estimate = 7
 
     bindings =
-      Map.update!(c.opts[:bindings], "local_work", fn binding ->
-        Map.put(binding, :work, fn action ->
+      c.opts[:bindings]
+      |> Map.update!("wait_event", fn binding ->
+        Map.put(binding, :facts, fn action ->
+          Map.put(binding.facts.(action), :estimate, wait_estimate)
+        end)
+      end)
+      |> Map.update!("local_work", fn binding ->
+        binding
+        |> Map.put(:facts, fn action ->
+          Map.put(binding.facts.(action), :estimate, local_estimate)
+        end)
+        |> Map.put(:work, fn action ->
           {TestPattern, :blocked, [parent, action["payload"]]}
         end)
       end)
@@ -304,6 +316,19 @@ defmodule Elzoo.RunEngineV2Test do
     scope = %{tenant: "tenant", principal: "principal", run_id: "run"}
     limits = %{max_records: 65_536, max_bytes: 536_870_912}
     assert {:ok, %{waits: [waiting]}} = RunEngine.event_waits(engine, scope, limits)
+    {:ok, unit} = DynamicUnits.find(c.directory, c.opts[:identity])
+    waiting_state = DurableUnit.snapshot(unit)
+    waiting_slot = waiting_state.slots[waiting.occurrence]
+
+    {:Transition, _, {:some, {:status, waiting_budget}}} =
+      Elzoo.Budget.step(waiting_state.control.budgets["root"].state, {2_000, :status})
+
+    assert waiting_slot.estimate == wait_estimate
+    assert waiting_slot.reservation == nil
+    assert waiting_budget.reserved == 0
+    assert waiting_budget.open == 0
+    assert waiting_budget.committed == 0
+
     Agent.update(calls, &Map.put(&1, :ticket, waiting.correlation_id))
 
     input = %{
@@ -322,12 +347,234 @@ defmodule Elzoo.RunEngineV2Test do
     context = verified(%{occurrence: waiting.occurrence, actual: 0, dispatch: "not_dispatched"})
     assert {:ok, :applied} = RunEngine.input(engine, "event-before-local-work", input, context)
     assert_receive {:local_started, task}, 5_000
+
+    running = DurableUnit.snapshot(unit)
+    wait_slot = running.slots[waiting.occurrence]
+
+    {local_key, local_slot} =
+      Enum.find(running.slots, fn {_, slot} -> slot.action_id == "local" end)
+
+    {:Transition, _, {:some, {:status, running_budget}}} =
+      Elzoo.Budget.step(running.control.budgets["root"].state, {2_000, :status})
+
+    assert wait_slot.actual == 0
+    assert wait_slot.reservation == nil
+    assert local_slot.phase == :running
+    assert local_slot.reservation.estimate == local_estimate
+    assert running_budget.reserved == local_estimate
+    assert running_budget.committed == 0
+
     send(task, :finish)
     assert wait_for(engine, &(&1.outcome == :completed)).outcome == :completed
     assert Agent.get(calls, & &1.read) == 1
 
+    completed = DurableUnit.snapshot(unit)
+    completed_wait = completed.slots[waiting.occurrence]
+    completed_local = completed.slots[local_key]
+
+    {:Transition, _, {:some, {:status, completed_budget}}} =
+      Elzoo.Budget.step(completed.control.budgets["root"].state, {2_000, :status})
+
+    assert completed_wait.actual == 0
+    assert completed_wait.reservation == nil
+    assert completed_local.actual == local_estimate
+    assert completed_local.reservation.estimate == local_estimate
+    assert completed_budget.reserved == 0
+    assert completed_budget.committed == local_estimate
+
     assert {:ok, %{action_id: "local", payload: %{"value" => 7}}} =
              RunEngine.result(engine, scope, limits)
+  end
+
+  test "zero-estimate wait is admitted when a live sibling reservation fills the budget" do
+    parent = self()
+
+    source = %{
+      id: "events",
+      version: 1,
+      head: fn _ -> {:ok, %{revision: 0, low_water: 0}} end,
+      read: fn _, _ -> {:error, :not_found} end
+    }
+
+    local_estimate = 7
+
+    c =
+      fixture(
+        protocol_version: 2,
+        event_source: source,
+        budget: %{cap: local_estimate, unit: "credits", id: "budget", incarnation: "sealed"},
+        pattern:
+          {TestPattern, :step,
+           %{
+             requests: [
+               request_v2([action("local", "local_work"), action("wait", "wait_event")])
+             ]
+           }}
+      )
+
+    bindings =
+      c.opts[:bindings]
+      |> Map.update!("local_work", fn binding ->
+        binding
+        |> Map.put(:facts, fn action ->
+          Map.put(binding.facts.(action), :estimate, local_estimate)
+        end)
+        |> Map.put(:work, fn action ->
+          {TestPattern, :blocked, [parent, action["payload"]]}
+        end)
+      end)
+      |> Map.update!("wait_event", fn binding ->
+        Map.put(binding, :facts, fn action -> Map.put(binding.facts.(action), :estimate, 0) end)
+      end)
+
+    engine = start(c, bindings: bindings)
+
+    assert {:ok, :applied} =
+             RunEngine.input(engine, "start-capacity-boundary", start_input_v2(), verified())
+
+    assert_receive {:local_started, task}, 5_000
+
+    try do
+      scope = %{tenant: "tenant", principal: "principal", run_id: "run"}
+      limits = %{max_records: 65_536, max_bytes: 536_870_912}
+      assert {:ok, %{waits: [wait]}} = RunEngine.event_waits(engine, scope, limits)
+
+      {:ok, unit} = DynamicUnits.find(c.directory, c.opts[:identity])
+      state = DurableUnit.snapshot(unit)
+      wait_slot = state.slots[wait.occurrence]
+
+      {local_key, local_slot} =
+        Enum.find(state.slots, fn {_, slot} -> slot.action_id == "local" end)
+
+      {:Transition, _, {:some, {:status, budget}}} =
+        Elzoo.Budget.step(state.control.budgets["root"].state, {2_000, :status})
+
+      assert wait_slot.phase == :waiting
+      assert wait_slot.estimate == 0
+      assert wait_slot.reservation == nil
+      assert local_slot.phase == :running
+      assert local_slot.reservation.estimate == local_estimate
+      assert budget.reserved == local_estimate
+      assert budget.remaining == 0
+      assert budget.open == 1
+      assert budget.committed == 0
+      assert state.slots[local_key].reservation.estimate == local_estimate
+    after
+      send(task, :finish)
+    end
+  end
+
+  test "zero-estimate local work remains refused in v1 and v2" do
+    parent = self()
+
+    for version <- [1, 2] do
+      action = action("zero-local", "local_work")
+      request = if version == 1, do: request([action]), else: request_v2([action])
+
+      c =
+        fixture(
+          protocol_version: version,
+          pattern: {TestPattern, :step, %{requests: [request]}}
+        )
+
+      bindings =
+        Map.update!(c.opts[:bindings], "local_work", fn binding ->
+          binding
+          |> Map.put(:facts, fn action -> Map.put(binding.facts.(action), :estimate, 0) end)
+          |> Map.put(:work, fn action ->
+            send(parent, {:zero_local_work_started, version})
+            {TestPattern, :work, [action["payload"]]}
+          end)
+        end)
+
+      engine = start(c, bindings: bindings)
+      input = if version == 1, do: start_input(), else: start_input_v2()
+      assert {:ok, :applied} = RunEngine.input(engine, "zero-local-start", input, verified())
+
+      view =
+        wait_for(engine, fn view ->
+          Enum.any?(view.slots, fn {_, slot} ->
+            slot.action_id == "zero-local" and slot.phase == :settled
+          end)
+        end)
+
+      slot =
+        Enum.find_value(view.slots, fn {_, slot} -> if slot.action_id == "zero-local", do: slot end)
+
+      assert slot.outcome == "out_of_budget"
+      assert is_nil(slot[:reservation])
+      refute_receive {:zero_local_work_started, ^version}, 0
+
+      {:ok, unit} = DynamicUnits.find(c.directory, c.opts[:identity])
+      state = DurableUnit.snapshot(unit)
+
+      {:Transition, _, {:some, {:status, budget}}} =
+        Elzoo.Budget.step(state.control.budgets["root"].state, {2_000, :status})
+
+      assert budget.reserved == 0
+      assert budget.open == 0
+      assert budget.committed == 0
+    end
+  end
+
+  test "non-integer zero and negative wait estimates still refuse" do
+    for estimate <- [0.0, -1] do
+      c =
+        fixture(
+          protocol_version: 2,
+          pattern:
+            {TestPattern, :step, %{requests: [request_v2([action("invalid-wait", "wait_event")])]}}
+        )
+
+      bindings =
+        Map.update!(c.opts[:bindings], "wait_event", fn binding ->
+          Map.put(binding, :facts, fn action ->
+            Map.put(binding.facts.(action), :estimate, estimate)
+          end)
+        end)
+
+      engine = start(c, bindings: bindings)
+
+      assert {:ok, :applied} =
+               RunEngine.input(engine, "invalid-wait-start", start_input_v2(), verified())
+
+      view =
+        wait_for(engine, fn view ->
+          Enum.any?(view.slots, fn {_, slot} ->
+            slot.action_id == "invalid-wait" and slot.phase == :settled
+          end)
+        end)
+
+      slot =
+        Enum.find_value(view.slots, fn {_, slot} ->
+          if slot.action_id == "invalid-wait", do: slot
+        end)
+
+      assert slot.kind == "wait_event"
+      assert slot.outcome == "out_of_budget"
+      assert is_nil(slot[:reservation])
+
+      assert {:ok, %{waits: []}} =
+               RunEngine.event_waits(
+                 engine,
+                 %{
+                   tenant: "tenant",
+                   principal: "principal",
+                   run_id: "run"
+                 },
+                 %{max_records: 65_536, max_bytes: 536_870_912}
+               )
+
+      {:ok, unit} = DynamicUnits.find(c.directory, c.opts[:identity])
+      state = DurableUnit.snapshot(unit)
+
+      {:Transition, _, {:some, {:status, budget}}} =
+        Elzoo.Budget.step(state.control.budgets["root"].state, {2_000, :status})
+
+      assert budget.reserved == 0
+      assert budget.open == 0
+      assert budget.committed == 0
+    end
   end
 
   test "v2 rejects v1 inputs and PatternStep requests without upgrading their tags" do

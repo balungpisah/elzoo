@@ -265,6 +265,10 @@ defmodule Elzoo.RunEngine do
         not slot_fits?(Map.merge(slot, facts)) ->
           {deny(state, key, "record_size"), :none}
 
+        state.version == 2 and slot.kind == "wait_event" and
+          is_integer(Map.get(facts, :estimate)) and Map.get(facts, :estimate) == 0 ->
+          admit_zero_estimate_wait(state, key, slot, facts, at)
+
         true ->
           before_budget = state
           budget_id = slot.callable
@@ -605,6 +609,62 @@ defmodule Elzoo.RunEngine do
       {state, :none}
     end
   end
+
+  defp admit_zero_estimate_wait(state, key, slot, facts, at) do
+    budget_id = slot.callable
+    budget = state.control.budgets[budget_id]
+
+    case Budget.step(budget.state, {at, :status}) do
+      {:Transition, next_budget, {:some, {:status, status}}} ->
+        if valid_zero_wait_budget_status?(status, budget) do
+          state = put_in(state.control.budgets[budget_id].state, next_budget)
+          slot = Map.merge(slot, facts)
+
+          slot =
+            if slot[:intent], do: Map.put(slot, :intent_digest, digest(slot.intent)), else: slot
+
+          slot = Map.merge(slot, %{phase: :authorizing, reservation: nil})
+          {put_in(state.slots[key], slot), :none}
+        else
+          {deny(state, key, "out_of_budget"), :none}
+        end
+
+      _ ->
+        {deny(state, key, "out_of_budget"), :none}
+    end
+  end
+
+  defp valid_zero_wait_budget_status?(
+         status,
+         %{state: {:BudgetState, {:String, id}, _, _, _, _, _, _}, cap: cap, unit: unit}
+       )
+       when is_map(status) do
+    budget_id = List.to_string(id)
+
+    case status do
+      %{
+        budget_id: ^budget_id,
+        cap: status_cap,
+        unit: status_unit,
+        committed: committed,
+        reserved: reserved,
+        remaining: remaining,
+        open: open,
+        generation: {incarnation, counter}
+      }
+      when is_integer(committed) and committed >= 0 and is_integer(reserved) and reserved >= 0 and
+             is_integer(remaining) and remaining >= 0 and is_integer(open) and open >= 0 and
+             is_binary(incarnation) and byte_size(incarnation) > 0 and is_integer(counter) and
+             counter > 0 ->
+        status_cap === cap and status_unit === unit and committed + reserved <= cap and
+          remaining == max(0, cap - committed - reserved)
+
+      _ ->
+        false
+    end
+  end
+
+  defp valid_zero_wait_budget_status?(_, _), do: false
 
   defp valid_activation?(%{version: 2, control: control} = state, record, key, slot)
        when is_map(control) and is_map(record) and is_map(slot) do
