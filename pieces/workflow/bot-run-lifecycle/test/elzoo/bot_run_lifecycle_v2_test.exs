@@ -544,6 +544,18 @@ defmodule Elzoo.BotRunLifecycleV2Test do
     assert active.phase == :active
     assert active.outcome == nil
 
+    paused_last_wait =
+      state(%{phase: :paused, waits: %{"outside" => state().waits["outside"]}})
+
+    assert {:ok, paused_last, {:accept_wait, "outside"}} =
+             run(paused_last_wait, event, outside_context(event))
+
+    assert paused_last.phase == :paused
+    assert paused_last.outcome == nil
+    refute Map.has_key?(paused_last.waits, "outside")
+    assert {:PatternStepTrackerV2, paused_actions} = paused_last.tracker
+    assert {"wait_event", true} = paused_actions["outside"]
+
     pause_budget =
       context(%{budget_exhausted: true, budget_rule: :pause, verified_event: verified_event(event)})
 

@@ -94,8 +94,9 @@ existing fields. The event ID is not stored in state or the wait.
 
 The v2 `outside_event` input has the existing typed payload plus exactly
 `action_id`, `source_id`, `correlation_id` and `event_id`. Context must
-supply an exact three-key `verified_event` map with those identity values,
-equal to the input. These caller-supplied facts are checked before terminal,
+supply an exact three-key `verified_event` map containing `source_id`,
+`correlation_id` and `event_id`, each equal to the corresponding input field.
+These caller-supplied facts are checked before terminal,
 Attempt or deadline precedence, but do not authenticate the source. After
 existing Run/Attempt/time precedence, the action must identify a current open
 outside-event wait whose source and correlation ticket both match. Missing,
