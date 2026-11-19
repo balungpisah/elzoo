@@ -745,7 +745,7 @@ defmodule Elzoo.RunEngineV2ReaderProofTest do
     assert {:error, :history} = event_waits(pruned_engine)
   end
 
-  test "retained-state close projections are explicit; public Run closure and settled receipts are honored" do
+  test "unpaired close projections are rejected; public Run closure and receipts are honored" do
     for projection <- [:stop_pending, :native_terminal] do
       c = reader_fixture([request_v2([action("wait", "wait_event")])])
       engine = start_waiting(c)
@@ -761,10 +761,7 @@ defmodule Elzoo.RunEngineV2ReaderProofTest do
         {1, {id, state}}
       end)
 
-      assert {:ok, %{waits: [wait]}} = event_waits(engine)
-      assert wait.status == :closed
-      assert is_nil(wait.outcome)
-      assert is_nil(wait.accepted_event)
+      assert {:error, :history} = event_waits(engine)
     end
 
     open = reader_fixture([request_v2([action("wait", "wait_event")])])
@@ -810,6 +807,264 @@ defmodule Elzoo.RunEngineV2ReaderProofTest do
              input_id: "closed-run-event",
              sequence: 1
            }
+  end
+
+  test "later ordinary wake cannot forge a close marker and over-cap output remains valid" do
+    for projection <- [:stop_pending, :native_terminal] do
+      c = reader_fixture([request_v2([action("wait", "wait_event")])])
+      engine = start_waiting(c)
+      assert {:ok, :applied} = append_wake(engine, "close-marker-wake-#{projection}")
+      row = result_row(c, length(rows(c)))
+
+      rewrite_row(c, row, fn {1, {id, state}} ->
+        state =
+          case projection do
+            :stop_pending -> put_in(state.control.stop_pending, :cancelled)
+            :native_terminal -> put_in(state.control.lifecycle.phase, :terminal)
+          end
+
+        {1, {id, state}}
+      end)
+
+      assert {:error, :history} = event_waits(engine)
+    end
+
+    c =
+      reader_fixture(
+        [
+          request_v2([action("wait", "wait_event")]),
+          request_v2([action("after", "local_work")])
+        ],
+        request_cap: 1
+      )
+
+    engine = start_waiting(c)
+    {:ok, %{waits: [wait]}} = event_waits(engine)
+
+    assert {:ok, :applied} =
+             RunEngine.input(
+               engine,
+               "over-cap-event",
+               outside_event(c, wait, "over-cap-event"),
+               event_context(wait)
+             )
+
+    input = input_row(c, &(Map.get(&1, :id) == "over-cap-event"))
+    before = result_row(c, input.sequence - 1)
+    after_row = result_row(c, input.sequence + 1)
+    {1, {_, before_state}} = :erlang.binary_to_term(before.payload, [:safe])
+    {1, {_, record}} = :erlang.binary_to_term(input.payload, [:safe])
+    {1, {_, after_state}} = :erlang.binary_to_term(after_row.payload, [:safe])
+
+    assert {:ok, expected_state} = RunEngine.project_event_wait_transition(before_state, record)
+    assert :ok = RunEngine.valid_event_wait_close_transition?(before_state, record, after_state)
+    assert expected_state.slots[wait.occurrence] == after_state.slots[wait.occurrence]
+
+    below_cap_before = put_in(before_state.control.cap, 3)
+    below_cap_after = put_in(after_state.control.cap, 3)
+
+    assert {:error, :history} =
+             RunEngine.valid_event_wait_close_transition?(below_cap_before, record, below_cap_after)
+
+    assert {:ok, %{waits: [settled]}} = event_waits(engine)
+    assert settled.status == :settled
+    assert settled.accepted_event.event_id == "over-cap-event"
+  end
+
+  test "a waiting event slot without activation provenance is rejected at its paired result" do
+    c = reader_fixture([request_v2([action("wait", "wait_event")])])
+    engine = start_waiting(c)
+    activation = input_row(c, &(&1.kind == :event_activation))
+    before_activation = result_row(c, activation.sequence - 1)
+
+    rewrite_row(c, before_activation, fn {1, {id, state}} ->
+      [key] = for {key, slot} <- state.slots, slot.kind == "wait_event", do: key
+      {1, {id, put_in(state.slots[key].phase, :waiting)}}
+    end)
+
+    assert {:error, :history} = event_waits(engine)
+  end
+
+  test "later paired result cannot omit an activated event wait" do
+    c = reader_fixture([request_v2([action("wait", "wait_event")])])
+    engine = start_waiting(c)
+    {:ok, %{waits: [wait]}} = event_waits(engine)
+    assert {:ok, :applied} = append_wake(engine, "wait-continuity-wake")
+    later = result_row(c, length(rows(c)))
+
+    rewrite_row(c, later, fn {1, {id, state}} ->
+      {1, {id, %{state | slots: Map.delete(state.slots, wait.occurrence)}}}
+    end)
+
+    assert {:error, :history} = event_waits(engine)
+  end
+
+  test "later paired result cannot change an activated event wait kind" do
+    c = reader_fixture([request_v2([action("wait", "wait_event")])])
+    engine = start_waiting(c)
+    {:ok, %{waits: [wait]}} = event_waits(engine)
+    assert {:ok, :applied} = append_wake(engine, "wait-kind-wake")
+    later = result_row(c, length(rows(c)))
+
+    rewrite_row(c, later, fn {1, {id, state}} ->
+      {1, {id, put_in(state.slots[wait.occurrence].kind, "local_work")}}
+    end)
+
+    assert {:error, :history} = event_waits(engine)
+  end
+
+  test "later paired result cannot invent failed settlement without a receipt" do
+    c = reader_fixture([request_v2([action("wait", "wait_event")])])
+    engine = start_waiting(c)
+    {:ok, %{waits: [wait]}} = event_waits(engine)
+    assert {:ok, :applied} = append_wake(engine, "wait-failed-wake")
+    later = result_row(c, length(rows(c)))
+
+    rewrite_row(c, later, fn {1, {id, state}} ->
+      slot = state.slots[wait.occurrence] |> Map.merge(%{phase: :settled, outcome: "failed"})
+      {1, {id, put_in(state.slots[wait.occurrence], Map.delete(slot, :event_receipt))}}
+    end)
+
+    assert {:error, :history} = event_waits(engine)
+  end
+
+  test "an intermediate activated-wait deletion is rejected even when later state restores it" do
+    c = reader_fixture([request_v2([action("wait", "wait_event")])])
+    engine = start_waiting(c)
+    {:ok, %{waits: [wait]}} = event_waits(engine)
+    activation = input_row(c, &(&1.kind == :event_activation))
+    activation_result = result_row(c, activation.sequence + 1)
+    assert {:ok, :applied} = append_wake(engine, "wait-delete-wake")
+    intermediate = result_row(c, length(rows(c)))
+    assert {:ok, :applied} = append_wake(engine, "wait-restore-wake")
+    later = result_row(c, length(rows(c)))
+    {1, {_, later_state}} = :erlang.binary_to_term(later.payload, [:safe])
+    assert later_state.slots[wait.occurrence].phase == :waiting
+
+    assert activation_result.sequence < intermediate.sequence
+    assert intermediate.sequence < later.sequence
+
+    rewrite_row(c, intermediate, fn {1, {id, state}} ->
+      {1, {id, %{state | slots: Map.delete(state.slots, wait.occurrence)}}}
+    end)
+
+    assert {:error, :history} = event_waits(engine)
+  end
+
+  test "a later record cannot rewrite the first event settlement" do
+    c = reader_fixture([request_v2([action("wait", "wait_event")])])
+    engine = start_waiting(c)
+    {:ok, %{waits: [wait]}} = event_waits(engine)
+
+    assert {:ok, :applied} =
+             RunEngine.input(
+               engine,
+               "first-event-settlement",
+               outside_event(c, wait, "first-event-settlement"),
+               event_context(wait)
+             )
+
+    assert wait_for(engine, &(&1.slots[wait.occurrence].phase == :settled))
+    assert {:ok, :applied} = append_wake(engine, "first-settlement-retention-wake")
+    later = result_row(c, length(rows(c)))
+
+    rewrite_row(c, later, fn {1, {id, state}} ->
+      slot = state.slots[wait.occurrence] |> Map.merge(%{outcome: "failed"})
+      slot = Map.delete(slot, :event_receipt)
+      {1, {id, put_in(state.slots[wait.occurrence], slot)}}
+    end)
+
+    assert {:error, :history} = event_waits(engine)
+  end
+
+  test "paired expiry and Attempt closure preserve activated wait continuity" do
+    expired = reader_fixture([request_v2([action("wait", "wait_event")])])
+    expired_engine = start_waiting(expired)
+    {:ok, %{waits: [expired_wait]}} = event_waits(expired_engine)
+    Agent.update(expired.clock, fn _ -> expired_wait.deadline_ms end)
+    assert {:ok, :applied} = append_wake(expired_engine, "reader-expiry-wake")
+    assert {:ok, %{waits: [expired_projection]}} = event_waits(expired_engine)
+    assert expired_projection.status == :settled
+    assert expired_projection.outcome == "expired"
+    assert is_nil(expired_projection.accepted_event)
+
+    attempted = reader_fixture([request_v2([action("wait", "wait_event")])])
+    attempted_engine = start_waiting(attempted)
+
+    assert {:ok, :applied} =
+             RunEngine.control(
+               attempted_engine,
+               "reader-attempt-change",
+               %{kind: :begin_attempt, attempt_id: "attempt-two"},
+               verified()
+             )
+
+    assert {:ok, %{waits: []}} = event_waits(attempted_engine)
+  end
+
+  test "public reader accepts a genuine terminal-to-new-Run configure pair" do
+    c = reader_fixture([request_v2([action("wait", "wait_event")])])
+    engine = start_waiting(c)
+    {:ok, %{waits: [wait]}} = event_waits(engine)
+    assert {:ok, owner} = RunApprovalRelease.status(c.run, "run")
+    {:ok, unit} = DynamicUnits.start(c.directory, c.opts[:identity])
+
+    assert {:ok, _, _} =
+             RunApprovalRelease.command(c.run, %{
+               kind: :complete,
+               run_id: "run",
+               attempt_id: owner.current_attempt,
+               expected_revision: owner.revision,
+               outcome: :failed,
+               reason: "engine",
+               evidence_ref: nil
+             })
+
+    assert {:ok, :applied} = append_wake(engine, "reader-terminal-wake")
+    terminal = DurableUnit.snapshot(unit)
+    assert terminal.control.lifecycle.phase == :terminal
+    configure = input_row(c, &(&1.kind == :configure))
+    {1, {_, record}} = :erlang.binary_to_term(configure.payload, [:safe])
+
+    control =
+      record.control
+      |> Map.put(:run_id, "run-two")
+      |> Map.put(:operation_id, "operation-two")
+      |> Map.put(:attempt_id, "attempt-two")
+
+    record = %{record | control: control}
+
+    assert {:ok, reset} = RunEngine.project_event_wait_transition(terminal, record)
+    assert reset.control.run_id == "run-two"
+    refute Map.has_key?(reset.slots, wait.occurrence)
+
+    assert {:ok, :applied} = DurableUnit.step(unit, "reader-new-run-configure", record)
+
+    new_owner = %{
+      id: "run-two",
+      operation_id: "operation-two",
+      current_attempt: "attempt-two",
+      revision: 1,
+      outcome: nil
+    }
+
+    assert {:ok, %{run_id: "run-two", attempt_id: "attempt-two", waits: []}} =
+             Elzoo.RunEngine.ResultReader.event_waits(
+               c.opts[:store],
+               c.opts[:identity],
+               new_owner,
+               c.opts[:result_reader].retention_count,
+               result_limits(),
+               c.opts[:bindings],
+               %{
+                 version: 2,
+                 tenant: "tenant",
+                 principal: "principal",
+                 source_id: "events",
+                 source_version: 1
+               },
+               {RunEngine, :step, %{version: 2, control: nil, slots: %{}, requests: %{}}}
+             )
   end
 
   test "advancing only the clock past a wait deadline does not expire it during inspection" do
@@ -1219,6 +1474,10 @@ defmodule Elzoo.RunEngineV2ReaderProofTest do
              )
 
     assert_receive {:local_started, task}, 5_000
+    assert {:ok, %{waits: [settled]}} = event_waits(engine)
+    assert settled.status == :settled
+    assert settled.accepted_event.event_id == "local-event"
+
     send(task, :finish)
     assert wait_for(engine, &(&1.outcome == :completed)).outcome == :completed
 
@@ -1342,6 +1601,16 @@ defmodule Elzoo.RunEngineV2ReaderProofTest do
   end
 
   defp event_waits(engine), do: RunEngine.event_waits(engine, result_scope(), result_limits())
+
+  defp append_wake(engine, id) do
+    RunEngine.input(
+      engine,
+      id,
+      %{"type" => "input", "version" => 2, "kind" => "wake"},
+      verified()
+    )
+  end
+
   defp result_scope, do: %{tenant: "tenant", principal: "principal", run_id: "run"}
   defp result_limits, do: %{max_records: 65_536, max_bytes: 536_870_912}
 

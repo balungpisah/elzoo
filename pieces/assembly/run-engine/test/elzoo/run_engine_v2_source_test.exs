@@ -366,11 +366,14 @@ defmodule Elzoo.RunEngineV2SourceTest do
 
     {c, engine, wait} = start_wait(source(calls))
     before = rows(c)
+    before_slot = unit_state(c).slots[wait.occurrence]
 
     for {response, expected} <- [
           {{:error, :not_found}, :source_not_found},
           {{:error, :unavailable}, :source_unavailable},
           {{:error, :gap}, :source_gap},
+          {{:error, :invalid_payload}, :source_unavailable},
+          {{:error, :invalid_correlation}, :source_unavailable},
           {{:ok, %{head: %{revision: 1, low_water: 2}, event: %{}}}, :source_unavailable},
           {{:ok, %{head: %{revision: 1, low_water: 0}, event: %{}}}, :source_unavailable},
           {{:ok, %{head: %{revision: 1, low_water: 0, extra: true}, event: %{}}},
@@ -387,6 +390,9 @@ defmodule Elzoo.RunEngineV2SourceTest do
                  input(wait, "event-#{:erlang.phash2(response)}"),
                  context(wait)
                )
+
+      assert rows(c) == before
+      assert unit_state(c).slots[wait.occurrence] == before_slot
     end
 
     good_event = event(wait, "event-bad-payload", %{"accepted" => false})

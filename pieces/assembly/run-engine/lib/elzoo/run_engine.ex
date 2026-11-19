@@ -1276,34 +1276,7 @@ defmodule Elzoo.RunEngine do
                 do: put_in(state.control.callables[callable].state, next_pattern),
                 else: state
 
-            state = put_in(state.control.generation_closed, true)
-            state = put_in(state.control.charge_stopped, true)
-
-            {:ok, wake} =
-              decode_step(
-                %{
-                  "type" => "input",
-                  "version" => state.version,
-                  "kind" => "wake",
-                  "at_ms" => record.input["at_ms"]
-                },
-                state.version
-              )
-
-            {:ok, life, decision} =
-              lifecycle_step(
-                state,
-                wake,
-                life_context(
-                  state,
-                  record.context,
-                  state.control.attempt_id,
-                  true,
-                  record.input["at_ms"]
-                )
-              )
-
-            state = install_lifecycle(state, life, decision)
+            state = close_over_cap_generation(state, record.context, record.input["at_ms"])
 
             # A settled parent keeps its first settlement (first settlement wins).
             state =
@@ -2012,7 +1985,7 @@ defmodule Elzoo.RunEngine do
          %{result: result_schema} <- choose(s, "wait_event", fn -> action end),
          :ok <- valid_requested_event_payload(s, neutral, result_schema),
          {:ok, %{head: head, event: event} = response} <-
-           source.read.(event_scope(s), neutral["event_id"]),
+           source_read(source, event_scope(s), neutral["event_id"]),
          true <- map_size(response) == 2,
          :ok <- valid_event_head(head, slot.event_cursor),
          :ok <-
@@ -2074,6 +2047,9 @@ defmodule Elzoo.RunEngine do
         result -> result
       end
     else
+      {:error, {:source_read, :not_found}} -> {{:error, :source_not_found}, s}
+      {:error, {:source_read, :gap}} -> {{:error, :source_gap}, s}
+      {:error, {:source_read, :unavailable}} -> {{:error, :source_unavailable}, s}
       {:error, :not_found} -> {{:error, :source_not_found}, s}
       {:error, :gap} -> {{:error, :source_gap}, s}
       {:error, :unavailable} -> {{:error, :source_unavailable}, s}
@@ -2085,6 +2061,19 @@ defmodule Elzoo.RunEngine do
     _ -> {{:error, :source_unavailable}, s}
   catch
     _, _ -> {{:error, :source_unavailable}, s}
+  end
+
+  defp source_read(source, scope, event_id) do
+    case source.read.(scope, event_id) do
+      {:ok, _} = result ->
+        result
+
+      {:error, reason} when reason in [:not_found, :unavailable, :gap] ->
+        {:error, {:source_read, reason}}
+
+      _ ->
+        {:error, {:source_read, :unavailable}}
+    end
   end
 
   defp decode_outside_event(neutral) do
@@ -4671,6 +4660,188 @@ defmodule Elzoo.RunEngine do
     })
   end
 
+  @doc false
+  def project_event_wait_transition(state, record) do
+    case record do
+      %{kind: :protocol} ->
+        project_protocol_wait_transition(state, record)
+
+      %{kind: kind}
+      when kind in [:configure, :event_activation, :continuation, :lifecycle, :run_view, :finish] ->
+        project_pure_event_wait_transition(state, record)
+
+      _ ->
+        {:ok, state}
+    end
+  rescue
+    _ -> {:error, :history}
+  catch
+    _, _ -> {:error, :history}
+  end
+
+  @doc false
+  def valid_event_wait_close_transition?(state, record, actual_state) do
+    with {:ok, projected} <- project_event_wait_transition(state, record),
+         {:ok, projected} <-
+           project_recorded_over_cap_closure(state, record, projected, actual_state),
+         true <- event_wait_close_markers(projected) == event_wait_close_markers(actual_state) do
+      :ok
+    else
+      _ -> {:error, :history}
+    end
+  rescue
+    _ -> {:error, :history}
+  catch
+    _, _ -> {:error, :history}
+  end
+
+  defp project_recorded_over_cap_closure(state, record, projected, actual_state) do
+    ordinal = projected.control.count + 1
+    receipt = get_in(actual_state, [:control, :receipts, ordinal])
+
+    if is_map(receipt) and receipt[:disposition] == :over_cap do
+      with {:ok, invocation} <- event_wait_pattern_invocation(state, record),
+           true <- ordinal > projected.control.cap,
+           true <- receipt == over_cap_receipt(projected, invocation),
+           true <- get_in(actual_state, [:control, :count]) == ordinal,
+           true <-
+             get_in(actual_state, [:control, :invocations, invocation.record.id]) == receipt.digest do
+        projected = put_in(projected.control.count, ordinal)
+        projected = put_in(projected.control.receipts[ordinal], receipt)
+        projected = put_in(projected.control.invocations[invocation.record.id], receipt.digest)
+
+        {:ok,
+         close_over_cap_generation(
+           projected,
+           invocation.record.context,
+           invocation.record.input["at_ms"]
+         )}
+      else
+        _ -> {:error, :history}
+      end
+    else
+      {:ok, projected}
+    end
+  end
+
+  defp event_wait_pattern_invocation(state, %{kind: :protocol} = record) do
+    case protocol_transition(state, record) do
+      {:continue, next, true, callable} ->
+        input = record.input
+        hash = digest({input, record.correlation})
+
+        if not next.control.generation_closed and is_nil(next.control.stop_pending) and
+             next.control.lifecycle.phase != :paused and not next.control.callables[callable].closed and
+             (input["kind"] in ["action_outcome", "person_answer"] or
+                fits?(put_in(next.control.invocations[record.id], hash))) do
+          {:ok, %{record: record, callable: callable}}
+        else
+          {:error, :history}
+        end
+
+      _ ->
+        {:error, :history}
+    end
+  end
+
+  defp event_wait_pattern_invocation(state, %{kind: :resume_input, occurrence: key}) do
+    slot = state.slots[key]
+
+    with %{record: %{kind: :protocol, input: encoded} = pending} <- slot[:pending_input],
+         {:ok, input} when is_map(input) <- Jason.decode(encoded),
+         true <- state.control.lifecycle.phase not in [:paused, :terminal],
+         true <- not state.control.generation_closed and is_nil(state.control.stop_pending),
+         true <- not state.control.callables[slot.callable].closed do
+      {:ok, %{record: %{pending | input: input}, callable: slot.callable}}
+    else
+      _ -> {:error, :history}
+    end
+  end
+
+  defp event_wait_pattern_invocation(
+         state,
+         %{kind: :nested, occurrence: key, facts: facts} = record
+       ) do
+    slot = state.slots[key]
+
+    if slot.phase == :ready and permitted?(state, slot, record.at_ms) do
+      input = %{
+        "type" => "input",
+        "version" => state.version,
+        "kind" => "start",
+        "at_ms" => record.at_ms,
+        "schema_id" => facts.schema_id,
+        "schema_version" => facts.schema_version,
+        "payload" => facts.payload
+      }
+
+      {:ok,
+       %{
+         record: Map.merge(record, %{input: input, correlation: %{occurrence: key}}),
+         callable: occurrence_id(key)
+       }}
+    else
+      {:error, :history}
+    end
+  end
+
+  defp event_wait_pattern_invocation(_, _), do: {:error, :history}
+
+  defp over_cap_receipt(state, %{record: record, callable: callable}) do
+    %{
+      ordinal: state.control.count + 1,
+      input_id: record.id,
+      digest: digest({record.input, record.correlation}),
+      callable: callable,
+      disposition: :over_cap
+    }
+  end
+
+  defp event_wait_close_markers(state) do
+    control = state.control
+
+    {control.stop_pending, control.generation_closed, control.charge_stopped,
+     control.lifecycle.phase, control.lifecycle.outcome}
+  end
+
+  defp close_over_cap_generation(state, context, at) do
+    state = put_in(state.control.generation_closed, true)
+    state = put_in(state.control.charge_stopped, true)
+
+    {:ok, wake} =
+      decode_step(
+        %{"type" => "input", "version" => state.version, "kind" => "wake", "at_ms" => at},
+        state.version
+      )
+
+    {:ok, life, decision} =
+      lifecycle_step(state, wake, life_context(state, context, state.control.attempt_id, true, at))
+
+    install_lifecycle(state, life, decision)
+  end
+
+  defp project_protocol_wait_transition(state, record) do
+    case protocol_transition(state, record) do
+      {:done, {next, _}} -> {:ok, finalize_step_state(next)}
+      {:continue, next, _, _} -> {:ok, finalize_step_state(next)}
+    end
+  end
+
+  defp project_pure_event_wait_transition(state, %{kind: :configure, control: control} = record) do
+    if state == @empty or state == @empty_v2 do
+      {:Transition, next, _} = configure(state, control)
+      {:ok, next}
+    else
+      {next, _} = transition(state, record)
+      {:ok, finalize_step_state(next)}
+    end
+  end
+
+  defp project_pure_event_wait_transition(state, record) do
+    {next, _} = transition(state, record)
+    {:ok, finalize_step_state(next)}
+  end
+
   defp outcome(version, id, class, schema, payload, at),
     do: %{
       "type" => "input",
@@ -5048,6 +5219,23 @@ defmodule Elzoo.RunEngine.ResultReader do
   @record_bytes 16_777_216
   @completion_keys [:action_id, :attempt_id, :operation_id, :run_id]
   @initial_state %{version: 1, control: nil, slots: %{}, requests: %{}}
+  @event_wait_protected_fields [
+    :action_id,
+    :kind,
+    :attempt_id,
+    :callable,
+    :phase,
+    :outcome,
+    :close_reason,
+    :event_source_id,
+    :event_source_version,
+    :event_cursor,
+    :event_ticket,
+    :activation_id,
+    :activation_at_ms,
+    :deadline_ms,
+    :event_receipt
+  ]
 
   def event_waits(unit_store, unit_stream, owner, retention, limits, bindings, audit, operator) do
     fold = DurableUnit.fold(operator: operator, retention_count: retention)
@@ -5364,9 +5552,9 @@ defmodule Elzoo.RunEngine.ResultReader do
     true = valid_result_wire_version?(row.payload, version)
     next = fold.reduce.(model, row.kind, row.schema_version, row.payload)
 
-    if valid_model_version?(next, version) do
-      candidates = accepted_activation(before, next, candidates, version, audit)
-
+    with true <- valid_model_version?(next, version),
+         {:ok, candidates} <- accepted_activation(before, next, candidates, version, audit),
+         :ok <- validate_event_wait_transition(before, next, candidates, version) do
       candidates =
         case accepted_settlement(before, next, candidates, version, bindings, audit) do
           {:ok, key, candidate} ->
@@ -5378,7 +5566,7 @@ defmodule Elzoo.RunEngine.ResultReader do
 
       {:ok, next, candidates}
     else
-      {:error, :history}
+      _ -> {:error, :history}
     end
   rescue
     _ -> {:error, :history}
@@ -5387,6 +5575,124 @@ defmodule Elzoo.RunEngine.ResultReader do
   end
 
   defp reduce_row(_, _, _, _, _, _, _), do: {:error, :history}
+
+  defp validate_event_wait_transition(
+         %{pending: {_input_id, record}, state: before_state},
+         %{state: after_state},
+         provenance,
+         2
+       )
+       when is_map(record) and is_map(before_state) and is_map(after_state) do
+    with {:ok, expected_state} <-
+           Elzoo.RunEngine.project_event_wait_transition(before_state, record),
+         :ok <- validate_pure_wait_transition_result(record, expected_state, after_state),
+         :ok <-
+           Elzoo.RunEngine.valid_event_wait_close_transition?(before_state, record, after_state),
+         :ok <- validate_activated_waits(expected_state, after_state, provenance) do
+      :ok
+    else
+      _ -> {:error, :history}
+    end
+  end
+
+  defp validate_event_wait_transition(_, _, _, 1), do: :ok
+  defp validate_event_wait_transition(_, _, _, _), do: {:error, :history}
+
+  defp validate_pure_wait_transition_result(
+         %{kind: kind},
+         expected_state,
+         actual_state
+       )
+       when kind in [:configure, :event_activation, :continuation, :lifecycle, :run_view, :finish],
+       do: if(expected_state == actual_state, do: :ok, else: {:error, :history})
+
+  defp validate_pure_wait_transition_result(_, _, _), do: :ok
+
+  defp validate_activated_waits(
+         %{control: %{run_id: run_id}, slots: expected_slots} = expected,
+         %{control: %{run_id: run_id} = control, slots: actual_slots},
+         provenance
+       ) do
+    activations =
+      Enum.flat_map(provenance, fn
+        {{:activation, ^run_id, _attempt_id, key}, activation} -> [{key, activation}]
+        _ -> []
+      end)
+
+    activation_keys = activations |> Enum.map(&elem(&1, 0)) |> MapSet.new()
+
+    with {:ok, expected_keys} <- activated_wait_keys(expected_slots),
+         {:ok, actual_keys} <- activated_wait_keys(actual_slots),
+         true <- expected_keys == activation_keys and actual_keys == activation_keys,
+         true <-
+           Enum.all?(activations, fn {key, activation} ->
+             expected_slot = Map.get(expected_slots, key)
+             actual_slot = Map.get(actual_slots, key)
+
+             same_event_wait?(expected_slot, actual_slot) and
+               activation_matches_wait?(activation, expected, expected_slot) and
+               activation_matches_wait?(activation, %{expected | control: control}, actual_slot)
+           end) do
+      :ok
+    else
+      _ -> {:error, :history}
+    end
+  end
+
+  defp validate_activated_waits(_, _, _), do: {:error, :history}
+
+  defp activated_wait_keys(slots) do
+    slots
+    |> Enum.reduce_while({:ok, MapSet.new()}, fn {key, slot}, {:ok, acc} ->
+      cond do
+        is_map(slot) and slot.kind == "wait_event" and slot.phase == :waiting and
+            is_nil(slot[:activation_id]) ->
+          {:halt, {:error, :history}}
+
+        is_map(slot) and not is_nil(slot[:activation_id]) ->
+          {:cont, {:ok, MapSet.put(acc, key)}}
+
+        true ->
+          {:cont, {:ok, acc}}
+      end
+    end)
+  end
+
+  defp same_event_wait?(expected, actual)
+       when is_map(expected) and is_map(actual),
+       do:
+         Map.take(expected, @event_wait_protected_fields) ==
+           Map.take(actual, @event_wait_protected_fields)
+
+  defp same_event_wait?(_, _), do: false
+
+  defp activation_matches_wait?(activation, %{control: control}, slot)
+       when is_map(activation) and is_map(control) and is_map(slot) do
+    activation.run_id == control.run_id and activation.operation_id == control.operation_id and
+      activation.tenant == control.tenant and activation.principal == control.principal and
+      activation.source_id == get_in(control, [:event_source, :id]) and
+      activation.source_version == get_in(control, [:event_source, :version]) and
+      activation.attempt_id == slot.attempt_id and activation.action_id == slot.action_id and
+      activation.callable == slot.callable and slot.kind == "wait_event" and
+      activation.activation_id == slot.activation_id and
+      activation.activation_at_ms == slot.activation_at_ms and
+      activation.ticket == slot.event_ticket and activation.cursor == slot.event_cursor and
+      activation.deadline_ms == slot.deadline_ms and activation.version == 2
+  rescue
+    _ -> false
+  end
+
+  defp activation_matches_wait?(_, _, _), do: false
+
+  defp accepted_activation(
+         %{pending: {_input_id, %{kind: kind}}},
+         _next,
+         provenance,
+         _version,
+         _audit
+       )
+       when kind != :event_activation,
+       do: {:ok, provenance}
 
   defp accepted_activation(
          %{pending: {input_id, record}, state: before},
@@ -5427,21 +5733,27 @@ defmodule Elzoo.RunEngine.ResultReader do
         activation_at_ms: record.at_ms
       }
 
-      Map.put_new(
-        provenance,
-        {:activation, activation.run_id, activation.attempt_id, key},
-        activation
-      )
+      activation =
+        Map.merge(activation, %{
+          action_id: slot.action_id,
+          callable: slot.callable
+        })
+
+      activation_key = {:activation, activation.run_id, activation.attempt_id, key}
+
+      if Map.has_key?(provenance, activation_key),
+        do: {:error, :history},
+        else: {:ok, Map.put(provenance, activation_key, activation)}
     else
-      _ -> provenance
+      _ -> {:error, :history}
     end
   rescue
-    _ -> provenance
+    _ -> {:error, :history}
   catch
-    _, _ -> provenance
+    _, _ -> {:error, :history}
   end
 
-  defp accepted_activation(_, _, provenance, _, _), do: provenance
+  defp accepted_activation(_, _, provenance, _, _), do: {:ok, provenance}
 
   defp valid_model_version?(%{state: %{version: version}, pending: pending} = model, version) do
     valid_model?(model) and Elzoo.RunEngine.HistoryVersion.valid_state?(model.state, version) and
