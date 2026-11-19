@@ -1972,8 +1972,6 @@ defmodule Elzoo.RunEngine do
   end
 
   defp fresh_outside_event(s, id, neutral, context) do
-    attempt = context[:attempt_id]
-
     with :ok <- decode_outside_event(neutral),
          :ok <- valid_fresh_event_ingress_size(id, neutral),
          {state, s} <- read_state(s),
@@ -1998,53 +1996,19 @@ defmodule Elzoo.RunEngine do
              slot.event_cursor,
              head
            ),
-         :ok <- check_event_payload(s, event),
-         at when is_integer(at) and at > 0 <- s.opts.clock.(),
-         {:ok, owner} <- Run.status(s.opts.run_owner, s.opts.run_id),
-         :ok <-
-           if(is_nil(owner.outcome) and owner.current_attempt == attempt,
-             do: :ok,
-             else: {:error, :invalid_correlation}
-           ),
-         {current, s} = read_state(s),
-         %{
-           kind: "wait_event",
-           phase: :waiting,
-           attempt_id: ^attempt,
-           deadline_ms: deadline,
-           activation_id: activation
-         } <- current.slots[key],
-         :ok <-
-           if(activation == slot.activation_id and at < deadline,
-             do: :ok,
-             else: {:error, :invalid_correlation}
-           ),
-         {:ok, pid} <- DynamicUnits.start(s.opts.directory, s.opts.identity),
-         input = Map.put(neutral, "at_ms", at),
-         {:ok, _} <- PatternStep.decode(input, 2) do
-      correlation = %{
-        occurrence: key,
-        actual: 0,
-        source_version: source.version,
-        source_sequence: event.sequence,
-        source_head_revision: head.revision,
-        activation_id: slot.activation_id,
-        event_digest:
-          Elzoo.RunEngine.event_digest(
-            event.id,
-            event.source_id,
-            event.correlation_id,
-            event.sequence,
-            source.version,
-            event.schema_id,
-            event.schema_version,
-            event.payload
-          )
-      }
+         :ok <- check_event_payload(s, event) do
+      case recheck_fresh_event(s, context, slot) do
+        {:ok, checked_s, _wait, _at} ->
+          case current(checked_s) do
+            {:ok, recovered_s} ->
+              deliver_fresh_outside_event(recovered_s, id, neutral, context, slot, event, head)
 
-      case submit_ingress(%{s | unit: pid}, id, input, input, correlation, context) do
-        {{:error, :input_too_large}, current} -> {{:error, :invalid_payload}, current}
-        result -> result
+            {:error, reason, recovered_s} ->
+              {{:error, reason}, recovered_s}
+          end
+
+        {:error, reason, checked_s} ->
+          {{:error, reason}, checked_s}
       end
     else
       {:error, {:source_read, :not_found}} -> {{:error, :source_not_found}, s}
@@ -2057,6 +2021,84 @@ defmodule Elzoo.RunEngine do
       {:error, :invalid_correlation} -> {{:error, :invalid_correlation}, s}
       _ -> {{:error, :source_unavailable}, s}
     end
+  end
+
+  defp recheck_fresh_event(s, context, original_slot) do
+    attempt = context[:attempt_id]
+    key = context[:occurrence]
+    source = s.opts.event_source
+
+    with {:ok, owner} <- Run.status(s.opts.run_owner, s.opts.run_id),
+         true <- is_nil(owner.outcome) and owner.current_attempt == attempt,
+         {state, s} <- read_state(s),
+         true <- state.control.attempt_id == attempt,
+         wait when is_map(wait) <- state.slots[key],
+         true <-
+           Map.get(wait, :kind) == "wait_event" and Map.get(wait, :phase) == :waiting and
+             Map.get(wait, :attempt_id) == attempt and
+             Map.get(wait, :activation_id) == original_slot.activation_id and
+             Map.get(wait, :deadline_ms) == original_slot.deadline_ms and
+             Map.get(wait, :event_ticket) == original_slot.event_ticket and
+             Map.get(wait, :event_cursor) == original_slot.event_cursor and
+             Map.get(wait, :event_source_id) == original_slot.event_source_id and
+             Map.get(wait, :event_source_version) == original_slot.event_source_version and
+             source.id == original_slot.event_source_id and
+             source.version == original_slot.event_source_version,
+         at when is_integer(at) and at > 0 <- s.opts.clock.(),
+         true <- is_integer(Map.get(wait, :deadline_ms)) and at < Map.get(wait, :deadline_ms) do
+      {:ok, s, wait, at}
+    else
+      false -> {:error, :invalid_correlation, s}
+      nil -> {:error, :invalid_correlation, s}
+      {:error, :invalid_correlation} -> {:error, :invalid_correlation, s}
+      _ -> {:error, :source_unavailable, s}
+    end
+  end
+
+  defp deliver_fresh_outside_event(s, id, neutral, context, original_slot, event, head) do
+    case recheck_fresh_event(s, context, original_slot) do
+      {:ok, checked_s, slot, at} ->
+        input = Map.put(neutral, "at_ms", at)
+
+        case PatternStep.decode(input, 2) do
+          {:ok, _} ->
+            source = checked_s.opts.event_source
+
+            correlation = %{
+              occurrence: context[:occurrence],
+              actual: 0,
+              source_version: source.version,
+              source_sequence: event.sequence,
+              source_head_revision: head.revision,
+              activation_id: slot.activation_id,
+              event_digest:
+                Elzoo.RunEngine.event_digest(
+                  event.id,
+                  event.source_id,
+                  event.correlation_id,
+                  event.sequence,
+                  source.version,
+                  event.schema_id,
+                  event.schema_version,
+                  event.payload
+                )
+            }
+
+            case submit_ingress(checked_s, id, input, input, correlation, context) do
+              {{:error, :input_too_large}, current_s} -> {{:error, :invalid_payload}, current_s}
+              result -> result
+            end
+
+          _ ->
+            {{:error, :source_unavailable}, checked_s}
+        end
+
+      {:error, reason, checked_s} ->
+        {{:error, reason}, checked_s}
+    end
+  catch
+    :exit, _ ->
+      {{:indeterminate, :delivery}, %{s | halted: :delivery_unknown, state: nil, decoded: %{}}}
   end
 
   defp source_read(source, scope, event_id) do

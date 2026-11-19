@@ -1844,6 +1844,157 @@ defmodule Elzoo.RunEngineV2SourceTest do
     assert actual == expected
   end
 
+  test "fresh outside events recover a replacement Unit before admission" do
+    calls = agent(%{heads: 0, reads: 0, head: {:ok, %{revision: 0, low_water: 0}}, read: nil})
+    parent = self()
+
+    pattern =
+      {Elzoo.RunEngine.TestPattern, :step,
+       %{
+         requests: [
+           request_v2([action("local", "local_work"), action("wait", "wait_event")])
+         ]
+       }}
+
+    c = v2_fixture(source(calls), pattern: pattern)
+
+    bindings =
+      Map.update!(c.opts[:bindings], "local_work", fn binding ->
+        Map.put(binding, :work, fn action ->
+          {Elzoo.RunEngine.TestPattern, :blocked, [parent, action["payload"]]}
+        end)
+      end)
+
+    c = %{c | opts: Keyword.put(c.opts, :bindings, bindings)}
+    engine = start(c, bindings: bindings)
+    {:ok, unit} = DynamicUnits.find(c.directory, c.opts[:identity])
+    async_work = :sys.get_state(engine).opts.async_work
+
+    assert {:ok, :applied} =
+             RunEngine.input(engine, "start", start_input_v2(), verified())
+
+    assert_receive {:local_started, local_task}, 5_000
+    wait = wait_slot(engine)
+    before_state = DurableUnit.snapshot(unit)
+
+    {local_occurrence, local_slot} =
+      Enum.find(before_state.slots, fn {_, slot} -> slot.kind == "local_work" end)
+
+    wait_slot_before = before_state.slots[wait.occurrence]
+    assert local_slot.phase == :running
+    assert wait_slot_before.phase == :waiting
+    assert wait_slot_before.event_ticket == wait.event_ticket
+    assert wait_slot_before.event_cursor == wait.event_cursor
+    assert Process.alive?(local_task)
+
+    before_rows = rows(c)
+    old_unit_monitor = Process.monitor(unit)
+    assert :ok = DynamicUnits.stop(c.directory, c.opts[:identity])
+    assert_receive {:DOWN, ^old_unit_monitor, :process, old_unit, _}, 5_000
+    assert old_unit == unit
+    assert :not_found = DynamicUnits.find(c.directory, c.opts[:identity])
+    assert Process.alive?(engine)
+    assert Process.alive?(async_work)
+    assert Process.alive?(local_task)
+
+    {:ok, replacement} = DynamicUnits.start(c.directory, c.opts[:identity])
+    refute replacement == unit
+    event = event(wait, "replacement-unit-event", %{"accepted" => true})
+    read_token = make_ref()
+
+    Agent.update(calls, fn state ->
+      Map.put(state, :read, fn _scope, event_id ->
+        send(parent, {:replacement_event_read, read_token, event_id, self()})
+
+        receive do
+          {:release_replacement_event_read, ^read_token} ->
+            {:ok, %{head: %{revision: 1, low_water: 0}, event: event}}
+        after
+          5_000 ->
+            {:error, :unavailable}
+        end
+      end)
+    end)
+
+    event_id = "replacement-unit-outside-event"
+    outside_input = input(wait, event.id)
+    outside_context = context(wait)
+
+    submission =
+      Task.async(fn ->
+        RunEngine.input(engine, event_id, outside_input, outside_context)
+      end)
+
+    assert_receive {:replacement_event_read, ^read_token, "replacement-unit-event", source_pid},
+                   5_000
+
+    assert rows(c) == before_rows
+    before_recovery = folded_unit_state(c)
+    assert before_recovery.slots[local_occurrence].phase == :running
+    assert before_recovery.slots[wait.occurrence].phase == :waiting
+
+    send(source_pid, {:release_replacement_event_read, read_token})
+    assert {:ok, :applied} = Task.await(submission, 5_000)
+
+    after_state = DurableUnit.snapshot(replacement)
+    recovered_local = after_state.slots[local_occurrence]
+    recovered_wait = after_state.slots[wait.occurrence]
+    event_record = stored_input_record(c, event_id)
+
+    local_restart_record? =
+      Enum.any?(rows(c), fn
+        %{kind: "input", payload: payload} ->
+          match?(
+            {1,
+             {_,
+              %{
+                kind: :protocol,
+                input: %{
+                  "outcome" => "failed",
+                  "payload" => %{"reason" => "local_restart"}
+                }
+              }}},
+            :erlang.binary_to_term(payload, [:safe])
+          )
+
+        _ ->
+          false
+      end)
+
+    actual = %{
+      local_phase: recovered_local.phase,
+      local_outcome: Map.get(recovered_local, :outcome),
+      local_restart_record?: local_restart_record?,
+      event_phase: recovered_wait.phase,
+      event_outcome: recovered_wait.outcome,
+      event_ticket_unchanged?: recovered_wait.event_ticket == wait_slot_before.event_ticket,
+      event_cursor_unchanged?: recovered_wait.event_cursor == wait_slot_before.event_cursor,
+      activation_unchanged?: recovered_wait.activation_id == wait_slot_before.activation_id,
+      event_actual: event_record.correlation.actual,
+      engine_alive?: Process.alive?(engine),
+      work_owner_alive?: Process.alive?(async_work),
+      local_task_alive?: Process.alive?(local_task)
+    }
+
+    expected = %{
+      local_phase: :settled,
+      local_outcome: "failed",
+      local_restart_record?: true,
+      event_phase: :settled,
+      event_outcome: "completed",
+      event_ticket_unchanged?: true,
+      event_cursor_unchanged?: true,
+      activation_unchanged?: true,
+      event_actual: 0,
+      engine_alive?: true,
+      work_owner_alive?: true,
+      local_task_alive?: true
+    }
+
+    assert actual == expected
+    send(local_task, :finish)
+  end
+
   test "an unpaired retry does not claim a fence when its work owner is unavailable" do
     control = agent(%{read_failure: false, result_barrier: :disabled, parent: nil, token: nil})
     calls = agent(%{heads: 0, reads: 0, head: {:ok, %{revision: 0, low_water: 0}}, read: nil})
