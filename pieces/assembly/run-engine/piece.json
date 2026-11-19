@@ -43,6 +43,7 @@
     "test/elzoo/run_engine_test.exs",
     "test/elzoo/run_engine_v2_test.exs",
     "test/elzoo/run_engine_v2_source_test.exs",
+    "test/elzoo/run_engine_v2_reader_proof_test.exs",
     "test/support/run_engine_test_helper.exs"
   ],
   "grounding": [

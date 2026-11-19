@@ -633,14 +633,14 @@ defmodule Elzoo.RunEngine do
       is_integer(record.cursor) and record.cursor >= 0 and is_integer(record.at_ms) and
       record.at_ms > 0 and permitted?(state, slot, record.at_ms) and
       record.id ==
-        Elzoo.RunEngine.EventIdentity.activation_id(
+        Elzoo.RunEngine.event_activation_id(
           control.run_id,
           record.attempt_id,
           key,
           source.id
         ) and
       record.ticket ==
-        Elzoo.RunEngine.EventIdentity.ticket(
+        Elzoo.RunEngine.event_ticket(
           control.tenant,
           control.principal,
           control.run_id,
@@ -942,7 +942,7 @@ defmodule Elzoo.RunEngine do
       record.correlation.source_head_revision >= record.correlation.source_sequence and
       record.correlation.source_head_revision >= slot.event_cursor and
       record.correlation.event_digest ==
-        Elzoo.RunEngine.EventIdentity.event_digest(
+        Elzoo.RunEngine.event_digest(
           input["event_id"],
           input["source_id"],
           input["correlation_id"],
@@ -1977,6 +1977,7 @@ defmodule Elzoo.RunEngine do
     attempt = context[:attempt_id]
 
     with :ok <- decode_outside_event(neutral),
+         :ok <- valid_fresh_event_ingress_size(id, neutral),
          {state, s} <- read_state(s),
          key = context[:occurrence],
          slot = state.slots[key],
@@ -2031,7 +2032,7 @@ defmodule Elzoo.RunEngine do
         source_head_revision: head.revision,
         activation_id: slot.activation_id,
         event_digest:
-          Elzoo.RunEngine.EventIdentity.event_digest(
+          Elzoo.RunEngine.event_digest(
             event.id,
             event.source_id,
             event.correlation_id,
@@ -2043,7 +2044,10 @@ defmodule Elzoo.RunEngine do
           )
       }
 
-      submit_ingress(%{s | unit: pid}, id, input, input, correlation, context)
+      case submit_ingress(%{s | unit: pid}, id, input, input, correlation, context) do
+        {{:error, :input_too_large}, current} -> {{:error, :invalid_payload}, current}
+        result -> result
+      end
     else
       {:error, :not_found} -> {{:error, :source_not_found}, s}
       {:error, :gap} -> {{:error, :source_gap}, s}
@@ -2063,6 +2067,14 @@ defmodule Elzoo.RunEngine do
       {:ok, _} -> :ok
       _ -> {:error, :invalid_payload}
     end
+  end
+
+  defp valid_fresh_event_ingress_size(id, neutral) do
+    if bytes({1, {id, neutral}}) <= @ingress_bytes,
+      do: :ok,
+      else: {:error, :invalid_payload}
+  rescue
+    _ -> {:error, :invalid_payload}
   end
 
   defp valid_fresh_event_correlation(s, state, slot, source, input, context) do
@@ -2630,7 +2642,7 @@ defmodule Elzoo.RunEngine do
   defp reduce_fenced_input_row(fold, model, row, version) do
     next = fold.reduce.(model, row.kind, row.schema_version, row.payload)
 
-    if is_map(next.state) and next.state.version == version,
+    if is_map(next.state) and Elzoo.RunEngine.HistoryVersion.valid_state?(next.state, version),
       do: {:ok, next},
       else: {:error, :source_unavailable}
   rescue
@@ -3311,7 +3323,7 @@ defmodule Elzoo.RunEngine do
     {state, s} = read_state(s)
 
     activation_id =
-      Elzoo.RunEngine.EventIdentity.activation_id(
+      Elzoo.RunEngine.event_activation_id(
         s.opts.run_id,
         state.control.attempt_id,
         key,
@@ -3319,7 +3331,7 @@ defmodule Elzoo.RunEngine do
       )
 
     ticket =
-      Elzoo.RunEngine.EventIdentity.ticket(
+      Elzoo.RunEngine.event_ticket(
         s.opts.tenant,
         s.opts.principal,
         s.opts.run_id,
@@ -4600,6 +4612,40 @@ defmodule Elzoo.RunEngine do
   defp occurrence_id({request, index}), do: "#{request}:#{index}"
   defp stable_id(prefix, value), do: prefix <> Base.encode16(digest(value), case: :lower)
 
+  @doc false
+  def event_activation_id(run_id, attempt_id, occurrence, source_id),
+    do: stable_id("event-activation:", {run_id, attempt_id, occurrence, source_id})
+
+  @doc false
+  def event_ticket(tenant, principal, run_id, attempt_id, occurrence, source_id) do
+    identity = {run_id, attempt_id, occurrence, source_id}
+    stable_id("event-ticket:", {tenant, principal, identity})
+  end
+
+  @doc false
+  def event_digest(
+        event_id,
+        source_id,
+        ticket,
+        sequence,
+        source_version,
+        schema_id,
+        schema_version,
+        payload
+      ) do
+    digest({
+      :run_engine_event_v2,
+      event_id,
+      source_id,
+      ticket,
+      sequence,
+      source_version,
+      schema_id,
+      schema_version,
+      payload
+    })
+  end
+
   defp outcome(version, id, class, schema, payload, at),
     do: %{
       "type" => "input",
@@ -4831,47 +4877,28 @@ defmodule Elzoo.RunEngine do
   end
 end
 
-defmodule Elzoo.RunEngine.EventIdentity do
-  @moduledoc false
-
-  def activation_id(run_id, attempt_id, occurrence, source_id),
-    do: stable_id("event-activation:", {run_id, attempt_id, occurrence, source_id})
-
-  def ticket(tenant, principal, run_id, attempt_id, occurrence, source_id) do
-    identity = {run_id, attempt_id, occurrence, source_id}
-    stable_id("event-ticket:", {tenant, principal, identity})
-  end
-
-  def event_digest(
-        event_id,
-        source_id,
-        ticket,
-        sequence,
-        source_version,
-        schema_id,
-        schema_version,
-        payload
-      ) do
-    digest({
-      :run_engine_event_v2,
-      event_id,
-      source_id,
-      ticket,
-      sequence,
-      source_version,
-      schema_id,
-      schema_version,
-      payload
-    })
-  end
-
-  defp stable_id(prefix, value), do: prefix <> Base.encode16(digest(value), case: :lower)
-
-  defp digest(term),
-    do: :crypto.hash(:sha256, :erlang.term_to_binary(term, [:deterministic, {:minor_version, 2}]))
-end
-
 defmodule Elzoo.RunEngine.HistoryVersion do
+  def valid_state?(
+        %{version: version, control: nil, slots: slots, requests: requests} = state,
+        version
+      )
+      when version in [1, 2] do
+    map_size(state) == 4 and is_map(slots) and map_size(slots) == 0 and is_map(requests) and
+      map_size(requests) == 0
+  end
+
+  def valid_state?(
+        %{version: version, control: control, slots: slots, requests: requests} = state,
+        version
+      )
+      when version in [1, 2] and is_map(control) do
+    map_size(state) == 4 and not is_struct(control) and is_map(slots) and not is_struct(slots) and
+      is_map(requests) and not is_struct(requests) and valid_control?(control, version) and
+      valid_request_cache?(requests, version) and valid_pending_inputs?(slots, version)
+  end
+
+  def valid_state?(_, _), do: false
+
   def valid_record?(%{version: version, kind: kind} = record, input_id, expected_version)
       when is_binary(input_id) do
     version == expected_version and
@@ -4883,12 +4910,111 @@ defmodule Elzoo.RunEngine.HistoryVersion do
         :event_activation ->
           expected_version == 2 and Map.get(record, :id) == input_id
 
+        :configure ->
+          valid_control?(Map.get(record, :control), expected_version)
+
         _ ->
           true
       end
   end
 
   def valid_record?(_, _, _), do: false
+
+  def valid_request_frame?(frame, version) when version in [1, 2] and is_map(frame) do
+    Map.get(frame, "type") == "request" and Map.get(frame, "version") == version and
+      match?({:ok, _}, Elzoo.PatternStep.decode(frame, version))
+  rescue
+    _ -> false
+  catch
+    _, _ -> false
+  end
+
+  def valid_request_frame?(_, _), do: false
+
+  def valid_input_frame?(frame, version) when version in [1, 2] and is_map(frame) do
+    Map.get(frame, "type") == "input" and Map.get(frame, "version") == version and
+      match?({:ok, _}, Elzoo.PatternStep.decode(frame, version))
+  rescue
+    _ -> false
+  catch
+    _, _ -> false
+  end
+
+  def valid_input_frame?(_, _), do: false
+
+  defp valid_request_cache?(requests, version) do
+    Enum.all?(requests, fn
+      {_ordinal, encoded} when is_binary(encoded) ->
+        case Jason.decode(encoded) do
+          {:ok, frame} -> valid_request_frame?(frame, version)
+          _ -> false
+        end
+
+      _ ->
+        false
+    end)
+  rescue
+    _ -> false
+  end
+
+  defp valid_pending_inputs?(slots, version) do
+    Enum.all?(slots, fn
+      {_key, slot} when is_map(slot) and not is_struct(slot) ->
+        case Map.get(slot, :pending_input) do
+          nil ->
+            true
+
+          %{record: %{kind: :protocol, input: encoded} = record} when is_binary(encoded) ->
+            with {:ok, frame} <- Jason.decode(encoded),
+                 true <- valid_input_frame?(frame, version),
+                 input_id when is_binary(input_id) <- Map.get(record, :id),
+                 true <- valid_record?(%{record | input: frame}, input_id, version) do
+              true
+            else
+              _ -> false
+            end
+
+          _ ->
+            false
+        end
+
+      _ ->
+        false
+    end)
+  rescue
+    _ -> false
+  end
+
+  defp valid_control?(control, version) when is_map(control) and not is_struct(control) do
+    lifecycle = Map.get(control, :lifecycle)
+    trackers = Map.get(control, :trackers)
+
+    valid_control_version?(control, version) and valid_control_cap?(control) and
+      is_map(lifecycle) and not is_struct(lifecycle) and
+      valid_tracker?(Map.get(lifecycle, :tracker), version) and is_map(trackers) and
+      not is_struct(trackers) and
+      Enum.all?(trackers, fn
+        {_ordinal, %{tracker: tracker}} -> valid_tracker?(tracker, version)
+        _ -> false
+      end)
+  end
+
+  defp valid_control?(_, _), do: false
+
+  defp valid_control_version?(control, 1), do: not Map.has_key?(control, :protocol_version)
+  defp valid_control_version?(control, 2), do: Map.get(control, :protocol_version) == 2
+  defp valid_control_version?(_, _), do: false
+
+  defp valid_control_cap?(%{cap: cap}), do: is_integer(cap) and cap in 1..256
+  defp valid_control_cap?(_), do: false
+
+  defp valid_tracker?({:PatternStepTracker, actions}, 1),
+    do: is_map(actions) and not is_struct(actions)
+
+  defp valid_tracker?({:PatternStepTrackerV2, actions}, 2),
+    do: is_map(actions) and not is_struct(actions)
+
+  defp valid_tracker?(_, _), do: false
 end
 
 defmodule Elzoo.RunEngine.ResultReader do
@@ -5293,7 +5419,7 @@ defmodule Elzoo.RunEngine.ResultReader do
   defp accepted_activation(_, _, provenance, _, _), do: provenance
 
   defp valid_model_version?(%{state: %{version: version}, pending: pending} = model, version) do
-    valid_model?(model) and
+    valid_model?(model) and Elzoo.RunEngine.HistoryVersion.valid_state?(model.state, version) and
       case pending do
         nil -> true
         {id, record} -> Elzoo.RunEngine.HistoryVersion.valid_record?(record, id, version)
@@ -5344,10 +5470,28 @@ defmodule Elzoo.RunEngine.ResultReader do
     control = before.control
     slot = before.slots[record.occurrence]
     after_slot = after_state.slots[record.occurrence]
+    wait = get_in(after_state, [:control, :lifecycle, :waits, slot.action_id])
+
+    activation_keys = [
+      :version,
+      :kind,
+      :id,
+      :occurrence,
+      :attempt_id,
+      :source_id,
+      :source_version,
+      :ticket,
+      :cursor,
+      :deadline_ms,
+      :at_ms
+    ]
 
     audit.version == 2 and record.id == input_id and record.version == 2 and
       record.kind == :event_activation and control.protocol_version == 2 and
+      Enum.sort(Map.keys(record)) == Enum.sort(activation_keys) and
       control.tenant == audit.tenant and control.principal == audit.principal and
+      control.lifecycle.phase not in [:paused, :terminal] and is_nil(control.stop_pending) and
+      not control.generation_closed and slot.attempt_id == control.attempt_id and
       control.attempt_id == record.attempt_id and
       control.event_source == %{id: audit.source_id, version: audit.source_version} and
       record.source_id == audit.source_id and record.source_version == audit.source_version and
@@ -5356,14 +5500,14 @@ defmodule Elzoo.RunEngine.ResultReader do
       is_integer(record.cursor) and record.cursor >= 0 and is_integer(record.at_ms) and
       record.at_ms > 0 and record.at_ms < record.deadline_ms and
       record.id ==
-        Elzoo.RunEngine.EventIdentity.activation_id(
+        Elzoo.RunEngine.event_activation_id(
           control.run_id,
           record.attempt_id,
           record.occurrence,
           audit.source_id
         ) and
       record.ticket ==
-        Elzoo.RunEngine.EventIdentity.ticket(
+        Elzoo.RunEngine.event_ticket(
           audit.tenant,
           audit.principal,
           control.run_id,
@@ -5371,6 +5515,14 @@ defmodule Elzoo.RunEngine.ResultReader do
           record.occurrence,
           audit.source_id
         ) and after_state.control.event_source == control.event_source and
+      is_map(wait) and
+      wait == %{
+        kind: :outside_event,
+        attempt_id: record.attempt_id,
+        one_shot: true,
+        source_id: record.source_id,
+        correlation_id: record.ticket
+      } and
       after_slot.phase == :waiting and after_slot.activation_id == record.id and
       after_slot.activation_at_ms == record.at_ms and after_slot.event_ticket == record.ticket and
       after_slot.event_cursor == record.cursor and after_slot.deadline_ms == record.deadline_ms
@@ -5388,14 +5540,14 @@ defmodule Elzoo.RunEngine.ResultReader do
          control.tenant == audit.tenant and control.principal == audit.principal and
          control.event_source == %{id: audit.source_id, version: audit.source_version} and
          activation.activation_id ==
-           Elzoo.RunEngine.EventIdentity.activation_id(
+           Elzoo.RunEngine.event_activation_id(
              owner.id,
              owner.current_attempt,
              key,
              audit.source_id
            ) and
          activation.ticket ==
-           Elzoo.RunEngine.EventIdentity.ticket(
+           Elzoo.RunEngine.event_ticket(
              audit.tenant,
              audit.principal,
              owner.id,
@@ -5548,6 +5700,10 @@ defmodule Elzoo.RunEngine.ResultReader do
          true <-
            is_map(record.context) and Enum.all?(Map.keys(record.context), &(&1 == :pause_deadline)),
          true <- record.run_id == run_id and record.attempt_id == attempt,
+         wait <- get_in(before, [:control, :lifecycle, :waits, slot.action_id]),
+         true <-
+           is_map(wait) and wait.kind == :outside_event and wait.attempt_id == attempt and
+             wait.one_shot == true and wait.source_id == source_id and wait.correlation_id == ticket,
          true <- slot.attempt_id == attempt and slot.phase == :waiting,
          true <- slot.activation_id == activation_id,
          true <- slot.event_source_id == source_id and slot.event_source_version == source_version,
@@ -5582,7 +5738,7 @@ defmodule Elzoo.RunEngine.ResultReader do
          true <- is_binary(input["event_id"]),
          true <-
            correlation.event_digest ==
-             Elzoo.RunEngine.EventIdentity.event_digest(
+             Elzoo.RunEngine.event_digest(
                input["event_id"],
                source_id,
                ticket,
@@ -5669,6 +5825,7 @@ defmodule Elzoo.RunEngine.ResultReader do
       nil ->
         with encoded when is_binary(encoded) <- Map.get(state.requests, request),
              {:ok, request} <- Jason.decode(encoded),
+             true <- Elzoo.RunEngine.HistoryVersion.valid_request_frame?(request, state.version),
              actions when is_list(actions) <- Map.get(request, "actions"),
              action when is_map(action) <- Enum.at(actions, index) do
           {:ok, action}

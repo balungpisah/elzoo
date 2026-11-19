@@ -9,6 +9,10 @@ defmodule Elzoo.RunEngine.TestHistoryStore do
   def arm_input_commit_failure(control),
     do: Agent.update(control, &Map.put(&1, :input_failure, :armed))
 
+  def arm_activation_failure(control, fault)
+      when fault in [:before_input, :after_input, :after_result],
+      do: Agent.update(control, &Map.put(&1, :activation_fault, fault))
+
   def arm_result_barrier(control, parent, token) do
     Agent.update(control, fn state ->
       state
@@ -22,8 +26,22 @@ defmodule Elzoo.RunEngine.TestHistoryStore do
   def head(store, stream), do: delegate(store, :head, [stream])
 
   def append(store, stream, expected, records, items) do
-    result = delegate(store, :append, [stream, expected, records, items])
+    activation_fault = activation_fault(store, records)
 
+    if activation_fault == :before_input do
+      {:indeterminate, %{cause: :unavailable}}
+    else
+      result = delegate(store, :append, [stream, expected, records, items])
+
+      if activation_fault in [:after_input, :after_result] and match?({:committed, _}, result) do
+        {:indeterminate, %{cause: :unavailable}}
+      else
+        append_reply(store, records, result)
+      end
+    end
+  end
+
+  defp append_reply(store, records, result) do
     input_failure =
       if match?({:committed, _}, result) and
            Enum.any?(records, fn
@@ -66,6 +84,42 @@ defmodule Elzoo.RunEngine.TestHistoryStore do
       result
     end
   end
+
+  defp activation_fault(store, records) do
+    Agent.get_and_update(store_config(store).control, fn state ->
+      input? = Enum.any?(records, &activation_input?/1)
+      result? = Enum.any?(records, &(&1.kind == "result"))
+
+      cond do
+        input? and state[:activation_fault] == :before_input ->
+          {:before_input, Map.put(state, :activation_fault, nil)}
+
+        input? and state[:activation_fault] == :after_input ->
+          {:after_input, Map.put(state, :activation_fault, nil)}
+
+        input? and state[:activation_fault] == :after_result ->
+          {:none,
+           state |> Map.put(:activation_fault, nil) |> Map.put(:activation_result_failure, :armed)}
+
+        result? and state[:activation_result_failure] == :armed ->
+          {:after_result, Map.put(state, :activation_result_failure, nil)}
+
+        true ->
+          {:none, state}
+      end
+    end)
+  end
+
+  defp activation_input?(%{kind: "input", payload: payload}) do
+    case :erlang.binary_to_term(payload, [:safe]) do
+      {1, {_, %{kind: :event_activation}}} -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp activation_input?(_), do: false
 
   def read(store, stream, from, limit) do
     case Agent.get_and_update(store_config(store).control, fn state ->
@@ -573,7 +627,7 @@ defmodule Elzoo.RunEngineV2SourceTest do
     assert_receive {:head_sampled, ^token, head_pid}
 
     ticket =
-      Elzoo.RunEngine.EventIdentity.ticket(
+      RunEngine.event_ticket(
         "tenant",
         "principal",
         "run",
@@ -615,6 +669,159 @@ defmodule Elzoo.RunEngineV2SourceTest do
              RunEngine.input(engine, "after-head-row", input(wait, "after-head"), context(wait))
 
     assert Agent.get(calls, & &1.reads) == 1
+  end
+
+  test "activation commits its sampled PostgreSQL cursor and admits a later event after non-event rows" do
+    test_pid = self()
+    token = make_ref()
+    store_ref = agent(%{store: nil})
+    calls = agent(%{heads: 0, reads: 0})
+    base = postgres_source(store_ref, 5)
+    read = base.read
+
+    source = %{
+      base
+      | head: fn _ ->
+          store = Agent.get(store_ref, & &1.store)
+          {:ok, head} = Postgres.head(store, @stream)
+          Agent.update(calls, &Map.update!(&1, :heads, fn n -> n + 1 end))
+
+          send(
+            test_pid,
+            {:activation_head_sampled, token, self(), Map.take(head, [:revision, :low_water])}
+          )
+
+          receive do
+            {:release_activation_head, ^token} -> {:ok, Map.take(head, [:revision, :low_water])}
+          end
+        end,
+        read: fn scope, event_id ->
+          Agent.update(calls, &Map.update!(&1, :reads, fn n -> n + 1 end))
+          read.(scope, event_id)
+        end
+    }
+
+    c = v2_fixture(source)
+    store = Postgres.store(TestRepo, prefix: c.prefix, fold: source_fold(), limits: @source_limits)
+    Agent.update(store_ref, &Map.put(&1, :store, store))
+
+    for sequence <- 1..3 do
+      marker = %{"kind" => "source-marker-#{sequence}"}
+      assert {:committed, ^sequence} = append_source_record(store, sequence - 1, marker, "marker")
+    end
+
+    assert {:ok, marker_rows, %{revision: 3}} = DurableLog.read(store, @stream, 1, 3)
+    assert Enum.all?(marker_rows, &(&1.kind == "marker"))
+    engine = start(c)
+
+    start_task =
+      Task.async(fn -> RunEngine.input(engine, "start", start_input_v2(), verified()) end)
+
+    assert_receive {:activation_head_sampled, ^token, head_pid, %{revision: 3, low_water: 0}}
+    {:ok, unit} = DynamicUnits.find(c.directory, c.opts[:identity])
+    state = DurableUnit.snapshot(unit)
+    {occurrence, _slot} = Enum.find(state.slots, fn {_, slot} -> slot.kind == "wait_event" end)
+
+    ticket =
+      RunEngine.event_ticket(
+        "tenant",
+        "principal",
+        "run",
+        state.control.attempt_id,
+        occurrence,
+        "events"
+      )
+
+    intervening = %{"kind" => "source-marker-after-sample"}
+    assert {:committed, 4} = append_source_record(store, 3, intervening, "marker")
+    assert {:ok, [intervening_row], %{revision: 4}} = DurableLog.read(store, @stream, 4, 1)
+    assert intervening_row.kind == "marker"
+
+    later =
+      event(
+        %{source_id: "events", correlation_id: ticket},
+        "after-head",
+        %{"accepted" => true},
+        5,
+        5
+      )
+
+    assert {:committed, 5} = append_source_record(store, 4, later)
+    send(head_pid, {:release_activation_head, token})
+    assert {:ok, :applied} = Task.await(start_task, 5_000)
+
+    wait = wait_slot(engine)
+    assert wait.occurrence == occurrence
+    assert wait.cursor == 3
+    assert wait.correlation_id == ticket
+
+    assert {:ok, :applied} =
+             RunEngine.input(engine, "later-after-head", input(wait, later.id), context(wait))
+
+    accepted = stored_input_record(c, "later-after-head")
+    assert accepted.input["at_ms"] == 2_000
+    assert accepted.correlation.source_sequence == 5
+    assert accepted.correlation.source_head_revision == 5
+    assert Agent.get(calls, & &1.heads) == 1
+    assert Agent.get(calls, & &1.reads) == 1
+  end
+
+  test "activation head returned at the exact slot deadline creates no ticket or event work" do
+    test_pid = self()
+    token = make_ref()
+    calls = agent(%{heads: 0, reads: 0, head: nil, read: nil})
+    pattern_calls = agent(0)
+
+    pattern_token =
+      "deadline-activation-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+
+    :persistent_term.put(
+      {Elzoo.RunEngine.RecoveryPattern, pattern_token},
+      %{mode: :continue, counter: pattern_calls}
+    )
+
+    on_exit(fn -> :persistent_term.erase({Elzoo.RunEngine.RecoveryPattern, pattern_token}) end)
+    source = source(calls)
+
+    source =
+      Map.put(source, :head, fn _ ->
+        Agent.update(calls, &Map.update!(&1, :heads, fn n -> n + 1 end))
+        send(test_pid, {:activation_deadline_head, token, self()})
+        receive do: ({:release_deadline_head, ^token} -> {:ok, %{revision: 3, low_water: 0}})
+      end)
+
+    c =
+      v2_fixture(source,
+        pattern: {Elzoo.RunEngine.RecoveryPattern, :step, %{token: pattern_token}}
+      )
+
+    engine = start(c)
+
+    start_task =
+      Task.async(fn -> RunEngine.input(engine, "start", start_input_v2(), verified()) end)
+
+    assert_receive {:activation_deadline_head, ^token, head_pid}
+    state = unit_state(c)
+    {_occurrence, slot} = Enum.find(state.slots, fn {_, slot} -> slot.kind == "wait_event" end)
+    assert slot.deadline_ms < state.control.lifecycle.run_deadline
+    before = rows(c)
+    Agent.update(c.clock, fn _ -> slot.deadline_ms end)
+    send(head_pid, {:release_deadline_head, token})
+    assert Task.await(start_task, 5_000) in [{:ok, :applied}, {:error, :source_unavailable}]
+
+    assert rows(c) == before
+    assert activation_records(c) == []
+
+    assert {:ok, %{waits: []}} =
+             RunEngine.event_waits(
+               engine,
+               %{tenant: "tenant", principal: "principal", run_id: "run"},
+               %{max_records: 65_536, max_bytes: 536_870_912}
+             )
+
+    assert Agent.get(calls, & &1.heads) == 1
+    assert Agent.get(calls, & &1.reads) == 0
+    assert Agent.get(pattern_calls, & &1) == 0
   end
 
   test "a blocked source read released at the exact deadline appends no event" do
@@ -794,6 +1001,85 @@ defmodule Elzoo.RunEngineV2SourceTest do
     assert Agent.get(calls, & &1.reads) == 1
   end
 
+  test "long canonical Outbox event IDs survive inspection and paired replay after source loss" do
+    calls = agent(%{heads: 0, reads: 0, head: {:ok, %{revision: 0, low_water: 0}}, read: nil})
+    {c, engine, wait} = start_wait(source(calls))
+    stream = String.duplicate("s", 200)
+    item = Elzoo.Outbox.new(stream, 1, 1, "sink", "event", <<1::128>>)
+    event_id = item.idempotency_key
+
+    assert byte_size(event_id) > 200
+    assert {:ok, {^stream, 1, 1}} = Elzoo.Outbox.parse_id(event_id)
+
+    event = event(wait, event_id, %{"accepted" => true})
+
+    Agent.update(
+      calls,
+      &Map.put(&1, :read, {:ok, %{head: %{revision: 1, low_water: 0}, event: event}})
+    )
+
+    input_id = "long-event-input"
+
+    assert {:ok, :applied} =
+             RunEngine.input(engine, input_id, input(wait, event_id), context(wait))
+
+    scope = %{tenant: "tenant", principal: "principal", run_id: "run"}
+    limits = %{max_records: 65_536, max_bytes: 536_870_912}
+    assert {:ok, %{waits: [observed]}} = RunEngine.event_waits(engine, scope, limits)
+
+    assert observed.accepted_event == %{
+             event_id: event_id,
+             input_id: input_id,
+             sequence: 1
+           }
+
+    record = stored_input_record(c, input_id)
+    assert record.id == input_id
+    assert record.input["event_id"] == event_id
+    read_count = Agent.get(calls, & &1.reads)
+    before_replay = rows(c)
+    Agent.update(calls, &Map.put(&1, :read, {:error, :unavailable}))
+
+    assert {:ok, :unchanged} =
+             RunEngine.input(engine, input_id, input(wait, event_id), context(wait))
+
+    assert Agent.get(calls, & &1.reads) == read_count
+    assert rows(c) == before_replay
+    assert {:ok, %{waits: [replayed]}} = RunEngine.event_waits(engine, scope, limits)
+    assert replayed.accepted_event == observed.accepted_event
+  end
+
+  test "over-ingress fresh event IDs refuse before source read or append" do
+    calls = agent(%{heads: 0, reads: 0, head: {:ok, %{revision: 0, low_water: 0}}, read: nil})
+    {c, engine, wait} = start_wait(source(calls))
+    input_id = "over-ingress-input"
+    event_id = String.duplicate("x", 262_145)
+    candidate = input(wait, event_id)
+
+    assert byte_size(
+             :erlang.term_to_binary(
+               {1, {input_id, candidate}},
+               [:deterministic, {:minor_version, 2}]
+             )
+           ) > 262_144
+
+    before_rows = rows(c)
+    before_state = unit_state(c)
+    before_calls = Agent.get(calls, & &1)
+    before_slot = before_state.slots[wait.occurrence]
+
+    assert {:error, :invalid_payload} = RunEngine.input(engine, input_id, candidate, context(wait))
+
+    assert rows(c) == before_rows
+    assert Agent.get(calls, & &1) == before_calls
+    after_state = unit_state(c)
+    after_slot = after_state.slots[wait.occurrence]
+    assert after_state == before_state
+    assert after_slot == before_slot
+    assert is_nil(after_slot[:event_receipt])
+    assert is_nil(after_slot[:pending_input])
+  end
+
   defp agent(initial),
     do: ExUnit.Callbacks.start_supervised!({Agent, fn -> initial end}, id: make_ref())
 
@@ -810,6 +1096,26 @@ defmodule Elzoo.RunEngineV2SourceTest do
         Agent.get(agent, & &1.read) |> invoke_read(scope, event_id)
       end
     }
+  end
+
+  defp activation_fault_source(calls, control, fault, token, parent) do
+    source = source(calls)
+
+    Map.put(source, :head, fn _scope ->
+      sample =
+        Agent.get_and_update(calls, fn state ->
+          sample = state.heads + 1
+          {sample, %{state | heads: sample}}
+        end)
+
+      if sample == 1 do
+        TestHistoryStore.arm_activation_failure(control, fault)
+        send(parent, {:activation_head_sampled, token, self()})
+        receive do: ({:release_activation_head, ^token} -> :ok)
+      end
+
+      {:ok, %{revision: if(sample == 1, do: 3, else: 4), low_water: 0}}
+    end)
   end
 
   defp invoke_source(fun, scope) when is_function(fun, 1), do: fun.(scope)
@@ -847,6 +1153,23 @@ defmodule Elzoo.RunEngineV2SourceTest do
   defp unit_state(c) do
     {:ok, unit} = Elzoo.DynamicUnits.start(c.directory, c.opts[:identity])
     Elzoo.DurableUnit.snapshot(unit)
+  end
+
+  defp folded_unit_state(c) do
+    fold = DurableUnit.fold(c.unit_opts)
+
+    Enum.reduce(rows(c), fold.initial, fn row, model ->
+      fold.reduce.(model, row.kind, row.schema_version, row.payload)
+    end).state
+  end
+
+  defp assert_no_operator_step_trace(tracees) do
+    Enum.each(tracees, fn pid ->
+      delivered = :erlang.trace_delivered(pid)
+      assert_receive {:trace_delivered, ^pid, ^delivered}, 5_000
+    end)
+
+    refute_received {:trace, _, :call, {RunEngine, :step, _}}
   end
 
   defp install_unit_state(c, engine, model_state) do
@@ -966,16 +1289,43 @@ defmodule Elzoo.RunEngineV2SourceTest do
   end
 
   test "paired retries and notifications leave a paused later input and fenced Unit untouched" do
+    control =
+      agent(%{
+        read_failure: false,
+        result_barrier: :disabled,
+        parent: nil,
+        token: nil,
+        input_failure: nil
+      })
+
     calls = agent(%{heads: 0, reads: 0, head: {:ok, %{revision: 0, low_water: 0}}, read: nil})
     clock_calls = agent(0)
+    pattern_calls = agent(0)
+    pattern_token = "paired-tail-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+
+    :persistent_term.put(
+      {Elzoo.RunEngine.RecoveryPattern, pattern_token},
+      %{mode: :continue, counter: pattern_calls}
+    )
+
+    on_exit(fn -> :persistent_term.erase({Elzoo.RunEngine.RecoveryPattern, pattern_token}) end)
 
     clock = fn ->
       Agent.update(clock_calls, &(&1 + 1))
       2_000
     end
 
-    c = v2_fixture(source(calls), clock: clock)
-    engine = start(c)
+    c =
+      v2_fixture(source(calls),
+        clock: clock,
+        pattern: {Elzoo.RunEngine.RecoveryPattern, :step, %{token: pattern_token}}
+      )
+      |> wrap_unit_store(control)
+
+    tree = start_owned_tree(c, c.run)
+    on_exit(fn -> stop_owned_tree(tree) end)
+    c = %{c | directory: tree.directory}
+    engine = tree.engine
 
     assert {:ok, :applied} = RunEngine.input(engine, "start", start_input_v2(), verified())
     wait = wait_slot(engine)
@@ -1003,18 +1353,89 @@ defmodule Elzoo.RunEngineV2SourceTest do
     settled = unit_state(c).slots[wait.occurrence]
     pending = settled.pending_input
     refute is_nil(pending)
-    before = rows(c)
+    receipt = settled.event_receipt
     record = stored_input_record(c, event_id)
+    {:ok, unit} = DynamicUnits.find(c.directory, c.opts[:identity])
     assert record.input["at_ms"] == 2_000
 
+    notification_id = "notification-only-absent"
+    notification_record = %{record | id: notification_id}
+    before_notification = rows(c)
+    assert notification_record.id == notification_id
+
+    refute Enum.any?(before_notification, fn
+             %{kind: "input", payload: payload} ->
+               case :erlang.binary_to_term(payload, [:safe]) do
+                 {1, {^notification_id, _}} -> true
+                 _ -> false
+               end
+
+             _ ->
+               false
+           end)
+
+    _ = :sys.get_state(engine)
+    notification_heads = Agent.get(calls, & &1.heads)
+    notification_reads = Agent.get(calls, & &1.reads)
+    notification_clock = Agent.get(clock_calls, & &1)
+    notification_patterns = Agent.get(pattern_calls, & &1)
+    :erlang.trace_pattern({RunEngine, :step, 2}, true, [:global])
+    :erlang.trace(engine, true, [:call])
+    :erlang.trace(unit, true, [:call])
+
+    try do
+      send(engine, {:durable_unit_input, notification_id, notification_record})
+      _ = :sys.get_state(engine)
+      assert_no_operator_step_trace([engine, unit])
+      assert rows(c) == before_notification
+      assert {:ok, ^unit} = DynamicUnits.find(c.directory, c.opts[:identity])
+      assert Agent.get(calls, & &1.heads) == notification_heads
+      assert Agent.get(calls, & &1.reads) == notification_reads
+      assert Agent.get(clock_calls, & &1) == notification_clock
+      assert Agent.get(pattern_calls, & &1) == notification_patterns
+    after
+      :erlang.trace(engine, false, [:call])
+      :erlang.trace(unit, false, [:call])
+      :erlang.trace_pattern({RunEngine, :step, 2}, false, [:global])
+    end
+
+    tail_id = "later-unpaired-unit-input"
+    tail_record = %{record | id: tail_id}
+    unit_monitor = Process.monitor(unit)
+    TestHistoryStore.arm_input_commit_failure(control)
+    assert {:indeterminate, _} = DurableUnit.step(unit, tail_id, tail_record)
+    assert_receive {:DOWN, ^unit_monitor, :process, ^unit, _}, 5_000
+    assert :not_found = DynamicUnits.find(c.directory, c.opts[:identity])
+
+    before = rows(c)
+    assert stored_input_record(c, tail_id) == tail_record
+    refute has_result_row?(before, tail_id)
+    assert List.last(before).kind == "input"
+
     Agent.update(calls, &Map.put(&1, :read, {:error, :unavailable}))
-    {:ok, unit} = DynamicUnits.find(c.directory, c.opts[:identity])
-    assert :ok = DynamicUnits.stop(c.directory, c.opts[:identity])
-    refute Process.alive?(unit)
     :sys.replace_state(engine, &Map.put(&1, :halted, :delivery_unknown))
     clock_before = Agent.get(clock_calls, & &1)
+    heads_before = Agent.get(calls, & &1.heads)
+    pattern_calls_before = Agent.get(pattern_calls, & &1)
 
-    assert {:ok, :unchanged} = RunEngine.input(engine, event_id, outside_input, outside_context)
+    :erlang.trace_pattern({RunEngine, :step, 2}, true, [:global])
+    :erlang.trace(engine, true, [:call])
+    :erlang.trace(tree.directory, true, [:call])
+    :erlang.trace(tree.supervisor, true, [:call, :set_on_spawn])
+
+    try do
+      assert {:ok, :unchanged} =
+               RunEngine.input(engine, event_id, outside_input, outside_context)
+
+      send(engine, {:durable_unit_input, event_id, record})
+      _ = :sys.get_state(engine)
+      assert_no_operator_step_trace([engine, tree.directory, tree.supervisor])
+    after
+      :erlang.trace(engine, false, [:call])
+      :erlang.trace(tree.directory, false, [:call])
+      :erlang.trace(tree.supervisor, false, [:call, :set_on_spawn])
+      :erlang.trace_pattern({RunEngine, :step, 2}, false, [:global])
+    end
 
     assert {:error, :input_id_conflict} =
              RunEngine.input(
@@ -1032,7 +1453,7 @@ defmodule Elzoo.RunEngineV2SourceTest do
                Map.put(outside_context, :run_id, "run-two")
              )
 
-    assert {:error, :delivery_unknown} =
+    assert {:error, :source_unavailable} =
              RunEngine.input(
                engine,
                "fresh-while-halted",
@@ -1040,22 +1461,18 @@ defmodule Elzoo.RunEngineV2SourceTest do
                outside_context
              )
 
-    send(engine, {:durable_unit_input, event_id, record})
-    _ = :sys.get_state(engine)
-
-    send(
-      engine,
-      {:durable_unit_input, "notification-only",
-       Map.put(record, :input, input(wait, "not-admitted-event"))}
-    )
-
-    _ = :sys.get_state(engine)
-
     assert :not_found = DynamicUnits.find(c.directory, c.opts[:identity])
     assert rows(c) == before
     assert Agent.get(calls, & &1.reads) == 1
     assert Agent.get(clock_calls, & &1) == clock_before
-    assert settled.pending_input == pending
+    assert Agent.get(pattern_calls, & &1) == pattern_calls_before
+    assert Agent.get(calls, & &1.heads) == heads_before
+    durable_slot = folded_unit_state(c).slots[wait.occurrence]
+    assert durable_slot.event_receipt == receipt
+    assert durable_slot.pending_input == pending
+    assert stored_input_record(c, tail_id) == tail_record
+    refute has_result_row?(rows(c), tail_id)
+    assert Process.alive?(engine)
   end
 
   test "history lookup distinguishes store uncertainty, confirmed absence, and pruned history" do
@@ -1287,17 +1704,20 @@ defmodule Elzoo.RunEngineV2SourceTest do
     outside_input = input(wait, event.id)
     outside_context = context(wait)
     parent = self()
+    original_state = DurableUnit.snapshot(tree.unit)
+    assert wait.deadline_ms < original_state.control.lifecycle.run_deadline
 
-    spawn(fn ->
-      result =
-        try do
-          RunEngine.input(tree.engine, event_id, outside_input, outside_context)
-        catch
-          :exit, _ -> :caller_fenced
-        end
+    {caller, caller_monitor} =
+      spawn_monitor(fn ->
+        result =
+          try do
+            RunEngine.input(tree.engine, event_id, outside_input, outside_context)
+          catch
+            :exit, _ -> :caller_fenced
+          end
 
-      send(parent, {:outside_call_finished, token, result})
-    end)
+        send(parent, {:outside_call_finished, token, result})
+      end)
 
     unit = tree.unit
     assert_receive {:recovery_step_blocked, ^unit, ^token}, 5_000
@@ -1310,6 +1730,7 @@ defmodule Elzoo.RunEngineV2SourceTest do
 
     fence_tree(tree, [])
     assert_receive {:outside_call_finished, ^token, :caller_fenced}, 5_000
+    assert_receive {:DOWN, ^caller_monitor, :process, ^caller, _}, 5_000
     assert rows(c) == rows_before_fence
 
     :persistent_term.put(
@@ -1318,12 +1739,19 @@ defmodule Elzoo.RunEngineV2SourceTest do
     )
 
     new_run = restart_run_owner(c)
+    Agent.update(c.clock, fn _ -> wait.deadline_ms end)
     restarted = start_owned_tree(c, new_run)
     on_exit(fn -> stop_owned_tree(restarted) end)
     recovered_rows = rows(c)
     assert stored_input_record(c, event_id) == original
+    assert original.input["at_ms"] == 2_000
+    assert original.correlation.source_sequence == 1
+    assert original.correlation.source_head_revision == 1
+    assert original.run_id == "run"
+    assert original.attempt_id == original_state.control.attempt_id
     assert has_result_row?(recovered_rows, event_id)
     assert Agent.get(pattern_calls, & &1) == 2
+    assert Agent.get(calls, & &1.heads) == 1
     assert Agent.get(calls, & &1.reads) == 1
 
     assert {:ok, :unchanged} =
@@ -1357,6 +1785,8 @@ defmodule Elzoo.RunEngineV2SourceTest do
     on_exit(fn -> stop_owned_tree(tree) end)
     assert {:ok, :applied} = RunEngine.input(tree.engine, "start", start_input_v2(), verified())
     wait = wait_slot(tree.engine)
+    original_state = DurableUnit.snapshot(tree.unit)
+    assert wait.deadline_ms < original_state.control.lifecycle.run_deadline
     event = event(wait, "after-result-commit", %{"accepted" => true})
 
     Agent.update(
@@ -1382,18 +1812,29 @@ defmodule Elzoo.RunEngineV2SourceTest do
     original = stored_input_record(c, event_id)
     assert has_result_row?(rows_after_commit, event_id)
     assert original.input["at_ms"] == 2_000
+    assert original.correlation.source_sequence == 1
+    assert original.correlation.source_head_revision == 1
+    caller_monitor = Process.monitor(caller)
     refute_receive {:outside_call_finished, ^barrier, _}, 0
 
-    fence_tree(tree, [caller])
+    fence_tree(tree, [])
+    assert_receive {:DOWN, ^caller_monitor, :process, ^caller, _}, 5_000
     assert rows(c) == rows_after_commit
 
     new_run = restart_run_owner(c)
+    Agent.update(c.clock, fn _ -> wait.deadline_ms end)
     restarted = start_owned_tree(c, new_run)
     on_exit(fn -> stop_owned_tree(restarted) end)
     recovered_rows = rows(c)
     assert stored_input_record(c, event_id) == original
+    assert original.input["at_ms"] == 2_000
+    assert original.correlation.source_sequence == 1
+    assert original.correlation.source_head_revision == 1
+    assert original.run_id == "run"
+    assert original.attempt_id == original_state.control.attempt_id
     assert has_result_row?(recovered_rows, event_id)
     assert Agent.get(pattern_calls, & &1) == 1
+    assert Agent.get(calls, & &1.heads) == 1
     assert Agent.get(calls, & &1.reads) == 1
 
     assert {:ok, :unchanged} =
@@ -1402,6 +1843,170 @@ defmodule Elzoo.RunEngineV2SourceTest do
     assert rows(c) == recovered_rows
     assert Agent.get(pattern_calls, & &1) == 1
     assert Agent.get(calls, & &1.reads) == 1
+  end
+
+  test "activation input absence, unpaired input, and paired result loss recover from fenced history" do
+    for fault <- [:before_input, :after_input, :after_result] do
+      control =
+        agent(%{
+          read_failure: false,
+          result_barrier: :disabled,
+          parent: nil,
+          token: nil,
+          activation_fault: nil,
+          activation_result_failure: nil
+        })
+
+      calls = agent(%{heads: 0, reads: 0, head: nil, read: nil})
+      pattern_calls = agent(0)
+      pattern_token = "activation-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+      token = make_ref()
+
+      :persistent_term.put(
+        {Elzoo.RunEngine.RecoveryPattern, pattern_token},
+        %{mode: :continue, counter: pattern_calls}
+      )
+
+      on_exit(fn -> :persistent_term.erase({Elzoo.RunEngine.RecoveryPattern, pattern_token}) end)
+
+      source = activation_fault_source(calls, control, fault, token, self())
+
+      c =
+        v2_fixture(source,
+          pattern: {Elzoo.RunEngine.RecoveryPattern, :step, %{token: pattern_token}}
+        )
+        |> wrap_unit_store(control)
+
+      tree = start_owned_tree(c, c.run)
+      on_exit(fn -> stop_owned_tree(tree) end)
+
+      start_task =
+        Task.async(fn -> RunEngine.input(tree.engine, "start", start_input_v2(), verified()) end)
+
+      assert_receive {:activation_head_sampled, ^token, head_pid}, 5_000
+      state = DurableUnit.snapshot(tree.unit)
+
+      {occurrence, ready_slot} =
+        Enum.find(state.slots, fn {_, slot} -> slot.kind == "wait_event" end)
+
+      assert ready_slot.phase == :ready
+
+      ticket =
+        RunEngine.event_ticket(
+          "tenant",
+          "principal",
+          "run",
+          state.control.attempt_id,
+          occurrence,
+          "events"
+        )
+
+      activation_id =
+        RunEngine.event_activation_id(
+          "run",
+          state.control.attempt_id,
+          occurrence,
+          "events"
+        )
+
+      send(head_pid, {:release_activation_head, token})
+
+      assert Task.await(start_task, 5_000) in [
+               {:ok, :applied},
+               {:error, :storage_unknown},
+               {:error, :delivery_unknown}
+             ]
+
+      before_fence = rows(c)
+      initial_records = activation_records(c)
+
+      case fault do
+        :before_input ->
+          assert initial_records == []
+
+          assert {:ok, %{waits: []}} =
+                   RunEngine.event_waits(
+                     tree.engine,
+                     %{tenant: "tenant", principal: "principal", run_id: "run"},
+                     %{max_records: 65_536, max_bytes: 536_870_912}
+                   )
+
+        :after_input ->
+          [unpaired] = initial_records
+          assert unpaired.id == activation_id
+          assert unpaired.occurrence == occurrence
+          assert unpaired.deadline_ms == ready_slot.deadline_ms
+          assert unpaired.ticket == ticket
+          refute has_result_row?(before_fence, activation_id)
+
+          assert {:error, :history} =
+                   RunEngine.event_waits(
+                     tree.engine,
+                     %{tenant: "tenant", principal: "principal", run_id: "run"},
+                     %{max_records: 65_536, max_bytes: 536_870_912}
+                   )
+
+        :after_result ->
+          [winner] = initial_records
+          assert winner.id == activation_id
+          assert has_result_row?(before_fence, activation_id)
+
+          assert {:ok, %{waits: [%{correlation_id: ^ticket}]}} =
+                   RunEngine.event_waits(
+                     tree.engine,
+                     %{tenant: "tenant", principal: "principal", run_id: "run"},
+                     %{max_records: 65_536, max_bytes: 536_870_912}
+                   )
+      end
+
+      if fault != :before_input do
+        [original_activation] = initial_records
+        assert original_activation.at_ms == 2_000
+        assert original_activation.cursor == 3
+      end
+
+      fence_tree(tree, [])
+      new_run = restart_run_owner(c)
+      restarted = start_owned_tree(c, new_run)
+      on_exit(fn -> stop_owned_tree(restarted) end)
+
+      wait_for(restarted.engine, fn view ->
+        Enum.any?(view.slots, fn {_, slot} ->
+          slot.kind == "wait_event" and slot.phase == :waiting
+        end)
+      end)
+
+      {:ok, %{waits: [recovered]}} =
+        RunEngine.event_waits(
+          restarted.engine,
+          %{tenant: "tenant", principal: "principal", run_id: "run"},
+          %{max_records: 65_536, max_bytes: 536_870_912}
+        )
+
+      assert recovered.occurrence == occurrence
+      assert recovered.deadline_ms == ready_slot.deadline_ms
+      assert recovered.correlation_id == ticket
+      expected_cursor = if fault == :before_input, do: 4, else: 3
+      assert recovered.cursor == expected_cursor
+      assert recovered.source_id == "events"
+      {:ok, recovered_owner} = Run.status(new_run, "run")
+      assert recovered_owner.id == "run"
+      assert recovered_owner.current_attempt == state.control.attempt_id
+      [record] = activation_records(c)
+      assert record.id == activation_id
+      assert record.occurrence == occurrence
+      assert record.attempt_id == state.control.attempt_id
+      assert record.deadline_ms == ready_slot.deadline_ms
+      assert record.ticket == ticket
+      assert record.source_id == "events"
+      assert record.source_version == 1
+      assert record.at_ms == 2_000
+      assert record.cursor == expected_cursor
+      if fault != :before_input, do: assert(record == hd(initial_records))
+      assert Agent.get(calls, & &1.heads) == if(fault == :before_input, do: 2, else: 1)
+      assert Agent.get(calls, & &1.reads) == 0
+      assert Agent.get(pattern_calls, & &1) == 0
+    end
   end
 
   test "an authoritative Run cancellation wins a source-read barrier race" do
@@ -1657,7 +2262,7 @@ defmodule Elzoo.RunEngineV2SourceTest do
     }
   end
 
-  defp postgres_source(store_ref) do
+  defp postgres_source(store_ref, from \\ 2) do
     %{
       id: "events",
       version: 1,
@@ -1670,7 +2275,7 @@ defmodule Elzoo.RunEngineV2SourceTest do
       read: fn _, event_id ->
         store = Agent.get(store_ref, & &1.store)
 
-        case DurableLog.read(store, @stream, 2, 1) do
+        case DurableLog.read(store, @stream, from, 1) do
           {:ok, [row], head} ->
             event = :erlang.binary_to_term(row.payload, [:safe])
 
@@ -1691,13 +2296,13 @@ defmodule Elzoo.RunEngineV2SourceTest do
     }
   end
 
-  defp append_source_record(store, expected, event) do
+  defp append_source_record(store, expected, event, kind \\ "event") do
     sequence = expected + 1
 
     record = %Record{
       stream: @stream,
       sequence: sequence,
-      kind: "event",
+      kind: kind,
       schema_version: 1,
       payload: :erlang.term_to_binary(event, [:deterministic, {:minor_version, 2}]),
       nonce: :crypto.strong_rand_bytes(16)
@@ -1726,7 +2331,7 @@ defmodule Elzoo.RunEngineV2SourceTest do
   defp source_fold do
     %{
       initial: 0,
-      kinds: %{"event" => :state_bearing},
+      kinds: %{"event" => :state_bearing, "marker" => :state_bearing},
       versions: [1],
       destinations: [],
       reduce: fn n, _, _, _ -> n + 1 end
