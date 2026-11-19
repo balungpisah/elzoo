@@ -48,8 +48,27 @@ status polling is not a concurrency fence.
   gives AsyncWork a stable receiver, normally a Registry name rather than PID.
 
 The directory's Unit options use
-`operator: {Elzoo.RunEngine, :step, %{version: 1, control: nil, slots: %{}, requests: %{}}}`,
-`retention_count: 1024`, `max_record_bytes: 16777216`,
+`operator: {Elzoo.RunEngine, :step, %{version: 1, control: nil, slots: %{}, requests: %{}}}`
+for the default protocol. Omitted `protocol_version` and explicit `1` retain
+that v1 state, fingerprint and behavior. Explicit `protocol_version: 2` opts a
+fresh native Unit into `%{version: 2, control: nil, slots: %{}, requests: %{}}`
+and requires an `event_source` descriptor described below. Protocol selection
+is fixed to the native Unit incarnation: recovery does not infer v2 from
+retained state, and a v1 Unit cannot be converted to v2. The v2 fingerprint
+includes source ID and version, not callback identity; replacement callbacks
+with the same descriptor retain that identity.
+
+The native protocol is selected explicitly: authentic v2 frames decode as
+`PatternStepV2` through `PatternStep.decode/2`; their
+`PatternStepTrackerV2` is restored and validated as v2 history. The only
+v1-to-v2 bridge is the validated RunResource-v1-to-native-v2 input envelope:
+each resource input must first decode as PatternStep v1, then is tagged with the
+selected native version, decoded and correlated again before ingestion. This
+narrow conversion does not infer a protocol from stored frames or permit
+general v1-to-v2 state conversion.
+
+In either case, also set the Unit options `retention_count: 1024`,
+`max_record_bytes: 16777216`,
 `max_checkpoint_bytes: 33554432`, matching Store fold/limits and a prompt offer
 callback that only sends each Outbox.Item to the dispatcher and returns `:ok`.
 Call `DurableUnit.fold/1` and `limits/1` to construct that Store. Never run gate,
@@ -114,8 +133,8 @@ engine itself.
 
 ## Input and controls
 
-`input(engine, stable_id, neutral_input_without_at_ms, verified_context)` reads
-the clock once. Context contains `run_id`, execution `attempt_id`, and where
+For existing v1 inputs, `input(engine, stable_id, neutral_input_without_at_ms,
+verified_context)` reads the clock once. Context contains `run_id`, execution `attempt_id`, and where
 applicable `occurrence: {request_ordinal, action_index}`, authenticated
 `verified_person`, truthful actual cost/dispatch/loss or Resource correlation.
 The same admitted ID retains its original data and time on retry. Changed bytes
@@ -156,6 +175,113 @@ and the engine goes on with it. The existing rule above is the only guidance:
 send the same ID again, never another; `{:ok, :applied}` or `{:ok, :duplicate}`
 means the result committed, and changed bytes are `{:error, :input_id_conflict}`.
 
+For native v2, an outside-event `wait_event` is activated from the configured
+source head. The activation samples trusted time after that head read, fixes
+the source cursor, ticket, source identity and deadline once committed, and is
+not exposed as waiting until its input/result pair is confirmed. A fresh event
+candidate is read and corroborated before its recorded time is sampled. Replay
+of the original paired input ID uses retained facts and does not call the source,
+clock or Operator; changed bytes conflict. Fenced restart preserves a waiting
+cursor and deadline. There is no automatic source polling or new Run/Attempt on
+recovery.
+
+The v2 source descriptor has exactly `id`, `version`, `head` and `read`:
+`%{id: id, version: positive_integer, head: head_fun, read: read_fun}`. `id`
+is nonempty UTF-8 text without NUL, 1..200 bytes; callbacks have arities one
+and two. Both receive exactly `%{tenant: configured_tenant,
+principal: configured_principal, run_id: allocated_run_id}`; `head/1` returns
+`{:ok, %{revision: nonnegative_integer, low_water: nonnegative_integer}}`.
+`read/2` receives that scope and requested event ID and returns
+`{:ok, %{head: head, event: event}}`; the event has exactly `id`, `source_id`,
+`sequence`, `correlation_id`, `schema_id`, `schema_version` and canonical
+`payload`. Event IDs retain
+PatternStep's nonempty UTF-8 rule and native ingress bound; the source
+descriptor's 200-byte ID limit is not an event-ID limit. Provider I/O is
+outside Budget. The host must supply stable, prompt, read-only callbacks and
+truthful scope; this interface does not authenticate a production source or
+enforce callback resource bounds.
+
+Fresh-event failures are exactly `:invalid_correlation`, `:invalid_payload`,
+`:source_not_found`, `:source_unavailable` and `:source_gap`. They append and
+settle nothing; oversized fresh candidates return `:invalid_payload`. Provider
+errors are `{:error, :unavailable}` or `{:error, :gap}` from `head/1`, and
+`{:error, :not_found}`, `{:error, :unavailable}` or `{:error, :gap}` from
+`read/2`. `:unavailable` maps to `:source_unavailable`, `:gap` maps to
+`:source_gap`, and `read/2`'s `:not_found` maps to `:source_not_found`. A malformed
+head with `low_water > revision`, or an event sequence beyond its returned
+head, is unavailable; an otherwise valid sequence at or behind the activation
+cursor is `:invalid_correlation`. A valid sequence is positive and no greater
+than the corroborated head. The first profile starts at low-water zero.
+Low-water advancement or a cursor beyond the head is a gap, not an empty queue
+or new baseline.
+
+Before `read/2`, the Engine validates the v2 input envelope and native ingress
+bound, the current waiting slot, Run/Attempt/occurrence/action/source/ticket
+correlation, the selected binding's result schema and bounded payload. The
+caller cannot supply `at_ms`, verification fields, nonzero actual or a claim
+that work was dispatched: those context/input shapes are refused before source
+I/O. After the read, the requested event ID, configured source ID, activation
+ticket, selected result schema/version and canonical payload bytes must match
+the returned event. An accepted event is paired with the original input ID;
+replay after source loss does not perform a fresh read.
+
+If an outside-event input arrives while paused, it settles once. The first
+receipt, JSON pending input and pending order are retained for resume; the full
+protocol record remains in durable history and is not duplicated in native
+pending state. The Engine preflights the complete pending candidate and final
+native state against the size bounds before append; an over-bound input is
+refused without appending. The first accepted receipt is retained as its
+original input ID and sequence, not replaced by replay.
+
+An unpaired retry of an original outside-event input stops the Unit and
+AsyncWork before the Engine returns `:delivery_unknown` and stops after the
+reply. If either stop cannot be confirmed, `:stop_unknown` leaves the Engine
+halted. The host owns fencing callers, the Run owner, source/provider and
+connection trees before any replacement; this is not a general physical
+cancellation guarantee.
+
+An estimate of exactly integer zero takes a no-reservation path only for a
+native v2 `wait_event`: it runs Budget's public `:status` step, retains the
+returned Budget state, and stores `reservation: nil`. There is no fabricated
+Budget entry or charge; settlement of that nil reservation is a no-op. A
+positive wait estimate reserves; settlement, expiry, cancellation, Attempt
+change and Run close release its reservation with actual zero. A source failure
+leaves the wait and its positive reservation pending until an authorized close. All other
+actions and versions retain their existing reserve path.
+Separately dispatched work after an event is charged by its own estimate.
+
+### Read-only event waits
+
+`event_waits(engine, scope, limits)` is a bounded read-only API with the same
+60,000 ms caller limit as `result/3`. It uses the same exact optional
+`result_reader: %{evidence_store: store, retention_count: positive_integer}`
+configuration. Scope and limits are validated before Run-owner or Store I/O.
+`scope` has exactly `tenant`, `principal` and `run_id`, each matching the
+Engine's fixed configuration. `limits` has exactly positive integer
+`max_records` and `max_bytes`; maxima are 65,536 records and 536,870,912 bytes. The result is
+`{:ok, %{run_id: ..., attempt_id: ..., waits: [...]}}`; each wait has exactly
+`occurrence`, `action_id`, `source_id`, `correlation_id`, `cursor`,
+`deadline_ms`, `status`, `outcome` and `accepted_event`. Status is `:waiting`,
+`:settled` or `:closed`. `accepted_event` is nil unless an outside event settled
+the wait, then exactly
+`%{event_id: ..., input_id: ..., sequence: ...}`; the configured event ID is
+returned verbatim. `control.stop_pending`, terminal native state or a committed
+terminal Run closes an unsettled wait with nil outcome and no receipt. A
+settled expiry or cancellation retains its outcome and may have no receipt;
+outside-event settlement retains its accepted receipt.
+
+The reader folds complete retained Unit history with public row validation and
+the DurableUnit reducer, verifies activation/input/result and original receipt
+pairing, and rechecks owner and stable stream heads. It reads no clock and calls
+no source callback, Operator, pattern, gate, schema, binding or work callback;
+it does not mutate, repair, acknowledge, expire or use a private cache. At most
+`64 * request_cap` waits are returned; valid waits are not truncated to
+`request_cap`. A v1 Engine with configured reader returns an empty wait list.
+Errors are exactly `{:error, :scope}`, `{:error, :invalid_limits}`,
+`{:error, :reader_unconfigured}`, `{:error, :history}`,
+`{:error, :unavailable}` and `{:error, :read_limit}`; owner/identity mismatch
+is not an empty result.
+
 ### Read-only Run result
 
 `result(engine, scope, limits)` uses the same 60,000 ms caller limit. A caller
@@ -176,8 +302,13 @@ evidence Store and the same retention count used by the Unit.
 The authoritative Run owner is read first. A nonterminal Run, including paused
 or waiting-for-person ASK, returns `{:pending, :not_completed}`; a terminal
 noncompleted Run returns `{:terminal, outcome}`. Only an authoritative
-`completed` Run causes history reads. The reader scans committed Unit rows
-from sequence 1 one row per Store page, folds recorded input/result pairs with
+`completed` Run causes history reads. For v2, the selected completion source
+may be a directly completed `wait_event` or later `local_work` after an outside
+event. In either case, the reader cross-checks the activation record and
+accepted event receipt against the paired input/result history and completion
+evidence. Existing v1 pending/terminal early returns remain unchanged. The
+reader scans committed Unit rows from sequence 1 one row per Store page, folds
+recorded input/result pairs with
 `DurableUnit.fold/1`, and cross-checks the first accepted settlement of the
 exact completion source occurrence, Run, Attempt, operation, action, slot and
 canonical completion-evidence row referenced by the Run owner. It returns
@@ -203,7 +334,7 @@ runtime. Bounded error results are `{:error, :scope}`,
 `{:error, :completion_mismatch}` and `{:error, :unavailable}`.
 
 The pure `step/2` is exported only for the directory's fixed Operator binding.
-Its tagged version-1 plain records distinguish protocol, configuration, gate,
+Its tagged v1 and v2 plain records distinguish protocol, configuration, gate,
 admission, authorization, continuation, Run/lifecycle and Resource-cursor facts.
 DU wire remains `{1, {input_id, record_or_next_state}}`; no PID, reference,
 function or compiled schema is durable.
