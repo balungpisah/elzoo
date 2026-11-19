@@ -8440,11 +8440,11 @@
     {
       "id": "workflow/bot-run-lifecycle",
       "job": "ELZ-124",
-      "note": "Pure total Run lifecycle decision over phase, simultaneous caller-owned waits, targeted execution Attempt inputs, pause/continue and recorded deadlines/budget; ready Run owns identity and committed outcomes, ready PatternStep owns protocol validation and first settlement. No runtime or durability.",
+      "note": "Pure total Run lifecycle decision over phase, simultaneous caller-owned waits, targeted execution Attempt inputs, pause/continue and recorded deadlines/budget; ready Run owns identity and committed outcomes, ready PatternStep owns versioned protocol validation and first settlement. Strict v1 remains unchanged; selected v2 adds outside-event waits with verified-fact validation and source/ticket/Attempt correlation. No runtime or durability.",
       "baseline_status": "not in baseline (new row, RC-48)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/bot-run-lifecycle/piece.json",
-      "manifest_sha256": "14962d23c73f69b0a0a0aba62d5d37e7a4ec76cd0f70e3a0ddbb4d413eaf23d9",
+      "manifest_sha256": "fb366e989508a675369f3943ebe9d8d546e48c3c194ee848a1cda49060bcdf9d",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
