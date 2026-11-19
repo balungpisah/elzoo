@@ -2,12 +2,23 @@
 Code.require_file("../support/run_engine_test_helper.exs", __DIR__)
 
 defmodule Elzoo.RunEngine.TestHistoryStore do
-  def new(store, control), do: {__MODULE__, %{store: store, control: control}}
+  def new({_, %{fold: fold}} = store, control),
+    do: {__MODULE__, %{store: store, control: control, fold: fold}}
 
   def arm_read_failure(control), do: Agent.update(control, &Map.put(&1, :read_failure, true))
 
   def arm_input_commit_failure(control),
     do: Agent.update(control, &Map.put(&1, :input_failure, :armed))
+
+  def arm_unit_exit_after_input_commit(control, input_id, unit, parent) do
+    Agent.update(control, fn state ->
+      Map.put(state, :unit_exit_after_input_commit, %{
+        input_id: input_id,
+        unit: unit,
+        parent: parent
+      })
+    end)
+  end
 
   def arm_activation_failure(control, fault)
       when fault in [:before_input, :after_input, :after_result],
@@ -32,6 +43,7 @@ defmodule Elzoo.RunEngine.TestHistoryStore do
       {:indeterminate, %{cause: :unavailable}}
     else
       result = delegate(store, :append, [stream, expected, records, items])
+      exit_unit_after_input_commit(store, records, result)
 
       if activation_fault in [:after_input, :after_result] and match?({:committed, _}, result) do
         {:indeterminate, %{cause: :unavailable}}
@@ -39,6 +51,48 @@ defmodule Elzoo.RunEngine.TestHistoryStore do
         append_reply(store, records, result)
       end
     end
+  end
+
+  defp exit_unit_after_input_commit(store, records, {:committed, _} = result) do
+    case committed_outside_event_input_id(records) do
+      nil ->
+        :ok
+
+      input_id ->
+        case Agent.get_and_update(store_config(store).control, fn state ->
+               case state[:unit_exit_after_input_commit] do
+                 %{input_id: ^input_id, unit: unit, parent: parent} ->
+                   {{:armed, unit, parent}, Map.put(state, :unit_exit_after_input_commit, nil)}
+
+                 _ ->
+                   {:unarmed, state}
+               end
+             end) do
+          {:armed, unit, parent} ->
+            send(parent, {:unit_input_committed_then_exited, input_id, unit, result})
+            Process.exit(unit, :kill)
+
+          :unarmed ->
+            :ok
+        end
+    end
+  end
+
+  defp exit_unit_after_input_commit(_, _, _), do: :ok
+
+  defp committed_outside_event_input_id(records) do
+    Enum.find_value(records, fn
+      %{kind: "input", payload: payload} ->
+        case :erlang.binary_to_term(payload, [:safe]) do
+          {1, {input_id, %{kind: :protocol, input: %{"kind" => "outside_event"}}}} -> input_id
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end)
+  rescue
+    _ -> nil
   end
 
   defp append_reply(store, records, result) do
@@ -441,6 +495,46 @@ defmodule Elzoo.RunEngineV2SourceTest do
              )
 
     assert rows(c) == before
+  end
+
+  test "source read callback exceptions are normalized without changing durable state" do
+    for {fault, invoke} <- [
+          {:raise, fn -> raise "source read failed" end},
+          {:throw, fn -> throw(:source_read_failed) end},
+          {:exit, fn -> exit(:source_read_failed) end}
+        ] do
+      calls =
+        agent(%{
+          heads: 0,
+          reads: 0,
+          head: {:ok, %{revision: 0, low_water: 0}},
+          read: nil
+        })
+
+      event_source =
+        source(calls)
+        |> Map.put(:read, fn _scope, _event_id ->
+          Agent.update(calls, &Map.update!(&1, :reads, fn count -> count + 1 end))
+          invoke.()
+        end)
+
+      {c, engine, wait} = start_wait(event_source)
+      before = rows(c)
+      before_slot = unit_state(c).slots[wait.occurrence]
+
+      assert {:error, :source_unavailable} =
+               RunEngine.input(
+                 engine,
+                 "source-callback-#{fault}",
+                 input(wait, "source-event-#{fault}"),
+                 context(wait)
+               )
+
+      assert Agent.get(calls, & &1.reads) == 1
+      assert rows(c) == before
+      assert unit_state(c).slots[wait.occurrence] == before_slot
+      assert Process.alive?(engine)
+    end
   end
 
   test "a matching source row at or before the immutable cursor is invalid correlation" do
@@ -1626,6 +1720,130 @@ defmodule Elzoo.RunEngineV2SourceTest do
     assert Agent.get(calls, & &1.reads) == 1
   end
 
+  test "a Unit exit after committed outside-event input halts delivery and refuses later admission" do
+    control = agent(%{read_failure: false, result_barrier: :disabled, parent: nil, token: nil})
+    calls = agent(%{heads: 0, reads: 0, head: {:ok, %{revision: 0, low_water: 0}}, read: nil})
+    c = v2_fixture(source(calls)) |> wrap_unit_store(control)
+    tree = start_owned_tree(c, c.run)
+    on_exit(fn -> stop_owned_tree(tree) end)
+
+    assert {:ok, :applied} = RunEngine.input(tree.engine, "start", start_input_v2(), verified())
+    wait = wait_slot(tree.engine)
+    event = event(wait, "committed-before-unit-exit", %{"accepted" => true})
+
+    Agent.update(
+      calls,
+      &Map.put(&1, :read, {:ok, %{head: %{revision: 1, low_water: 0}, event: event}})
+    )
+
+    event_id = "unit-exits-after-input-commit"
+    outside_input = input(wait, event.id)
+    outside_context = context(wait)
+    unit = tree.unit
+    unit_monitor = Process.monitor(unit)
+
+    TestHistoryStore.arm_unit_exit_after_input_commit(control, event_id, unit, self())
+    first_reply = RunEngine.input(tree.engine, event_id, outside_input, outside_context)
+
+    assert_receive {:unit_input_committed_then_exited, ^event_id, ^unit, {:committed, _}}, 5_000
+    assert_receive {:DOWN, ^unit_monitor, :process, ^unit, _}, 5_000
+
+    original = stored_input_record(c, event_id)
+    rows_after_first = rows(c)
+    reads_before_later = Agent.get(calls, & &1.reads)
+
+    later_event = event(wait, "later-distinct-event", %{"accepted" => true}, 2)
+
+    Agent.update(
+      calls,
+      &Map.put(
+        &1,
+        :read,
+        {:ok, %{head: %{revision: 2, low_water: 0}, event: later_event}}
+      )
+    )
+
+    later_id = "later-distinct-admission"
+
+    later_reply =
+      RunEngine.input(tree.engine, later_id, input(wait, later_event.id), outside_context)
+
+    rows_after_later = rows(c)
+    reads_after_later = Agent.get(calls, & &1.reads)
+    later_status = RunEngine.status(tree.engine)
+
+    later_input_committed? =
+      Enum.any?(rows_after_later, fn
+        %{kind: "input", payload: payload} ->
+          match?({1, {^later_id, _}}, :erlang.binary_to_term(payload, [:safe]))
+
+        _ ->
+          false
+      end)
+
+    reconciliation_after_later =
+      case later_status do
+        {:ok, %{reconciliation: reason}} -> reason
+        other -> other
+      end
+
+    ordinary_id = "later-distinct-ordinary-input"
+    ordinary_reply = RunEngine.input(tree.engine, ordinary_id, start_input_v2(), verified())
+    rows_after_ordinary = rows(c)
+    reads_after_ordinary = Agent.get(calls, & &1.reads)
+
+    ordinary_input_committed? =
+      Enum.any?(rows_after_ordinary, fn
+        %{kind: "input", payload: payload} ->
+          match?({1, {^ordinary_id, _}}, :erlang.binary_to_term(payload, [:safe]))
+
+        _ ->
+          false
+      end)
+
+    actual = %{
+      first_reply: first_reply,
+      reconciliation_after_later: reconciliation_after_later,
+      original_input: Map.take(original.input, ["event_id", "at_ms", "payload"]),
+      unit_exited?: not Process.alive?(unit),
+      later_refused?: match?({:error, _}, later_reply),
+      later_input_committed?: later_input_committed?,
+      source_reads_unchanged_after_later?: reads_after_later == reads_before_later,
+      source_reads_unchanged_after_ordinary?: reads_after_ordinary == reads_before_later,
+      history_additions_limited_to_original_result_after_later?:
+        history_additions_limited_to_original_result?(rows_after_first, rows_after_later, event_id),
+      history_additions_limited_to_original_result_after_ordinary?:
+        history_additions_limited_to_original_result?(
+          rows_after_first,
+          rows_after_ordinary,
+          event_id
+        ),
+      ordinary_reply: ordinary_reply,
+      ordinary_input_committed?: ordinary_input_committed?
+    }
+
+    expected = %{
+      first_reply: {:indeterminate, :delivery},
+      reconciliation_after_later: :delivery_unknown,
+      original_input: %{
+        "event_id" => event.id,
+        "at_ms" => 2_000,
+        "payload" => %{"accepted" => true}
+      },
+      unit_exited?: true,
+      later_refused?: true,
+      later_input_committed?: false,
+      source_reads_unchanged_after_later?: true,
+      source_reads_unchanged_after_ordinary?: true,
+      history_additions_limited_to_original_result_after_later?: true,
+      history_additions_limited_to_original_result_after_ordinary?: true,
+      ordinary_reply: {:error, :delivery_unknown},
+      ordinary_input_committed?: false
+    }
+
+    assert actual == expected
+  end
+
   test "an unpaired retry does not claim a fence when its work owner is unavailable" do
     control = agent(%{read_failure: false, result_barrier: :disabled, parent: nil, token: nil})
     calls = agent(%{heads: 0, reads: 0, head: {:ok, %{revision: 0, low_water: 0}}, read: nil})
@@ -2263,6 +2481,23 @@ defmodule Elzoo.RunEngineV2SourceTest do
       _ ->
         false
     end)
+  end
+
+  defp history_additions_limited_to_original_result?(before, after_rows, id) do
+    additions = Enum.drop(after_rows, length(before))
+
+    Enum.take(after_rows, length(before)) == before and
+      case additions do
+        [] ->
+          true
+
+        [%{kind: "result", payload: payload}] ->
+          not has_result_row?(before, id) and
+            match?({1, {^id, _}}, :erlang.binary_to_term(payload, [:safe]))
+
+        _ ->
+          false
+      end
   end
 
   defp start_unfed(source) do

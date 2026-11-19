@@ -2057,14 +2057,19 @@ defmodule Elzoo.RunEngine do
       {:error, :invalid_correlation} -> {{:error, :invalid_correlation}, s}
       _ -> {{:error, :source_unavailable}, s}
     end
-  rescue
-    _ -> {{:error, :source_unavailable}, s}
-  catch
-    _, _ -> {{:error, :source_unavailable}, s}
   end
 
   defp source_read(source, scope, event_id) do
-    case source.read.(scope, event_id) do
+    result =
+      try do
+        source.read.(scope, event_id)
+      rescue
+        _ -> {:error, :unavailable}
+      catch
+        _, _ -> {:error, :unavailable}
+      end
+
+    case result do
       {:ok, _} = result ->
         result
 
