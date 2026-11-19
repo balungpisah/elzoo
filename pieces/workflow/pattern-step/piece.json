@@ -7,9 +7,9 @@
   "kind": "owned",
   "providers": ["cure"],
   "dependencies": ["core/port"],
-  "contract": "Exact v1 pattern-step maps and pure per-request action settlement; no runtime or payload-schema validation.",
+  "contract": "Exact v1/v2 pattern-step maps and pure per-request action settlement; no runtime or payload-schema validation.",
   "limits": [
-    "Only v1 closed kind sets and 1..64 unique actions per request; no Run-wide identity registry.",
+    "Closed v1/v2 kind sets and 1..64 unique actions per request; no Run-wide identity registry.",
     "Caller owns serialization, tracker persistence, truthful schemas, verified identity, recorded time, payload validation and secret exclusion.",
     "No authentication, authorization, input log, timers, budget enforcement, execution, automatic retries or durability guarantee."
   ],
@@ -37,6 +37,11 @@
       "claim": "Named v1 round-trip, redaction, bounds, duplicate/late/independent settlement, person-answer, source audit and checked-example scenarios pass; finite tests, not a durability proof."
     },
     {
+      "kind": "test",
+      "file": "test/elzoo/pattern_step_test.exs",
+      "claim": "Named v2 selector/version, preserved v1-kind, exact wait/outside-event schema and bounds, ID validation, mixed-version refusal, outcome compatibility, independent/first/late settlement and opaque-payload scenarios pass; finite tests, not runtime or durability proof."
+    },
+    {
       "kind": "upstream",
       "provider": "cure",
       "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
@@ -54,7 +59,7 @@
     },
     "config": {
       "status": "not_applicable",
-      "contract": "Intrinsic data operands and a fixed v1 bound; no ambient settings or selectable policy."
+      "contract": "Intrinsic data operands and fixed v1/v2 bounds; no ambient settings or selectable policy."
     },
     "control": {
       "status": "not_applicable",

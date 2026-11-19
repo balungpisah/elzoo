@@ -227,4 +227,307 @@ defmodule Elzoo.PatternStepTest do
     {result, _} = Code.eval_file(Path.expand("../../examples/elzoo/pattern_step.exs", __DIR__))
     assert result == {:applied, :late}
   end
+
+  test "v2 selector preserves every v1 action and input map kind" do
+    actions = Enum.map(@actions, &action(&1, "v2-#{&1}"))
+    request_v1 = request(actions)
+    request = request_v2(actions)
+    checked = checked_v2(request)
+    assert {:PatternStepV2, ^request} = checked
+    assert P.encode(checked) == request
+    assert P.decode(request_v1, 1) == P.decode(request_v1)
+    assert P.decode(request_v1, 2) == {:error, :invalid_shape}
+    assert P.decode(request) == {:error, :invalid_shape}
+
+    tracker = P.open(checked)
+    assert {:PatternStepTrackerV2, states} = tracker
+    assert map_size(states) == length(@actions)
+    assert states == Map.new(actions, &{&1["id"], {&1["kind"], false}})
+
+    for map <- admitted_maps() do
+      assert P.decode(map, 1) == P.decode(map)
+
+      if map["type"] == "input" do
+        v2_map = Map.put(map, "version", 2)
+        assert {:ok, checked_input} = P.decode(v2_map, 2)
+        assert P.encode(checked_input) == v2_map
+        assert P.decode(v2_map) == {:error, :invalid_shape}
+        assert P.decode(map, 2) == {:error, :invalid_shape}
+      end
+    end
+
+    for selector <- [0, 3, "2", 2.0] do
+      assert P.decode(request, selector) == {:error, :invalid_shape}
+    end
+
+    assert P.decode(Map.put(request, "version", 2.0), 2) == {:error, :invalid_shape}
+
+    for n <- [1, 64] do
+      actions = Enum.map(1..n, fn i -> action("wait_event", "bounded-#{i}") end)
+      assert {:ok, _checked} = P.decode(request_v2(actions), 2)
+    end
+
+    long_id = String.duplicate("x", 201)
+    assert {:ok, _checked} = P.decode(request_v2([action("wait_event", long_id)]), 2)
+  end
+
+  test "v2 wait and outside-event maps are exact, bounded, and opaque" do
+    callback = fn -> flunk("opaque v2 payload invoked") end
+    wait = Map.put(action("wait_event", "wait-1"), "payload", callback)
+    request = request_v2([wait])
+    assert {:ok, checked_request} = P.decode(request, 2)
+    assert P.encode(checked_request) == request
+
+    assert MapSet.new(Map.keys(wait)) ==
+             MapSet.new(["id", "kind", "schema_id", "schema_version", "payload"])
+
+    for field <- ~w(id kind schema_id schema_version payload) do
+      assert P.decode(request_v2([Map.delete(wait, field)]), 2) == {:error, :invalid_shape}
+    end
+
+    assert P.decode(request_v2([Map.put(wait, "kind", "future")]), 2) ==
+             {:error, :invalid_shape}
+
+    assert P.decode(request_v2([Map.put(wait, "unexpected", true)]), 2) ==
+             {:error, :invalid_shape}
+
+    assert {:ok, _checked} = P.decode(request_v2([Map.put(wait, "payload", :opaque)]), 2)
+
+    for value <- ["", <<255>>, :atom] do
+      assert P.decode(request_v2([Map.put(wait, "schema_id", value)]), 2) ==
+               {:error, :invalid_shape}
+    end
+
+    for value <- [0, -1, 1.0, "1"] do
+      assert P.decode(request_v2([Map.put(wait, "schema_version", value)]), 2) ==
+               {:error, :invalid_shape}
+    end
+
+    assert P.decode(%{"type" => "request", "version" => 2, "actions" => []}, 2) ==
+             {:error, :invalid_shape}
+
+    assert P.decode(
+             request_v2(Enum.map(1..65, fn i -> action("wait_event", "wait-#{i}") end)),
+             2
+           ) == {:error, :invalid_shape}
+
+    assert P.decode(
+             %{
+               "type" => "request",
+               "version" => 2,
+               "actions" => [wait, Map.put(wait, "kind", "local_work")]
+             },
+             2
+           ) ==
+             {:error, :invalid_shape}
+
+    event = outside_event_v2("wait-1", %{"payload" => callback})
+
+    keys =
+      ~w(type version kind at_ms action_id source_id correlation_id event_id schema_id schema_version payload)
+
+    assert MapSet.new(Map.keys(event)) == MapSet.new(keys)
+    assert {:ok, checked_event} = P.decode(event, 2)
+    assert P.encode(checked_event) == event
+    assert P.decode(event) == {:error, :invalid_shape}
+    assert P.decode(event, 1) == {:error, :invalid_shape}
+    assert P.decode(event, 2.0) == {:error, :invalid_shape}
+    assert P.decode(Map.put(event, "version", 1), 2) == {:error, :invalid_shape}
+    assert P.decode(Map.put(event, "version", 3), 2) == {:error, :invalid_shape}
+    assert P.decode(Map.put(event, "version", 2.0), 2) == {:error, :invalid_shape}
+    assert P.decode(Map.put(event, "kind", "future"), 2) == {:error, :invalid_shape}
+    assert P.decode(Map.put(event, "unexpected", true), 2) == {:error, :invalid_shape}
+    assert P.decode(Map.put(event, "late", true), 2) == {:error, :invalid_shape}
+
+    for field <- keys do
+      assert P.decode(Map.delete(event, field), 2) == {:error, :invalid_shape}
+    end
+
+    invalid_replacements = %{
+      "type" => "request",
+      "version" => 2.0,
+      "kind" => "future",
+      "at_ms" => -1,
+      "action_id" => "",
+      "source_id" => "",
+      "correlation_id" => "",
+      "event_id" => "",
+      "schema_id" => "",
+      "schema_version" => 0
+    }
+
+    for {field, value} <- invalid_replacements do
+      assert P.decode(Map.put(event, field, value), 2) == {:error, :invalid_shape}
+    end
+
+    for payload <- [nil, :opaque, %{"arbitrary" => :term}] do
+      replaced = Map.put(event, "payload", payload)
+      assert {:ok, checked} = P.decode(replaced, 2)
+      assert P.encode(checked) == replaced
+    end
+
+    for field <- ["action_id", "source_id", "correlation_id", "event_id"] do
+      for value <- ["", <<255>>, :atom] do
+        assert P.decode(Map.put(event, field, value), 2) == {:error, :invalid_shape}
+      end
+    end
+
+    long_id = String.duplicate("x", 201)
+
+    for field <- ["action_id", "source_id", "correlation_id", "event_id"] do
+      assert {:ok, _checked} =
+               event
+               |> Map.put(field, long_id)
+               |> P.decode(2)
+    end
+
+    for value <- [0, -1, 1.0, "1"] do
+      assert P.decode(Map.put(event, "schema_version", value), 2) == {:error, :invalid_shape}
+    end
+
+    for value <- ["", <<255>>, :atom] do
+      assert P.decode(Map.put(event, "schema_id", value), 2) == {:error, :invalid_shape}
+    end
+
+    for value <- ["", <<255>>, :atom] do
+      assert P.decode(request_v2([Map.put(wait, "id", value)]), 2) == {:error, :invalid_shape}
+    end
+
+    for value <- [-1, 1.0, "0"] do
+      assert P.decode(Map.put(event, "at_ms", value), 2) == {:error, :invalid_shape}
+    end
+  end
+
+  @tag :v2_first_settlement_wins
+  test "v2 first outside-event settlement wins and waits settle independently" do
+    callback = fn -> flunk("opaque payload invoked") end
+    first = Map.put(action("wait_event", "wait-1"), "payload", callback)
+    tracker = P.open(checked_v2(request_v2([first, action("wait_event", "wait-2")])))
+
+    assert {:PatternStepTrackerV2,
+            %{"wait-1" => {"wait_event", false}, "wait-2" => {"wait_event", false}}} = tracker
+
+    first_event = checked_v2(outside_event_v2("wait-1", %{"payload" => callback}))
+
+    assert {:applied, once} = P.accept(tracker, first_event)
+    assert {:late, ^once} = P.accept(once, first_event)
+
+    assert {:late, ^once} =
+             P.accept(once, checked_v2(outside_event_v2("wait-1", %{"event_id" => "event-2"})))
+
+    assert {:applied, _both} = P.accept(once, checked_v2(outside_event_v2("wait-2")))
+  end
+
+  test "v2 outcomes distinguish completed refusal, noncompleted settlement, and late nonconsumption" do
+    tracker = P.open(checked_v2(request_v2([action("wait_event", "wait-1")])))
+
+    completed = outcome_v2("wait-1", "completed")
+    failed = outcome_v2("wait-1", "failed")
+    late = outcome_v2("wait-1", "late")
+
+    assert {:refused, :incompatible_answer_kind, ^tracker} = P.accept(tracker, completed)
+    assert {:late, ^tracker} = P.accept(tracker, late)
+
+    assert {:late, ^tracker} =
+             P.accept(tracker, checked_v2(outside_event_v2("absent")))
+
+    assert {:applied, settled} = P.accept(tracker, failed)
+    assert {:late, ^settled} = P.accept(settled, failed)
+
+    assert {:late, ^tracker} =
+             P.accept(
+               tracker,
+               outcome_v2("absent", "completed")
+             )
+
+    for class <- @outcomes -- ["completed", "late"] do
+      open_wait = P.open(checked_v2(request_v2([action("wait_event", "wait-1")])))
+      assert {:applied, _settled} = P.accept(open_wait, outcome_v2("wait-1", class))
+    end
+  end
+
+  test "v2 preserves answer compatibility and Cure settlement precedence" do
+    tracker =
+      P.open(
+        checked_v2(request_v2([action("wait_event", "wait-1"), action("ask_person", "ask-1")]))
+      )
+
+    assert {:refused, :incompatible_answer_kind, ^tracker} =
+             P.accept(tracker, checked_v2(answer_v2("wait-1")))
+
+    assert {:refused, :incompatible_answer_kind, ^tracker} =
+             P.accept(tracker, checked_v2(outside_event_v2("ask-1")))
+
+    assert {:refused, :incompatible_answer_kind, ^tracker} =
+             P.accept(tracker, outcome_v2("ask-1", "completed"))
+
+    assert {:applied, _settled_ask} = P.accept(tracker, outcome_v2("ask-1", "failed"))
+
+    assert {:late, ^tracker} = P.accept(tracker, checked_v2(answer_v2("absent")))
+
+    assert {:applied, settled} = P.accept(tracker, checked_v2(outside_event_v2("wait-1")))
+    assert {:late, ^settled} = P.accept(settled, checked_v2(answer_v2("wait-1")))
+    assert {:applied, answered} = P.accept(settled, checked_v2(answer_v2("ask-1")))
+    assert {:late, ^answered} = P.accept(answered, checked_v2(answer_v2("ask-1")))
+
+    for kind <- ~w(start message resource_event run_ended cancel wake) do
+      input = Enum.find(admitted_maps(), &(&1["kind"] == kind)) |> Map.put("version", 2)
+      assert {:refused, :not_an_outcome, ^tracker} = P.accept(tracker, checked_v2(input))
+    end
+  end
+
+  test "authentic mixed-version operands refuse without replacing their original tracker" do
+    request_v1 = request([action("local_work", "wait-1")])
+    request_v2 = Map.put(request_v1, "version", 2)
+    tracker_v1 = P.open(checked(request_v1))
+    tracker_v2 = P.open(checked_v2(request_v2))
+    input_v1 = outcome("wait-1", "failed")
+
+    input_v2 =
+      checked_v2(typed_v2("action_outcome", %{"action_id" => "wait-1", "outcome" => "failed"}))
+
+    assert {:refused, :incompatible_version, ^tracker_v1} = P.accept(tracker_v1, input_v2)
+    assert {:refused, :incompatible_version, ^tracker_v2} = P.accept(tracker_v2, input_v1)
+  end
+
+  defp request_v2(actions), do: %{"type" => "request", "version" => 2, "actions" => actions}
+
+  defp input_v2(kind, extra \\ %{}),
+    do: Map.merge(%{"type" => "input", "version" => 2, "kind" => kind, "at_ms" => 0}, extra)
+
+  defp typed_v2(kind, extra) do
+    input_v2(
+      kind,
+      Map.merge(%{"schema_id" => "example/result", "schema_version" => 1, "payload" => nil}, extra)
+    )
+  end
+
+  defp checked_v2(map) do
+    assert {:ok, checked} = P.decode(map, 2)
+    checked
+  end
+
+  defp answer_v2(id),
+    do: typed_v2("person_answer", %{"action_id" => id, "person_id" => "principal-29"})
+
+  defp outcome_v2(id, class),
+    do: checked_v2(typed_v2("action_outcome", %{"action_id" => id, "outcome" => class}))
+
+  defp outside_event_v2(id, extra \\ %{}) do
+    Map.merge(
+      input_v2("outside_event"),
+      Map.merge(
+        %{
+          "action_id" => id,
+          "source_id" => "source-1",
+          "correlation_id" => "correlation-1",
+          "event_id" => "event-1",
+          "schema_id" => "example/result",
+          "schema_version" => 1,
+          "payload" => %{"event" => id}
+        },
+        extra
+      )
+    )
+  end
 end

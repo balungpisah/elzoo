@@ -1,8 +1,8 @@
 # workflow/pattern-step
 
-Shared v1 data and pure validation for a pattern and its engine. One public
-Elixir module, `Elzoo.PatternStep`, supplies `decode/1`, `encode/1`, `open/1`
-and `accept/2`. The unchanged `core/operator` transition remains state + one
+Shared v1/v2 data and pure validation for a pattern and its engine. One public
+Elixir module, `Elzoo.PatternStep`, supplies `decode/1`, `decode/2`, `encode/1`,
+`open/1` and `accept/2`. The unchanged `core/operator` transition remains state + one
 input → new state + zero or one output. A request is that one output, not a
 runtime. Zero actions means no request.
 
@@ -23,7 +23,7 @@ application payload-schema validation.
   fields in the table. `at_ms` is a nonnegative integer of Unix milliseconds
   supplied by the engine. No clock is read or ordering checked.
 
-| Input kind | Additional fields |
+| V1 input kind | Additional fields |
 | --- | --- |
 | `start`, `message`, `resource_event`, `run_ended` | `schema_id`, `schema_version`, `payload` |
 | `action_outcome` | `action_id`, `outcome`, `schema_id`, `schema_version`, `payload` |
@@ -31,7 +31,7 @@ application payload-schema validation.
 | `cancel` | `attempt_id` (one Attempt, never implicit Run cancellation) |
 | `wake` | None: no payload or content; the host's durable timer supplies it |
 
-Action kinds: `model_call`, `tool_call`, `local_work`, `ask_person`,
+V1 action kinds: `model_call`, `tool_call`, `local_work`, `ask_person`,
 `nested_callable`, `resource_open`, `resource_use`, `resource_close`, `finish`.
 Outcome classes: `completed`, `failed`, `refused`, `late`, `unknown`,
 `out_of_budget`, `retries_exhausted`, `expired`, `resource_lost`.
@@ -46,10 +46,37 @@ strings compared exactly, without normalization. Schema versions are positive
 integers. Schema declaration validation reuses `core/port`'s `decode/1`
 (using the schema ID as the declaration ID); no connection is created or
 compatibility inferred. Payload is arbitrary caller-owned data, not inspected
-or executed. All three kind sets are closed in v1. Later versions may only
-add members, not change or remove them; this implementation rejects versions
-other than 1. The fixed unequal `@v1_fixture` in the test is retained for
-future compatibility checks.
+or executed. The v1 action, input and outcome sets are closed. V2 preserves all
+v1 action and input kinds, adds only `wait_event` and `outside_event`, and keeps
+the outcome classes unchanged. `decode/1` remains strict v1; `decode(map, 1)`
+selects the same v1 contract. `decode(map, 2)` requires a matching version-2 map;
+other selectors and version mismatches return `{:error, :invalid_shape}`. The
+fixed unequal `@v1_fixture` in the test remains unchanged.
+
+## V2 maps
+
+A v2 request uses the same exact request and action fields as v1, with
+`"version" => 2`. Its action list remains bounded to 1..64 unique IDs. The
+only added action kind is `wait_event`; its map still has exactly `id`,
+`kind`, `schema_id`, `schema_version` and opaque `payload`.
+
+V2 retains every v1 input kind and adds `outside_event`. It is an input with
+`"type" => "input"`, `"version" => 2` and `"kind" => "outside_event"`, and has
+exactly these eleven string keys: `type`, `version`, `kind`, `at_ms`, `action_id`,
+`source_id`, `correlation_id`, `event_id`, `schema_id`, `schema_version` and
+`payload`. The four action/source/correlation/event IDs use the existing
+nonempty valid-UTF-8 rule; schema IDs and positive schema versions use the
+existing `core/port` declaration check. `at_ms` is a nonnegative integer
+supplied by the caller. Payload remains opaque; the Piece does not corroborate
+an event source, invoke callbacks or inspect application payload schemas.
+
+V1 checked values and trackers keep `{:PatternStep, map}` and
+`{:PatternStepTracker, %{id => {kind, settled_boolean}}}`. V2 uses the distinct
+tags `{:PatternStepV2, map}` and `{:PatternStepTrackerV2, %{id => {kind,
+settled_boolean}}}`. Mixing a v1 tracker with a checked v2 input, or vice versa, returns exactly
+`{:refused, :incompatible_version, original_tracker}`. Each tracker remains a
+simple per-request action-ID map; no persistence or Run-wide identity registry
+is added.
 
 ## Request settlement
 
@@ -61,15 +88,23 @@ future compatibility checks.
   explicitly `late` outcome (which never consumes the open action);
 - `{:refused, :not_an_outcome, unchanged_tracker}` for other input kinds;
 - `{:refused, :incompatible_answer_kind, unchanged_tracker}` for a person
-  answer to a non-ask or a generic `completed` outcome for an open ask.
+  answer to a non-ask, a v2 outside event to a non-wait, or a generic
+  `completed` outcome for an open ask (v1/v2) or wait (v2).
+- `{:refused, :incompatible_version, original_tracker}` for a mixed v1/v2
+  tracker and checked input.
 
-A person answer settles exactly one ask-person action, sharing the settlement
-bit with ordinary outcomes. Other non-late, non-completed outcomes can settle
-an ask; a later answer is late. The host supplies verified person identity;
-presence of `person_id` does not authenticate it. Text without an open ask is
-a `message`; the host/RC-58 makes that choice. Wake is not message handling
-and never passes through queue/reject/interrupt/steer policy here.
-No input causes effects, callbacks, retries or scheduling, including `unknown`.
+In both versions, a person answer settles exactly one `ask_person` action,
+sharing its settlement bit with ordinary outcomes; other non-late,
+non-completed action outcomes can also settle an ask. In v2, an
+`outside_event` settles only an open `wait_event`; a generic `completed`
+action outcome cannot settle a wait, while any non-late, non-completed outcome
+can. A `late` outcome never consumes a wait. The first settlement wins per
+action, and separate waits settle independently. The host supplies verified
+person identity; presence of `person_id` does not authenticate it. Text without
+an open ask is a `message`; the host/RC-58 makes that choice. Wake is not
+message handling and never passes through queue/reject/interrupt/steer policy
+here. No input causes effects, callbacks, retries or scheduling, including
+`unknown`.
 
 | Related terminology | Correspondence and limit |
 | --- | --- |
@@ -83,17 +118,21 @@ No input causes effects, callbacks, retries or scheduling, including `unknown`.
 The selected Cure law `settled_never_applied` checks the actual production
 correlation decision for all Boolean known/late/compatible operands when
 settled is true: the decision is `PatternLate()` (translated to `:late`), never
-`PatternApplied()`. It does not prove Elixir map validation, identity lookup,
-caller persistence, authentication or durability. The production source audit checks no axioms, holes, unresolved,
+`PatternApplied()`. V1 and v2 reuse that production decision; no proof scope is
+added. It does not prove Elixir map validation, identity lookup, caller
+persistence, authentication or durability. The production source audit checks no axioms, holes, unresolved,
 unaudited, opaque or unproved-total definitions and zero absurd. A temporary
 mutation admitting a settled action is checked separately and never shipped.
 The pinned Cure compiler checks types; compiler soundness is upstream grounding.
 
 `mix test pieces/workflow/pattern-step/test` runs the named finite scenarios:
-every v1 kind and fixed fixture, redacted malformed shapes, bounds/duplicates/
-order, independent/late settlement without callbacks, person-answer settlement,
-the selected law/audit, and the checked two-action example. These are tests,
-not a universal durability proof. There is no monitored runtime claim.
+every v1 kind and fixed fixture, v2 selector/version and kind coverage, exact
+wait/event schemas and bounds, IDs and schema checks, mixed-version refusal,
+independent/duplicate/late settlement, outcome compatibility, opaque payloads
+without callbacks, redacted malformed shapes, the selected law/audit, and the
+checked two-action example. The v2 first-settlement assertion also has a
+separate temporary second-settlement negative control. These are tests, not a
+universal durability proof. There is no monitored runtime claim.
 
 Needs: truthful schema declarations, host-recorded time and verified principal,
 caller serialization and preservation of tracker state, host Run-wide identity
@@ -102,12 +141,14 @@ does not authenticate, authorize, record inputs, retain state, schedule timers
 or enforce budget. Telemetry, Config and Control are not applicable: no
 observations, ambient settings or independent lifecycle exist.
 
-The checked value is the opaque `{:PatternStep, original_map}`; the tracker is
-the opaque `{:PatternStepTracker, %{id => {kind, settled_boolean}}}`. Callers
-use the four functions, preserve returned trackers, and do not forge or mix
-representations. `encode/1`, `open/1` and `accept/2` expect checked operands,
-not arbitrary BEAM terms. Copies are application-owned under `Elzoo.PatternStep`
-and `Cure.Elzoo.PatternStep`, one coordinated revision per module. Library
-redistributors must rename modules, references and both tuple tags explicitly.
+The v1 checked value is the opaque `{:PatternStep, original_map}` and its
+tracker is the opaque `{:PatternStepTracker, %{id => {kind, settled_boolean}}}`;
+v2 uses the distinct tags described above. Callers use the functions, preserve
+returned trackers, and do not forge or mix representations. `encode/1`,
+`open/1` and `accept/2` expect checked operands, not arbitrary BEAM terms.
+Copies are application-owned under `Elzoo.PatternStep` and
+`Cure.Elzoo.PatternStep`, one coordinated revision per module. Library
+redistributors must rename modules, references and all four tuple tags
+explicitly.
 See [consuming](../../../docs/consuming.md). Apache-2.0 source; direct dependency
 `core/port`; provider Cure at the repository pin. No new dependency or runtime.
