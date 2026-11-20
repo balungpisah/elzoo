@@ -688,7 +688,25 @@ defmodule Elzoo.MembershipTest do
          m("alice", "home", "owner"),
          m("bot", "home", "owner")
        ]), [alice(), bot()]},
-      {delegation([m("alice", "home", "writer", %{revoked_at: 100})]), [alice(), bot()]}
+      {delegation([m("alice", "home", "writer", %{revoked_at: 100})]), [alice(), bot()]},
+      # The time edges at now == 100, each on its own membership.
+      {flat([
+         m("alice", "home", "reader", %{valid_from: 100}),
+         m("alice", "home", "writer", %{valid_from: 0, valid_to: 100}),
+         m("bob", "home", "writer", %{valid_from: 0, valid_to: 101}),
+         m("bob", "home", "admin", %{revoked_at: 101}),
+         m("carol", "home", "admin", %{revoked_at: 100})
+       ]), [principal(), principal(%{id: "bob"}), principal(%{id: "carol"})]},
+      {flat([
+         m("alice", "home", "writer"),
+         m("alice", "home", "reader"),
+         m("svc", "home", "admin")
+       ]), [principal(), principal(%{kind: :service, id: "svc"})]},
+      {tree([m("alice", "A", "viewer")]), [principal()]},
+      {tree([m("alice", "B", "viewer")]), [principal()]},
+      {tree([m("alice", "C", "viewer")]), [principal()]},
+      {tree([m("alice", "A", "payer")], ["money.", "read"]), [principal()]},
+      {delegation([m("alice", "home", "owner"), m("alice", "other", "writer")]), [alice(), bot()]}
     ]
   end
 

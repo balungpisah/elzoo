@@ -101,8 +101,8 @@ refusal.
   clause, the membership tenant clause together with the tenant restriction
   of `spaces/4`, and the target tenant check of `permissions/4`, one at a
   time, each makes the tests fail. Finite scenarios, not universal proofs.
-- Upstream: pinned Cure, `domain/principal` `check/2`, and pinned Elixir/OTP
-  binary byte order, `String.valid?/1` and term equality.
+- Upstream: pinned Cure, and pinned Elixir/OTP binary byte order,
+  `String.valid?/1` and term equality.
 
 ## Needs and limits
 
