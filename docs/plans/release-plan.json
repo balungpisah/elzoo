@@ -2075,7 +2075,6 @@
       "release": "V1",
       "stage": "pieces",
       "outputs": [
-        "domain/membership",
         "domain/entitlement"
       ],
       "dependencies": [
@@ -2084,12 +2083,11 @@
         "ELZ-024",
         "RC-10"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for domain/membership by published ELZ-269; output moved. domain/entitlement stays with RC-07 (Wave 6 per the Wave 5 plan).",
       "contract": "Two distinct Pieces: single-use tenant invitation/membership transition; versioned feature entitlement with explicit revocation/grace. Atomic storage owns membership changes; billing provider synchronization is outside V1.",
       "acceptance": "Concurrent invitation acceptance, cross-tenant token replay, revoked inviter, changed role and entitlement revoked while work is queued. No partial membership activation.",
       "reuse": "Ash resource/policy plus selected transactional storage; no new identity framework.",
       "paths": [
-        "pieces/domain/membership/",
         "pieces/domain/entitlement/"
       ],
       "blockers": [
@@ -7377,6 +7375,91 @@
       "issue": 616,
       "url": "https://github.com/balungpisah/elzoo/issues/616",
       "issue_body_sha256": "2b894bbae8ad88166b698284d9f02cace7aa43a9ff32343288a37ac8010c7459"
+    },
+    {
+      "id": "ELZ-269",
+      "title": "ELZ-269 — Scoped memberships and roles that never leak upward or across tenants",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-267"],
+      "status": "published 2026-11-20",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-269-membership.md"],
+      "outputs": ["domain/membership"],
+      "acceptance": "Pure permission resolution with exact temporal and soft-revocation edges, block_inheritance barriers, non-inheriting prefixes, no upward, sibling or cross-tenant leakage, agent attenuation, spaces/4 agreeing with permissions/4; four negative controls.",
+      "product_aims": ["P13"],
+      "issue": 620,
+      "url": "https://github.com/balungpisah/elzoo/issues/620",
+      "issue_body_sha256": "20e88cc2380da88bf25e2ec6d1e80572a47fecf2ce64081f05e3bdccecee918f"
+    },
+    {
+      "id": "ELZ-270",
+      "title": "ELZ-270 — A PostgreSQL row-security floor that hides every other tenant's rows",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-20",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-270-tenant-isolation.md"],
+      "outputs": ["state/tenant-isolation"],
+      "acceptance": "Real PostgreSQL 16 evidence as forced owner: cross-tenant read/write refusal, spaced isolation, fail closed outside the helper and after commit, error or raise on one pooled connection including Sandbox savepoints, restrictive composition, InitPlan EXPLAIN, verifier reasons; non-owner boundary NOT EXERCISED where roles cannot be created.",
+      "product_aims": ["P13"],
+      "issue": 621,
+      "url": "https://github.com/balungpisah/elzoo/issues/621",
+      "issue_body_sha256": "e7e8ccc6f57a19a6280cf8b90ff0f00178c063f67f7af23f447d7e486ebe6c09"
+    },
+    {
+      "id": "ELZ-271",
+      "title": "ELZ-271 — Admit an outbound URL only to an allowlisted host whose every address is public",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-20",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-271-egress-policy.md"],
+      "outputs": ["integration/egress-policy"],
+      "acceptance": "Fixed check order, IP-literal and encoded-host refusal, resolver Need once only after the allowlist, all-or-nothing public-address table with both sides of every boundary, rebinding refusal, no URL echo; four negative controls.",
+      "product_aims": ["P13"],
+      "issue": 622,
+      "url": "https://github.com/balungpisah/elzoo/issues/622",
+      "issue_body_sha256": "0f6befb487d7b9b4863b2f3b4296ac2cbbef9f538230335e1c3153e2c6d1d5ac"
+    },
+    {
+      "id": "ELZ-272",
+      "title": "ELZ-272 — Refuse to send classified data to a provider, region or retention mode the tenant does not admit",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-20",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-272-provider-data-policy.md"],
+      "outputs": ["domain/provider-data-policy"],
+      "acceptance": "Closed data-class tag and per-class provider/region/retention admission in fixed order, secret never admissible, malformed policy or request is an error the host treats as DENY, exact-byte comparison; three negative controls.",
+      "product_aims": ["P13"],
+      "issue": 623,
+      "url": "https://github.com/balungpisah/elzoo/issues/623",
+      "issue_body_sha256": "9574c43e461a8d0bc30a518600b1f098df67bbe9c762a2caf2658a77c9c374d0"
+    },
+    {
+      "id": "ELZ-273",
+      "title": "ELZ-273 — Seal records under a versioned per-subject key so that destroying the key erases them",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-105"],
+      "status": "published 2026-11-20",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-273-encryption.md"],
+      "outputs": ["integration/encryption"],
+      "acceptance": "AES-256-GCM round trip and format pin, header and every byte authenticated, fixed 16-byte tag and 12-byte nonce by layout with OTP drift tests, key Need once, shredded key is no_key, total functions with no secret echo; three negative controls.",
+      "product_aims": ["P13"],
+      "issue": 624,
+      "url": "https://github.com/balungpisah/elzoo/issues/624",
+      "issue_body_sha256": "f7bc8957afa9a6a647e504d5ae5f5d52e510ac2a4b7bc98a1cbdfdb3dd939dd1"
     }
   ],
   "entries": [
@@ -7796,10 +7879,10 @@
     },
     {
       "id": "domain/membership",
-      "job": "RC-07",
-      "note": "Scoped membership, one-use invitation and revocation for C1/C2; reuse storage/auth capabilities and own only missing policy.",
+      "job": "ELZ-269",
+      "note": "Planned pure resolution of a principal's permissions at one space from host facts: temporal and soft-revoked memberships, named roles, optional space tree with block_inheritance barriers and non-inheriting prefixes, agent attenuation; no invitations, tenant status, storage or authorization decision.",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -8027,6 +8110,38 @@
       "job": "ELZ-268",
       "note": "Planned offline verification of pinned-key EdDSA/RS256 JWTs and prefixed keyed-digest API keys into a domain/principal with fixed redacted failures; reuses locked jose 1.11.13 and OTP crypto; no JWKS fetch, OIDC ceremony or session store.",
       "baseline_status": "not in baseline (new row, ELZ-268)",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "state/tenant-isolation",
+      "job": "ELZ-270",
+      "note": "Planned PostgreSQL row-level-security floor: restrictive forced tenant/space policy with STABLE InitPlan setting readers, a transaction helper that sets and clears the scope, and a policy verifier; locked ecto_sql/postgrex only.",
+      "baseline_status": "not in baseline (new row, ELZ-270)",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/egress-policy",
+      "job": "ELZ-271",
+      "note": "Planned outbound URL policy: https only, exact allowlisted DNS name and port, no IP literals, injected resolver whose every address must be public; no HTTP client, redirects or response bound.",
+      "baseline_status": "not in baseline (new row, ELZ-271)",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/provider-data-policy",
+      "job": "ELZ-272",
+      "note": "Planned pure decision whether payload data classes (closed public/internal/confidential/pii/secret tag) may go to one provider, region and retention mode under a tenant policy; secret never admissible; non-allow is DENY.",
+      "baseline_status": "not in baseline (new row, ELZ-272)",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/encryption",
+      "job": "ELZ-273",
+      "note": "Planned AES-256-GCM envelope over OTP crypto under a versioned per-subject integration/secrets key with authenticated header; key-destruction crypto-shredding gives no_key; no key store, KMS or wrapping.",
+      "baseline_status": "not in baseline (new row, ELZ-273)",
       "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
