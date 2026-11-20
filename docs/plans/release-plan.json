@@ -7707,6 +7707,34 @@
       "issue_body_sha256": "d3c32d9134d342a3e237500f8f3dad66f3c436c7124da95a81c87387670d5c5b"
     },
     {
+      "id": "ELZ-288",
+      "title": "ELZ-288 — Restore the found Logger level, and run empty-log tests synchronously",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-079",
+        "ELZ-080",
+        "ELZ-087",
+        "ELZ-105",
+        "ELZ-271",
+        "ELZ-273"
+      ],
+      "status": "published 2026-11-20",
+      "owner_role": "coordinator; one-PR path; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-288-test-logger-level-and-async-logs.md"
+      ],
+      "outputs": [],
+      "acceptance": "The AI Piece tests restore the Logger level they found, and the encryption, secrets and egress-policy test modules run async: false, so neither defect of #639 can leak into later or concurrent tests; Contracts, libraries, READMEs, manifests, timeouts and budgets unchanged. Level-leak and concurrent-log reproductions, library log-line negative control, Piece tests, small gate.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 662,
+      "url": "https://github.com/balungpisah/elzoo/issues/662",
+      "issue_body_sha256": "44ca53f601650a977e017ffae40de738f23268867638538eb2332b8512af46a1"
+    },
+    {
       "id": "ELZ-289",
       "title": "ELZ-289 — Require complete copied-consumer evidence and clean up a timed-out consumer",
       "kind": "published",
