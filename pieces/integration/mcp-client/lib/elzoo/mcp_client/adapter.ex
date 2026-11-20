@@ -26,8 +26,9 @@ defmodule Elzoo.McpClient.Adapter do
   def send_effect(req) do
     with %{context: %Context{session: %Session{config: c} = s} = ctx, key: key} <- req,
          %{attempt_id: attempt_id} <- req,
-         {:ok, b, settings} <- Binding.load(c.binding),
+         {:ok, b, settings} <- Binding.load(c.binding, c.runtime),
          true <- b.digest == req.binding and settings == c.settings,
+         true <- bound?(ctx, c, key),
          true <- Wire.hex?(key) and is_binary(req.arguments) do
       # The credential as resolved before and after the call: a server that
       # echoes it never gets it into a delivered or digested result.
@@ -68,6 +69,13 @@ defmodule Elzoo.McpClient.Adapter do
   catch
     _, _ -> failure(:adapter_error)
   end
+
+  # A context bound to an admission sends only that admission's intent; a
+  # runtime session sends only through such a context (every runtime intent
+  # shares one binding digest, so the binding check alone cannot pair them).
+  defp bound?(%Context{key: nil}, %{runtime: nil}, _key), do: true
+  defp bound?(%Context{key: bound}, _c, key) when is_binary(bound), do: bound == key
+  defp bound?(_ctx, _c, _key), do: false
 
   # Best-effort: a recipient that has exited loses the content; the settlement
   # recorded by the owner is unchanged. The message is sent before the owner

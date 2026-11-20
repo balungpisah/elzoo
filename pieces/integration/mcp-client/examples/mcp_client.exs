@@ -85,3 +85,22 @@ missing =
 
 {:ok, {:refused, :authentication_failed}} = Elzoo.McpClient.outcome(:authentication_failed)
 false = inspect(config) =~ "credentials"
+
+# Runtime endpoint mode: one server a tenant added at run time. The host has
+# checked the URL and resolved its addresses once; the client connects only to
+# those addresses, and the server and endpoint enter the intent key.
+{:ok, runtime_config} =
+  Elzoo.McpClient.configure(
+    binding: Elzoo.McpClient.RuntimeBinding,
+    runtime: %{
+      server: "tenant-tools",
+      endpoint: "https://mcp.example.test/mcp",
+      network: :public,
+      addresses: [{93, 184, 215, 14}]
+    },
+    tenant: "tenant-a",
+    credentials: fn -> {:error, :unavailable} end
+  )
+
+{:ok, %{identity: [_, "mcp:runtime", _, "tools/call", "rt1:" <> _]}} =
+  Elzoo.McpClient.admission(runtime_config, declaration, snapshot)

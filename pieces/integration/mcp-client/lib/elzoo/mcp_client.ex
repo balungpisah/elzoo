@@ -6,13 +6,24 @@ defmodule Elzoo.McpClient do
   (dispatch, settlement, recovery). Discovery is inert data; one `tools/call`
   per dispatch identity. See the README for the Contract.
   """
-  alias Elzoo.McpClient.{Binding, Config, Context, Discovery, Session, Snapshot, Transport, Wire}
+  alias Elzoo.McpClient.{
+    Binding,
+    Config,
+    Context,
+    Discovery,
+    RuntimeBinding,
+    Session,
+    Snapshot,
+    Transport,
+    Wire
+  }
 
   @capability "integration/mcp-client"
   @max_bigint 9_223_372_036_854_775_807
   @modes [:modern_only, :legacy_only, :prefer_modern]
   @keys [
     :binding,
+    :runtime,
     :tenant,
     :credentials,
     :protocol_mode,
@@ -35,11 +46,19 @@ defmodule Elzoo.McpClient do
   `max_pages` (1..64, default 8), `max_tools` (1..1,024, default 128) and
   `max_descriptor_bytes` (256..65,536, default 16,384). The credential Need is
   never called here.
+
+  Runtime endpoint mode: `runtime` is accepted only together with
+  `binding: Elzoo.McpClient.RuntimeBinding` (either one without the other is
+  `{:error, :configuration}`) and is exactly `%{server, endpoint, network,
+  addresses}`: the server text rule, the endpoint rule for `network` (`:public`
+  or `:loopback`) and 1..32 distinct `:inet` addresses that the host checked.
+  The client then connects only to those addresses.
   """
   def configure(opts) when is_list(opts) do
     with true <- Keyword.keyword?(opts),
          true <- Enum.all?(Keyword.keys(opts), &(&1 in @keys)),
-         {:ok, _b, settings} <- Binding.load(opts[:binding]),
+         true <- Keyword.has_key?(opts, :runtime) == (opts[:binding] == RuntimeBinding),
+         {:ok, _b, settings} <- Binding.load(opts[:binding], opts[:runtime]),
          true <- Wire.text?(opts[:tenant], 256),
          true <- is_function(opts[:credentials], 0),
          mode when mode in @modes <- Keyword.get(opts, :protocol_mode, :modern_only),
@@ -53,6 +72,7 @@ defmodule Elzoo.McpClient do
       {:ok,
        %Config{
          binding: opts[:binding],
+         runtime: opts[:runtime],
          settings: settings,
          tenant: opts[:tenant],
          credentials: opts[:credentials],
@@ -139,16 +159,17 @@ defmodule Elzoo.McpClient do
          deadline when is_integer(deadline) and deadline >= 0 and deadline <= @max_bigint <-
            command["deadline_unix_ms"],
          payload when is_binary(payload) <- command["payload"],
-         {:ok, b, _} <- Binding.load(c.binding),
+         {:ok, b, _} <- Binding.load(c.binding, c.runtime),
          {:ok, _} <- Elzoo.EffectIntent.Binding.recovery_deadline(deadline, b.recovery_grace_ms) do
       with {:ok, call} <- Wire.request(payload, c.max_request_bytes),
            :ok <- Snapshot.check(discovery, call.tool, call.arguments) do
-        identity = [c.tenant, b.provider_account, b.id, b.operation, ref]
+        identity = identity(c, b, ref)
 
         {:ok,
          %{
            key: Elzoo.EffectIntent.Model.key(identity),
            identity: identity,
+           ref: ref,
            arguments: payload,
            deadline: deadline
          }}
@@ -164,6 +185,18 @@ defmodule Elzoo.McpClient do
 
   def admission(_, _, _), do: {:error, :declaration}
 
+  defp identity(c, b, ref),
+    do: [c.tenant, b.provider_account, b.id, b.operation, intent_ref(c, ref)]
+
+  # Runtime mode: the server and endpoint enter the key through a fixed-size,
+  # length-framed digest (an endpoint can be 512 bytes; an identity text 256).
+  defp intent_ref(%Config{runtime: nil}, ref), do: ref
+
+  defp intent_ref(%Config{settings: %{server: server, endpoint: %{url: url}}}, ref) do
+    framed = Enum.map([server, url, ref], &<<byte_size(&1)::32, &1::binary>>)
+    "rt1:" <> Base.encode16(:crypto.hash(:sha256, framed), case: :lower)
+  end
+
   @doc """
   The EffectIntent Adapter context: the session and the recipient Need (a
   trusted local process that receives each classified outcome by best-effort
@@ -171,6 +204,30 @@ defmodule Elzoo.McpClient do
   """
   def context(%Session{} = s, recipient) when is_pid(recipient),
     do: %Context{session: s, recipient: recipient}
+
+  @doc """
+  The EffectIntent Adapter context bound to one admission: `{:ok, context}` when
+  the admission's identity and intent key are the ones this session's Config
+  gives for the admission's `ref` (same tenant, binding and, in runtime mode,
+  server and endpoint), else `{:error, :context}`. The context carries that
+  intent key, and the Adapter sends only for a request with the same key. A
+  runtime session needs this context; one from `context/2` is refused
+  (`adapter_error`, nothing sent).
+  """
+  def context(%Session{config: c} = s, %{key: key, identity: identity, ref: ref}, recipient)
+      when is_pid(recipient) and is_binary(ref) do
+    with {:ok, b, _} <- Binding.load(c.binding, c.runtime),
+         ^identity <- identity(c, b, ref),
+         ^key <- Elzoo.EffectIntent.Model.key(identity) do
+      {:ok, %Context{session: s, recipient: recipient, key: key}}
+    else
+      _ -> {:error, :context}
+    end
+  rescue
+    _ -> {:error, :context}
+  end
+
+  def context(_, _, _), do: {:error, :context}
 
   @doc """
   Dispatches an admitted call through its EffectIntent `owner`, whose Adapter
