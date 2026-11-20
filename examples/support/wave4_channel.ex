@@ -1440,6 +1440,24 @@ defmodule Elzoo.Wave4ChannelExample do
   defp advance_once(%{poison: {:reply_native_input, _reason}} = state),
     do: reconcile_v2_native_uncertainty(state)
 
+  defp advance_once(%{poison: {:native_event, _reason}} = state) do
+    if reply_profile?(state.profile),
+      do: reconcile_v2_native_uncertainty(state),
+      else: {{:blocked, :native_event}, state}
+  end
+
+  defp advance_once(%{poison: {:native_child_exit, _child}} = state) do
+    if reply_profile?(state.profile),
+      do: reconcile_v2_native_uncertainty(state),
+      else: {{:blocked, :native_child_exit}, state}
+  end
+
+  defp advance_once(%{poison: {:native_child_exit, _child, _reason}} = state) do
+    if reply_profile?(state.profile),
+      do: reconcile_v2_native_uncertainty(state),
+      else: {{:blocked, :native_child_exit}, state}
+  end
+
   defp advance_once(%{poison: {:native_input, _reason}} = state) do
     if reply_profile?(state.profile),
       do: reconcile_v2_native_uncertainty(state),
@@ -1480,16 +1498,16 @@ defmodule Elzoo.Wave4ChannelExample do
     do: {{:blocked, elem(poison, 0)}, state}
 
   defp advance_once(%{approval: %{release_state: :committed_expired}} = state),
-    do: {{:pending, :expired}, state}
+    do: advance_committed_expired(state)
 
   defp advance_once(%{approval: %{input_state: :committed_expired}} = state),
-    do: {{:pending, :expired}, state}
+    do: advance_committed_expired(state)
 
   defp advance_once(%{reply: %{release_state: :committed_expired}} = state),
-    do: {{:pending, :expired}, state}
+    do: advance_committed_expired(state)
 
   defp advance_once(%{reply: %{input_state: :committed_expired}} = state),
-    do: {{:pending, :expired}, state}
+    do: advance_committed_expired(state)
 
   defp advance_once(%{phase: :idle} = state), do: observe_input(state)
   defp advance_once(%{phase: :association} = state), do: associate(state)
@@ -1505,6 +1523,66 @@ defmodule Elzoo.Wave4ChannelExample do
   defp advance_once(%{phase: :reply_ack} = state), do: acknowledge_reply(state)
   defp advance_once(%{phase: :ack} = state), do: acknowledge(state)
   defp advance_once(state), do: {{:blocked, :invalid_phase}, state}
+
+  defp advance_committed_expired(%{profile: profile, current: current} = state)
+       when is_map(current) do
+    if reply_profile?(profile),
+      do: advance_expired_v2_current(state),
+      else: {{:pending, :expired}, state}
+  end
+
+  defp advance_committed_expired(state), do: {{:pending, :expired}, state}
+
+  defp advance_expired_v2_current(%{current: current} = state) do
+    operation_id = native_operation(current.run_id, state)
+    expected_attempt = attempt_id(current.run_id, state)
+
+    case RunApprovalRelease.status(state.native.run_owner, current.run_id) do
+      {:ok, %{operation_id: ^operation_id, current_attempt: ^expected_attempt}} ->
+        continue_expired_v2_current(state)
+
+      {:ok, %{operation_id: ^operation_id, current_attempt: nil}} ->
+        {{:pending, :expired}, state}
+
+      {:error, :not_found} ->
+        {{:pending, :expired}, state}
+
+      {:ok, _} ->
+        {{:unknown, :native_identity}, %{state | poison: {:native_identity, current.run_id}}}
+
+      _ ->
+        {{:blocked, :native_owner}, state}
+    end
+  rescue
+    _ -> {{:blocked, :native_owner}, state}
+  catch
+    _, _ -> {{:blocked, :native_owner}, state}
+  end
+
+  defp continue_expired_v2_current(
+         %{reply: %{release_state: :committed_expired, item: nil}} = state
+       ) do
+    case observe_reply(%{state | phase: :reply_observe}) do
+      {{:reply_observed, _}, next_state} ->
+        observe_result(%{next_state | phase: :result})
+
+      other ->
+        other
+    end
+  end
+
+  defp continue_expired_v2_current(%{phase: :reply_ack} = state), do: acknowledge_reply(state)
+  defp continue_expired_v2_current(%{phase: :ack} = state), do: acknowledge(state)
+  defp continue_expired_v2_current(%{phase: :answer} = state), do: append_answer(state)
+  defp continue_expired_v2_current(%{phase: :start_engine} = state), do: start_engine(state)
+  defp continue_expired_v2_current(%{phase: :create_run} = state), do: create_run(state)
+  defp continue_expired_v2_current(%{phase: :begin_attempt} = state), do: begin_attempt(state)
+
+  defp continue_expired_v2_current(%{phase: :start_input} = state),
+    do: {{:pending, :expired}, state}
+
+  defp continue_expired_v2_current(state),
+    do: observe_result(%{state | phase: :result})
 
   defp observe_input(state) do
     stream = checked_stream(state.profile.tenant)
@@ -1792,10 +1870,8 @@ defmodule Elzoo.Wave4ChannelExample do
         {:ok,
          %{
            operation_id: ^operation_id,
-           current_attempt: ^expected_attempt,
-           outcome: outcome
-         }}
-        when outcome in [:completed, :failed, :cancelled, :out_of_budget, :out_of_time] ->
+           current_attempt: ^expected_attempt
+         }} ->
           :ok
 
         _ ->
@@ -2173,12 +2249,16 @@ defmodule Elzoo.Wave4ChannelExample do
 
     case RunApprovalRelease.status(state.native.run_owner, c.run_id) do
       {:ok, %{operation_id: ^expected_operation, current_attempt: nil}} ->
-        with {:held, held} <-
-               Lease.hold(state.native.lease, state.native.lease_stream, state.native.lease_owner) do
-          {{:run_recovered, c.run_id},
-           %{state | native: %{state.native | held: held}, phase: :begin_attempt}}
+        if reply_profile?(state.profile) and not primary_deadline_live?(state) do
+          {{:pending, :expired}, state}
         else
-          other -> {{:unknown, :run_create}, %{state | poison: {:run_create, other}}}
+          with {:held, held} <-
+                 Lease.hold(state.native.lease, state.native.lease_stream, state.native.lease_owner) do
+            {{:run_recovered, c.run_id},
+             %{state | native: %{state.native | held: held}, phase: :begin_attempt}}
+          else
+            other -> {{:unknown, :run_create}, %{state | poison: {:run_create, other}}}
+          end
         end
 
       {:ok, %{operation_id: ^expected_operation, current_attempt: attempt}}
@@ -2209,6 +2289,14 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp create_run_command(state, c, operation) do
+    if reply_profile?(state.profile) and not primary_deadline_live?(state) do
+      {{:pending, :expired}, state}
+    else
+      create_run_command_live(state, c, operation)
+    end
+  end
+
+  defp create_run_command_live(state, c, operation) do
     with {:held, held} <-
            Lease.hold(state.native.lease, state.native.lease_stream, state.native.lease_owner) do
       case RunApprovalRelease.command(state.native.run_owner, %{
@@ -2246,22 +2334,26 @@ defmodule Elzoo.Wave4ChannelExample do
         if operation != expected_operation do
           {{:unknown, :run_identity}, %{state | poison: {:run_status, :identity}}}
         else
-          attempt_id = attempt_id(c.run_id, state)
+          if reply_profile?(state.profile) and not primary_deadline_live?(state) do
+            {{:pending, :expired}, state}
+          else
+            attempt_id = attempt_id(c.run_id, state)
 
-          case RunApprovalRelease.command(state.native.run_owner, %{
-                 kind: :begin_attempt,
-                 run_id: c.run_id,
-                 attempt_id: attempt_id,
-                 expected_revision: revision
-               }) do
-            {:ok, _, _} ->
-              {{:attempt_started, attempt_id}, %{state | phase: :start_engine}}
+            case RunApprovalRelease.command(state.native.run_owner, %{
+                   kind: :begin_attempt,
+                   run_id: c.run_id,
+                   attempt_id: attempt_id,
+                   expected_revision: revision
+                 }) do
+              {:ok, _, _} ->
+                {{:attempt_started, attempt_id}, %{state | phase: :start_engine}}
 
-            {:indeterminate, _} = unknown ->
-              {{:unknown, :attempt}, %{state | poison: {:attempt, unknown}}}
+              {:indeterminate, _} = unknown ->
+                {{:unknown, :attempt}, %{state | poison: {:attempt, unknown}}}
 
-            other ->
-              {{:blocked, :attempt}, %{state | poison: {:attempt, other}}}
+              other ->
+                {{:blocked, :attempt}, %{state | poison: {:attempt, other}}}
+            end
           end
         end
 
@@ -2280,6 +2372,20 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp start_engine(state) do
+    if reply_profile?(state.profile) do
+      case native_start_allowed?(state) do
+        :ok ->
+          start_engine_owned(state)
+
+        {:error, reason} ->
+          {{:blocked, :native_ownership}, %{state | poison: {:native_ownership, reason}}}
+      end
+    else
+      start_engine_owned(state)
+    end
+  end
+
+  defp start_engine_owned(state) do
     c = state.current
     attempt_id = attempt_id(c.run_id, state)
     unit_id = unit_id(c.run_id, state)
@@ -2298,6 +2404,58 @@ defmodule Elzoo.Wave4ChannelExample do
       other ->
         {{:unknown, :engine_start}, %{state | poison: {:engine_start, other}}}
     end
+  end
+
+  defp native_start_allowed?(state) do
+    owned = [state.engine, state.async_work, state.writer]
+    references = [state.engine_ref, state.async_work_ref, state.writer_ref]
+
+    cond do
+      Enum.any?(owned, &is_pid/1) or Enum.any?(references, &is_reference/1) ->
+        {:error, :owned_children}
+
+      Task.Supervisor.children(state.native.task_supervisor) != [] ->
+        {:error, :native_work}
+
+      no_live_native_unit(state) != :ok ->
+        {:error, :native_unit}
+
+      no_native_unit_children(state) != :ok ->
+        {:error, :native_unit_child}
+
+      true ->
+        :ok
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
+  end
+
+  defp native_result_phase(state, current) do
+    if reply_profile?(state.profile) do
+      operation_id = native_operation(current.run_id, state)
+      expected_attempt = attempt_id(current.run_id, state)
+
+      case RunApprovalRelease.status(state.native.run_owner, current.run_id) do
+        {:ok,
+         %{
+           operation_id: ^operation_id,
+           current_attempt: ^expected_attempt,
+           outcome: nil
+         }} ->
+          if primary_deadline_live?(state), do: :start_input, else: :result
+
+        _ ->
+          :result
+      end
+    else
+      :start_input
+    end
+  rescue
+    _ -> :result
+  catch
+    _, _ -> :result
   end
 
   defp start_async_work(state, c, attempt_id, unit_id, engine_name) do
@@ -2323,7 +2481,8 @@ defmodule Elzoo.Wave4ChannelExample do
           {:ok, engine} ->
             case own_native_child(state, :engine, engine) do
               {:ok, owned_state} ->
-                {{:engine_started, unit_id}, %{owned_state | phase: :start_input}}
+                {{:engine_started, unit_id},
+                 %{owned_state | phase: native_result_phase(owned_state, c)}}
 
               {:error, owned_state, reason} ->
                 engine_start_failed(owned_state, unit_id, reason)
@@ -2380,6 +2539,21 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp own_native_child(state, child_key, pid) do
+    case Map.get(state, child_key) do
+      ^pid ->
+        {:ok, state}
+
+      owned when is_pid(owned) ->
+        if Process.alive?(owned),
+          do: {:error, state, :owned_child_live},
+          else: own_native_child_unchecked(state, child_key, pid)
+
+      _ ->
+        own_native_child_unchecked(state, child_key, pid)
+    end
+  end
+
+  defp own_native_child_unchecked(state, child_key, pid) do
     owned_state = Map.put(state, child_key, pid)
 
     reference_key =
@@ -2513,6 +2687,14 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp start_input(state) do
+    if reply_profile?(state.profile) and not primary_deadline_live?(state) do
+      {{:pending, :expired}, %{state | phase: :result}}
+    else
+      submit_start_input(state)
+    end
+  end
+
+  defp submit_start_input(state) do
     c = state.current
     id = native_input_id(c.run_id, state)
 
@@ -2740,30 +2922,25 @@ defmodule Elzoo.Wave4ChannelExample do
     operation_id = native_operation(current.run_id, state)
     expected_attempt = attempt_id(current.run_id, state)
 
-    case RunApprovalRelease.status(state.native.run_owner, current.run_id) do
-      {:ok, %{operation_id: ^operation_id, current_attempt: ^expected_attempt, outcome: :completed}} ->
-        observe_input(%{state | poison: nil, phase: :idle})
+    case fence_native(state) do
+      :ok ->
+        state = clear_native_children(state)
 
-      {:ok,
-       %{
-         operation_id: ^operation_id,
-         current_attempt: ^expected_attempt,
-         outcome: outcome
-       }}
-      when outcome in [:failed, :cancelled, :out_of_budget, :out_of_time] ->
-        current = %{current | terminal: outcome}
-        phase = if is_map(state.reply), do: :reply_ack, else: :ack
+        case RunApprovalRelease.status(state.native.run_owner, current.run_id) do
+          {:ok, %{operation_id: ^operation_id, current_attempt: ^expected_attempt}} ->
+            start_engine(%{state | phase: :start_engine, poison: nil})
 
-        {{:reconciled, {:terminal, outcome}},
-         %{state | current: current, phase: phase, poison: nil}}
+          _ ->
+            {{:blocked, :native_identity}, %{state | poison: {:native_identity, current.run_id}}}
+        end
 
-      _ ->
-        {{:blocked, :native_input}, state}
+      {:error, reason} ->
+        {{:blocked, :native_fencing}, %{state | poison: {:native_fencing, reason}}}
     end
   rescue
-    _ -> {{:blocked, :native_input}, state}
+    _ -> {{:blocked, :native_fencing}, %{state | poison: {:native_fencing, :exception}}}
   catch
-    _, _ -> {{:blocked, :native_input}, state}
+    _, _ -> {{:blocked, :native_fencing}, %{state | poison: {:native_fencing, :exit}}}
   end
 
   defp reconcile_v2_native_uncertainty(state), do: {{:blocked, :native_input}, state}
@@ -3012,10 +3189,7 @@ defmodule Elzoo.Wave4ChannelExample do
                         end
 
                       next_state = %{next_state | phase: phase}
-
-                      if wait.status == :waiting,
-                        do: {{:pending, :event_waiting}, next_state},
-                        else: {{:pending, reason}, next_state}
+                      pending_v2_wait(next_state, wait, reason)
 
                     {:error, reason} ->
                       {{:unknown, :native_event}, %{state | poison: {:native_event, reason}}}
@@ -3025,9 +3199,7 @@ defmodule Elzoo.Wave4ChannelExample do
                     %{state | native_wait: wait}
                     |> recover_ambiguous_reply_cursor(c, wait)
 
-                  if wait.status == :waiting,
-                    do: {{:pending, :event_waiting}, next_state},
-                    else: {{:pending, reason}, next_state}
+                  pending_v2_wait(next_state, wait, reason)
                 end
               else
                 {{:pending, reason}, state}
@@ -3045,12 +3217,7 @@ defmodule Elzoo.Wave4ChannelExample do
           {:ok, state} ->
             current = Map.put(c, :terminal, outcome)
 
-            phase =
-              if reply_profile?(state.profile) and is_map(state.reply),
-                do: :reply_ack,
-                else: :ack
-
-            {{:terminal, outcome}, %{state | current: current, phase: phase}}
+            terminal_ack_phase(%{state | current: current})
 
           {:error, reason} ->
             {{:unknown, :native_event}, %{state | poison: {:native_event, reason}}}
@@ -3067,6 +3234,138 @@ defmodule Elzoo.Wave4ChannelExample do
   catch
     :exit, _ -> {{:pending, :result_unavailable}, state}
     _, _ -> {{:pending, :result_unavailable}, state}
+  end
+
+  defp pending_v2_wait(state, wait, reason) do
+    if wait.status == :waiting and proven_reply_expiry?(state, wait) do
+      expire_v2_wait(state, wait)
+    else
+      if wait.status == :waiting,
+        do: {{:pending, :event_waiting}, state},
+        else: {{:pending, reason}, state}
+    end
+  end
+
+  defp expire_v2_wait(%{current: current} = state, wait) do
+    if state.ambiguous_reply in [true, :check] do
+      {{:blocked, :reply_ambiguous}, %{state | poison: {:reply_ambiguity, :expiry}}}
+    else
+      operation_id = native_operation(current.run_id, state)
+      expected_attempt = attempt_id(current.run_id, state)
+
+      case RunApprovalRelease.status(state.native.run_owner, current.run_id) do
+        {:ok,
+         %{
+           operation_id: ^operation_id,
+           current_attempt: ^expected_attempt,
+           outcome: nil
+         }} ->
+          id = native_expiry_input_id(current.run_id, wait, state)
+
+          input = %{
+            "type" => "input",
+            "version" => 2,
+            "kind" => "wake"
+          }
+
+          context = %{run_id: current.run_id, attempt_id: expected_attempt}
+
+          case safe_native_input(state.engine, id, input, context) do
+            {:ok, {:ok, result}} when result in [:applied, :duplicate] ->
+              {{:native_expiry_wake, result}, %{state | phase: :result, native_wait: wait}}
+
+            {:ok, {:error, reason}} ->
+              native_input_unknown(state, {:expiry_wake, reason})
+
+            {:error, reason} ->
+              native_input_unknown(state, {:expiry_wake, reason})
+
+            other ->
+              native_input_unknown(state, {:expiry_wake, other})
+          end
+
+        {:ok, %{operation_id: ^operation_id, current_attempt: ^expected_attempt}} ->
+          {{:pending, :result_reconciliation}, state}
+
+        _ ->
+          native_input_unknown(state, :expiry_owner)
+      end
+    end
+  rescue
+    _ -> native_input_unknown(state, :expiry_exception)
+  catch
+    _, _ -> native_input_unknown(state, :expiry_exception)
+  end
+
+  defp terminal_ack_phase(state) do
+    case reply_ack_eligibility(state) do
+      :committed ->
+        {{:terminal, state.current.terminal}, %{state | phase: :reply_ack}}
+
+      :none ->
+        {{:terminal, state.current.terminal}, %{state | phase: :ack}}
+
+      :unknown ->
+        {{:unknown, :reply_state}, %{state | poison: {:terminal_reply_state, :unknown}}}
+    end
+  end
+
+  defp reply_ack_eligibility(%{profile: profile}) when not is_map(profile), do: :unknown
+
+  defp reply_ack_eligibility(%{profile: profile} = state) do
+    if not reply_profile?(profile) do
+      :none
+    else
+      case state.reply do
+        nil ->
+          if state.ambiguous_reply in [true, :check], do: :unknown, else: :none
+
+        %{release_state: :pending} = reply ->
+          case Map.get(reply, :item) do
+            item when is_map(item) ->
+              if committed_reply_item?(state, reply, item), do: :committed, else: :unknown
+
+            _ ->
+              :none
+          end
+
+        %{item: item} = reply when is_map(item) ->
+          if committed_reply_item?(state, reply, item), do: :committed, else: :unknown
+
+        _ ->
+          :unknown
+      end
+    end
+  rescue
+    _ -> :unknown
+  catch
+    _, _ -> :unknown
+  end
+
+  defp committed_reply_item?(state, reply, item) do
+    key = Map.get(item, :idempotency_key)
+    nonce = Map.get(item, :nonce)
+
+    with true <- is_binary(key) and is_binary(nonce),
+         {:ok, committed} <- read_reply_item(state, key),
+         true <-
+           committed.idempotency_key == key and committed.nonce == nonce and
+             committed.sequence == item.sequence and committed.state in [:pending, :acked],
+         {:completed, result} <-
+           CheckedCommand.result(
+             state.handles.reply_input,
+             result_scope(state.profile),
+             {state.profile.tenant, state.profile.actor, reply.operation_id}
+           ),
+         true <- result.revision == reply.resource_revision,
+         {:ok, ticket, revision} <- receipt_input(result.response),
+         true <-
+           revision == result.revision and ticket == reply.ticket and
+             ticket == reply.event.input_id do
+      true
+    else
+      _ -> false
+    end
   end
 
   defp recover_ambiguous_reply_cursor(%{ambiguous_reply: :check} = state, current, wait) do
@@ -3430,46 +3729,91 @@ defmodule Elzoo.Wave4ChannelExample do
   defp finish_input(state) do
     c = state.current
 
-    if reply_profile?(state.profile) and is_map(state.reply) and is_nil(c.terminal) and
-         not is_nil(c.answer) do
-      completed = %{c.input_id => %{run_id: c.run_id, outcome: :completed}}
+    cond do
+      reply_profile?(state.profile) and not is_nil(c.terminal) ->
+        finish_terminal_input(state, c)
 
-      pair = %{
-        run_id: c.run_id,
-        operation_id: c.operation_id,
-        input_id: c.input_id,
-        answer_operation: c.answer_operation,
-        answer_id: answer_id(c.input_id),
-        answer: c.answer,
-        answer_revision: c.answer_revision,
-        primary_key: c.item.key,
-        primary_nonce: c.item.nonce,
-        reply_operation: state.reply.operation_id,
-        reply_ticket: state.reply.ticket,
-        reply_key: state.reply.item.idempotency_key,
-        reply_nonce: state.reply.item.nonce
-      }
+      reply_profile?(state.profile) and is_map(state.reply) and is_nil(c.terminal) and
+          not is_nil(c.answer) ->
+        completed = %{c.input_id => %{run_id: c.run_id, outcome: :completed}}
 
-      latest_native = %{
-        run_id: c.run_id,
-        engine: state.engine,
-        wait: state.native_wait,
-        unit_id: unit_id(c.run_id, state)
-      }
+        pair = %{
+          run_id: c.run_id,
+          operation_id: c.operation_id,
+          input_id: c.input_id,
+          answer_operation: c.answer_operation,
+          answer_id: answer_id(c.input_id),
+          answer: c.answer,
+          answer_revision: c.answer_revision,
+          primary_key: c.item.key,
+          primary_nonce: c.item.nonce,
+          reply_operation: state.reply.operation_id,
+          reply_ticket: state.reply.ticket,
+          reply_key: state.reply.item.idempotency_key,
+          reply_nonce: state.reply.item.nonce
+        }
 
-      {{:acknowledged, c.input_id},
-       %{
-         state
-         | current: nil,
-           phase: :idle,
-           completed: completed,
-           completed_pair: pair,
-           latest_native: latest_native,
-           poison: nil
-       }}
-    else
-      finish_input_fenced(state, c)
+        latest_native = %{
+          run_id: c.run_id,
+          engine: state.engine,
+          wait: state.native_wait,
+          unit_id: unit_id(c.run_id, state)
+        }
+
+        {{:acknowledged, c.input_id},
+         %{
+           state
+           | current: nil,
+             phase: :idle,
+             completed: completed,
+             completed_pair: pair,
+             latest_native: latest_native,
+             poison: nil
+         }}
+
+      true ->
+        finish_input_fenced(state, c)
     end
+  end
+
+  defp finish_terminal_input(state, c) do
+    reply_ack = reply_ack_eligibility(state)
+
+    pair = %{
+      terminal: c.terminal,
+      operation_id: native_operation(c.run_id, state),
+      attempt_id: attempt_id(c.run_id, state),
+      run_id: c.run_id,
+      primary_key: c.item.key,
+      primary_nonce: c.item.nonce,
+      reply_committed: reply_ack == :committed,
+      reply_pending: reply_ack == :none and is_map(state.reply),
+      reply_key: if(reply_ack == :committed, do: state.reply.item.idempotency_key),
+      reply_nonce: if(reply_ack == :committed, do: state.reply.item.nonce)
+    }
+
+    latest_native = %{
+      run_id: c.run_id,
+      engine: state.engine,
+      wait: state.native_wait,
+      unit_id: unit_id(c.run_id, state),
+      terminal: c.terminal
+    }
+
+    completed = Map.put(state.completed, c.input_id, %{run_id: c.run_id, outcome: c.terminal})
+
+    {{:acknowledged, c.input_id},
+     %{
+       state
+       | current: nil,
+         phase: :idle,
+         approval: nil,
+         completed: completed,
+         completed_pair: pair,
+         latest_native: latest_native,
+         reply: if(pair.reply_committed, do: nil, else: state.reply),
+         poison: nil
+     }}
   end
 
   defp finish_input_fenced(state, c) do
@@ -4093,7 +4437,7 @@ defmodule Elzoo.Wave4ChannelExample do
   defp native_reader(_), do: :unavailable
 
   defp native_event_waits_for_live_reader(state, %{run_id: run_id, engine: engine, wait: known_wait}) do
-    if Process.alive?(engine) and is_nil(state.poison) do
+    if Process.alive?(engine) and Process.alive?(state.native.run_owner) and is_nil(state.poison) do
       scope = %{tenant: state.profile.tenant, principal: state.profile.actor, run_id: run_id}
 
       case RunEngine.event_waits(engine, scope, @result_limits) do
@@ -4444,6 +4788,33 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp fence_native(state) do
+    if reply_profile?(state.profile),
+      do: fence_native_v2(state),
+      else: fence_native_v1(state)
+  end
+
+  defp fence_native_v2(state) do
+    with :ok <- stop_native_process(state.engine),
+         :ok <- stop_native_process(state.async_work),
+         :ok <- stop_native_process(state.writer),
+         :ok <- stop_native_unit(state),
+         :ok <- no_live_native_processes([state.engine, state.async_work, state.writer]),
+         :ok <- no_native_tasks(state),
+         :ok <- no_live_native_unit(state),
+         :ok <- no_native_unit_children(state) do
+      demonitor_native(state)
+      :ok
+    else
+      {:error, _} = error -> error
+      other -> {:error, other}
+    end
+  rescue
+    _ -> {:error, :exception}
+  catch
+    _, _ -> {:error, :exit}
+  end
+
+  defp fence_native_v1(state) do
     with :ok <- stop_native_process(state.engine),
          :ok <- stop_native_process(state.async_work),
          :ok <- stop_native_process(state.writer),
@@ -4541,6 +4912,26 @@ defmodule Elzoo.Wave4ChannelExample do
     if Enum.any?(pids, &(is_pid(&1) and Process.alive?(&1))),
       do: {:error, :process_alive},
       else: :ok
+  end
+
+  defp no_native_tasks(%{native: %{task_supervisor: supervisor}}) do
+    if Process.alive?(supervisor) and Task.Supervisor.children(supervisor) == [],
+      do: :ok,
+      else: {:error, :native_work_alive}
+  rescue
+    _ -> {:error, :task_supervisor_unavailable}
+  catch
+    _, _ -> {:error, :task_supervisor_unavailable}
+  end
+
+  defp no_native_unit_children(%{native: %{supervisor: supervisor}}) do
+    if Process.alive?(supervisor) and DynamicSupervisor.which_children(supervisor) == [],
+      do: :ok,
+      else: {:error, :native_unit_child_alive}
+  rescue
+    _ -> {:error, :unit_supervisor_unavailable}
+  catch
+    _, _ -> {:error, :unit_supervisor_unavailable}
   end
 
   defp no_live_native_unit(state) do
@@ -4711,6 +5102,10 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp completed_pair_proven?(%{completed_pair: pair, latest_native: reader} = state)
+       when is_map(pair) and is_map_key(pair, :terminal) and is_map(reader),
+       do: terminal_pair_proven?(state, pair, reader)
+
+  defp completed_pair_proven?(%{completed_pair: pair, latest_native: reader} = state)
        when is_map(pair) and is_map(reader) do
     with true <- reader.run_id == pair.run_id and reader.unit_id == unit_id(pair.run_id, state),
          engine when is_pid(engine) <- reader.engine,
@@ -4769,6 +5164,52 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp completed_pair_proven?(_), do: {:error, :unknown}
+
+  defp terminal_pair_proven?(state, pair, reader) do
+    operation_id = native_operation(pair.run_id, state)
+    expected_attempt = attempt_id(pair.run_id, state)
+
+    with false <- pair.reply_pending,
+         true <- pair.operation_id == operation_id and pair.attempt_id == expected_attempt,
+         true <- reader.run_id == pair.run_id and reader.unit_id == unit_id(pair.run_id, state),
+         engine when is_pid(engine) <- reader.engine,
+         true <- Process.alive?(engine) and Process.alive?(state.native.run_owner),
+         {:ok,
+          %{
+            operation_id: ^operation_id,
+            current_attempt: ^expected_attempt,
+            outcome: terminal
+          }} <- RunApprovalRelease.status(state.native.run_owner, pair.run_id),
+         true <- terminal == pair.terminal,
+         scope <- %{
+           tenant: state.profile.tenant,
+           principal: state.profile.actor,
+           run_id: pair.run_id
+         },
+         {:terminal, ^terminal} <- RunEngine.result(engine, scope, @result_limits),
+         :ok <-
+           acknowledged_outbox_item(
+             state,
+             pair.primary_key,
+             pair.primary_nonce,
+             @destination
+           ),
+         :ok <- terminal_reply_ack_proven(state, pair) do
+      :ok
+    else
+      _ -> {:error, :unknown}
+    end
+  rescue
+    _ -> {:error, :unknown}
+  catch
+    _, _ -> {:error, :unknown}
+  end
+
+  defp terminal_reply_ack_proven(state, %{reply_committed: true} = pair),
+    do: acknowledged_outbox_item(state, pair.reply_key, pair.reply_nonce, @reply_destination)
+
+  defp terminal_reply_ack_proven(_state, %{reply_committed: false}), do: :ok
+  defp terminal_reply_ack_proven(_state, _pair), do: {:error, :unknown}
 
   defp completed_pair_metadata?(snapshot, pair) do
     expected =
@@ -4955,6 +5396,16 @@ defmodule Elzoo.Wave4ChannelExample do
   defp unit_id(run_id, _state), do: stable_id("unit", [run_id])
   defp budget_id(run_id, _state), do: stable_id("budget", [run_id])
   defp native_input_id(run_id, _state), do: stable_id("native-input", [run_id])
+
+  defp native_expiry_input_id(run_id, wait, state),
+    do:
+      stable_id("native-expiry", [
+        run_id,
+        wait.correlation_id,
+        wait.occurrence,
+        state.profile.deadline_ms
+      ])
+
   defp evidence_stream(run_id), do: stable_id("evidence-stream", [run_id])
 
   defp stable_id(domain, terms) do

@@ -386,8 +386,18 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     host
   end
 
-  def fence_and_reopen!(fixture, listener \\ nil) do
-    if listener, do: stop_listener!(listener)
+  def fence_and_reopen!(fixture, listeners \\ nil) do
+    listeners =
+      cond do
+        is_nil(listeners) -> []
+        is_list(listeners) -> listeners
+        true -> [listeners]
+      end
+
+    listener_pids = Enum.map(listeners, &Map.fetch!(:ranch.info(&1.ref), :pid))
+    Enum.each(listeners, fn listener -> :ok = stop_listener!(listener) end)
+    true = Enum.all?(listeners, &listener_stopped?(&1.ref))
+    true = Enum.all?(listener_pids, &(not Process.alive?(&1)))
 
     host_state = :sys.get_state(fixture.host)
     latest_reader = Map.get(host_state, :latest_native) || %{}
@@ -399,6 +409,13 @@ defmodule Elzoo.Wave4ChannelTestHelper do
         host_state.writer,
         latest_reader[:engine]
       ])
+
+    native_task_pids = Task.Supervisor.children(fixture.native.task_supervisor)
+
+    unit_child_pids =
+      DynamicSupervisor.which_children(fixture.unit_supervisor)
+      |> Enum.map(fn {_id, pid, _type, _modules} -> pid end)
+      |> Enum.filter(&is_pid/1)
 
     native_run_id = (host_state.current && host_state.current.run_id) || latest_reader[:run_id]
 
@@ -424,6 +441,8 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     true = not Process.alive?(fixture.directory)
     true = not Process.alive?(fixture.unit_supervisor)
     true = not Process.alive?(fixture.task_supervisor)
+    true = Enum.all?(native_task_pids, &(not Process.alive?(&1)))
+    true = Enum.all?(unit_child_pids, &(not Process.alive?(&1)))
 
     command_store = Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :reopen, [])
     run_store = Elzoo.DurableLog.PostgresHarness.hook(fixture.run_store, :reopen, [])
@@ -534,6 +553,14 @@ defmodule Elzoo.Wave4ChannelTestHelper do
   end
 
   def stop_listener!(listener), do: Plug.Cowboy.shutdown(listener.ref)
+
+  defp listener_stopped?(ref) do
+    not Map.has_key?(:ranch.info(), ref)
+  rescue
+    _ -> false
+  catch
+    _, _ -> false
+  end
 
   def command_stream(tenant) do
     "cc1:" <>
