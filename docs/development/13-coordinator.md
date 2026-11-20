@@ -99,19 +99,18 @@
      For the repair task of the exception, add the label immediately after
      the merge. Then classify the red push run of that merge also, so that
      the queue takes the repair.
-- **Levels.** Publish a wave of tasks in levels. A task of a level depends
+- **Levels.** Plan a wave of tasks in levels. A task of a level depends
   only on tasks of earlier levels. A Piece-only pull request merges on the
   small gate, and the queue does not wait for the full check of `main` between
-  two such merges. At the end of each level, wait until the third command of
-  step 3 above prints `completed success` for the current `main`. Only then
-  publish the next level as one pull request. A task that a later level
-  needs can be in an earlier publication: its `- Dependencies:` line keeps it
-  not ready. If the run is
-  red, do the repair below first. Wave 1 exception: a level-2 task may be
-  published after its own prerequisites merge and current `main` is green,
-  without waiting for every level-1 job. The serial merge queue, independent
-  review, the queue's limit of four outstanding first-parent commits before a
-  small-gate merge and red-`main` rules remain in force.
+  two such merges. Publish a task as soon as each of its dependencies is
+  merged and the third command of step 3 above prints `completed success`
+  for the current `main`; do not wait for the rest of its level. Tasks that
+  become publishable together share one publication. A task that a later
+  level needs can be in an earlier publication: its `- Dependencies:` line
+  keeps it not ready. If the run is red, do the repair below first. Build
+  tasks with no dependency between them in parallel. The serial merge queue,
+  independent review, the queue's limit of four outstanding first-parent
+  commits before a small-gate merge and red-`main` rules remain in force.
 - **One queue run for the ready pull requests.** When more than one pull
   request is ready, give all of them to the queue in one run, in dependency
   order: `python3 scripts/merge-queue.py <PR> <PR> ...`. Each merge changes

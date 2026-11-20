@@ -214,6 +214,13 @@ and merge requirements still apply. For a Piece task, the local gate is the smal
     mix check --piece "$(git merge-base origin/main HEAD)"
     git diff --check
 
+A low-risk Piece (no untrusted input, authentication, authorization, secrets,
+cryptography, durable state or native code) may use the hosted `check-piece`
+run on the exact head as its small-gate evidence instead of the local run,
+because that job runs the same selection; record `Local gate: hosted
+check-piece <run ID>` with the Piece tests and `git diff --check` run locally.
+A Piece with any of that weight keeps the local small gate.
+
 A Piece task changes only files in Piece directories, the index and generated
 files of section 3, and documents. `scripts/ci-change-class.py` decides this.
 The small gate runs format, compile, the ledger and Registry checks, the
@@ -323,7 +330,14 @@ passes" or "listed scenarios pass", not "verified".
 
 ## 6. Review: one round
 
-Every change gets one independent review, including documents, index files and test repairs. Do not repeat a review of unchanged code.
+Every change that sets or changes a Contract (including task text), a security
+decision, executable code, tests or index rows gets one independent review.
+A documentation or plan change that sets no Contract and no security decision
+needs none. Match the depth to the risk: a Piece with untrusted input,
+authentication, authorization, secrets, cryptography, durable state or native
+code gets the full review of "Reviewer by risk" in the coordinator guide; a
+small low-risk Piece gets one light review. Do not repeat a review of
+unchanged code.
 
 Freeze the diff for review; the local gate can run alongside that review.
 When the reviewed delta is unchanged, avoid repeated main chasing and local
