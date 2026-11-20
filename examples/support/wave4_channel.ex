@@ -2919,31 +2919,15 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp reconcile_v2_native_uncertainty(%{current: current} = state) when is_map(current) do
-    operation_id = native_operation(current.run_id, state)
-    expected_attempt = attempt_id(current.run_id, state)
-
-    case fence_native(state) do
-      :ok ->
-        state = clear_native_children(state)
-
-        case RunApprovalRelease.status(state.native.run_owner, current.run_id) do
-          {:ok, %{operation_id: ^operation_id, current_attempt: ^expected_attempt}} ->
-            start_engine(%{state | phase: :start_engine, poison: nil})
-
-          _ ->
-            {{:blocked, :native_identity}, %{state | poison: {:native_identity, current.run_id}}}
-        end
-
-      {:error, reason} ->
-        {{:blocked, :native_fencing}, %{state | poison: {:native_fencing, reason}}}
-    end
-  rescue
-    _ -> {{:blocked, :native_fencing}, %{state | poison: {:native_fencing, :exception}}}
-  catch
-    _, _ -> {{:blocked, :native_fencing}, %{state | poison: {:native_fencing, :exit}}}
+    # Stopping this host cannot prove its PostgreSQL append caller has exited.
+    {{:blocked, :provider_owner_replacement},
+     %{state | poison: {:provider_owner_replacement, current.run_id}}}
   end
 
-  defp reconcile_v2_native_uncertainty(state), do: {{:blocked, :native_input}, state}
+  defp reconcile_v2_native_uncertainty(state),
+    do:
+      {{:blocked, :provider_owner_replacement},
+       %{state | poison: {:provider_owner_replacement, :unknown_run}}}
 
   defp confirm_reply_association(state, reply, current) do
     with {:ok, snapshot} <-
@@ -3623,7 +3607,7 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp acknowledge_original_item(state, key, nonce, destination) do
     case read_original_item(state, key, destination) do
-      {:ok, %{state: :acked, nonce: ^nonce}} ->
+      {:ok, %{state: :acked, nonce: ^nonce, ack_nonce: ^nonce}} ->
         :ok
 
       {:ok, %{state: :pending, nonce: ^nonce}} ->
