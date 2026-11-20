@@ -102,21 +102,27 @@ nil, tool: name | nil}`. In this order:
 `check/2` never raises. Codes never echo an ID.
 
 Both engines take a pure gate fixed at construction, so a gate closes over one
-read. In each gate the host maps the action to a tool name that it trusts (for
-example a `workflow/tool-registry` alias):
+read. The host maps each action to a tool name that it trusts (for example a
+`workflow/tool-registry` alias), or to `nil` for an action that is not a tool,
+and denies an action it did not map. The frame is opaque: read it with the
+public `Elzoo.PatternStep.encode/1`, which accepts both the v1 frame of
+CheckedCommand and RunEngine and the v2 frame of RunEngine `protocol_version:
+2`. Do not match on its internal tag.
 
 ```elixir
 read = Elzoo.CheckedCommand.resource(kill_switch, scope, "control")
 
-gate = %{
-  call: fn {:PatternStep, %{"actions" => [action]}}, %{tenant: tenant} ->
-    Elzoo.KillSwitch.check(read, %{
-      tenant: tenant,
-      recipe: recipe,
-      tool: Map.get(trusted_tools, action["schema_id"])
-    })
+call = fn checked, %{tenant: tenant} ->
+  %{"actions" => [action]} = Elzoo.PatternStep.encode(checked)
+
+  case Map.fetch(trusted_tools, action["schema_id"]) do
+    {:ok, tool} -> Elzoo.KillSwitch.check(read, %{tenant: tenant, recipe: recipe, tool: tool})
+    :error -> {:deny, "unmapped_action"}
   end
-}
+end
+
+checked_command_gate = %{call: call}
+run_engine_gate = %{id: "kill-switch-gate", version: 1, call: call}
 ```
 
 - **CheckedCommand.** The gate is part of the descriptor passed to
@@ -148,7 +154,14 @@ other op.
   verdict RunEngine already committed survives restart, so admitted actions and
   their effects are not recalled.
 - No platform-wide switch across tenants, no expiry or timer, no wildcard or
-  prefix target. The tool name and recipe are the host's trusted mapping.
+  prefix target. The tool name and recipe are the host's trusted mapping; an
+  action mapped to `tool: nil` is checked against tenant and recipe switches
+  only.
+- The snapshot tenant and resource, and the read and target tenant, follow the
+  same text rule as switch IDs, which is stricter than CheckedCommand's
+  identity rule (it also refuses C0 and C1 control characters other than NUL).
+  A tenant whose ID breaks it is refused by every kill-switch command and
+  denied `kill_switch_unavailable` by every gate: fail closed.
 
 ## Evidence
 

@@ -591,14 +591,15 @@ defmodule Elzoo.KillSwitchTest do
 
   # The README gate: the host maps the frame to a trusted target and calls check/2
   # over the read it took immediately before building this handle.
-  defp readme_gate(read, tools) do
+  defp readme_gate(read, tools, recipe \\ nil) do
     %{
-      call: fn {:PatternStep, %{"actions" => [action]}}, %{tenant: tenant} ->
-        KillSwitch.check(read, %{
-          tenant: tenant,
-          recipe: nil,
-          tool: Map.get(tools, action["schema_id"])
-        })
+      call: fn checked, %{tenant: tenant} ->
+        %{"actions" => [action]} = Elzoo.PatternStep.encode(checked)
+
+        case Map.fetch(tools, action["schema_id"]) do
+          {:ok, tool} -> KillSwitch.check(read, %{tenant: tenant, recipe: recipe, tool: tool})
+          :error -> {:deny, "unmapped_action"}
+        end
       end
     }
   end
@@ -756,6 +757,40 @@ defmodule Elzoo.KillSwitchTest do
                    payload: %{}
                  }
                )
+    end
+
+    test "the README gate reads PatternStep v1 and v2 frames through encode/1" do
+      action = %{
+        "id" => "a-1",
+        "kind" => "local_work",
+        "schema_id" => "work/run",
+        "schema_version" => 1,
+        "payload" => %{}
+      }
+
+      tool = snapshot(%{"switches" => {:list, [switch("tool", "send_email", "incident")]}})
+      recipe = snapshot(%{"switches" => {:list, [switch("recipe", "recipe-1", "incident")]}})
+      tools = %{"work/run" => "send_email", "other/run" => nil}
+      ctx = %{proposer: @worker, effect_class: "work", tenant: @tenant}
+
+      for version <- [1, 2] do
+        frame = %{"type" => "request", "version" => version, "actions" => [action]}
+        assert {:ok, checked} = Elzoo.PatternStep.decode(frame, version)
+        other = put_in(frame, ["actions"], [%{action | "schema_id" => "other/run"}])
+        {:ok, other} = Elzoo.PatternStep.decode(other, version)
+        unmapped = put_in(frame, ["actions"], [%{action | "schema_id" => "x/run"}])
+        {:ok, unmapped} = Elzoo.PatternStep.decode(unmapped, version)
+
+        assert readme_gate({:ok, tool}, tools).call.(checked, ctx) == {:deny, "tool_suspended"}
+        assert readme_gate({:ok, tool}, tools).call.(other, ctx) == :allow
+        assert readme_gate({:ok, tool}, tools).call.(unmapped, ctx) == {:deny, "unmapped_action"}
+
+        assert readme_gate({:ok, recipe}, tools, "recipe-1").call.(other, ctx) ==
+                 {:deny, "recipe_suspended"}
+
+        assert readme_gate(:not_found, tools).call.(checked, ctx) ==
+                 {:deny, "kill_switch_unavailable"}
+      end
     end
 
     test "ASK keeps the switch unchanged until a reviewer other than the proposer releases it" do
