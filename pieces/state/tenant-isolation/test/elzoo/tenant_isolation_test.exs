@@ -84,7 +84,7 @@ defmodule Elzoo.TenantIsolationTest do
       hd(
         qr!(
           repo,
-          "SELECT #{p}.elzoo_tenant_id(), #{p}.elzoo_space_ids(), (SELECT count(*) FROM #{p}.flat), (SELECT count(*) FROM #{p}.docs), pg_backend_pid()"
+          "SELECT #{p}.elzoo_tenant_id(), #{p}.elzoo_space_ids(), (SELECT count(*) FROM #{p}.flat), (SELECT count(*) FROM #{p}.notes), pg_backend_pid()"
         )
       )
 
@@ -152,32 +152,32 @@ defmodule Elzoo.TenantIsolationTest do
       for {t, s, b} <- rows do
         {:ok, _} =
           TI.transact(TestRepo, %{tenant: t, spaces: [s]}, fn ->
-            q("INSERT INTO #{p}.docs (tenant, space, body) VALUES ($1, $2, $3)", [t, s, b])
+            q("INSERT INTO #{p}.notes (tenant, space, body) VALUES ($1, $2, $3)", [t, s, b])
           end)
       end
 
       # A NULL space row, written by the owner with FORCE dropped.
       {:ok, _} =
         AdminRepo.transact(fn ->
-          Harness.query!(AdminRepo, "ALTER TABLE #{p}.docs NO FORCE ROW LEVEL SECURITY")
+          Harness.query!(AdminRepo, "ALTER TABLE #{p}.notes NO FORCE ROW LEVEL SECURITY")
 
           Harness.query!(
             AdminRepo,
-            "INSERT INTO #{p}.docs (tenant, space, body) VALUES ('T1', NULL, 'n')"
+            "INSERT INTO #{p}.notes (tenant, space, body) VALUES ('T1', NULL, 'n')"
           )
 
-          {:ok, Harness.query!(AdminRepo, "ALTER TABLE #{p}.docs FORCE ROW LEVEL SECURITY")}
+          {:ok, Harness.query!(AdminRepo, "ALTER TABLE #{p}.notes FORCE ROW LEVEL SECURITY")}
         end)
 
       :ok
     end
 
     test "only listed spaces of the scope's tenant; [] and a flat scope show nothing", %{p: p} do
-      assert bodies(p, "docs", %{tenant: "T1", spaces: ["s1"]}) == ["a"]
-      assert bodies(p, "docs", %{tenant: "T2", spaces: ["s1"]}) == ["c"]
-      assert bodies(p, "docs", %{tenant: "T1", spaces: []}) == []
-      assert bodies(p, "docs", %{tenant: "T1"}) == []
-      assert bodies(p, "docs", %{tenant: "T1", spaces: ["s1", "s1"]}) == ["a"]
+      assert bodies(p, "notes", %{tenant: "T1", spaces: ["s1"]}) == ["a"]
+      assert bodies(p, "notes", %{tenant: "T2", spaces: ["s1"]}) == ["c"]
+      assert bodies(p, "notes", %{tenant: "T1", spaces: []}) == []
+      assert bodies(p, "notes", %{tenant: "T1"}) == []
+      assert bodies(p, "notes", %{tenant: "T1", spaces: ["s1", "s1"]}) == ["a"]
     end
 
     test "space IDs NULL, {a}, \"q\", b\\s and , match exactly", %{p: p} do
@@ -186,37 +186,37 @@ defmodule Elzoo.TenantIsolationTest do
                  TI.transact(TestRepo, %{tenant: "T1", spaces: [s]}, fn ->
                    {:ok,
                     {q!("SELECT #{p}.elzoo_space_ids()"),
-                     TestRepo.all(from(r in "docs", select: r.body), prefix: p)}}
+                     TestRepo.all(from(r in "notes", select: r.body), prefix: p)}}
                  end)
 
         assert body == "w#{i}"
       end
 
-      assert bodies(p, "docs", %{tenant: "T1", spaces: @weird}) == ~w(w0 w1 w2 w3 w4)
-      assert bodies(p, "docs", %{tenant: "T1", spaces: ["a", "q", "b"]}) == ~w(p0 p1 p2)
-      assert bodies(p, "docs", %{tenant: "T1", spaces: ["{a,b}"]}) == ["p3"]
+      assert bodies(p, "notes", %{tenant: "T1", spaces: @weird}) == ~w(w0 w1 w2 w3 w4)
+      assert bodies(p, "notes", %{tenant: "T1", spaces: ["a", "q", "b"]}) == ~w(p0 p1 p2)
+      assert bodies(p, "notes", %{tenant: "T1", spaces: ["{a,b}"]}) == ["p3"]
     end
 
     test "a space removed from the list for the next call is hidden on that call", %{p: p} do
-      assert bodies(p, "docs", %{tenant: "T1", spaces: ["s1", "s2"]}) == ["a", "b"]
-      assert bodies(p, "docs", %{tenant: "T1", spaces: ["s1"]}) == ["a"]
+      assert bodies(p, "notes", %{tenant: "T1", spaces: ["s1", "s2"]}) == ["a", "b"]
+      assert bodies(p, "notes", %{tenant: "T1", spaces: ["s1"]}) == ["a"]
     end
 
     test "writes outside the listed spaces and NULL space writes fail 42501", %{p: p} do
-      before = truth(p, "docs")
+      before = truth(p, "notes")
       scope = %{tenant: "T1", spaces: ["s1"]}
 
       for sql <- [
-            "INSERT INTO #{p}.docs (tenant, space, body) VALUES ('T1', 's2', 'z')",
-            "INSERT INTO #{p}.docs (tenant, space, body) VALUES ('T1', NULL, 'z')",
-            "INSERT INTO #{p}.docs (tenant, space, body) VALUES ('T2', 's1', 'z')",
-            "UPDATE #{p}.docs SET space = 's2' WHERE body = 'a'",
-            "UPDATE #{p}.docs SET space = NULL WHERE body = 'a'"
+            "INSERT INTO #{p}.notes (tenant, space, body) VALUES ('T1', 's2', 'z')",
+            "INSERT INTO #{p}.notes (tenant, space, body) VALUES ('T1', NULL, 'z')",
+            "INSERT INTO #{p}.notes (tenant, space, body) VALUES ('T2', 's1', 'z')",
+            "UPDATE #{p}.notes SET space = 's2' WHERE body = 'a'",
+            "UPDATE #{p}.notes SET space = NULL WHERE body = 'a'"
           ] do
         assert denied?(TI.transact(TestRepo, scope, fn -> q(sql) end)), sql
       end
 
-      assert truth(p, "docs") == before
+      assert truth(p, "notes") == before
       assert ["T1", nil, "n"] in before
     end
   end
@@ -318,7 +318,7 @@ defmodule Elzoo.TenantIsolationTest do
          %{p: p} do
       seed_flat(p)
 
-      for table <- ["flat", "docs"] do
+      for table <- ["flat", "notes"] do
         Harness.query!(
           AdminRepo,
           "CREATE POLICY wide ON #{p}.#{table} AS PERMISSIVE FOR ALL TO PUBLIC USING (true) WITH CHECK (true)"
@@ -332,11 +332,11 @@ defmodule Elzoo.TenantIsolationTest do
 
       {:ok, _} =
         TI.transact(TestRepo, %{tenant: "T2", spaces: ["s1"]}, fn ->
-          q("INSERT INTO #{p}.docs (tenant, space, body) VALUES ('T2', 's1', 'c')")
+          q("INSERT INTO #{p}.notes (tenant, space, body) VALUES ('T2', 's1', 'c')")
         end)
 
       assert bodies(p, "flat", t1()) == ["a", "b"]
-      assert bodies(p, "docs", %{tenant: "T1", spaces: ["s1"]}) == []
+      assert bodies(p, "notes", %{tenant: "T1", spaces: ["s1"]}) == []
       assert [nil, [], 0, 0, _] = outside(p)
 
       assert denied?(
@@ -363,7 +363,7 @@ defmodule Elzoo.TenantIsolationTest do
     test "JSON EXPLAIN shows both readers as InitPlan nodes, not per-row calls", %{p: p} do
       {:ok, plan} =
         TI.transact(TestRepo, %{tenant: "T1", spaces: ["s1"]}, fn ->
-          [[[plan]]] = q!("EXPLAIN (FORMAT JSON, VERBOSE) SELECT * FROM #{p}.docs")
+          [[[plan]]] = q!("EXPLAIN (FORMAT JSON, VERBOSE) SELECT * FROM #{p}.notes")
           {:ok, plan["Plan"]}
         end)
 
@@ -377,7 +377,7 @@ defmodule Elzoo.TenantIsolationTest do
       refute plan["Filter"] =~ "elzoo_"
       names = init |> Enum.map(& &1["Subplan Name"]) |> Enum.sort()
       assert names == ["InitPlan 1 (returns $0)", "InitPlan 2 (returns $1)"]
-      assert plan["Filter"] == "((docs.tenant = $0) AND (docs.space = ANY ($1)))"
+      assert plan["Filter"] == "((notes.tenant = $0) AND (notes.space = ANY ($1)))"
     end
   end
 
@@ -390,9 +390,9 @@ defmodule Elzoo.TenantIsolationTest do
 
     test "ok after protect; each table change gives its reason", %{p: p} do
       assert TI.verify(TestRepo, {p, "flat"}, flat(p)) == :ok
-      assert TI.verify(TestRepo, {p, "docs"}, spaced(p)) == :ok
+      assert TI.verify(TestRepo, {p, "notes"}, spaced(p)) == :ok
 
-      assert TI.verify(TestRepo, {p, "vdocs"},
+      assert TI.verify(TestRepo, {p, "vnotes"},
                prefix: p,
                tenant_column: "org",
                space_column: "area"
@@ -432,8 +432,8 @@ defmodule Elzoo.TenantIsolationTest do
 
     test "swapped, renamed or missing columns and another prefix give :floor_changed", %{p: p} do
       changed = {:error, :floor_changed}
-      docs = {p, "docs"}
-      assert TI.verify(TestRepo, docs, spaced(p)) == :ok
+      notes = {p, "notes"}
+      assert TI.verify(TestRepo, notes, spaced(p)) == :ok
 
       for opts <- [
             [prefix: p, tenant_column: "space", space_column: "tenant"],
@@ -444,7 +444,7 @@ defmodule Elzoo.TenantIsolationTest do
             [prefix: "public", tenant_column: "tenant", space_column: "space"],
             [prefix: "elz270_absent", tenant_column: "tenant", space_column: "space"]
           ] do
-        assert TI.verify(TestRepo, docs, opts) == changed, inspect(opts)
+        assert TI.verify(TestRepo, notes, opts) == changed, inspect(opts)
       end
 
       assert TI.verify(TestRepo, {p, "flat"}, spaced(p) |> Keyword.put(:space_column, "body")) ==
@@ -453,13 +453,13 @@ defmodule Elzoo.TenantIsolationTest do
       assert TI.verify(TestRepo, {p, "absent"}, flat(p)) == {:error, :not_enabled}
       # Nothing of the rebuild survives: no temporary table, the floor and the scope unchanged.
       assert q!("SELECT to_regclass('pg_temp.elzoo_tenant_verify')") == [[nil]]
-      assert TI.verify(TestRepo, docs, spaced(p)) == :ok
+      assert TI.verify(TestRepo, notes, spaced(p)) == :ok
     end
 
     test "verify runs inside an open transaction and leaves it usable", %{p: p} do
       assert {:ok, {:ok, [[1]]}} =
                TestRepo.transact(fn ->
-                 {:ok, {TI.verify(TestRepo, {p, "docs"}, spaced(p)), q!("SELECT 1")}}
+                 {:ok, {TI.verify(TestRepo, {p, "notes"}, spaced(p)), q!("SELECT 1")}}
                end)
     end
 

@@ -33,11 +33,11 @@ defmodule Elzoo.TenantIsolation.TestMigration do
     )
 
     execute(
-      ~s|CREATE TABLE "#{p}".docs (id bigserial PRIMARY KEY, tenant text NOT NULL, space text, body text)|
+      ~s|CREATE TABLE "#{p}".notes (id bigserial PRIMARY KEY, tenant text NOT NULL, space text, body text)|
     )
 
     execute(
-      ~s|CREATE TABLE "#{p}".vdocs (id bigserial PRIMARY KEY, org varchar(64) NOT NULL, area varchar(64) NOT NULL)|
+      ~s|CREATE TABLE "#{p}".vnotes (id bigserial PRIMARY KEY, org varchar(64) NOT NULL, area varchar(64) NOT NULL)|
     )
 
     Migration.install(p)
@@ -45,8 +45,8 @@ defmodule Elzoo.TenantIsolation.TestMigration do
     execute("SET LOCAL search_path TO #{p}")
     Migration.protect("flat", prefix: p, tenant_column: "tenant", space_column: nil)
     execute("RESET search_path")
-    Migration.protect({p, "docs"}, prefix: p, tenant_column: "tenant", space_column: "space")
-    Migration.protect({p, "vdocs"}, prefix: p, tenant_column: "org", space_column: "area")
+    Migration.protect({p, "notes"}, prefix: p, tenant_column: "tenant", space_column: "space")
+    Migration.protect({p, "vnotes"}, prefix: p, tenant_column: "org", space_column: "area")
   end
 end
 
