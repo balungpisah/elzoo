@@ -16,10 +16,11 @@ ELZ-071: the evidence of a documentation-only merge is the short check of a pull
 `Run mix check` step was skipped, its `Classify the change` and `Docs-only check` steps passed, and its log has
 the line ELZOO DOCS-ONLY CHECK PASSED and no full-run or affected-mode marker. That counts only when this
 checkout's own scripts/ci-change-class.py classifies the merge commit's change against its first parent as
-documentation only (ELZ-277: documentation paths, or a strictly planned-only publication; a dispatch run never
-has the short shape: it is not a pull_request event), and only when the first parent, the main before the merge, has a push run of this workflow that completed with success: a short check
-runs no tests, so it must not hide a red or unfinished push run of that main behind a green documentation merge
-(otherwise the full check runs, with the code of the first parent in the tree).
+documentation only (ELZ-277: documentation paths, or a strictly planned-only publication; a dispatch run
+never has the short shape: it is not a pull_request event), and only when the first parent, the main before the
+merge, has a push run of this workflow that completed with success: a short check runs no tests, so it must not
+hide a red or unfinished push run of that main behind a green documentation merge (otherwise the full check runs, with
+the code of the first parent in the tree).
 
 Small gate: a run whose job `check-piece` ran (the small gate of a Piece-only pull request, `mix check --piece`) is never
 evidence here, whatever the classification of the merge says. The small gate is a selected check; the push run on main

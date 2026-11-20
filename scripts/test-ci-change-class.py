@@ -542,6 +542,9 @@ class PlannedPublication(unittest.TestCase):
             "not UTF-8": body.replace("New.", "New\udcff.").encode("utf-8", "surrogateescape"),
             "a control character": body.replace("New.", "New\\u0007."),
             "a lone surrogate": body.replace("New.", "New\\ud800."),
+            # Review of #641: Python's parser raises RecursionError here; it must be "not documentation", not a crash.
+            "deep nesting": body.replace('"schema_version": 1,', '"schema_version": 1, "x": ' + "[" * 100000 +
+                                         "]" * 100000 + ","),
         }
         for label, text in cases.items():
             with self.subTest(label=label):
@@ -557,6 +560,21 @@ class PlannedPublication(unittest.TestCase):
         self.branch(lambda: ((Path(self.dir) / "registry/catalogue.json").write_text(body),
                              self.write("LEDGER.md", LEDGER_HEAD + "\n".join(rows) + "\n")))
         self.assertTrue(self.github())
+
+    def test_the_rows_of_the_real_ledger_are_the_rows_that_the_classifier_writes(self):
+        # Review of #641: ties the row template to `Elzoo.Registry.ledger/1`. Each row of a catalogue entry without a
+        # manifest is taken out of the real LEDGER.md and written back by `ledger_with`; a change of the Registry's
+        # row form (regenerated LEDGER.md) without the same change here fails this test.
+        ledger = (ROOT / "LEDGER.md").read_bytes()
+        entries = [entry for entry in json.loads((ROOT / "registry/catalogue.json").read_text())["entries"]
+                   if "manifest" not in entry]
+        self.assertTrue(any(entry["status"] == "planned" for entry in entries))
+        lines = ledger.decode("utf-8").split("\n")
+        for entry in entries:
+            with self.subTest(id=entry["id"]):
+                without = [line for line in lines if not line.startswith(f"| `{entry['id']}` |")]
+                self.assertEqual(len(lines) - 1, len(without))
+                self.assertEqual(ledger, cc.ledger_with("\n".join(without).encode("utf-8"), [entry]))
 
     def test_a_mode_change_of_an_index_file_is_refused(self):
         self.branch(lambda: (self.catalogue([READY, planned("domain/x"), DEFERRED]),

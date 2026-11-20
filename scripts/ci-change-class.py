@@ -130,7 +130,8 @@ def planned_publication(records, run=subprocess.run):
         added = added_planned_entries(base, head)
         ledger_base, ledger_head = (read_blob(blob, run) for blob in blobs["LEDGER.md"])
         return ledger_head == ledger_with(ledger_base, added)
-    except (Unclear, ValueError, KeyError, TypeError, AttributeError, OSError, subprocess.TimeoutExpired):
+    except (Unclear, ValueError, KeyError, TypeError, AttributeError, RecursionError, OSError,
+            subprocess.TimeoutExpired):
         return False
 
 
@@ -194,8 +195,7 @@ def added_planned_entries(base, head):
 def plain_text(value):
     """A string with a letter or digit and no control character (C0, DEL or C1) or lone surrogate."""
     return (isinstance(value, str) and any(char.isalnum() for char in value) and
-            not any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F for char in value) and
-            value.encode("utf-8") is not None)
+            not any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F or 0xD800 <= ord(char) <= 0xDFFF for char in value))
 
 
 def ledger_with(ledger, added):

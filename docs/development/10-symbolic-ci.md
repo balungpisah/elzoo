@@ -561,8 +561,9 @@ exact-head docs-only check passed): ...`. Everything else of the skip decision i
 well, for the workflow, the queue and the push-run skip, which all call `docs_only_output` of the classifier. Its paths are
 documentation plus `registry/catalogue.json` and `LEDGER.md`, both modified regular files (mode `100644`, status `M`).
 The classifier reads the base and head blob of each of the two files by the object names of the raw diff
-(`git cat-file blob`, exact bytes) and requires: every top-level field and every existing entry unchanged (type-strict:
-`1`, `1.0` and `true` differ) and in the same order; one or more added entries, each with exactly `id`, `summary`,
+(`git cat-file blob`, exact bytes) and requires: every top-level field and every existing entry unchanged in value
+(type-strict: `1`, `1.0` and `true` differ; key order and string escaping inside an entry are ignored, as the Registry
+reads the same values) and the entries in the same order; one or more added entries, each with exactly `id`, `summary`,
 `disposition`, `phase`, `status` `planned` and `reason` (so no manifest), all strings with a letter or digit and no
 control character, an `id` of the Registry form and unique; no duplicate JSON key and no `NaN` or `Infinity`; and a head
 `LEDGER.md` that equals the base one with the row that `Elzoo.Registry.ledger/1` writes for each added entry inserted
