@@ -79,16 +79,19 @@ shows an escalation, a nested delegation, a revoked parent and the human gate.
   `granted_spaces_exact` (a granted delegation is the request, never an
   intersection), `agent_parent_not_delegable`, `human_parent_delegable`,
   `service_parent_delegable`, `human_is_human`, `service_not_human` and
-  `agent_not_human`. They hold over the byte lists that Elixir supplies; they
-  are not a claim about authentication.
+  `agent_not_human`. They hold over the byte lists that Elixir supplies, with
+  respect to the Cure `subset`, `member` and `eq_bytes` definitions; that these
+  match exact-byte membership is test-grounded. They are not a claim about
+  authentication.
 - Type: pinned Cure checks types and totality; the audit reports no axiom,
   hole or unproved-total definition.
 - Test: `mix test pieces/domain/principal/test` runs the listed scenarios for
   `new`, `delegate`, `check`, `require_human` and forged structs, the Cure law
   and audit and the checked example. Negative controls: removing the subset
   check of `delegate/2`, and separately the parent-revocation clause of
-  `check/2`, makes the tests fail. Validation, canonicalization, revalidation
-  and check ordering are Elixir-side and test-grounded only.
+  `check/2`, makes the tests fail. Validation, canonicalization, revalidation,
+  the agent test in `check/2` and check ordering are Elixir-side and
+  test-grounded only.
 - Upstream: pinned Cure, and pinned Elixir/OTP binary byte order,
   `String.valid?/1` and term equality.
 

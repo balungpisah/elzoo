@@ -12,7 +12,7 @@
     "A principal value is not authentication evidence: any host can build a valid struct. The host builds principals only from its own authenticated state (for example integration/token-verify).",
     "No authorization decision: scopes and spaces are opaque labels the host maps into domain/authorization rules or later membership. Ready domain/authorization, assembly/checked-command and state/audit-log are not changed and keep host-vouched text identities.",
     "One delegation level only; no expiry, clock, session, account linking, token parsing or identity provider. The host defines the epoch unit per issuer and supplies, for an agent, its parent's current epoch.",
-    "Selected Cure laws cover the kind decisions and the delegation subset rule over the byte lists Elixir supplies; text, epoch, list and shape validation, canonicalization, revalidation and check ordering are Elixir-side and test-grounded only.",
+    "Selected Cure laws cover the kind functions delegable and human and the delegation subset rule over the byte lists Elixir supplies, with respect to the Cure subset, member and eq_bytes definitions; that these match exact-byte membership, the byte-list mapping, the agent test in check/2, text, epoch, list and shape validation, canonicalization, revalidation and check ordering are Elixir-side or Cure-definition facts that are test-grounded only.",
     "Labels compare by exact bytes: no normalization, case folding, wildcard, prefix or hierarchy."
   ],
   "files": [
@@ -22,8 +22,8 @@
     "examples/principal.exs"
   ],
   "grounding": [
-    {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "granted_scopes_within_parent", "claim": "For all held and requested scope and space lists, every scope of a granted delegation is a held scope, with respect to exact byte equality eq_bytes."},
-    {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "granted_spaces_within_parent", "claim": "For all held and requested scope and space lists, every space of a granted delegation is a held space, with respect to eq_bytes."},
+    {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "granted_scopes_within_parent", "claim": "For all held and requested scope and space lists, every scope of a granted delegation is a held scope, with respect to the Cure subset, member and eq_bytes definitions."},
+    {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "granted_spaces_within_parent", "claim": "For all held and requested scope and space lists, every space of a granted delegation is a held space, with respect to the Cure subset, member and eq_bytes definitions."},
     {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "granted_scopes_exact", "claim": "If a delegation is granted, its scopes equal the requested scopes: the request is never intersected (hypothesis form)."},
     {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "granted_spaces_exact", "claim": "If a delegation is granted, its spaces equal the requested spaces (hypothesis form)."},
     {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "agent_parent_not_delegable", "claim": "An agent kind is not delegable: one delegation level."},
