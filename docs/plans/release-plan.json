@@ -7880,10 +7880,12 @@
     {
       "id": "domain/membership",
       "job": "ELZ-269",
-      "note": "Planned pure resolution of a principal's permissions at one space from host facts: temporal and soft-revoked memberships, named roles, optional space tree with block_inheritance barriers and non-inheriting prefixes, agent attenuation; no invitations, tenant status, storage or authorization decision.",
+      "note": "Pure resolution of the sorted permissions a domain/principal holds at one space at one injected time from bounded host facts (spaces in an optional same-tenant tree of depth at most 32, named roles, memberships with a validity window and soft revocation, non-inheriting prefixes), and of the sorted spaces of the principal's tenant where one permission holds. The authority owner is the principal, or an agent's parent; a membership grants at its space and below it unless a block_inheritance space lies on the path or the permission has a non-inheriting byte prefix; nothing flows upward, across branches or across tenants; an agent is capped by its allowed_scopes and exact allowed_spaces. Fixed error atoms in the order principal, now, facts, target. No I/O, clock, storage, invitation, tenant status or authorization decision.",
       "baseline_status": "deferred",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/membership/piece.json",
+      "manifest_sha256": "3a183a7107177b6dd6d7848940bc576002879ce8aab6fa6b114630882781ab96"
     },
     {
       "id": "domain/metering",
