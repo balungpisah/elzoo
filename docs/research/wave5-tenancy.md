@@ -69,13 +69,16 @@ Files: [test/wave5_tenancy_test.exs](../../test/wave5_tenancy_test.exs) and the 
    actions tagged `:pii`, the one for a provider the T1 policy does not admit is refused with
    `{:deny, "data_provider"}`; the admitted one passes the gate and its Effect is dispatched.
    On a second Run, a malformed policy (`{:error, :policy}`) denies with
-   `data_policy_unavailable` and nothing is dispatched.
+   `data_policy_unavailable`; that Run's only action is that refused slot, so it has no Effect
+   to dispatch.
 6. **Runtime MCP egress.** `McpRuntime.admit/1` for an allowlisted tenant URL whose resolver
    answers `10.0.0.5`, `169.254.169.254`, `127.0.0.1` or `{93.184.215.14, 10.0.0.5}` is
    `{:error, {:egress, :non_public_address}}`. The resolver ran once each, the credential Need
    (`secrets`) ran zero times, and the count of `ExMCP.Client` processes is unchanged. Control:
    a public answer reaches the credential Need (count 1), which raises, giving
-   `{:error, :credentials_unavailable}`, still with no client.
+   `{:error, :credentials_unavailable}`, still with no client. `admit/1` starts no client on any
+   path by its Contract, so the unchanged client count is a guard against a later change, not
+   a detected absence; no case here shows the count rising.
 7. **Kill switch on live work.** T1 and T2 are activated through lifecycle commands; a live
    RunEngine Run of each dispatches its first local work. A T1 tenant switch commits through
    CheckedCommand on the PostgreSQL Store (the kill-switch descriptor's gate allows; it never
@@ -108,7 +111,9 @@ Files: [test/wave5_tenancy_test.exs](../../test/wave5_tenancy_test.exs) and the 
    source: one membership row; replay of the winner returns its response and applies nothing.
    The membership is the exact six-key record and grants `docs.read, docs.write` at C. The code
    (text and bytes, raw or hex) is in no stored row; its digest is in `elzoo_log_records`
-   (positive control of the search).
+   (positive control of the search). The harness hands the Piece only the digest, as the
+   `workflow/tenant-lifecycle` Contract requires, so this shows the host composition keeps the
+   code out of storage; it is not a refusal by a Piece.
 9. **Crypto-shredding with intact logs.** User text with a known name and an email is tokenized
    by `PiiRedaction.redact/2` with the vault Need `RetentionErasure.put/3` for the subject; the
    two refs open to the spans. The notes command stores only the tokenized text: neither raw
@@ -136,12 +141,18 @@ ELZOO_TEST_APP_ROLE=elzoo_app mix test test/wave5_tenancy_test.exs --warnings-as
 Result: 9 passed   (31 consecutive runs)
 ```
 
-The affected gate, roadmap, claims and diff checks are recorded in the pull request.
+The affected gate (`mix check --affected origin/main`), the roadmap and claims checks
+(`python3 scripts/check-roadmap.py --live`, `python3 scripts/check-claims.py`) and
+`git diff --check` are recorded with their exit codes in the pull request.
 
 ## Harness negative controls
 
 Each was a temporary edit at `4eacf3ea`, run, recorded and reverted with `git checkout`; both
-files then matched the committed SHA-256 (test `6e059de5…`, helper `aa0d1c7f…`).
+files then matched the committed SHA-256 (test `6e059de5…`, helper `aa0d1c7f…`). Control 1
+ran `mix test test/wave5_tenancy_test.exs` (and `:94`, group 1, with the guard bypassed),
+controls 2 and 4 ran `mix test test/wave5_tenancy_test.exs:427` (group 7) and control 3 ran
+`mix test test/wave5_tenancy_test.exs:833` (group 9), each exiting 2. Line numbers are those
+of `4eacf3ea`.
 
 1. The application Repo connected without `SET ROLE` (as the owner). The guard failed
    `setup_all`, invalidating all nine tests:

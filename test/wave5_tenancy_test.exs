@@ -834,9 +834,9 @@ defmodule Elzoo.Wave5.TenancyTest do
        %{fx: fx, p: p} do
     store = fx.store
     H.activate!(store, "T1")
-    subject = "principal:t1-siti"
-    name = "Siti Rahma"
-    email = "siti.rahma@example.com"
+    subject = "principal:t1-ann"
+    name = "Ann Example"
+    email = "ann.example@example.com"
     text = "Refund for #{name}: reply to #{email} today."
 
     # The vault Need of the redaction is the retention-erasure vault of the subject.
