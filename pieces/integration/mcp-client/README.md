@@ -16,7 +16,8 @@ real server).
   `:public` require `https`). All enter the intent key.
 - Runtime endpoint mode: `Elzoo.McpClient.RuntimeBinding` is the one compiled binding
   that fixes no endpoint (its own `id`, provider account `"mcp:runtime"`, the same
-  failure table and no-send attestations). `configure/1` takes it only together with
+  failure table and no-send attestations, and a fixed recovery grace of 60,000 ms).
+  `configure/1` takes it only together with
   `runtime: %{server, endpoint, network, addresses}`; either one without the other is
   `{:error, :configuration}`. `server` is the 1..128-byte server text; `endpoint`
   follows the endpoint rule for `network`, which is `:public` (`https`, non-loopback
@@ -191,4 +192,8 @@ mode: the addresses are as fresh as the host's check, and a reconnect needs new 
 egress policy; no run-time change of a configured endpoint. The ex_mcp facts it
 relies on (`TargetPolicy.resolve/2` with `:dns_resolver`, Mint never following a
 redirect on the `BoundedClient` path) are pinned observations of `@moduledoc false`
-code at 1.8.1, held by drift tests.
+code at 1.8.1, held by drift tests. Every runtime intent shares the one `RuntimeBinding`
+descriptor digest, so the Adapter cannot refuse a context session whose runtime map
+differs from the one that admitted the intent (the EffectIntent request carries the
+key, not the identity); the host must pair each owner with a session of the admitting
+runtime config, as it already pairs the tenant.

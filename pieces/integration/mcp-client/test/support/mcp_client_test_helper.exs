@@ -369,8 +369,9 @@ defmodule Elzoo.McpClientTest.Server do
   def counted do
     counter = :counters.new(1, [])
 
+    # Linked to the test process, so it ends with the test.
     sink =
-      spawn(fn ->
+      spawn_link(fn ->
         Stream.repeatedly(fn -> receive(do: ({:mcp_request, _, _, _} -> :ok)) end)
         |> Stream.each(fn _ -> :counters.add(counter, 1, 1) end)
         |> Stream.run()

@@ -1415,7 +1415,10 @@ defmodule Elzoo.McpClientTest do
     assert byte_size(List.last(a.identity)) == 68
     assert Elzoo.EffectIntent.Model.valid_identity?(a.identity)
     pid = owner(%Elzoo.McpClient.Session{config: c, client: nil, ledger: nil}, a, ctx)
-    assert %{phase: _} = Intent.status(pid)
+    # The owner committed the admission: active, not halted, a recorded phase.
+    assert %{active: true, phase: phase, key: key} = Intent.status(pid)
+    refute phase == :absent
+    assert key == a.key
   end
 
   test "R3 pinning: only the host-checked addresses are used, never DNS; a :public answer with a non-public address is target_refused (ex_mcp :dns_resolver)",
@@ -1487,6 +1490,9 @@ defmodule Elzoo.McpClientTest do
 
     assert {:error, :configuration} =
              McpClient.configure([binding: Server.binding(ctx.server.url), runtime: good] ++ base)
+
+    assert {:error, :configuration} =
+             McpClient.configure([binding: Server.binding(ctx.server.url), runtime: nil] ++ base)
 
     public_http = %{
       good
