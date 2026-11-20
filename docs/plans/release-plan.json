@@ -7483,6 +7483,29 @@
       "issue": 619,
       "url": "https://github.com/balungpisah/elzoo/issues/619",
       "issue_body_sha256": "3804e8717f5df156f46a54d6f99597269b417467f1cb3889db6f4d9ee6323a66"
+    },
+    {
+      "id": "ELZ-275",
+      "title": "ELZ-275 — Make the tenant-isolation log test independent of the global Logger level",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-270"
+      ],
+      "status": "published 2026-11-20",
+      "owner_role": "coordinator; one-PR path; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-275-tenant-isolation-log-level.md"
+      ],
+      "outputs": [],
+      "acceptance": "The tenant-isolation log test sets the global Logger level to :info for its run and restores it, so the level-dependent failure of main run 44778242170 cannot recur; Contract, library, README, manifest, timeouts and budgets unchanged. Failure reproduced with a :warning global level, fixed test passes in the same condition, negative control with a logged helper query fails, Piece tests.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 635,
+      "url": "https://github.com/balungpisah/elzoo/issues/635",
+      "issue_body_sha256": "495338a6c937dcd4f068e4ba595c251225a1a19bc684d5d19fbe85beb8473767"
     }
   ],
   "entries": [
