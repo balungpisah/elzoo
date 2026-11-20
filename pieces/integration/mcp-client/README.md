@@ -34,7 +34,12 @@ real server).
   byte_size(ref)::32, ref>>` (always 68 bytes), so two runtime servers, or one server
   at two endpoints, never share an intent key. The build-time identity stays
   `[tenant, provider_account, id, operation, ref]`. `list_tools/1` reports the
-  runtime `server`.
+  runtime `server`. Every runtime intent shares the one `RuntimeBinding` descriptor
+  digest, so a runtime owner's Adapter context must be bound to its admission:
+  `context(session, admission, recipient)` returns `{:ok, context}` only when the
+  session's Config gives that admission's identity and intent key, and the Adapter
+  sends only for a request with that key. A mispaired context, or a runtime context
+  from `context/2`, is `unknown{adapter_error}` before any send.
 - `Elzoo.McpClient.configure/1` — `binding`, `tenant`, `credentials` (the credential
   Need: a zero-arity function returning `{:ok, bearer_token}`), `protocol_mode`
   (`:modern_only`, `:legacy_only`, `:prefer_modern`), `call_timeout_ms`,
@@ -53,7 +58,9 @@ real server).
   exactly `{"version": 1, "tool", "arguments", "release"}`. The release reference is
   shape-checked (1..256 of `[A-Za-z0-9._:/@-]`) and recorded in the declaration, never
   verified here. The caller's discovery snapshot may only narrow admission.
-- `context(session, recipient)` — the EffectIntent Adapter context;
+- `context(session, recipient)` — the EffectIntent Adapter context (build-time
+  bindings); `context(session, admission, recipient)` — the context bound to one
+  admission's intent key (required in runtime mode, accepted for either);
   `call_tool(session, admission, owner)` dispatches through the owner and returns the
   outcome.
 
@@ -192,8 +199,4 @@ mode: the addresses are as fresh as the host's check, and a reconnect needs new 
 egress policy; no run-time change of a configured endpoint. The ex_mcp facts it
 relies on (`TargetPolicy.resolve/2` with `:dns_resolver`, Mint never following a
 redirect on the `BoundedClient` path) are pinned observations of `@moduledoc false`
-code at 1.8.1, held by drift tests. Every runtime intent shares the one `RuntimeBinding`
-descriptor digest, so the Adapter cannot refuse a context session whose runtime map
-differs from the one that admitted the intent (the EffectIntent request carries the
-key, not the identity); the host must pair each owner with a session of the admitting
-runtime config, as it already pairs the tenant.
+code at 1.8.1, held by drift tests.

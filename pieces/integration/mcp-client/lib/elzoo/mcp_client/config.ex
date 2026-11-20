@@ -49,10 +49,11 @@ defmodule Elzoo.McpClient.Context do
   @moduledoc """
   The EffectIntent Adapter context: the session and the recipient Need, a
   trusted local process that receives each classified outcome by best-effort
-  mailbox delivery.
+  mailbox delivery; `key` is the intent key of the admission it is bound to
+  (`Elzoo.McpClient.context/3`), else nil.
   """
   @enforce_keys [:session, :recipient]
-  defstruct @enforce_keys
+  defstruct [:session, :recipient, key: nil]
 
   defimpl Inspect do
     def inspect(%{session: session}, opts),

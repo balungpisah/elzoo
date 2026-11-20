@@ -163,12 +163,13 @@ defmodule Elzoo.McpClient do
          {:ok, _} <- Elzoo.EffectIntent.Binding.recovery_deadline(deadline, b.recovery_grace_ms) do
       with {:ok, call} <- Wire.request(payload, c.max_request_bytes),
            :ok <- Snapshot.check(discovery, call.tool, call.arguments) do
-        identity = [c.tenant, b.provider_account, b.id, b.operation, intent_ref(c, ref)]
+        identity = identity(c, b, ref)
 
         {:ok,
          %{
            key: Elzoo.EffectIntent.Model.key(identity),
            identity: identity,
+           ref: ref,
            arguments: payload,
            deadline: deadline
          }}
@@ -183,6 +184,9 @@ defmodule Elzoo.McpClient do
   end
 
   def admission(_, _, _), do: {:error, :declaration}
+
+  defp identity(c, b, ref),
+    do: [c.tenant, b.provider_account, b.id, b.operation, intent_ref(c, ref)]
 
   # Runtime mode: the server and endpoint enter the key through a fixed-size,
   # length-framed digest (an endpoint can be 512 bytes; an identity text 256).
@@ -200,6 +204,30 @@ defmodule Elzoo.McpClient do
   """
   def context(%Session{} = s, recipient) when is_pid(recipient),
     do: %Context{session: s, recipient: recipient}
+
+  @doc """
+  The EffectIntent Adapter context bound to one admission: `{:ok, context}` when
+  the admission's identity and intent key are the ones this session's Config
+  gives for the admission's `ref` (same tenant, binding and, in runtime mode,
+  server and endpoint), else `{:error, :context}`. The context carries that
+  intent key, and the Adapter sends only for a request with the same key. A
+  runtime session needs this context; one from `context/2` is refused
+  (`adapter_error`, nothing sent).
+  """
+  def context(%Session{config: c} = s, %{key: key, identity: identity, ref: ref}, recipient)
+      when is_pid(recipient) and is_binary(ref) do
+    with {:ok, b, _} <- Binding.load(c.binding, c.runtime),
+         ^identity <- identity(c, b, ref),
+         ^key <- Elzoo.EffectIntent.Model.key(identity) do
+      {:ok, %Context{session: s, recipient: recipient, key: key}}
+    else
+      _ -> {:error, :context}
+    end
+  rescue
+    _ -> {:error, :context}
+  end
+
+  def context(_, _, _), do: {:error, :context}
 
   @doc """
   Dispatches an admitted call through its EffectIntent `owner`, whose Adapter

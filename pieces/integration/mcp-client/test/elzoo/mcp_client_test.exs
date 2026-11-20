@@ -78,7 +78,10 @@ defmodule Elzoo.McpClientTest do
     d
   end
 
-  defp owner(s, admission, ctx, recipient \\ self()) do
+  defp owner(s, admission, ctx, recipient \\ self()),
+    do: owner_with(s, admission, ctx, adapter_context(s, admission, recipient))
+
+  defp owner_with(s, admission, ctx, adapter_context) do
     c = s.config
 
     memory =
@@ -101,26 +104,43 @@ defmodule Elzoo.McpClientTest do
         store: Memory.store(memory),
         host: {StoreHost, %{store: Memory.store(host_memory), authorize: fn _, _ -> :fresh end}},
         task_supervisor: ctx.intents,
-        adapter_context: McpClient.context(s, recipient),
+        adapter_context: adapter_context,
         allow_volatile: true
       )
 
     pid
   end
 
+  # Build-time sessions keep context/2; a runtime session's owner gets the
+  # context bound to its admission.
+  defp adapter_context(%{config: %{runtime: nil}} = s, _admission, recipient),
+    do: McpClient.context(s, recipient)
+
+  defp adapter_context(s, admission, recipient) do
+    {:ok, context} = McpClient.context(s, admission, recipient)
+    context
+  end
+
   # The request EffectIntent hands the Adapter for attempt 1.
   defp request(s, arguments, recipient \\ self()) do
     {:ok, b, _} = Binding.load(s.config.binding, s.config.runtime)
+    key = String.duplicate("a", 64)
+
+    # A runtime request stands in for an owner whose context is bound to it.
+    context =
+      if s.config.runtime == nil,
+        do: McpClient.context(s, recipient),
+        else: %Elzoo.McpClient.Context{session: s, recipient: recipient, key: key}
 
     %{
-      key: String.duplicate("a", 64),
+      key: key,
       attempt: 1,
       attempt_id: "attempt-1",
       arguments: arguments,
       arguments_digest: :crypto.hash(:sha256, arguments),
       schema: Adapter.schema(),
       binding: b.digest,
-      context: McpClient.context(s, recipient)
+      context: context
     }
   end
 
@@ -1602,6 +1622,53 @@ defmodule Elzoo.McpClientTest do
     assert {:ok, {:unknown, {:server_error, :other}}} = McpClient.outcome(tag)
     assert count(requests(400), "tools/call") == 1
     assert :counters.get(counter, 1) == 0
+  end
+
+  test "R6 a runtime context is bound to its admission: a mispaired or unbound context is adapter_error before any send, in both directions (context/3; Adapter)",
+       ctx do
+    sa = runtime_session(ctx, runtime(ctx))
+
+    sb =
+      runtime_session(
+        ctx,
+        runtime(ctx, %{endpoint: "http://localhost:#{ctx.server.port}/mcp", server: "elzoo-b"})
+      )
+
+    snap = snapshot(sa)
+    decl = declaration(payload("echo", %{"x" => "p"}))
+    {:ok, aa} = McpClient.admission(sa.config, decl, snap)
+    {:ok, ab} = McpClient.admission(sb.config, decl, snap)
+    assert aa.key != ab.key
+
+    # context/3 refuses an admission that the session's Config did not give.
+    assert {:error, :context} = McpClient.context(sb, aa, self())
+    assert {:error, :context} = McpClient.context(sa, ab, self())
+    assert {:error, :context} = McpClient.context(sa, %{aa | ref: "call-2"}, self())
+    {:ok, ca} = McpClient.context(sa, aa, self())
+    {:ok, cb} = McpClient.context(sb, ab, self())
+    assert ca.key == aa.key and cb.key == ab.key
+    requests()
+
+    # A's admission with B's bound context, B's with A's, and an unbound
+    # runtime context: each owner dispatches, the Adapter sends nothing.
+    for {s, a, context} <- [
+          {sa, aa, cb},
+          {sb, ab, ca},
+          {sa, aa, McpClient.context(sb, self())},
+          {sa, aa, McpClient.context(sa, self())}
+        ] do
+      pid = owner_with(s, a, ctx, context)
+      assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+      refute match?({:Confirmed, _}, settled(pid).phase)
+      assert count(requests(), "tools/call") == 0
+    end
+
+    refute_received {:elzoo_mcp_result, _, _, _}
+
+    # The bound pairing sends once and completes.
+    pid = owner(sa, aa, ctx)
+    assert {:completed, %{content: [%{"text" => "echo:p"}]}} = McpClient.call_tool(sa, aa, pid)
+    assert count(requests(), "tools/call") == 1
   end
 
   test "T26 ex_mcp is the exact pinned version and make_request/5 is exported (upstream drift guard)" do
