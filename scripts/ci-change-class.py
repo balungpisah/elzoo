@@ -13,6 +13,13 @@ copied consumers read it). Everything else is code or configuration for this pur
 symlink or submodule entry on either side is never documentation. Any doubt (empty list, failed Git
 command, malformed output, an odd path) means "not documentation only".
 
+ELZ-277: a strictly planned-only publication (AGENTS.md section 5) is documentation only too. Its paths are
+documentation plus `registry/catalogue.json` and `LEDGER.md`, both modified regular files; the catalogue keeps every
+other field and every existing entry unchanged and in order and only adds planned rows (exactly id, summary,
+disposition, phase, status `planned` and reason; so no manifest), and LEDGER.md only gains the rows that
+`mix elzoo.ledger` writes for them. The classifier reads both blobs of each file by the object names of the raw diff
+(`docs_only_output`); every other shape keeps its class.
+
 Small gate: is a change Piece-only?
 
 A change is Piece-only when it has at least one changed path below `pieces/<family>/<name>/` and every changed path
@@ -32,6 +39,7 @@ Commands:
   ci-change-class.py piece-paths <path>...  for `mix check --piece`: prints one JSON object
                                             {"piece_only": bool, "pieces": [...], "refused": path or null}
 """
+import bisect
 import json
 import os
 import re
@@ -47,13 +55,21 @@ DOC_ROOT_FILES = {"README.md", "GOAL.md", "PLAN.md", "AGENTS.md"}
 # Files below docs/ or tasks/ that code reads (checked by test-ci-change-class.py against lib/, test/, pieces/).
 READ_BY_CODE = {"docs/consuming.md"}
 # Git's raw format: ":<old mode> <new mode> <old sha> <new sha> <status>", then the path, NUL separated.
-RAW = re.compile(r"^:([0-7]{6}) ([0-7]{6}) [0-9a-f]{40} [0-9a-f]{40} ([A-Z])$")
+RAW = re.compile(r"^:([0-7]{6}) ([0-7]{6}) ([0-9a-f]{40}) ([0-9a-f]{40}) ([A-Z])$")
 SPECIAL_MODES = {"120000", "160000"}  # symlink, submodule
 # Small gate: the index and generated files that a Piece task changes in its last commit (AGENTS.md section 3).
 # scripts/check-roadmap.py (plan job) and the root tests that read the index (mix check --piece) check them.
 INDEX_FILES = {"registry/catalogue.json", "docs/plans/release-plan.json", "LEDGER.md", "docs/plans/views.md",
                "docs/plans/dependencies.mmd"}
 PIECE_SEGMENT = re.compile(r"[a-z0-9][a-z0-9-]*")
+# ELZ-277: a strictly planned-only publication also changes these two files: the catalogue gains planned rows (read by
+# the Registry, checked against the plan by scripts/check-roadmap.py in the short check) and the generated ledger gains
+# their rows. The shape of an added row is the planned row of the coordinator guide; the ID form is the Registry's.
+PLANNED_FILES = ("registry/catalogue.json", "LEDGER.md")
+PLANNED_FIELDS = {"id", "summary", "disposition", "phase", "status", "reason"}
+PLANNED_ID = re.compile(r"[a-z][a-z0-9-]*/[a-z][a-z0-9-]*")
+LEDGER_TABLE = "| --- | --- | --- | --- | --- | --- | --- |\n"
+LEDGER_ROW = re.compile(r"\| (?:`([a-z][a-z0-9-]*/[a-z][a-z0-9-]*)` \||\[([a-z][a-z0-9-]*/[a-z][a-z0-9-]*)\]\()")
 
 
 class Unclear(Exception):
@@ -84,6 +100,128 @@ def docs_only(entries):
         if not doc_path(path):
             return False
     return True
+
+
+def docs_only_output(output, run=subprocess.run):
+    """The documentation-only verdict for `git diff --raw` output, as the workflow, the queue and the push-run skip
+    decision ask it: documentation paths only, or a strictly planned-only publication. Raises Unclear on output that
+    `raw_records` does not know."""
+    records = raw_records(output)
+    return docs_only([(o, n, s, p) for o, n, _a, _b, s, p in records]) or planned_publication(records, run)
+
+
+def planned_publication(records, run=subprocess.run):
+    """ELZ-277: True only for a strictly planned-only publication (AGENTS.md section 5). Every path is documentation
+    or one of PLANNED_FILES; both of those are modified regular files; the catalogue only adds planned entries
+    without a manifest (added_planned_entries); and LEDGER.md only gains their generated rows (ledger_with). Reads
+    the two blobs of each file by the object names of the raw diff. Any doubt means False."""
+    blobs = {}
+    for old_mode, new_mode, old_blob, new_blob, status, path in records:
+        if path in PLANNED_FILES:
+            if (old_mode, new_mode, status) != ("100644", "100644", "M") or path in blobs:
+                return False
+            blobs[path] = (old_blob, new_blob)
+        elif old_mode in SPECIAL_MODES or new_mode in SPECIAL_MODES or not doc_path(path):
+            return False
+    if set(blobs) != set(PLANNED_FILES):
+        return False
+    try:
+        base, head = (strict_json(read_blob(blob, run)) for blob in blobs["registry/catalogue.json"])
+        added = added_planned_entries(base, head)
+        ledger_base, ledger_head = (read_blob(blob, run) for blob in blobs["LEDGER.md"])
+        return ledger_head == ledger_with(ledger_base, added)
+    except (Unclear, ValueError, KeyError, TypeError, AttributeError, RecursionError, OSError,
+            subprocess.TimeoutExpired):
+        return False
+
+
+def read_blob(blob, run=subprocess.run):
+    """The exact bytes of one blob (no text decoding, no newline translation)."""
+    result = run(["git", "cat-file", "blob", blob], capture_output=True, timeout=60)
+    if result.returncode != 0 or not isinstance(result.stdout, bytes):
+        raise Unclear("git cat-file failed")
+    return result.stdout
+
+
+def strict_json(data):
+    """JSON from UTF-8 bytes; a duplicate key or a non-standard constant (NaN, Infinity) is refused, so that this
+    reading cannot differ from the one of the Registry (Jason)."""
+    def pairs(items):
+        if len({key for key, _ in items}) != len(items):
+            raise Unclear("duplicate JSON key")
+        return dict(items)
+
+    def constant(name):
+        raise Unclear(f"non-standard JSON constant {name}")
+
+    return json.loads(data.decode("utf-8"), object_pairs_hook=pairs, parse_constant=constant)
+
+
+def canonical(value):
+    """A type-strict comparison key: 1, 1.0 and true differ, as they do for the Registry."""
+    return json.dumps(value, sort_keys=True, allow_nan=False)
+
+
+def added_planned_entries(base, head):
+    """The entries that the head catalogue adds when that is its whole change: every other top-level field is
+    unchanged, the base entries appear unchanged and in order, and each added entry is a planned row with exactly
+    PLANNED_FIELDS (so no manifest). Raises Unclear (or a lookup error) otherwise."""
+    if not (isinstance(base, dict) and isinstance(head, dict)):
+        raise Unclear("the catalogue is not an object")
+    old, new = base["entries"], head["entries"]
+    if not (isinstance(old, list) and isinstance(new, list)):
+        raise Unclear("the catalogue entries are not a list")
+    if canonical({k: v for k, v in base.items() if k != "entries"}) != \
+            canonical({k: v for k, v in head.items() if k != "entries"}):
+        raise Unclear("a top-level catalogue field changed")
+    kept, added, position = [canonical(entry) for entry in old], [], 0
+    for entry in new:
+        if position < len(kept) and canonical(entry) == kept[position]:
+            position += 1
+        else:
+            added.append(entry)
+    if position != len(kept) or not added:
+        raise Unclear("an existing catalogue entry changed, moved or went away")
+    for entry in added:
+        if not (isinstance(entry, dict) and set(entry) == PLANNED_FIELDS and entry["status"] == "planned" and
+                all(plain_text(value) for value in entry.values()) and PLANNED_ID.fullmatch(entry["id"])):
+            raise Unclear("an added catalogue entry is not a planned row")
+    ids = [entry["id"] for entry in new]
+    if len(set(ids)) != len(ids):
+        raise Unclear("duplicate catalogue ID")
+    return added
+
+
+def plain_text(value):
+    """A string with a letter or digit and no control character (C0, DEL or C1) or lone surrogate."""
+    return (isinstance(value, str) and any(char.isalnum() for char in value) and
+            not any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F or 0xD800 <= ord(char) <= 0xDFFF for char in value))
+
+
+def ledger_with(ledger, added):
+    """LEDGER.md bytes with the row that `Elzoo.Registry.ledger/1` writes for each added planned entry, in ID order.
+    Raises Unclear when the base ledger does not have that generated shape."""
+    head, table, body = ledger.decode("utf-8").partition(LEDGER_TABLE)
+    if not table or LEDGER_TABLE in body or not body.endswith("\n"):
+        raise Unclear("unexpected ledger shape")
+    rows = body[:-1].split("\n")
+    ids = []
+    for row in rows:
+        match = LEDGER_ROW.match(row)
+        if not match:
+            raise Unclear("unexpected ledger row")
+        ids.append(match.group(1) or match.group(2))
+    if ids != sorted(set(ids)):
+        raise Unclear("the ledger rows are not in ID order")
+    for entry in added:
+        if entry["id"] in ids:
+            raise Unclear("the ledger already has a row for an added ID")
+        at = bisect.bisect(ids, entry["id"])
+        reason = entry["reason"].replace("|", "\\|")
+        ids.insert(at, entry["id"])
+        rows.insert(at, f"| `{entry['id']}` | {entry['status']} | {entry['disposition']} (planned) | — | none claimed | "
+                        f"unassessed | {reason} |")
+    return (head + table + "\n".join(rows) + "\n").encode("utf-8")
 
 
 def piece_id(path):
@@ -162,20 +300,26 @@ def classify_spike_github(env, run=subprocess.run):
         return False, False
 
 
-def parse_raw(output):
-    """Parse `git diff --raw -z --no-renames`. Raises Unclear on any shape it does not know."""
+def raw_records(output):
+    """Parse `git diff --raw -z --no-renames --no-abbrev` into (old mode, new mode, old blob, new blob, status, path)
+    records. Raises Unclear on any shape it does not know."""
     fields = output.split("\x00")
     if fields and fields[-1] == "":
         fields.pop()
     if len(fields) % 2:
         raise Unclear("odd number of fields in the Git output")
-    entries = []
+    records = []
     for header, path in zip(fields[0::2], fields[1::2]):
         match = RAW.match(header)
-        if not match or match.group(3) in "RC":
+        if not match or match.group(5) in "RC":
             raise Unclear("unexpected Git output line")
-        entries.append((match.group(1), match.group(2), match.group(3), path))
-    return entries
+        records.append((*match.groups(), path))
+    return records
+
+
+def parse_raw(output):
+    """The (old_mode, new_mode, status, path) entries of `raw_records`."""
+    return [(old, new, status, path) for old, new, _old_blob, _new_blob, status, path in raw_records(output)]
 
 
 def diff_argv(base, head):
@@ -190,17 +334,22 @@ def diff_argv(base, head):
             f"{base}...{head}", "--"]
 
 
-def changed(base, head, run=subprocess.run):
-    """The changed entries of `git diff base...head` (the changes of the head since the merge base)."""
+def diff_output(base, head, run=subprocess.run):
+    """The raw output of `git diff base...head` (the changes of the head since the merge base)."""
     result = run(diff_argv(base, head), capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
         raise Unclear("git diff failed")
-    return parse_raw(result.stdout)
+    return result.stdout
+
+
+def changed(base, head, run=subprocess.run):
+    """The changed entries of `git diff base...head`."""
+    return parse_raw(diff_output(base, head, run))
 
 
 def classify_range(base, head, run=subprocess.run):
     try:
-        return docs_only(changed(base, head, run))
+        return docs_only_output(diff_output(base, head, run), run)
     except (Unclear, OSError, subprocess.TimeoutExpired, ValueError):
         return False
 

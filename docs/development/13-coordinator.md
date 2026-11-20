@@ -77,8 +77,11 @@
 
      This is stricter than the freeze rule of `AGENTS.md` section 7, for each
      publication pull request except the one below. A publication with only
-     documents (the allowlist in `scripts/ci-change-class.py`) gets the short
-     check, and the short check runs no tests.
+     documents (the allowlist in `scripts/ci-change-class.py`), or one that
+     only adds planned catalogue rows and their generated ledger rows
+     (ELZ-277), gets the short check, and the short check runs no tests. A
+     publication that also edits an existing catalogue row (for example a
+     deferred row that becomes planned) gets the full check.
 
      Run the three commands again immediately before the merge. Then merge
      with
