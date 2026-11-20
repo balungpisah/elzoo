@@ -372,10 +372,14 @@ Resolved on 2026-11-14; these decisions are also recorded in `release-plan.json`
 - **RC-63 and RC-64, second portions (coordinator admission):** ELZ-168 is `workflow/graph-run` and ELZ-169 is `workflow/runtime-graph`. The map and loop nodes of RC-61 hold only a callable and a maximum, so the caller of graph-run supplies the concurrency bound and the part-failure rule of each map; the collection is the need named `items`, and a loop continues while its callable says so. graph-run writes its own join, skip and map-count rules over recorded outcomes and calls neither `workflow/dependency-graph` nor `delivery/aggregation`. For a model graph the host supplies what the recipe does not hold: the callables and tool sources of the agent, its depth and its budget share. ELZ-167 gained `check_graph/3` so that load time and run time use one checker.
 - **RC-65 (coordinator admission):** two tasks. ELZ-170 is `workflow/version-pin`, the pure rule; ELZ-171 is `state/recipe-store`. The store runs `workflow/recipe-check` itself as the check gate and records the verdict. A package identity is not a valid artifact ID, so the store uses its 64 hex characters. The tenant stream has a fixed bound and no compaction in this task; a pin is a record, not a lease.
 
+Resolved on 2026-11-20 (owner); these decisions govern Wave 5 ([bot-platform-wave5.md](bot-platform-wave5.md)) and its published tasks:
+
+- **Wave 5 foundation and identity (owner, 2026-11-20):** core Wave 5 Pieces are plain Elixir/Cure/Ecto/Postgrex with the already locked `jose 1.11.13`; no Ash wrapper and no identity provider in core. Tokens and API keys are verified offline against pinned keys (ELZ-268); OIDC or passkey login stays a consumer recipe. First use: ELZ-267 and ELZ-268.
+- **Unavailable or unknown policy results (owner, 2026-11-20):** a missing, timed-out or unresolvable policy or context check is `DENY`. A typed abstention from an external standing or trust provider goes to `ASK` (dual control through `workflow/approval`) only where a rule declares that routing, and is never read as `0` or distrust; otherwise it is `DENY`.
+- **Erasure (owner, 2026-11-20):** statutory erasure uses a PII vault with per-subject (or per-tenant) keys and crypto-shredding. Command, event and audit logs carry opaque IDs and are never deleted or rewritten, so `assembly/checked-command` (`low_water == 0`) and Carbonite `state/audit-log` history stay intact. First use: Level 3 `state/retention-erasure`.
+
 | Decision | Job |
 | --- | --- |
-| Confirm Wave 5 core Pieces stay plain Elixir/Cure/Ecto/Postgrex (+ pinned `jose 1.11.13`) rather than wrapping Ash (recommended in [bot-platform-wave5.md](bot-platform-wave5.md)) | not registered (wave 5) |
-| Confirm PII-vault / crypto-shredding boundary for `state/retention-erasure` so erasure preserves `assembly/checked-command` (`low_water == 0`) and Carbonite `state/audit-log` (recommended in [bot-platform-wave5.md](bot-platform-wave5.md)) | not registered (wave 5) |
 | Confirm room rollover default (fresh Unit before 256 lifetime actions of `assembly/run-engine`) | not registered (wave 8) |
 | The turn policies of a room | not registered (wave 8) |
 | The language of model-written code | not registered (wave 9) |

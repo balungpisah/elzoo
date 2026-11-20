@@ -26,9 +26,9 @@ Errors are the fixed atoms above and never echo supplied values.
 
 ## Bounds and invariants
 
-- `id`, `tenant`, `delegated_by` and each scope, space and revoked ID: 1..128 bytes of valid UTF-8 with no control character (U+0000–U+001F, U+007F). This fits the CheckedCommand 1..128-byte/no-NUL identity, the AuditLog 1..256-byte no-control `actor` and the Authorization identity text. Compare by exact bytes; no normalization, case folding, wildcard, prefix or hierarchy.
+- `id`, `tenant`, `delegated_by` and each scope, space and revoked ID: 1..128 bytes of valid UTF-8 with no C0 or C1 control character (U+0000–U+001F, U+007F–U+009F). This fits the CheckedCommand 1..128-byte/no-NUL identity, the AuditLog 1..256-byte no-control `actor` and the Authorization identity text. Compare by exact bytes; no normalization, case folding, wildcard, prefix or hierarchy.
 - `auth_epoch` and `current_epoch`: integers `0..9_223_372_036_854_775_807`. The host defines their unit per issuer; this Piece compares them only.
-- `allowed_scopes` and `allowed_spaces`: proper lists of 0..256 entries each. Duplicates are coalesced and the stored list is sorted by byte order, so equal sets give equal structs. An empty list is valid and holds no authority.
+- `allowed_scopes` and `allowed_spaces`: proper lists of 0..256 entries each, counted before coalescing. Duplicates are coalesced and the stored list is sorted by byte order, so equal sets give equal structs. An empty list is valid and holds no authority.
 - `revoked_ids`: a proper list of 0..1024 entries.
 - Struct invariants: `delegated_by` is `nil` exactly when `kind` is `:human` or `:service`; scope and space lists are canonical. Scopes and spaces are opaque labels for the host's mapping into Authorization rules or later membership; this Piece makes no authorization decision.
 
@@ -36,7 +36,7 @@ Cure owns the subset and kind decisions when it fits; Elixir validates foreign v
 
 ## Acceptance
 
-1. Valid `:human` and `:service` principals; canonicalization of duplicate and unordered scopes and spaces; exact boundaries for every text (0, 1, 128 and 129 bytes, invalid UTF-8, NUL, another C0 character, DEL), epoch (-1, 0, 2^63-1, 2^63, non-integer), list sizes (256 and 257, improper list) and map shape (missing, extra or string keys, non-map, struct). `new/1` with `kind: :agent` is refused `:kind`.
+1. Valid `:human` and `:service` principals; canonicalization of duplicate and unordered scopes and spaces; exact boundaries for every text (0, 1, 128 and 129 bytes, invalid UTF-8, NUL, another C0 character, DEL, U+0085), epoch (-1, 0, 2^63-1, 2^63, non-integer), list sizes (256 and 257 before coalescing, including 257 entries with duplicates; improper list) and map shape (missing, extra or string keys, non-map, struct). `new/1` with `kind: :agent` is refused `:kind`.
 2. Delegation from a human and from a service with a subset and with an equal set; one extra scope and, separately, one extra space give `:escalation`; an agent parent gives `:nested_delegation`; an agent `id` equal to the parent's gives `:self_delegation`; `tenant`, `auth_epoch` or `kind` in `fields` gives `:shape`; a forged parent (for example a service with `delegated_by` set, a 129-byte tenant or unsorted scopes) gives `:parent`. The agent's tenant and epoch always equal the parent's.
 3. `check/2`: an older epoch is `:stale`; equal and newer pass; a revoked ID is `:revoked`; an agent whose parent is revoked is `:revoked` although its own ID is not; revoked precedes stale; a malformed context or principal is `:malformed`.
 4. `require_human/1` refuses `:service` and `:agent` and accepts `:human`.

@@ -7359,7 +7359,7 @@
       "product_aims": ["P13"],
       "issue": 615,
       "url": "https://github.com/balungpisah/elzoo/issues/615",
-      "issue_body_sha256": "0d3c67ce7b870bb3b5ea06c19f2a405021a06d1e031770a5f42c607a733591c7"
+      "issue_body_sha256": "c9ee308f40e60e6969ca8369d5ad39e6693ac75fb66572fbb28b2238e6747112"
     },
     {
       "id": "ELZ-268",
@@ -7376,7 +7376,7 @@
       "product_aims": ["P13"],
       "issue": 616,
       "url": "https://github.com/balungpisah/elzoo/issues/616",
-      "issue_body_sha256": "776c2ac631120358c9387f3b4755340b38ea66a87c786740925060b3ee96b821"
+      "issue_body_sha256": "4ea92cd7f97dcd497e494006a867a134d45e4c6c2dd89c3d26d1a45a7fcecb00"
     }
   ],
   "entries": [
@@ -8026,7 +8026,7 @@
       "id": "integration/token-verify",
       "job": "ELZ-268",
       "note": "Planned offline verification of pinned-key EdDSA/RS256 JWTs and prefixed keyed-digest API keys into a domain/principal with fixed redacted failures; reuses locked jose 1.11.13 and OTP crypto; no JWKS fetch, OIDC ceremony or session store.",
-      "baseline_status": "planned",
+      "baseline_status": "not in baseline (new row, ELZ-268)",
       "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
