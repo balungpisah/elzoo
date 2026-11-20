@@ -358,7 +358,8 @@
       "summary": "Scoped memberships, roles and space inheritance",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/membership/piece.json",
       "reason": "ELZ-269: pure resolution from host facts; one-use invitations and tenant status are later durable work, not this Piece."
     },
     {
@@ -674,15 +675,17 @@
       "summary": "Outbound URL allowlist and public-address check",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-271: pure check plus injected resolver; transport owns connect, redirects and response bounds."
+      "status": "ready",
+      "reason": "ELZ-271: pure check plus injected resolver; transport owns connect, redirects and response bounds.",
+      "manifest": "pieces/integration/egress-policy/piece.json"
     },
     {
       "id": "domain/provider-data-policy",
       "summary": "Data-class admission to model and tool providers",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/provider-data-policy/piece.json",
       "reason": "ELZ-272: closed data-class tag and pure per-class provider/region/retention decision; no content classification."
     },
     {
@@ -690,7 +693,8 @@
       "summary": "AES-256-GCM envelopes under versioned per-subject keys",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/integration/encryption/piece.json",
       "reason": "ELZ-273: OTP crypto only; keys from integration/secrets; key destruction is the crypto-shredding boundary for retention-erasure."
     },
     {
@@ -698,7 +702,8 @@
       "summary": "Offline JWT and API-key verification into principals",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/integration/token-verify/piece.json",
       "reason": "ELZ-268: pinned keys, existing jose 1.11.13 and OTP crypto; no JWKS fetch, OIDC ceremony, session store or new provider."
     },
     {
