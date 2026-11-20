@@ -739,7 +739,8 @@
       "summary": "Tenant lifecycle and one-use invitations as checked commands",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/tenant-lifecycle/piece.json",
       "reason": "ELZ-284: owner decision 2026-11-20 makes it a Piece; pure preparer over assembly/checked-command and domain/kill-switch."
     },
     {
