@@ -298,6 +298,31 @@ defmodule Elzoo.HttpJobTest do
     refute inspect(event) =~ "secret"
   end
 
+  # ELZ-274 (#584): the owner authenticates a completion on the one-slot transport
+  # pool right after the send's transport child replied. That child still counts
+  # against max_children until the supervisor reaps it. Here it owns a large ETS
+  # table; deleting that table at exit keeps the child in the pool long after
+  # its reply.
+  test "one-slot transport pool: a replied child still exiting cannot refuse the completion",
+       c do
+    credentials = fn ->
+      table = :ets.new(:slow_exit, [:set])
+      :ets.insert(table, for(i <- 1..100_000, do: {i}))
+      {:ok, "fixture-secret"}
+    end
+
+    {:ok, cfg} =
+      H.configure(Keyword.merge(c.opts, credentials: credentials, total_ms: 3000, poll_seconds: 4))
+
+    c = %{c | cfg: cfg, owner_opts: Keyword.put(c.owner_opts, :adapter_context, cfg)}
+    p = owner(c)
+    assert {:snooze, 4} = tick(c)
+    wait(fn -> I.status(p).revision >= 3 end)
+    assert {:Confirmed, 1} = I.status(p).phase
+    assert I.status(p).evidence == 1
+    assert [{"PUT", _, _}] = Fixture.calls(c.f)
+  end
+
   test "forged key digest and MAC are retained refusals, never Confirmed", c do
     for {mode, n} <- Enum.with_index([:badkey, :baddigest, :badmac], 1) do
       Fixture.mode(c.f, mode)

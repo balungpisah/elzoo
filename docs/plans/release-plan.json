@@ -7377,6 +7377,23 @@
       "issue": 616,
       "url": "https://github.com/balungpisah/elzoo/issues/616",
       "issue_body_sha256": "2b894bbae8ad88166b698284d9f02cace7aa43a9ff32343288a37ac8010c7459"
+    },
+    {
+      "id": "ELZ-274",
+      "title": "ELZ-274 — Release a replied HTTPJob pool slot before the next call",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-011"],
+      "status": "published 2026-11-20",
+      "owner_role": "coordinator; one-PR path; independent review and merge queue",
+      "paths": ["tasks/ELZ-274-http-job-transport-slot.md"],
+      "outputs": [],
+      "acceptance": "Call.run removes a replied pool child before returning, so the owner's completion authentication on a one-slot transport pool is not refused by the send's finished child; Contract, README, manifest, timeouts and budgets unchanged. Unchanged-test reproduction under load with captured owner state, a deterministic regression test that fails with the old Call.run, focused repeats, Piece tests and the Piece small gate.",
+      "product_aims": ["P13"],
+      "issue": 619,
+      "url": "https://github.com/balungpisah/elzoo/issues/619",
+      "issue_body_sha256": "3804e8717f5df156f46a54d6f99597269b417467f1cb3889db6f4d9ee6323a66"
     }
   ],
   "entries": [
