@@ -8149,9 +8149,11 @@
     {
       "id": "integration/egress-policy",
       "job": "ELZ-271",
-      "note": "Planned outbound URL policy: https only, exact allowlisted DNS name and port, no IP literals, injected resolver whose every address must be public; no HTTP client, redirects or response bound.",
+      "note": "Outbound URL policy for tenant- or model-supplied URLs: policy/1 takes exactly 1..256 unique lowercase DNS names and 1..16 unique ports or raises one fixed ArgumentError; pure check/2 admits only a valid UTF-8, 1..2048-byte https URL without userinfo or fragment whose lowercased host satisfies the name rule (no IP literal, numeric or hex last label, percent-encoding or trailing dot), is exactly allowlisted and uses an allowlisted port, in fixed refusal order; resolve/3 then calls the injected resolver Need once and returns the distinct sorted addresses only when every one of 1..32 answered addresses is public under the Piece's fixed IPv4, IPv4-mapped and IPv6 table. Fixed error atoms never echo the URL or host; no clock, socket, telemetry, log, HTTP client, redirect following or response bound.",
       "baseline_status": "not in baseline (new row, ELZ-271)",
-      "disposition": "planned-contract",
+      "disposition": "ready-contract",
+      "manifest": "pieces/integration/egress-policy/piece.json",
+      "manifest_sha256": "b85f823dc074eadb28ebfb5919378e66ae489a40bf8057db8444c85c85ad30d8",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
