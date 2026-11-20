@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "id": "state/tenant-isolation",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": ["ecto_sql", "postgrex", "jason", "telemetry", "elixir"],
+  "dependencies": [],
+  "applications": [],
+  "contract": "PostgreSQL 16 row-level-security tenant floor over a consumer-owned Ecto Repo: a migration helper that installs two STABLE setting readers and protects a table with a forced restrictive tenant (and exact space-list) policy plus a replaceable permissive allow policy; transact/3 that refuses a bad scope, then an open transaction, and sets both transaction-local settings by bind parameter and clears them before the commit; verify/3 that reports unavailable, bypass role, not enabled, not forced, floor missing or floor changed, in that order, from a catalog read and a pure decision. Fail closed outside the helper.",
+  "limits": [
+    "A floor against a forgotten filter, not against code that runs its own SQL: any code holding the connection can call set_config and pick a tenant.",
+    "The table owner can NO FORCE, DISABLE or drop policies and a superuser or BYPASSRLS role ignores them; production connects as a non-owner, non-bypass application role. That boundary runs only where the test role may create roles; the hosted check and the default worker database print NOT EXERCISED.",
+    "Hierarchy is the host's: the database sees only an exact list of space IDs. Revocation applies at the next call.",
+    "No per-command read/write split; ready Store tables (elzoo_log_records and others) are not protected.",
+    "log: false silences only the Logger: the consumer Repo's query telemetry event still receives the set_config parameters (tenant and space list).",
+    "Only statements that fun runs through repo on the transaction's connection see the scope; a NULL space value is neither visible nor writable."
+  ],
+  "files": [
+    "lib/elzoo/tenant_isolation.ex",
+    "lib/elzoo/tenant_isolation/migration.ex",
+    "test/elzoo/tenant_isolation_test.exs",
+    "test/support/tenant_isolation_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/tenant_isolation_test.exs",
+      "claim": "Listed scenarios on the worker's own disposable PostgreSQL 16 database behind a fail-closed target guard, in random schemas dropped afterwards, as the forced owner that does not bypass row security: flat-table reads, updates and deletes of T1 only and 42501 on a T2 insert or move; spaced-table exact space lists including NULL, {a}, \"q\", b\\s and , IDs, empty and flat scopes, next-call revocation, out-of-list and NULL-space writes refused; fail closed outside the helper and after commit, error, rollback, raise and a caught failure on one pooled connection under DBConnection.ConnectionPool and Ecto.Adapters.SQL.Sandbox; nested call :in_transaction runs nothing; row_security off gives 42501; restrictive composition with added permissive policies and with none; JSON EXPLAIN InitPlan readers; verify reasons for NO FORCE, DISABLE, dropped, permissive, FOR SELECT, TO CURRENT_USER and changed floors, swapped, renamed and missing columns, another prefix, varchar columns, inside a caller transaction, an unreachable Repo, and the pure decision table with bypass first; scope, list and identifier bounds; the telemetry limit. The non-owner application-role boundary runs only when the test role may create roles, else it prints NOT EXERCISED. Making the floor permissive, dropping FORCE, omitting the clearing and removing the in_transaction? refusal each fail cases of groups 1-4 (negative controls). Finite scenarios, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/16/ddl-rowsecurity.html",
+      "claim": "PostgreSQL 16 row-level security (ENABLE/FORCE, restrictive AND permissive composition, 42501 on WITH CHECK and row_security off), STABLE scalar subqueries planned as InitPlans, transaction-local set_config with savepoint release and rollback, and pg_get_expr deparse are upstream server contracts reached through Postgrex 0.22.4."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "Ecto SQL 3.14.0 Repo.transact/2 results and rollback, in_transaction?/0, Ecto.Adapters.SQL.Sandbox savepoints, migration execute/1 and the query telemetry event that fires with log: false are upstream behavior."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir String.valid?/1, the utf8 binary pattern and Regex anchors for the text and identifier rules; DBConnection 2.10.2 (a dependency of ecto_sql) raises DBConnection.ConnectionError for an unreachable pool."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The consumer runs the migration as the table owner, connects the application as a non-owner, non-bypass role, declares space columns NOT NULL, resolves hierarchy and revocation into the exact space list, keeps code that holds the connection from calling set_config itself, and calls verify/3 at startup for each protected table."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "The Piece emits no events and no logs; its own queries pass log: false, and the consumer Repo's query telemetry is unchanged (a limit: it receives the scope parameters)."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Fixed Contract bounds (128-byte IDs, 1024 spaces, 63-byte identifiers); tables, columns and the readers' schema are migration arguments, the scope is a per-call operand."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle; the consumer owns the Repo, the migrations and the database roles."
+    }
+  }
+}
