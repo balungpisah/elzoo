@@ -16,8 +16,8 @@ ELZ-071: the evidence of a documentation-only merge is the short check of a pull
 `Run mix check` step was skipped, its `Classify the change` and `Docs-only check` steps passed, and its log has
 the line ELZOO DOCS-ONLY CHECK PASSED and no full-run or affected-mode marker. That counts only when this
 checkout's own scripts/ci-change-class.py classifies the merge commit's change against its first parent as
-documentation only (a dispatch run never has the short shape: it is not a pull_request event), and only when the
-first parent, the main before the merge, has a push run of this workflow that completed with success: a short check
+documentation only (ELZ-277: documentation paths, or a strictly planned-only publication; a dispatch run never
+has the short shape: it is not a pull_request event), and only when the first parent, the main before the merge, has a push run of this workflow that completed with success: a short check
 runs no tests, so it must not hide a red or unfinished push run of that main behind a green documentation merge
 (otherwise the full check runs, with the code of the first parent in the tree).
 
@@ -194,7 +194,7 @@ def docs_only_merge(run_git, first, merge):
         return False
     try:
         output = run_git(*CLASSIFIER.diff_argv(first, merge)[1:])
-        return CLASSIFIER.docs_only(CLASSIFIER.parse_raw(output)) is True
+        return CLASSIFIER.docs_only_output(output) is True
     except Exception:  # noqa: BLE001 - any failure means "not documentation only"
         return False
 

@@ -12,7 +12,9 @@ Gleam pull_request run only when the pull request changes a Gleam path.
 ELZ-071: a documentation-only pull request is accepted on the short `Docs-only check` of its run (marker
 ELZOO DOCS-ONLY CHECK PASSED instead of ELZOO CHECK PASSED) only when this queue's own copy of
 scripts/ci-change-class.py, next to this file and never the pull request's, classifies the change
-(`git diff main...head` on the fetched refs) as documentation only. Otherwise the queue dispatches a full run.
+(`git diff main...head` on the fetched refs) as documentation only (ELZ-277: documentation paths, or a strictly
+planned-only publication whose catalogue and ledger blobs it reads from the local repository). Otherwise the queue
+dispatches a full run.
 
 Small gate: a Piece-only pull request is accepted on the small gate of its pull_request run (job check-piece,
 `mix check --piece`, marker ELZOO PIECE CHECK PASSED ...) only when the queue's own copy of scripts/ci-change-class.py
@@ -622,7 +624,7 @@ class Queue:
             main = self.api("git/ref/heads/main")["object"]["sha"]
             require(valid_sha(main), "Invalid canonical main SHA")
             out = self.run(CLASSIFIER.diff_argv(main, f"refs/remotes/origin/{pr['headRefName']}")).stdout
-            return CLASSIFIER.docs_only(CLASSIFIER.parse_raw(out)) is True and self.main_verified(main)
+            return CLASSIFIER.docs_only_output(out) is True and self.main_verified(main)
         except (QueueError, CLASSIFIER.Unclear, KeyError, TypeError, ValueError, AttributeError):
             return False
 
