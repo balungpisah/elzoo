@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "domain/principal",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir"],
+  "dependencies": [],
+  "contract": "Pure typed principal (human, service, agent): bounded validation with canonical byte-sorted scope and space sets, one-level agent delegation that copies tenant and epoch and is refused whole on escalation, nested or self delegation, and a check against caller-supplied epoch and revocation facts that refuses a revoked principal or revoked parent before a stale epoch. Every function revalidates hand-built structs; errors are fixed atoms. No identity provider, token parsing, I/O, clock, storage or authorization decision.",
+  "limits": [
+    "A principal value is not authentication evidence: any host can build a valid struct. The host builds principals only from its own authenticated state (for example integration/token-verify).",
+    "No authorization decision: scopes and spaces are opaque labels the host maps into domain/authorization rules or later membership. Ready domain/authorization, assembly/checked-command and state/audit-log are not changed and keep host-vouched text identities.",
+    "One delegation level only; no expiry, clock, session, account linking, token parsing or identity provider. The host defines the epoch unit per issuer and supplies, for an agent, its parent's current epoch.",
+    "Selected Cure laws cover the kind decisions and the delegation subset rule over the byte lists Elixir supplies; text, epoch, list and shape validation, canonicalization, revalidation and check ordering are Elixir-side and test-grounded only.",
+    "Labels compare by exact bytes: no normalization, case folding, wildcard, prefix or hierarchy."
+  ],
+  "files": [
+    "cure/elzoo/principal.cure",
+    "lib/elzoo/principal.ex",
+    "test/elzoo/principal_test.exs",
+    "examples/principal.exs"
+  ],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "granted_scopes_within_parent", "claim": "For all held and requested scope and space lists, every scope of a granted delegation is a held scope, with respect to exact byte equality eq_bytes."},
+    {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "granted_spaces_within_parent", "claim": "For all held and requested scope and space lists, every space of a granted delegation is a held space, with respect to eq_bytes."},
+    {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "granted_scopes_exact", "claim": "If a delegation is granted, its scopes equal the requested scopes: the request is never intersected (hypothesis form)."},
+    {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "granted_spaces_exact", "claim": "If a delegation is granted, its spaces equal the requested spaces (hypothesis form)."},
+    {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "agent_parent_not_delegable", "claim": "An agent kind is not delegable: one delegation level."},
+    {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "human_parent_delegable", "claim": "A human kind is delegable."},
+    {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "service_parent_delegable", "claim": "A service kind is delegable."},
+    {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "human_is_human", "claim": "The human gate holds for the human kind."},
+    {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "service_not_human", "claim": "The human gate fails for the service kind."},
+    {"kind": "proof", "file": "cure/elzoo/principal.cure", "symbol": "agent_not_human", "claim": "The human gate fails for the agent kind."},
+    {"kind": "type", "file": "cure/elzoo/principal.cure", "claim": "Pinned Cure checks types and totality of the kind and delegation functions; the source audit reports no axiom, hole, unresolved, unaudited, opaque or unproved-total definition."},
+    {"kind": "test", "file": "test/elzoo/principal_test.exs", "claim": "Listed scenarios: valid human and service principals, canonical sets, text bounds (0, 1, 128, 129 bytes, multi-byte, invalid UTF-8, NUL, C0, DEL, U+0080, U+0085, U+009F, U+00A0), epoch bounds (-1, 0, 2^63-1, 2^63, non-integer), list bounds (256, 257, 257 with duplicates, improper), map shape; delegation from human and service, subset, equal and empty sets, escalation by one scope or one space, exact-byte labels, an exhaustive 16x4 subset table, nested, self delegation, shape and forged parents, reason order; check stale, equal, newer, revoked, revoked parent, revoked before stale, malformed context and principal, revoked-ID bounds; require_human; forged structs refused by every function; Cure law/audit and the checked example. Removing the subset check of delegate/2 and, separately, the parent-revocation clause of check/2 makes these tests fail (negative controls). Finite scenarios, not universal proofs."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Pinned Cure compilation, reduction checking and BEAM decision semantics; compiler soundness not locally proved."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir/OTP binary byte order (:lists.usort/1), String.valid?/1, the utf8 binary pattern and term equality for exact-byte comparison."},
+    {"kind": "assumption", "claim": "The host builds principals only from its own authenticated state, supplies the current epoch of the principal's issuer (for an agent, its parent's) and the revoked IDs it holds, calls check/2 before relying on a principal, and maps scopes and spaces into its own authorization rules."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure functions emit no observations and no logs; the host owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "Fixed Contract bounds (128-byte text, 256 labels, 1024 revoked IDs, 0..2^63-1 epochs); epoch and revocation facts are per-call operands, not settings."},
+    "control": {"status": "not_applicable", "contract": "No process or lifecycle; revocation is a per-call operand the host supplies."}
+  }
+}
