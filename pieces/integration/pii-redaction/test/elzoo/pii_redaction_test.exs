@@ -271,7 +271,7 @@ defmodule Elzoo.PiiRedactionTest do
         assert PiiRedaction.redact("a@b.com", opts) == {:error, :malformed}, inspect(opts)
       end
 
-      assert {:ok, _} = PiiRedaction.redact("a@b.com", known: [], mode: :mask)
+      assert {:ok, _} = checked(PiiRedaction.redact("a@b.com", known: [], mode: :mask))
       assert calls() == []
     end
   end
@@ -446,7 +446,7 @@ defmodule Elzoo.PiiRedactionTest do
       for {name, text} <- texts do
         assert byte_size(text) == 65_536
         {micros, result} = :timer.tc(fn -> PiiRedaction.redact(text, mode: :mask, known: known) end)
-        assert match?({:ok, _}, result) or result == {:error, :too_many}, name
+        assert match?({:ok, _}, checked(result)) or result == {:error, :too_many}, name
         # Observation only, not a time guarantee.
         IO.puts("observation: #{name}: #{div(micros, 1000)} ms")
       end
