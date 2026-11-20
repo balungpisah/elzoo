@@ -8447,10 +8447,12 @@
     {
       "id": "workflow/tenant-lifecycle",
       "job": "ELZ-284",
-      "note": "Planned pure CheckedCommand preparer for tenant lifecycle (provisioned, active, suspended, closing, erased) and one-use invitations, writing the reserved lifecycle kill-switch in the same append; no membership store, erasure or code delivery.",
+      "note": "Pure tenant lifecycle (none, provisioned, active, suspended, closing, erased) and one-use invitations over the \"lifecycle\", \"invitations\" and \"switches\" fields of the tenant control resource of domain/kill-switch. prepare/3 is an assembly/checked-command preparer for payload {op, ...} with op provision, activate, suspend, close, erase, invite, accept or revoke and an exact facts record per command (now in Unix seconds 0..9_223_372_036_854_775; vault_erased for erase; code_digest, known_target and inviter_may_grant for invite; presented_digest for accept); it returns 1..3 writes on request.resource and writes the reserved lifecycle tenant switch through Elzoo.KillSwitch.engage/2 and release/2 (engaged_at now * 1000) in the same append: provision and suspend engage it, activate releases only it, close keeps or engages it and removes every pending invitation, erase keeps it and needs vault_erased true; erased is terminal. invite (active only) stores {code_digest, expires_at, id, invitee, issued_by, role, space} in 0..32 entries sorted by ID; accept (active only) removes the invitation and answers the six-key domain/membership record; revoke removes one. Refusals in the order invalid_request, terminal, invalid_transition, not_active, not_erased, not_permitted, then duplicate / too_many / unknown_invitation / expired / bad_code (:crypto.hash_equals/2) / wrong_invitee. gate/1 is the lifecycle descriptor gate over one resource/3 read: it allows the five lifecycle ops without Elzoo.KillSwitch.check/2 and calls check/2 for every other op. status/1 returns {:ok, state} or {:error, :unavailable}. No I/O, clock, process, storage, telemetry or log.",
       "baseline_status": "not in baseline (new row, ELZ-284)",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/tenant-lifecycle/piece.json",
+      "manifest_sha256": "3034eb384be1e6f3d5b5c11e7c845976e88dbceb0daa90416a9c221cc8c8fac5"
     },
     {
       "id": "integration/mcp-runtime",

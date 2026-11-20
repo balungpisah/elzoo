@@ -6,7 +6,8 @@ pull request head is. It gives each worktree its own services, so that several w
 database server, and it matches the services of the hosted job `check-root`:
 
 - PostgreSQL: a container from the image and digest that `check-root` pins (read from the workflow at run time),
-  with the role `elzoo_test`, the database `elzoo_test` and the extension `vector`, created by the superuser. The
+  with the role `elzoo_test`, the database `elzoo_test` and the extension `vector`, created by the superuser, and
+  the fixed application role `elzoo_app` (ELZ-285), which `elzoo_test` may SET ROLE to without inheriting it. The
   server is initialized with `--auth-host=scram-sha-256`, so that no TCP rule lets a role in without its password;
   `up` proves the password as a test does: from this host, through the published port, as the test role.
 - S3 test server: the MinIO release that scripts/ci-minio.py pins, the asset for the architecture of the Docker
@@ -58,6 +59,15 @@ LABEL = "io.elzoo.worker-services"
 LABEL_ID = LABEL + ".id"
 LABEL_ROLE = LABEL + ".role"
 PG_ROLE = PG_DATABASE = "elzoo_test"
+APP_ROLE = "elzoo_app"
+# Run as the test role: super, createrole and bypassrls of each role, then SET, USAGE (inherit) and the reverse.
+ROLE_CHECK = ("SELECT format('current_user=%s elzoo_test=%s,%s,%s elzoo_app=%s,%s,%s set=%s usage=%s "
+              "app_member_of_test=%s', current_user, t.rolsuper, t.rolcreaterole, t.rolbypassrls, a.rolsuper, "
+              "a.rolcreaterole, a.rolbypassrls, pg_has_role('elzoo_test', 'elzoo_app', 'SET'), "
+              "pg_has_role('elzoo_test', 'elzoo_app', 'USAGE'), pg_has_role('elzoo_app', 'elzoo_test', 'MEMBER')) "
+              "FROM pg_roles t, pg_roles a WHERE t.rolname = 'elzoo_test' AND a.rolname = 'elzoo_app'")
+ROLE_CHECK_EXPECTED = ("current_user=elzoo_test elzoo_test=f,f,f elzoo_app=f,f,f set=t usage=f "
+                       "app_member_of_test=f")
 PG_PORT = 5432
 S3_PORT = 9000
 S3_BINARY = "/opt/elzoo-minio"
@@ -177,8 +187,9 @@ def obtain_minio(arch, cache, get=None, sleep=time.sleep, clock=time.monotonic):
 
 # --- environment file ---------------------------------------------------------------------------------------------
 
-ENV_KEYS = ("ELZOO_TEST_DATABASE_URL", "ELZOO_TEST_S3_URL", "ELZOO_TEST_S3_BUCKET", "ELZOO_TEST_S3_ACCESS_KEY_ID",
-            "ELZOO_TEST_S3_SECRET_ACCESS_KEY", "ELZOO_TEST_S3_REGION", "ELZOO_WORKER_SERVICES_ID")
+ENV_KEYS = ("ELZOO_TEST_DATABASE_URL", "ELZOO_TEST_APP_ROLE", "ELZOO_TEST_S3_URL", "ELZOO_TEST_S3_BUCKET",
+            "ELZOO_TEST_S3_ACCESS_KEY_ID", "ELZOO_TEST_S3_SECRET_ACCESS_KEY", "ELZOO_TEST_S3_REGION",
+            "ELZOO_WORKER_SERVICES_ID")
 
 
 def env_text(values):
@@ -673,12 +684,15 @@ class Services:
         self._wait_postgres()
         script = (f"\\set pw '{password}'\n"
                   f"CREATE ROLE {PG_ROLE} LOGIN PASSWORD :'pw';\n"
+                  f"CREATE ROLE {APP_ROLE} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;\n"
+                  f"GRANT {APP_ROLE} TO {PG_ROLE} WITH INHERIT FALSE, SET TRUE;\n"
                   f"CREATE DATABASE {PG_DATABASE} OWNER {PG_ROLE};\n"
                   f"\\connect {PG_DATABASE}\n"
                   "CREATE EXTENSION vector;\n")
         must(self.runner, ["docker", "exec", "-i", self.n["pg"], "psql", "-U", "postgres", "-d", "postgres",
                            "-v", "ON_ERROR_STOP=1", "-qAt"], "database setup", input=script.encode())
-        return {"ELZOO_TEST_DATABASE_URL": database_url(password, 0), "ELZOO_TEST_S3_URL": "",
+        return {"ELZOO_TEST_DATABASE_URL": database_url(password, 0), "ELZOO_TEST_APP_ROLE": APP_ROLE,
+                "ELZOO_TEST_S3_URL": "",
                 "ELZOO_TEST_S3_BUCKET": ci_minio.BUCKET, "ELZOO_TEST_S3_ACCESS_KEY_ID": access,
                 "ELZOO_TEST_S3_SECRET_ACCESS_KEY": secret, "ELZOO_TEST_S3_REGION": ci_minio.REGION,
                 "ELZOO_WORKER_SERVICES_ID": self.ident}
@@ -724,6 +738,11 @@ class Services:
             raise Stop("the vector extension is missing in the test database")
         self.out(f"ELZOO SERVICES postgres: 127.0.0.1:{pg_port} database={PG_DATABASE} role={PG_ROLE} "
                  f"server_version={version} max_connections={connections} vector={vector}")
+        rows = self.query("127.0.0.1", pg_port, PG_ROLE, password, PG_DATABASE, ROLE_CHECK)
+        role_check = rows[0][0] if rows and rows[0] else None
+        self.out(f"ELZOO ROLE CHECK {role_check}")
+        if role_check != ROLE_CHECK_EXPECTED:
+            raise Stop(f"the role check of {PG_ROLE} and {APP_ROLE} differs from: {ROLE_CHECK_EXPECTED}")
         base = f"http://127.0.0.1:{s3_port}"
         self.wait_s3(base)
         self.check_s3(base, values["ELZOO_TEST_S3_ACCESS_KEY_ID"], values["ELZOO_TEST_S3_SECRET_ACCESS_KEY"])
