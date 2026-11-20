@@ -8448,7 +8448,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/tenant-lifecycle/piece.json",
-      "manifest_sha256": "23db344f8bcb20279a2aa48ef4e96affe845fd9891e715af476cd8274e65e1fa"
+      "manifest_sha256": "3034eb384be1e6f3d5b5c11e7c845976e88dbceb0daa90416a9c221cc8c8fac5"
     },
     {
       "id": "integration/mcp-runtime",
