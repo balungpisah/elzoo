@@ -702,7 +702,8 @@
       "summary": "Offline JWT and API-key verification into principals",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/integration/token-verify/piece.json",
       "reason": "ELZ-268: pinned keys, existing jose 1.11.13 and OTP crypto; no JWKS fetch, OIDC ceremony, session store or new provider."
     },
     {
