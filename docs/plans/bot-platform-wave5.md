@@ -2,7 +2,9 @@
 
 ## Status and scope
 
-This document is planning input for Wave 5 (`Many tenants, safely`) of the P13 track in [bot-platform.md](bot-platform.md). It publishes no task, admits no Piece, and promotes nothing to ready. [release-plan.json](release-plan.json) remains the one canonical planning source.
+This document is planning input for Wave 5 (`Many tenants, safely`) of the P13 track in [bot-platform.md](bot-platform.md). It promotes nothing to ready. [release-plan.json](release-plan.json) remains the one canonical planning source.
+
+Level 1 is published: [ELZ-267 task](../../tasks/ELZ-267-principal.md) · [issue #615](https://github.com/balungpisah/elzoo/issues/615) (`domain/principal`) and [ELZ-268 task](../../tasks/ELZ-268-token-verify.md) · [issue #616](https://github.com/balungpisah/elzoo/issues/616) (`integration/token-verify`). The owner confirmed postures 1, 3 and 4 below on 2026-11-20 (recorded in [bot-platform.md](bot-platform.md)); ELZ-267 and ELZ-268 follow postures 1 and 4. Two deliberate departures from the Level 1 sketch below: an agent delegation that asks for more than its parent holds is refused whole (as Authorization rejects whole proposals) rather than intersected, and the single-use `jti` hook is left out of ELZ-268 until a consumer needs it.
 
 Following the same discipline that collapsed Wave 4's 24 candidate handles into 5 new Pieces, Wave 5 should **not** turn its 28 candidate handles into 28 Pieces. Most handles are either satisfied by composing ready Wave 1–4 Pieces (`assembly/checked-command`, `state/audit-log`, `domain/authorization`, `workflow/approval`, `integration/secrets`, `workflow/untrusted-content`) or belong in Wave 6 alongside metering and billing (`domain/entitlement`). This plan trims Wave 5 to **10 cohesive Pieces across 3 dependency levels** — serving both flat-tenant bot platforms (C1 host gate, runtime tenant MCP servers from `RC-59`, API keys, data-policy, kill-switch, and erasure) and hierarchical multi-space applications (nested scopes with intermediate barriers, temporal roles, soft revocation, and InitPlan PostgreSQL RLS).
 

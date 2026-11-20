@@ -403,11 +403,11 @@
     },
     {
       "id": "domain/principal",
-      "summary": "Stable actor identity mapping",
-      "disposition": "defer",
-      "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Map authenticated human/service/agent identities to scoped principals for C1/C2/C6; integrate an identity provider, not a new password/token system."
+      "summary": "Typed principal value with attenuated agent delegation",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-267: pure value, delegation and epoch/revocation check; authentication is integration/token-verify or the host, not this Piece."
     },
     {
       "id": "domain/quota",
@@ -659,6 +659,14 @@
       "phase": "demand-led",
       "status": "ready",
       "manifest": "pieces/integration/text-chunking/piece.json"
+    },
+    {
+      "id": "integration/token-verify",
+      "summary": "Offline JWT and API-key verification into principals",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-268: pinned keys, existing jose 1.11.13 and OTP crypto; no JWKS fetch, OIDC ceremony, session store or new provider."
     },
     {
       "id": "integration/webhook-in",
