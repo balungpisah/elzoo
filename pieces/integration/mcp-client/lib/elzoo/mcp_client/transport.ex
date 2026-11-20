@@ -6,7 +6,9 @@ defmodule Elzoo.McpClient.Transport do
   #
   # - client: transport :http, the fail-closed auth provider, reconnect: false,
   #   health_check_interval: nil, use_sse: false; never :handler, :capabilities,
-  #   :retry_policy, :auth, :conformance_mode or :dns_resolver;
+  #   :retry_policy, :auth or :conformance_mode; :dns_resolver only in runtime
+  #   mode, where it answers the host-checked addresses for the endpoint host
+  #   and :nxdomain for any other host, and never consults DNS;
   # - every tools/list: retry_policy: false, http_stream_retry: :safe_only;
   # - every tools/call: the same plus max_mrtr_rounds: 0, never retry_safe, sent
   #   through ExMCP.Client.make_request/5 (@doc false at 1.8.1) because
@@ -43,8 +45,24 @@ defmodule Elzoo.McpClient.Transport do
       request_timeout: c.call_timeout_ms,
       max_request_bytes: c.max_request_bytes + @envelope_bytes,
       max_response_bytes: c.max_response_bytes
-    ] ++ network_options(network, endpoint)
+    ] ++ network_options(network, endpoint) ++ pinned(settings)
   end
+
+  # Runtime mode (settings carry the host-checked addresses): ex_mcp's target
+  # policy still checks every address for the network, then connects to one.
+  defp pinned(%{addresses: addresses, endpoint: %{url: url}}) do
+    host = String.downcase(URI.new!(url).host, :ascii)
+
+    resolver = fn name, _timeout ->
+      if is_binary(name) and String.downcase(name, :ascii) == host,
+        do: {:ok, addresses},
+        else: {:error, :nxdomain}
+    end
+
+    [dns_resolver: resolver]
+  end
+
+  defp pinned(_settings), do: []
 
   defp network_options(:loopback, _), do: []
 

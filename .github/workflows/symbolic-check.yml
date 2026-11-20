@@ -147,12 +147,19 @@ jobs:
           set -eu
           export PGPASSWORD=postgres PGHOST=localhost PGUSER=postgres
           psql -v ON_ERROR_STOP=1 -c "CREATE ROLE elzoo_test LOGIN PASSWORD 'elzoo_test'"
+          psql -v ON_ERROR_STOP=1 -c 'CREATE ROLE elzoo_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS'
+          psql -v ON_ERROR_STOP=1 -c 'GRANT elzoo_app TO elzoo_test WITH INHERIT FALSE, SET TRUE'
           createdb -O elzoo_test elzoo_test
           psql -d elzoo_test -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector'
           echo 'ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test' >> "$GITHUB_ENV"
+          echo 'ELZOO_TEST_APP_ROLE=elzoo_app' >> "$GITHUB_ENV"
           psql -d elzoo_test -c 'SHOW server_version'
           psql -d elzoo_test -v ON_ERROR_STOP=1 -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
           test "$(psql -d elzoo_test -At -c "SELECT count(*) FROM pg_extension WHERE extname = 'vector'")" = 1
+          # As the test role: super, createrole and bypassrls of each role, then SET, USAGE (inherit) and the reverse.
+          role_check="$(PGUSER=elzoo_test PGPASSWORD=elzoo_test psql -d elzoo_test -v ON_ERROR_STOP=1 -At -c "SELECT format('current_user=%s elzoo_test=%s,%s,%s elzoo_app=%s,%s,%s set=%s usage=%s app_member_of_test=%s', current_user, t.rolsuper, t.rolcreaterole, t.rolbypassrls, a.rolsuper, a.rolcreaterole, a.rolbypassrls, pg_has_role('elzoo_test', 'elzoo_app', 'SET'), pg_has_role('elzoo_test', 'elzoo_app', 'USAGE'), pg_has_role('elzoo_app', 'elzoo_test', 'MEMBER')) FROM pg_roles t, pg_roles a WHERE t.rolname = 'elzoo_test' AND a.rolname = 'elzoo_app'")"
+          echo "ELZOO ROLE CHECK $role_check"
+          test "$role_check" = 'current_user=elzoo_test elzoo_test=f,f,f elzoo_app=f,f,f set=t usage=f app_member_of_test=f'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
@@ -267,12 +274,19 @@ jobs:
           set -eu
           export PGPASSWORD=postgres PGHOST=localhost PGUSER=postgres
           psql -v ON_ERROR_STOP=1 -c "CREATE ROLE elzoo_test LOGIN PASSWORD 'elzoo_test'"
+          psql -v ON_ERROR_STOP=1 -c 'CREATE ROLE elzoo_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS'
+          psql -v ON_ERROR_STOP=1 -c 'GRANT elzoo_app TO elzoo_test WITH INHERIT FALSE, SET TRUE'
           createdb -O elzoo_test elzoo_test
           psql -d elzoo_test -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector'
           echo 'ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test' >> "$GITHUB_ENV"
+          echo 'ELZOO_TEST_APP_ROLE=elzoo_app' >> "$GITHUB_ENV"
           psql -d elzoo_test -c 'SHOW server_version'
           psql -d elzoo_test -v ON_ERROR_STOP=1 -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
           test "$(psql -d elzoo_test -At -c "SELECT count(*) FROM pg_extension WHERE extname = 'vector'")" = 1
+          # As the test role: super, createrole and bypassrls of each role, then SET, USAGE (inherit) and the reverse.
+          role_check="$(PGUSER=elzoo_test PGPASSWORD=elzoo_test psql -d elzoo_test -v ON_ERROR_STOP=1 -At -c "SELECT format('current_user=%s elzoo_test=%s,%s,%s elzoo_app=%s,%s,%s set=%s usage=%s app_member_of_test=%s', current_user, t.rolsuper, t.rolcreaterole, t.rolbypassrls, a.rolsuper, a.rolcreaterole, a.rolbypassrls, pg_has_role('elzoo_test', 'elzoo_app', 'SET'), pg_has_role('elzoo_test', 'elzoo_app', 'USAGE'), pg_has_role('elzoo_app', 'elzoo_test', 'MEMBER')) FROM pg_roles t, pg_roles a WHERE t.rolname = 'elzoo_test' AND a.rolname = 'elzoo_app'")"
+          echo "ELZOO ROLE CHECK $role_check"
+          test "$role_check" = 'current_user=elzoo_test elzoo_test=f,f,f elzoo_app=f,f,f set=t usage=f app_member_of_test=f'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
@@ -371,12 +385,19 @@ jobs:
           set -eu
           export PGPASSWORD=postgres PGHOST=localhost PGUSER=postgres
           psql -v ON_ERROR_STOP=1 -c "CREATE ROLE elzoo_test LOGIN PASSWORD 'elzoo_test'"
+          psql -v ON_ERROR_STOP=1 -c 'CREATE ROLE elzoo_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS'
+          psql -v ON_ERROR_STOP=1 -c 'GRANT elzoo_app TO elzoo_test WITH INHERIT FALSE, SET TRUE'
           createdb -O elzoo_test elzoo_test
           psql -d elzoo_test -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector'
           echo 'ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test' >> "$GITHUB_ENV"
+          echo 'ELZOO_TEST_APP_ROLE=elzoo_app' >> "$GITHUB_ENV"
           psql -d elzoo_test -c 'SHOW server_version'
           psql -d elzoo_test -v ON_ERROR_STOP=1 -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
           test "$(psql -d elzoo_test -At -c "SELECT count(*) FROM pg_extension WHERE extname = 'vector'")" = 1
+          # As the test role: super, createrole and bypassrls of each role, then SET, USAGE (inherit) and the reverse.
+          role_check="$(PGUSER=elzoo_test PGPASSWORD=elzoo_test psql -d elzoo_test -v ON_ERROR_STOP=1 -At -c "SELECT format('current_user=%s elzoo_test=%s,%s,%s elzoo_app=%s,%s,%s set=%s usage=%s app_member_of_test=%s', current_user, t.rolsuper, t.rolcreaterole, t.rolbypassrls, a.rolsuper, a.rolcreaterole, a.rolbypassrls, pg_has_role('elzoo_test', 'elzoo_app', 'SET'), pg_has_role('elzoo_test', 'elzoo_app', 'USAGE'), pg_has_role('elzoo_app', 'elzoo_test', 'MEMBER')) FROM pg_roles t, pg_roles a WHERE t.rolname = 'elzoo_test' AND a.rolname = 'elzoo_app'")"
+          echo "ELZOO ROLE CHECK $role_check"
+          test "$role_check" = 'current_user=elzoo_test elzoo_test=f,f,f elzoo_app=f,f,f set=t usage=f app_member_of_test=f'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
@@ -475,12 +496,19 @@ jobs:
           set -eu
           export PGPASSWORD=postgres PGHOST=localhost PGUSER=postgres
           psql -v ON_ERROR_STOP=1 -c "CREATE ROLE elzoo_test LOGIN PASSWORD 'elzoo_test'"
+          psql -v ON_ERROR_STOP=1 -c 'CREATE ROLE elzoo_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS'
+          psql -v ON_ERROR_STOP=1 -c 'GRANT elzoo_app TO elzoo_test WITH INHERIT FALSE, SET TRUE'
           createdb -O elzoo_test elzoo_test
           psql -d elzoo_test -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector'
           echo 'ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test' >> "$GITHUB_ENV"
+          echo 'ELZOO_TEST_APP_ROLE=elzoo_app' >> "$GITHUB_ENV"
           psql -d elzoo_test -c 'SHOW server_version'
           psql -d elzoo_test -v ON_ERROR_STOP=1 -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
           test "$(psql -d elzoo_test -At -c "SELECT count(*) FROM pg_extension WHERE extname = 'vector'")" = 1
+          # As the test role: super, createrole and bypassrls of each role, then SET, USAGE (inherit) and the reverse.
+          role_check="$(PGUSER=elzoo_test PGPASSWORD=elzoo_test psql -d elzoo_test -v ON_ERROR_STOP=1 -At -c "SELECT format('current_user=%s elzoo_test=%s,%s,%s elzoo_app=%s,%s,%s set=%s usage=%s app_member_of_test=%s', current_user, t.rolsuper, t.rolcreaterole, t.rolbypassrls, a.rolsuper, a.rolcreaterole, a.rolbypassrls, pg_has_role('elzoo_test', 'elzoo_app', 'SET'), pg_has_role('elzoo_test', 'elzoo_app', 'USAGE'), pg_has_role('elzoo_app', 'elzoo_test', 'MEMBER')) FROM pg_roles t, pg_roles a WHERE t.rolname = 'elzoo_test' AND a.rolname = 'elzoo_app'")"
+          echo "ELZOO ROLE CHECK $role_check"
+          test "$role_check" = 'current_user=elzoo_test elzoo_test=f,f,f elzoo_app=f,f,f set=t usage=f app_member_of_test=f'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
@@ -579,12 +607,19 @@ jobs:
           set -eu
           export PGPASSWORD=postgres PGHOST=localhost PGUSER=postgres
           psql -v ON_ERROR_STOP=1 -c "CREATE ROLE elzoo_test LOGIN PASSWORD 'elzoo_test'"
+          psql -v ON_ERROR_STOP=1 -c 'CREATE ROLE elzoo_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS'
+          psql -v ON_ERROR_STOP=1 -c 'GRANT elzoo_app TO elzoo_test WITH INHERIT FALSE, SET TRUE'
           createdb -O elzoo_test elzoo_test
           psql -d elzoo_test -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector'
           echo 'ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test' >> "$GITHUB_ENV"
+          echo 'ELZOO_TEST_APP_ROLE=elzoo_app' >> "$GITHUB_ENV"
           psql -d elzoo_test -c 'SHOW server_version'
           psql -d elzoo_test -v ON_ERROR_STOP=1 -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
           test "$(psql -d elzoo_test -At -c "SELECT count(*) FROM pg_extension WHERE extname = 'vector'")" = 1
+          # As the test role: super, createrole and bypassrls of each role, then SET, USAGE (inherit) and the reverse.
+          role_check="$(PGUSER=elzoo_test PGPASSWORD=elzoo_test psql -d elzoo_test -v ON_ERROR_STOP=1 -At -c "SELECT format('current_user=%s elzoo_test=%s,%s,%s elzoo_app=%s,%s,%s set=%s usage=%s app_member_of_test=%s', current_user, t.rolsuper, t.rolcreaterole, t.rolbypassrls, a.rolsuper, a.rolcreaterole, a.rolbypassrls, pg_has_role('elzoo_test', 'elzoo_app', 'SET'), pg_has_role('elzoo_test', 'elzoo_app', 'USAGE'), pg_has_role('elzoo_app', 'elzoo_test', 'MEMBER')) FROM pg_roles t, pg_roles a WHERE t.rolname = 'elzoo_test' AND a.rolname = 'elzoo_app'")"
+          echo "ELZOO ROLE CHECK $role_check"
+          test "$role_check" = 'current_user=elzoo_test elzoo_test=f,f,f elzoo_app=f,f,f set=t usage=f app_member_of_test=f'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
@@ -683,12 +718,19 @@ jobs:
           set -eu
           export PGPASSWORD=postgres PGHOST=localhost PGUSER=postgres
           psql -v ON_ERROR_STOP=1 -c "CREATE ROLE elzoo_test LOGIN PASSWORD 'elzoo_test'"
+          psql -v ON_ERROR_STOP=1 -c 'CREATE ROLE elzoo_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS'
+          psql -v ON_ERROR_STOP=1 -c 'GRANT elzoo_app TO elzoo_test WITH INHERIT FALSE, SET TRUE'
           createdb -O elzoo_test elzoo_test
           psql -d elzoo_test -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector'
           echo 'ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test' >> "$GITHUB_ENV"
+          echo 'ELZOO_TEST_APP_ROLE=elzoo_app' >> "$GITHUB_ENV"
           psql -d elzoo_test -c 'SHOW server_version'
           psql -d elzoo_test -v ON_ERROR_STOP=1 -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
           test "$(psql -d elzoo_test -At -c "SELECT count(*) FROM pg_extension WHERE extname = 'vector'")" = 1
+          # As the test role: super, createrole and bypassrls of each role, then SET, USAGE (inherit) and the reverse.
+          role_check="$(PGUSER=elzoo_test PGPASSWORD=elzoo_test psql -d elzoo_test -v ON_ERROR_STOP=1 -At -c "SELECT format('current_user=%s elzoo_test=%s,%s,%s elzoo_app=%s,%s,%s set=%s usage=%s app_member_of_test=%s', current_user, t.rolsuper, t.rolcreaterole, t.rolbypassrls, a.rolsuper, a.rolcreaterole, a.rolbypassrls, pg_has_role('elzoo_test', 'elzoo_app', 'SET'), pg_has_role('elzoo_test', 'elzoo_app', 'USAGE'), pg_has_role('elzoo_app', 'elzoo_test', 'MEMBER')) FROM pg_roles t, pg_roles a WHERE t.rolname = 'elzoo_test' AND a.rolname = 'elzoo_app'")"
+          echo "ELZOO ROLE CHECK $role_check"
+          test "$role_check" = 'current_user=elzoo_test elzoo_test=f,f,f elzoo_app=f,f,f set=t usage=f app_member_of_test=f'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
