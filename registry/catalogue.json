@@ -355,11 +355,11 @@
     },
     {
       "id": "domain/membership",
-      "summary": "Tenant membership and invitation lifecycle",
-      "disposition": "defer",
-      "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Scoped membership, one-use invitation and revocation for C1/C2; reuse storage/auth capabilities and own only missing policy."
+      "summary": "Scoped memberships, roles and space inheritance",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-269: pure resolution from host facts; one-use invitations and tenant status are later durable work, not this Piece."
     },
     {
       "id": "domain/metering",
@@ -660,6 +660,38 @@
       "phase": "demand-led",
       "status": "ready",
       "manifest": "pieces/integration/text-chunking/piece.json"
+    },
+    {
+      "id": "state/tenant-isolation",
+      "summary": "PostgreSQL row-level-security tenant floor",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-270: restrictive forced policies over locked ecto_sql/postgrex; hierarchy is resolved by the host into an exact space list."
+    },
+    {
+      "id": "integration/egress-policy",
+      "summary": "Outbound URL allowlist and public-address check",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-271: pure check plus injected resolver; transport owns connect, redirects and response bounds."
+    },
+    {
+      "id": "domain/provider-data-policy",
+      "summary": "Data-class admission to model and tool providers",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-272: closed data-class tag and pure per-class provider/region/retention decision; no content classification."
+    },
+    {
+      "id": "integration/encryption",
+      "summary": "AES-256-GCM envelopes under versioned per-subject keys",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-273: OTP crypto only; keys from integration/secrets; key destruction is the crypto-shredding boundary for retention-erasure."
     },
     {
       "id": "integration/token-verify",
