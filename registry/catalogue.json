@@ -358,7 +358,8 @@
       "summary": "Scoped memberships, roles and space inheritance",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/membership/piece.json",
       "reason": "ELZ-269: pure resolution from host facts; one-use invitations and tenant status are later durable work, not this Piece."
     },
     {
