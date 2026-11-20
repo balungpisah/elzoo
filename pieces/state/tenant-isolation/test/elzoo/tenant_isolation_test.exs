@@ -688,6 +688,11 @@ defmodule Elzoo.TenantIsolationTest do
     end
 
     test "the helper's set and clear queries are not logged by a logging Repo (log: false)" do
+      # Earlier modules can leave the global Logger level above :info, which would drop the
+      # control query too; this module is synchronous, so it sets the level and restores it.
+      previous = Logger.level()
+      Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: previous) end)
       Harness.start!(LogRepo, pool_size: 1, log: :info)
       scope = %{tenant: "tenant-log-probe", spaces: ["space-log-probe"]}
 
