@@ -2228,6 +2228,59 @@ class DocsOnlyFastPath(unittest.TestCase):
                                  self.fake.messages[-1])
                 self.assertTrue(any("does NOT satisfy branch protection" in m for m in self.fake.messages))
 
+    def planned_publication(self, reason_of_existing="Later."):
+        """ELZ-277: a real repository in which the head adds one planned catalogue row and its ledger row (and can edit
+        the existing row's reason too). Returns the raw diff output; the queue runs with that repository as its cwd."""
+        import os
+        import shutil
+        import tempfile
+        repo = tempfile.mkdtemp(prefix="elzoo-queue-planned-")
+        self.addCleanup(shutil.rmtree, repo, True)
+        git = lambda *argv: subprocess.run(["git", "-C", repo, "-c", "user.email=t@example.invalid", "-c", "user.name=t",
+                                            "-c", "commit.gpgsign=false", *argv], capture_output=True, text=True,
+                                           check=True).stdout.strip()
+        head = ("# Piece ledger\n\n| Piece | Status | Implementation | Direct providers | Grounding kinds | Operational "
+                "applicability | Contract / remaining gap |\n| --- | --- | --- | --- | --- | --- | --- |\n")
+        row = "| `{}` | {} | {} (planned) | — | none claimed | unassessed | {} |\n"
+        old = {"id": "state/m", "summary": "M", "disposition": "defer", "phase": "x", "status": "deferred",
+               "reason": "Later."}
+        new = {"id": "domain/x", "summary": "X", "disposition": "own", "phase": "P4", "status": "planned", "reason": "New."}
+
+        def commit(entries, ledger, message):
+            Path(repo, "registry").mkdir(exist_ok=True)
+            Path(repo, "registry/catalogue.json").write_text(json.dumps({"schema_version": 1, "entries": entries}))
+            Path(repo, "LEDGER.md").write_text(ledger)
+            git("add", "-A")
+            git("commit", "-qm", message)
+            return git("rev-parse", "HEAD")
+
+        git("init", "-q")
+        base = commit([old], head + row.format("state/m", "deferred", "defer", "Later."), "base")
+        edited = dict(old, reason=reason_of_existing)
+        tip = commit([new, edited], head + row.format("domain/x", "planned", "own", "New.") +
+                     row.format("state/m", "deferred", "defer", reason_of_existing), "publication")
+        cwd = os.getcwd()
+        os.chdir(repo)
+        self.addCleanup(os.chdir, cwd)
+        return git(*queue.CLASSIFIER.diff_argv(base, tip)[1:])
+
+    def test_a_planned_only_publication_merges_on_the_short_check_and_an_edited_row_does_not(self):
+        # The queue's own classifier reads the catalogue and ledger blobs of the raw diff (real Git objects here).
+        paths = ["LEDGER.md", "registry/catalogue.json", "tasks/ELZ-1.md"]
+        self.docs_pr(paths=paths)
+        self.fake.raw_output = self.planned_publication()
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertTrue(self.fake.messages[-1].endswith(" mode=docs-only"))
+        self.setUp()
+        self.docs_pr(paths=paths)
+        self.fake.raw_output = self.planned_publication(reason_of_existing="Edited.")
+        self.q.process(79)
+        self.assertEqual(1, self.fake.dispatches)
+        self.assertTrue(any("the queue does not accept the short check" in m for m in self.fake.messages))
+        self.assertNotIn("mode=docs-only", self.fake.messages[-1])
+
     def test_a_failed_or_odd_classification_makes_the_queue_dispatch_a_full_run(self):
         for label, changes in (("git failed", dict(raw_error=True)),
                                ("malformed output", dict(raw_output="garbage")),
