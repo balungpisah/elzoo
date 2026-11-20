@@ -28,7 +28,7 @@
       "kind": "upstream",
       "provider": "elixir",
       "reference": "https://hexdocs.pm/elixir/1.20.4/URI.html#new/1",
-      "claim": "For valid UTF-8 input, pinned URI.new/1 lowercases the scheme, keeps the host as written, fills the https default port 443, and reports userinfo, an empty trailing fragment and invalid characters as the policy reads them; it raises on invalid UTF-8, which the policy refuses before calling it."
+      "claim": "For valid UTF-8 input, pinned URI.new/1 lowercases the scheme, keeps the host as written, fills the https default port 443, and reports userinfo, an empty trailing fragment and invalid characters as the policy reads them. Invalid UTF-8 is refused before the call; that URI.new/1 raises on it is observed at the pinned version, not documented, and the policy does not rely on it."
     },
     {
       "kind": "assumption",
