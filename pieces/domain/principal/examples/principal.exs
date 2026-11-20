@@ -9,12 +9,12 @@ alias Elzoo.Principal
     tenant: "acme",
     auth_epoch: 3,
     allowed_scopes: ["read", "write"],
-    allowed_spaces: ["docs"]
+    allowed_spaces: ["wiki"]
   })
 
 # An agent acts for alice with part of her authority.
 {:ok, bot} =
-  Principal.delegate(alice, %{id: "alice-bot", allowed_scopes: ["read"], allowed_spaces: ["docs"]})
+  Principal.delegate(alice, %{id: "alice-bot", allowed_scopes: ["read"], allowed_spaces: ["wiki"]})
 
 # The host supplies the parent's current epoch and the revoked IDs it holds.
 ok = Principal.check(bot, %{current_epoch: 3, revoked_ids: []})
@@ -24,7 +24,7 @@ escalation =
   Principal.delegate(alice, %{
     id: "alice-bot",
     allowed_scopes: ["read", "admin"],
-    allowed_spaces: ["docs"]
+    allowed_spaces: ["wiki"]
   })
 
 nested = Principal.delegate(bot, %{id: "bot-2", allowed_scopes: [], allowed_spaces: []})
