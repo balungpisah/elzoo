@@ -105,7 +105,9 @@ no process.
 6. 10,000 seals give 10,000 distinct nonces (a sanity check, not a proof).
 7. Every refusal is the exact fixed tuple, with no plaintext, key or `aad`
    bytes in the result or the captured log; arbitrary terms never raise; the
-   compiled module imports only `:crypto`, `:erlang`, `Elzoo.Secrets` and `String`.
+   compiled module imports only `:crypto.crypto_one_time_aead/7`,
+   `:crypto.strong_rand_bytes/1`, `Elzoo.Secrets.reveal/1`, `String.valid?/1`
+   and size/error BIFs (no Logger, telemetry, clock or IO).
 
 Negative controls (temporary edits, reverted): leaving the header out of the
 AAD fails groups 1 and 2; a fixed nonce fails group 6; skipping the credential

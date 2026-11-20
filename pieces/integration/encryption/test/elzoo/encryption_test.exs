@@ -279,6 +279,11 @@ defmodule Elzoo.EncryptionTest do
       end
     end
 
+    test "seal/4 checks its inputs before the credential" do
+      refuse(:malformed, fn -> Encryption.seal(@plaintext, @aad, "", nil) end)
+      refuse(:malformed, fn -> Encryption.seal(:not_binary, @aad, @key_id, cred(@key, 0)) end)
+    end
+
     test "open/3 and key_ref/1 refuse malformed envelopes without calling the Need" do
       body = <<0::96, "ct", 0::128>>
 
@@ -457,12 +462,24 @@ defmodule Elzoo.EncryptionTest do
       assert log == ""
     end
 
-    test "the compiled module calls no Logger, telemetry, clock or IO" do
+    test "the compiled module imports only AEAD, randomness, reveal, UTF-8 check and size BIFs" do
       {:ok, {_, [imports: imports]}} =
         :beam_lib.chunks(:code.which(Elzoo.Encryption), [:imports])
 
-      modules = imports |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> Enum.sort()
-      assert modules -- [:crypto, :erlang, Elzoo.Secrets, String] == []
+      allowed = [
+        {:crypto, :crypto_one_time_aead, 7},
+        {:crypto, :strong_rand_bytes, 1},
+        {Elzoo.Secrets, :reveal, 1},
+        {String, :valid?, 1},
+        {:erlang, :-, 2},
+        {:erlang, :byte_size, 1},
+        {:erlang, :error, 1},
+        {:erlang, :get_module_info, 1},
+        {:erlang, :get_module_info, 2}
+      ]
+
+      assert imports -- allowed == []
+      assert {:crypto, :crypto_one_time_aead, 7} in imports
     end
   end
 end
