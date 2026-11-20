@@ -245,6 +245,9 @@ defmodule Elzoo.McpClientTest.Server do
 
   defp fault(:s503, conn, _), do: send_resp(conn, 503, "")
 
+  defp fault({:redirect, location}, conn, _),
+    do: conn |> put_resp_header("location", location) |> send_resp(302, "")
+
   # A server that echoes the caller's Authorization header (and `extra`, a value
   # it may have seen earlier) into its result.
   defp fault(:echo_auth, conn, j), do: fault({:echo_auth, ""}, conn, j)
@@ -357,6 +360,24 @@ defmodule Elzoo.McpClientTest.Server do
     final = %{jsonrpc: "2.0", id: j["id"], result: %{content: [%{type: "text", text: "done"}]}}
     {:ok, conn} = chunk(conn, "event: message\ndata: " <> Jason.encode!(final) <> "\n\n")
     conn
+  end
+
+  @doc """
+  A second server whose requests are only counted (no message to the test
+  process): `{server, counter}`, read with `:counters.get(counter, 1)`.
+  """
+  def counted do
+    counter = :counters.new(1, [])
+
+    # Linked to the test process, so it ends with the test.
+    sink =
+      spawn_link(fn ->
+        Stream.repeatedly(fn -> receive(do: ({:mcp_request, _, _, _} -> :ok)) end)
+        |> Stream.each(fn _ -> :counters.add(counter, 1, 1) end)
+        |> Stream.run()
+      end)
+
+    {start(sink), counter}
   end
 
   @doc "Defines a binding module at run time for this server's endpoint."

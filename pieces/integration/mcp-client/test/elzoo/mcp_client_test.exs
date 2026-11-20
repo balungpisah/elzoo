@@ -10,7 +10,7 @@ defmodule Elzoo.McpClientTest do
   import ExUnit.CaptureLog
 
   alias Elzoo.McpClient
-  alias Elzoo.McpClient.{Adapter, AuthProvider, Binding, Transport}
+  alias Elzoo.McpClient.{Adapter, AuthProvider, Binding, RuntimeBinding, Transport}
   alias Elzoo.McpClientTest.Server
   alias Elzoo.EffectIntent, as: Intent
   alias Elzoo.EffectIntent.StoreHost
@@ -78,7 +78,10 @@ defmodule Elzoo.McpClientTest do
     d
   end
 
-  defp owner(s, admission, ctx, recipient \\ self()) do
+  defp owner(s, admission, ctx, recipient \\ self()),
+    do: owner_with(s, admission, ctx, adapter_context(s, admission, recipient))
+
+  defp owner_with(s, admission, ctx, adapter_context) do
     c = s.config
 
     memory =
@@ -101,26 +104,43 @@ defmodule Elzoo.McpClientTest do
         store: Memory.store(memory),
         host: {StoreHost, %{store: Memory.store(host_memory), authorize: fn _, _ -> :fresh end}},
         task_supervisor: ctx.intents,
-        adapter_context: McpClient.context(s, recipient),
+        adapter_context: adapter_context,
         allow_volatile: true
       )
 
     pid
   end
 
+  # Build-time sessions keep context/2; a runtime session's owner gets the
+  # context bound to its admission.
+  defp adapter_context(%{config: %{runtime: nil}} = s, _admission, recipient),
+    do: McpClient.context(s, recipient)
+
+  defp adapter_context(s, admission, recipient) do
+    {:ok, context} = McpClient.context(s, admission, recipient)
+    context
+  end
+
   # The request EffectIntent hands the Adapter for attempt 1.
   defp request(s, arguments, recipient \\ self()) do
-    {:ok, b, _} = Binding.load(s.config.binding)
+    {:ok, b, _} = Binding.load(s.config.binding, s.config.runtime)
+    key = String.duplicate("a", 64)
+
+    # A runtime request stands in for an owner whose context is bound to it.
+    context =
+      if s.config.runtime == nil,
+        do: McpClient.context(s, recipient),
+        else: %Elzoo.McpClient.Context{session: s, recipient: recipient, key: key}
 
     %{
-      key: String.duplicate("a", 64),
+      key: key,
       attempt: 1,
       attempt_id: "attempt-1",
       arguments: arguments,
       arguments_digest: :crypto.hash(:sha256, arguments),
       schema: Adapter.schema(),
       binding: b.digest,
-      context: McpClient.context(s, recipient)
+      context: context
     }
   end
 
@@ -140,6 +160,19 @@ defmodule Elzoo.McpClientTest do
     after
       wait -> []
     end
+  end
+
+  # A runtime endpoint map for the loopback evidence server.
+  defp runtime(ctx, overrides \\ %{}) do
+    Map.merge(
+      %{
+        server: "elzoo-runtime-server",
+        endpoint: ctx.server.url,
+        network: :loopback,
+        addresses: [{127, 0, 0, 1}]
+      },
+      overrides
+    )
   end
 
   defp count(reqs, label), do: Enum.count(reqs, &(elem(&1, 0) == label))
@@ -1262,6 +1295,393 @@ defmodule Elzoo.McpClientTest do
     {:ok, a} = McpClient.admission(s.config, declaration(payload("echo", %{"x" => "l"})), snap)
     pid = owner(s, a, ctx)
     assert {:completed, %{content: [%{"text" => "echo:l"}]}} = McpClient.call_tool(s, a, pid)
+  end
+
+  ## runtime endpoint mode (ELZ-282)
+
+  defp runtime_config(_ctx, runtime, opts \\ []) do
+    McpClient.configure(
+      [
+        binding: RuntimeBinding,
+        runtime: runtime,
+        tenant: "tenant-a",
+        credentials: Keyword.get(opts, :credentials, fn -> {:ok, @token} end)
+      ] ++ Keyword.drop(opts, [:credentials])
+    )
+  end
+
+  defp runtime_session(ctx, runtime, opts \\ []) do
+    {:ok, c} = runtime_config(ctx, runtime, opts)
+    {:ok, s} = McpClient.connect(c, ctx.sup)
+    on_exit(fn -> McpClient.close(s) end)
+    s
+  end
+
+  # The Contract's digest, derived here from its text: "rt1:" and the lowercase
+  # hex SHA-256 of the length-framed server, endpoint and ref.
+  defp rt_digest(server, endpoint, ref) do
+    framed =
+      <<byte_size(server)::32, server::binary, byte_size(endpoint)::32, endpoint::binary,
+        byte_size(ref)::32, ref::binary>>
+
+    "rt1:" <> Base.encode16(:crypto.hash(:sha256, framed), case: :lower)
+  end
+
+  test "R1 runtime mode on the loopback server: connect, list_tools, one tools/call through the owner; outcomes equal the build-time path (RuntimeBinding)",
+       ctx do
+    {:ok, rb} = Elzoo.EffectIntent.Binding.load(RuntimeBinding)
+    {:ok, bb, _} = Binding.load(Server.binding(ctx.server.url))
+    assert rb.provider_account == "mcp:runtime" and rb.id != bb.id
+    assert rb.failures == bb.failures and rb.no_send_attestations == bb.no_send_attestations
+    refute function_exported?(RuntimeBinding, :__mcp_client_binding__, 0)
+
+    s = runtime_session(ctx, runtime(ctx))
+    assert Enum.map(requests(), &elem(&1, 0)) == ["server/discover"]
+    snap = snapshot(s)
+    assert snap.server == "elzoo-runtime-server"
+    assert Enum.map(snap.tools, & &1["name"]) == ["echo", "fail", "strict", "structured"]
+    requests()
+
+    {:ok, a} = McpClient.admission(s.config, declaration(payload("echo", %{"x" => "rt"})), snap)
+    assert [_, "mcp:runtime", id, "tools/call", _] = a.identity
+    assert id == rb.id
+    pid = owner(s, a, ctx)
+
+    assert {:completed, %{content: [%{"text" => "echo:rt"}], is_error: false}} =
+             McpClient.call_tool(s, a, pid)
+
+    assert {:Confirmed, 1} = settled(pid).phase
+    assert count(requests(), "tools/call") == 1
+
+    # The same scripted answers give the same tag on both paths.
+    b = session(ctx)
+    requests()
+
+    for mode <- [
+          :auth401,
+          :auth403,
+          {:rpc, -32602},
+          {:rpc, -32603},
+          :input_required,
+          :garbage,
+          :s503
+        ] do
+      Server.mode(ctx.server, mode)
+      build = send_one(b, payload("echo", %{}))
+      run = send_one(s, payload("echo", %{}))
+      assert build == run, inspect(mode)
+      assert {:error, _, :mcp} = run
+      assert count(requests(400), "tools/call") == 2
+      flush_results()
+    end
+
+    Server.mode(ctx.server, :pass)
+    assert %{"outcome" => "completed"} = send_one(s, payload("fail", %{}))
+    assert send_one(s, "{}") == send_one(b, "{}")
+    flush_results()
+    McpClient.close(s)
+    McpClient.close(b)
+    requests()
+    assert {:error, :not_connected, :mcp} = send_one(s, payload("echo", %{}))
+    assert {:error, :not_connected, :mcp} = send_one(b, payload("echo", %{}))
+    assert requests() == []
+  end
+
+  test "R2 runtime identity: five texts, a 68-byte rt1 digest of server, endpoint and ref; distinct keys; the owner accepts the longest inputs (admission)",
+       ctx do
+    snap = %{
+      server: "x",
+      protocol_version: nil,
+      truncated: false,
+      tools: [
+        %{"trust" => "untrusted", "name" => "echo", "input_schema" => %{"type" => "object"}}
+      ]
+    }
+
+    admit = fn rt, ref ->
+      {:ok, c} = runtime_config(ctx, rt)
+      {:ok, a} = McpClient.admission(c, declaration(payload("echo", %{}), ref), snap)
+      {c, a}
+    end
+
+    base = runtime(ctx)
+    {_, a1} = admit.(base, "call-1")
+    {_, a2} = admit.(%{base | server: "elzoo-runtime-server-2"}, "call-1")
+    {_, a3} = admit.(%{base | endpoint: "http://localhost:#{ctx.server.port}/mcp"}, "call-1")
+    assert length(Enum.uniq([a1.key, a2.key, a3.key])) == 3
+
+    assert a1.identity == [
+             "tenant-a",
+             "mcp:runtime",
+             "mcp-client-runtime",
+             "tools/call",
+             rt_digest("elzoo-runtime-server", ctx.server.url, "call-1")
+           ]
+
+    assert Elzoo.EffectIntent.Model.valid_identity?(a1.identity)
+    assert byte_size(List.last(a1.identity)) == 68
+
+    # Build-time identity is unchanged: the raw ref.
+    s = session(ctx)
+    {:ok, ab} = McpClient.admission(s.config, declaration(payload("echo", %{})), snapshot(s))
+    assert List.last(ab.identity) == "call-1"
+
+    prefix = "http://127.0.0.1:#{ctx.server.port}/"
+    long = prefix <> String.duplicate("p", 512 - byte_size(prefix))
+    ref = String.duplicate("r", 256)
+    assert byte_size(long) == 512
+    {c, a} = admit.(%{base | endpoint: long}, ref)
+    assert List.last(a.identity) == rt_digest("elzoo-runtime-server", long, ref)
+    assert byte_size(List.last(a.identity)) == 68
+    assert Elzoo.EffectIntent.Model.valid_identity?(a.identity)
+    pid = owner(%Elzoo.McpClient.Session{config: c, client: nil, ledger: nil}, a, ctx)
+    # The owner committed the admission: active, not halted, a recorded phase.
+    assert %{active: true, phase: phase, key: key} = Intent.status(pid)
+    refute phase == :absent
+    assert key == a.key
+  end
+
+  test "R3 pinning: only the host-checked addresses are used, never DNS; a :public answer with a non-public address is target_refused (ex_mcp :dns_resolver)",
+       ctx do
+    # The system resolver would answer 127.0.0.1 for localhost, where the
+    # evidence server listens; the pinned 127.0.0.2 has no listener.
+    assert {:ok, {127, 0, 0, 1}} = :inet.getaddr(~c"localhost", :inet)
+    url = "http://localhost:#{ctx.server.port}/mcp"
+    requests()
+
+    {:ok, c} = runtime_config(ctx, runtime(ctx, %{endpoint: url, addresses: [{127, 0, 0, 2}]}))
+    assert {:error, :connect_failed} = McpClient.connect(c, ctx.sup)
+    assert requests() == []
+
+    s = runtime_session(ctx, runtime(ctx, %{endpoint: url, addresses: [{127, 0, 0, 1}]}))
+    assert Enum.map(requests(), &elem(&1, 0)) == ["server/discover"]
+    McpClient.close(s)
+
+    resolver = Transport.client_options(s.config)[:dns_resolver]
+    assert resolver.("localhost", 1_000) == {:ok, [{127, 0, 0, 1}]}
+    assert resolver.("LocalHost", 1_000) == {:ok, [{127, 0, 0, 1}]}
+    assert resolver.("127.0.0.1", 1_000) == {:error, :nxdomain}
+    assert resolver.("mcp.example.test", 1_000) == {:error, :nxdomain}
+
+    public = %{
+      server: "elzoo-runtime-server",
+      endpoint: "https://mcp.example.test/mcp",
+      network: :public
+    }
+
+    for addresses <- [[{10, 0, 0, 1}], [{127, 0, 0, 1}], [{93, 184, 215, 14}, {10, 0, 0, 1}]] do
+      {:ok, pc} = runtime_config(ctx, Map.put(public, :addresses, addresses))
+      assert {:error, :target_refused} = McpClient.connect(pc, ctx.sup)
+    end
+
+    assert requests() == []
+
+    # The :public option list is the build-time :public list plus the resolver.
+    {:ok, pc} = runtime_config(ctx, Map.put(public, :addresses, [{93, 184, 215, 14}]))
+
+    {:ok, bc} =
+      McpClient.configure(
+        binding: Server.binding(public.endpoint, :public),
+        tenant: "tenant-a",
+        credentials: fn -> {:ok, @token} end
+      )
+
+    run = Transport.client_options(pc)
+    build = Transport.client_options(bc)
+    refute Keyword.has_key?(build, :dns_resolver)
+    assert Keyword.keys(run) == Keyword.keys(build) ++ [:dns_resolver]
+
+    assert Keyword.drop(run, [:dns_resolver, :auth_provider]) ==
+             Keyword.drop(build, [:auth_provider])
+  end
+
+  test "R4 runtime configure: only with RuntimeBinding, exact keys and bounds; a credential inside the runtime strings is refused before any send (configure)",
+       ctx do
+    good = runtime(ctx)
+    called = :counters.new(1, [])
+    need = fn -> :counters.add(called, 1, 1) && {:ok, @token} end
+    assert {:ok, _} = runtime_config(ctx, good, credentials: need)
+
+    base = [tenant: "tenant-a", credentials: need]
+    assert {:error, :configuration} = McpClient.configure([binding: RuntimeBinding] ++ base)
+
+    assert {:error, :configuration} =
+             McpClient.configure([binding: RuntimeBinding, runtime: nil] ++ base)
+
+    assert {:error, :configuration} =
+             McpClient.configure([binding: Server.binding(ctx.server.url), runtime: good] ++ base)
+
+    assert {:error, :configuration} =
+             McpClient.configure([binding: Server.binding(ctx.server.url), runtime: nil] ++ base)
+
+    public_http = %{
+      good
+      | network: :public,
+        endpoint: "http://mcp.example.test/mcp",
+        addresses: [{93, 184, 215, 14}]
+    }
+
+    for bad <- [
+          Map.put(good, :extra, 1),
+          Map.delete(good, :addresses),
+          Map.delete(good, :server),
+          %{good | network: :private},
+          %{good | server: ""},
+          %{good | server: String.duplicate("s", 129)},
+          public_http,
+          %{public_http | endpoint: "https://localhost/mcp"},
+          %{public_http | endpoint: "https://127.0.0.1/mcp"},
+          %{good | addresses: []},
+          %{good | addresses: for(d <- 1..33, do: {127, 0, 0, d})},
+          %{good | addresses: [{127, 0, 0, 1}, {127, 0, 0, 1}]},
+          %{good | addresses: [{127, 0, 0, 1, 5}]},
+          %{good | addresses: [{127, 0, 0, 256}]},
+          %{good | addresses: {127, 0, 0, 1}},
+          %{good | addresses: ["127.0.0.1"]},
+          Map.to_list(good)
+        ] do
+      assert {:error, :configuration} = runtime_config(ctx, bad, credentials: need), inspect(bad)
+    end
+
+    assert {:ok, _} =
+             runtime_config(ctx, %{good | addresses: for(d <- 1..32, do: {127, 0, 0, d})})
+
+    assert {:ok, _} = runtime_config(ctx, %{good | addresses: [{0, 0, 0, 0, 0, 0, 0, 1}]})
+    assert :counters.get(called, 1) == 0
+
+    server = "elzoo-runtime-server-identity-0001"
+    path = "/mcp/runtime-endpoint-path-0001"
+
+    loopback =
+      runtime(ctx, %{server: server, endpoint: "http://127.0.0.1:#{ctx.server.port}#{path}"})
+
+    requests()
+
+    for word <- [server, "runtime-server-identity-0001", path, "runtime-endpoint-path-0001"] do
+      {:ok, c} = runtime_config(ctx, loopback, credentials: fn -> {:ok, word} end)
+      assert {:error, :credentials_unavailable} = McpClient.connect(c, ctx.sup), word
+      assert requests() == []
+    end
+
+    # The endpoint host: a :public host pinned to a refused address, so only the
+    # credential rule answers credentials_unavailable, before any resolution.
+    host = "mcp-runtime-host-0001.example.test"
+
+    public = %{
+      server: "elzoo-runtime-server",
+      endpoint: "https://#{host}/mcp",
+      network: :public,
+      addresses: [{10, 0, 0, 1}]
+    }
+
+    for word <- [host, "mcp-runtime-host-0001.example"] do
+      {:ok, c} = runtime_config(ctx, public, credentials: fn -> {:ok, word} end)
+      assert {:error, :credentials_unavailable} = McpClient.connect(c, ctx.sup), word
+    end
+
+    {:ok, c} = runtime_config(ctx, public)
+    assert {:error, :target_refused} = McpClient.connect(c, ctx.sup)
+    assert requests() == []
+  end
+
+  test "R5 drift: TargetPolicy.resolve/2 pins the smallest address, refuses a mixed answer, passes dns_timeout; a 302 is not followed (ex_mcp 1.8.1)",
+       ctx do
+    alias ExMCP.Transport.HTTP.TargetPolicy
+    answer = fn result -> [dns_resolver: fn _host, _timeout -> result end] end
+
+    assert {:ok, %URI{host: "localhost"}, {127, 0, 0, 2}} =
+             TargetPolicy.resolve(
+               "http://localhost:1/mcp",
+               answer.({:ok, [{127, 0, 0, 9}, {127, 0, 0, 2}, {127, 0, 0, 9}, {127, 0, 0, 3}]})
+             )
+
+    assert {:error, :non_public_address} =
+             TargetPolicy.resolve(
+               "https://mcp.example.test/mcp",
+               answer.({:ok, [{93, 184, 215, 14}, {10, 0, 0, 1}]})
+             )
+
+    assert {:ok, _, {93, 184, 215, 14}} =
+             TargetPolicy.resolve(
+               "https://mcp.example.test/mcp",
+               answer.({:ok, [{93, 184, 215, 14}]})
+             )
+
+    assert {:error, :dns_timeout} =
+             TargetPolicy.resolve("https://mcp.example.test/mcp", answer.({:error, :dns_timeout}))
+
+    assert {:error, :dns_failed} =
+             TargetPolicy.resolve("https://mcp.example.test/mcp", answer.({:error, :nxdomain}))
+
+    {target, counter} = Server.counted()
+    on_exit(fn -> Server.stop(target) end)
+    s = runtime_session(ctx, runtime(ctx))
+    requests()
+    Server.mode(ctx.server, {:redirect, target.url})
+    assert {:error, tag, :mcp} = send_one(s, payload("echo", %{}))
+    assert {:ok, {:unknown, {:server_error, :other}}} = McpClient.outcome(tag)
+    assert count(requests(400), "tools/call") == 1
+    assert :counters.get(counter, 1) == 0
+  end
+
+  test "R6 a runtime context is bound to its admission: a mispaired or unbound context is adapter_error before any send, in both directions (context/3; Adapter)",
+       ctx do
+    sa = runtime_session(ctx, runtime(ctx))
+
+    sb =
+      runtime_session(
+        ctx,
+        runtime(ctx, %{endpoint: "http://localhost:#{ctx.server.port}/mcp", server: "elzoo-b"})
+      )
+
+    snap = snapshot(sa)
+    decl = declaration(payload("echo", %{"x" => "p"}))
+    {:ok, aa} = McpClient.admission(sa.config, decl, snap)
+    {:ok, ab} = McpClient.admission(sb.config, decl, snap)
+    assert aa.key != ab.key
+
+    # context/3 refuses an admission that the session's Config did not give.
+    assert {:error, :context} = McpClient.context(sb, aa, self())
+    assert {:error, :context} = McpClient.context(sa, ab, self())
+    assert {:error, :context} = McpClient.context(sa, %{aa | ref: "call-2"}, self())
+    {:ok, other_tenant} = runtime_config(ctx, runtime(ctx))
+    st = %{sa | config: %{other_tenant | tenant: "tenant-b"}}
+    assert {:error, :context} = McpClient.context(st, aa, self())
+
+    # A build-time session accepts a bound context too, and refuses a mismatched one.
+    b = session(ctx)
+    {:ok, abt} = McpClient.admission(b.config, decl, snap)
+    {:ok, cbt} = McpClient.context(b, abt, self())
+    assert cbt.key == abt.key
+    assert {:error, :context} = McpClient.context(b, aa, self())
+    bt = owner_with(b, abt, ctx, %{cbt | key: aa.key})
+    assert {:ok, :dispatched} = Intent.advance(bt, :dispatch)
+    refute match?({:Confirmed, _}, settled(bt).phase)
+    {:ok, ca} = McpClient.context(sa, aa, self())
+    {:ok, cb} = McpClient.context(sb, ab, self())
+    assert ca.key == aa.key and cb.key == ab.key
+    requests()
+
+    # A's admission with B's bound context, B's with A's, and an unbound
+    # runtime context: each owner dispatches, the Adapter sends nothing.
+    for {s, a, context} <- [
+          {sa, aa, cb},
+          {sb, ab, ca},
+          {sa, aa, McpClient.context(sb, self())},
+          {sa, aa, McpClient.context(sa, self())}
+        ] do
+      pid = owner_with(s, a, ctx, context)
+      assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+      refute match?({:Confirmed, _}, settled(pid).phase)
+      assert count(requests(), "tools/call") == 0
+    end
+
+    refute_received {:elzoo_mcp_result, _, _, _}
+
+    # The bound pairing sends once and completes.
+    pid = owner(sa, aa, ctx)
+    assert {:completed, %{content: [%{"text" => "echo:p"}]}} = McpClient.call_tool(sa, aa, pid)
+    assert count(requests(), "tools/call") == 1
   end
 
   test "T26 ex_mcp is the exact pinned version and make_request/5 is exported (upstream drift guard)" do

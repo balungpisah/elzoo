@@ -2,11 +2,14 @@
 defmodule Elzoo.McpClient.Config do
   @moduledoc """
   Trusted construction Config built by `Elzoo.McpClient.configure/1`.
-  `credentials` is the injected credential Need; `seal_key` is process-local.
+  `credentials` is the injected credential Need; `seal_key` is process-local;
+  `runtime` is the run-time endpoint map of `Elzoo.McpClient.RuntimeBinding`
+  (else nil).
   Inspect shows only the binding module: the credential Need and seal never print.
   """
   @enforce_keys [
     :binding,
+    :runtime,
     :settings,
     :tenant,
     :credentials,
@@ -46,10 +49,11 @@ defmodule Elzoo.McpClient.Context do
   @moduledoc """
   The EffectIntent Adapter context: the session and the recipient Need, a
   trusted local process that receives each classified outcome by best-effort
-  mailbox delivery.
+  mailbox delivery; `key` is the intent key of the admission it is bound to
+  (`Elzoo.McpClient.context/3`), else nil.
   """
   @enforce_keys [:session, :recipient]
-  defstruct @enforce_keys
+  defstruct [:session, :recipient, key: nil]
 
   defimpl Inspect do
     def inspect(%{session: session}, opts),

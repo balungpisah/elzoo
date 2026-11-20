@@ -14,11 +14,41 @@ real server).
   fixes the server identity, the one allowlisted endpoint URL and its network policy
   (`:loopback` accepts only `127.0.0.1`, `localhost` and `::1`; `:private` and
   `:public` require `https`). All enter the intent key.
+- Runtime endpoint mode: `Elzoo.McpClient.RuntimeBinding` is the one compiled binding
+  that fixes no endpoint (its own `id`, provider account `"mcp:runtime"`, the same
+  failure table and no-send attestations, and a fixed recovery grace of 60,000 ms).
+  `configure/1` takes it only together with
+  `runtime: %{server, endpoint, network, addresses}`; either one without the other is
+  `{:error, :configuration}`. `server` is the 1..128-byte server text; `endpoint`
+  follows the endpoint rule for `network`, which is `:public` (`https`, non-loopback
+  host) or `:loopback` (evidence support only, not an egress policy); `addresses` are
+  1..32 distinct `:inet` 4- or 8-tuples that the host checked. The transport gives
+  ex_mcp a `:dns_resolver` that answers exactly those addresses for the endpoint host
+  (compared after ASCII lowercasing) and `{:error, :nxdomain}` for any other host; DNS
+  is never consulted. ex_mcp still checks the whole answer for the network and
+  connects to its smallest address; an answer it refuses is `refused{target_refused}`
+  before any byte. The `:public` option list is otherwise the build-time one.
+  The intent identity is `[tenant, "mcp:runtime", "mcp-client-runtime", "tools/call",
+  digest]` where `digest` is `"rt1:"` and the lowercase hex SHA-256 of
+  `<<byte_size(server)::32, server, byte_size(endpoint)::32, endpoint,
+  byte_size(ref)::32, ref>>` (always 68 bytes), so two runtime servers, or one server
+  at two endpoints, never share an intent key. The build-time identity stays
+  `[tenant, provider_account, id, operation, ref]`. `list_tools/1` reports the
+  runtime `server`. Every runtime intent shares the one `RuntimeBinding` descriptor
+  digest, so a runtime owner's Adapter context must be bound to its admission:
+  `context(session, admission, recipient)` returns `{:ok, context}` only when the
+  session's Config gives that admission's identity and intent key, and the Adapter
+  sends only for a request with that key. A context bound to another admission, or a
+  runtime context from `context/2`, is `unknown{adapter_error}` before any send. The
+  `Context` struct is not opaque: the Adapter checks the key it carries, not that
+  `context/3` built it, so host code that edits a context's session or key bypasses
+  the pairing.
 - `Elzoo.McpClient.configure/1` — `binding`, `tenant`, `credentials` (the credential
   Need: a zero-arity function returning `{:ok, bearer_token}`), `protocol_mode`
   (`:modern_only`, `:legacy_only`, `:prefer_modern`), `call_timeout_ms`,
   `handshake_timeout_ms`, `max_request_bytes`, `max_response_bytes`, `max_pages`,
-  `max_tools`, `max_descriptor_bytes`. Nothing else is accepted; no hot update.
+  `max_tools`, `max_descriptor_bytes`, and `runtime` with `RuntimeBinding` only.
+  Nothing else is accepted; no hot update.
 - `connect(config, dynamic_supervisor)` / `close(session)` — the `ExMCP.Client` runs
   under the caller's supervisor as `:temporary`.
 - `list_tools(session)` — `{:ok, %{server, protocol_version, tools, truncated}}`; each
@@ -31,7 +61,9 @@ real server).
   exactly `{"version": 1, "tool", "arguments", "release"}`. The release reference is
   shape-checked (1..256 of `[A-Za-z0-9._:/@-]`) and recorded in the declaration, never
   verified here. The caller's discovery snapshot may only narrow admission.
-- `context(session, recipient)` — the EffectIntent Adapter context;
+- `context(session, recipient)` — the EffectIntent Adapter context (build-time
+  bindings); `context(session, admission, recipient)` — the context bound to one
+  admission's intent key (required in runtime mode, accepted for either);
   `call_tool(session, admission, owner)` dispatches through the owner and returns the
   outcome.
 
@@ -77,8 +109,9 @@ at least 24 bytes and is not a substring of any Adapter-emitted fixed string
 (`Elzoo.McpClient.Credential.fixed/0`: every literal of at least 24 bytes in this
 Piece's compiled modules, error texts and module/struct names included; a test
 enumerates them from the compiled source so a new literal cannot slip past) nor of the
-binding's configured strings (server identity, endpoint, provider account, binding id
-and module name); otherwise the auth provider refuses it before any send, which is
+binding's configured strings (server identity, endpoint URL and host, provider account,
+binding id and module name; in runtime mode the `runtime` server, endpoint URL and
+host); otherwise the auth provider refuses it before any send, which is
 `refused{credentials_unavailable}` (at connect or at a call). Every token the provider
 hands to ex_mcp is first recorded in the session's private ledger (a process that only
 records and redacts, never returns a token, keeps the tokens in a `:private` ETS table
@@ -155,11 +188,18 @@ data is the result by design and is redacted.
 
 Telemetry `planned` (no Elzoo events; ex_mcp's upstream `[:ex_mcp, ...]` events and
 debug logs reach consumer handlers, the consumer's responsibility). Config `supported`
-(build-time binding and construction options; no hot update). Control `not_applicable`
+(build-time binding, or the runtime endpoint map with `RuntimeBinding`, and
+construction options; no hot update). Control `not_applicable`
 beyond `close/1` (in-flight calls end `unknown`; no pause or drain).
 
 ## Limits
 
 One transport; no stdio (that slice belongs with `runtime/os-isolation`), OAuth,
 resources, prompts, subscriptions, tasks or sampling; no claim about what a tool does;
-no TLS or public endpoint in the evidence; content is not durably retained.
+no TLS or public endpoint in the evidence; content is not durably retained. Runtime
+mode: the addresses are as fresh as the host's check, and a reconnect needs new ones
+(a new `configure/1`); the `:loopback` runtime network is evidence support, not an
+egress policy; no run-time change of a configured endpoint. The ex_mcp facts it
+relies on (`TargetPolicy.resolve/2` with `:dns_resolver`, Mint never following a
+redirect on the `BoundedClient` path) are pinned observations of `@moduledoc false`
+code at 1.8.1, held by drift tests.
