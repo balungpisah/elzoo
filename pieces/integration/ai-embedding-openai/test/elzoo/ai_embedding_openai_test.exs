@@ -503,7 +503,9 @@ defmodule Elzoo.AiEmbedding.OpenAITest do
 
     on_exit(fn -> :telemetry.detach("elz080-e7") end)
     req = request(%{"inputs" => [secret_input], "dimensions" => 8})
+    previous = Logger.level()
     Logger.configure(level: :debug)
+    on_exit(fn -> Logger.configure(level: previous) end)
 
     log =
       capture_log([level: :debug], fn ->
@@ -521,7 +523,6 @@ defmodule Elzoo.AiEmbedding.OpenAITest do
         end
       end)
 
-    Logger.configure(level: :warning)
     refute log =~ @key
     refute log =~ secret_input
 

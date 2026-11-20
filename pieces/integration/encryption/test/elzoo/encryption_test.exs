@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.EncryptionTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   import ExUnit.CaptureLog
   import Bitwise
   alias Elzoo.Encryption
