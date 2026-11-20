@@ -361,6 +361,34 @@ defmodule Elzoo.McpRuntimeTest do
     end
 
     assert McpRuntime.configure(%{}) == {:error, :configuration}
+
+    # A policy struct that egress-policy did not build.
+    forged = struct(EgressPolicy, hosts: [@host], ports: [443])
+    assert McpRuntime.configure(opts(v, policy: forged)) == {:error, :configuration}
+
+    # Invalid UTF-8 is egress-policy's :malformed, before any Need.
+    {fun, counter} = resolver({:ok, @public})
+    bad_utf8 = configured(v, url: @url <> <<0xFF>>, resolver: fun)
+    assert McpRuntime.admit(bad_utf8) == {:error, {:egress, :malformed}}
+    assert :counters.get(counter, 1) == 0
+
+    # Step 3 refusal: a 513-byte URL passes egress (up to 2048 bytes) and the
+    # check, and the ready client refuses it (endpoints up to 512 bytes).
+    long = @url <> "/" <> String.duplicate("p", 512 - byte_size(@url))
+    assert byte_size(long) == 513
+    {fun, counter} = resolver({:ok, @public})
+    assert {:ok, _} = EgressPolicy.resolve(long, policy(), fun)
+    counts(v)
+    clients = mcp_clients()
+
+    assert McpRuntime.admit(configured(v, server: "gamma", url: long, resolver: fun)) ==
+             {:error, :configuration}
+
+    assert :counters.get(counter, 1) == 2
+    assert counts(v) == {1, 1}
+    assert mcp_clients() == clients
+    {:ok, _} = McpRuntime.admit(configured(v, server: "gamma", url: binary_part(long, 0, 512)))
+    assert counts(v) == {1, 1}
     assert McpRuntime.admit(:none) == {:error, :configuration}
     assert {:ok, _} = McpRuntime.configure(opts(v, server: String.duplicate("s", 128)))
     assert counts(v) == {0, 0}
@@ -416,6 +444,8 @@ defmodule Elzoo.McpRuntimeTest do
     {ca, a} = admitted(v)
     {cb, b} = admitted(v, server: "beta", url: @url_b)
     {ct, t} = admitted(v, tenant: "tenant-b")
+    # Same tenant and server text, another URL.
+    {_, u} = admitted(v, url: @url_b)
 
     decl = declaration(payload("echo", %{}), "call-1")
 
@@ -480,8 +510,17 @@ defmodule Elzoo.McpRuntimeTest do
 
     assert requests() == []
 
-    # A session of another config is not listed under this key.
-    for session <- [offline(b), offline(t), live] do
+    # A session of another config is not listed under this key: another
+    # server, tenant or URL (same tenant and server), or a build-time session.
+
+    {:ok, built} =
+      McpClient.configure(
+        binding: Server.binding(@url, :public, "alpha"),
+        tenant: "tenant-a",
+        credentials: fn -> {:ok, token("built")} end
+      )
+
+    for session <- [offline(b), offline(t), offline(u), offline(built), live] do
       assert_raise FunctionClauseError, fn -> McpRuntime.list_tools(ca, session) end
     end
   end
@@ -505,8 +544,12 @@ defmodule Elzoo.McpRuntimeTest do
 
     # A live session of another runtime config (loopback, configured directly
     # with the ready client) that sends its own admission once.
+    clients = mcp_clients()
+    ports = sockets()
     {_srv, live} = loopback(ctx, "alpha")
-    assert mcp_clients() >= 1
+    # Positive control of the counters that egress_first and credentials use.
+    assert mcp_clients() > clients
+    assert sockets() > ports
     snap = %{elem(McpClient.list_tools(live), 1) | server: "alpha"}
     {:ok, al} = McpClient.admission(live.config, decl, snap)
     assert al.key != aa.key

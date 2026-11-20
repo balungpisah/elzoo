@@ -20,7 +20,8 @@ shows the tenant and the server text only.
   - `server`: the 1..128-byte server text;
   - `url`: the tenant's URL. A query is `:configuration` here, because the ready
     client refuses one; every other URL rule is the egress policy's, at `admit/1`;
-  - `policy`: an `Elzoo.EgressPolicy.policy/1` value;
+  - `policy`: an `Elzoo.EgressPolicy.policy/1` value (a struct with other fields is
+    `:configuration`);
   - `resolver`: the egress resolver Need (one argument);
   - `credential`: `%{ref: binary, scope: binary}`;
   - `secrets`: a one-argument function that returns the trusted `Elzoo.Secrets`
@@ -44,15 +45,17 @@ shows the tenant and the server text only.
   3. `Elzoo.McpClient.configure/1` with `binding: Elzoo.McpClient.RuntimeBinding` and
      `runtime: %{server: server, endpoint: url, network: :public, addresses:
      addresses}`, where `addresses` is the whole checked set. A refusal is
-     `{:error, :configuration}`.
+     `{:error, :configuration}`, for example a URL over the ready client's
+     512-byte endpoint bound (egress-policy admits up to 2048 bytes).
 
   `client_config` is the ready `%Elzoo.McpClient.Config{}`. Its endpoint host and port
   are the egress host and port (both parse the same URL), and the ready client
   reaches only the checked addresses.
 - `list_tools(config, session)` returns
   `%{{tenant, server} => {:ok, listing} | {:unavailable, reason}}`. `session` is a
-  ready session of a client config that `admit/1` gave for this config (same tenant,
-  server text and URL); any other session is a `FunctionClauseError`. The check
+  ready runtime session whose client config has this config's tenant, server text
+  and URL, as the one `admit/1` gives; any other session (another tenant, server
+  text or URL, or a build-time session) is a `FunctionClauseError`. The check
   before the call runs first; `reason` is `:credentials_expired`,
   `:credentials_unavailable` or the ready client's finite reason. `listing` is the
   unchanged result of the ready `list_tools/1`.
@@ -68,10 +71,14 @@ returns the `ref` with the admission), `context(session, admission, recipient)` 
 `call_tool/3`. A runtime session needs the context bound to its admission
 (`context/3`); `context/2` and a context bound to another admission are refused by
 the ready Adapter as `unknown{adapter_error}` before any send. So a session of
-another runtime config cannot execute an intent admitted under this one. The intent
-identity is the ready runtime identity: tenant, `"mcp:runtime"`,
-`"mcp-client-runtime"`, `"tools/call"` and the 68-byte `"rt1:"` digest of server,
-endpoint and `ref`.
+another runtime config, one with another tenant, server text or URL, cannot execute
+an intent admitted under this one. The intent identity is the ready runtime
+identity: tenant, `"mcp:runtime"`, `"mcp-client-runtime"`, `"tools/call"` and the
+68-byte `"rt1:"` digest of server, endpoint and `ref`. The credential reference, the
+addresses and the bounds are not in it: two configs that differ only there are the
+same server under one key, so a session of a config admitted again (new addresses)
+can recover an intent of the earlier one, and keeping one credential per
+`{tenant, server}` is the host's duty.
 
 **Errors** are the fixed atoms and tuples above and never echo the URL, host, token
 or reference. The Piece emits no telemetry and no log of its own.
@@ -118,6 +125,9 @@ Addresses are as fresh as the admission; after a disconnect the host admits agai
 duties, held by ELZ-282's drift tests. There is no live public endpoint in the
 evidence. One tenant credential per server (no per-person lists). The check before
 the call and the Need are two samples of the Secrets resolver; a rotation between
-them is possible. The ready client's Adapter context is not opaque: host code that
-edits a context's session or key bypasses the pairing. No claim about what a tool
+them is possible. The pairing and the `list_tools/2` match tie tenant, server text and
+URL only: configs that differ only in credential reference, addresses or bounds share
+the intent identity, so one credential per `{tenant, server}` is the host's duty. The
+ready client's Adapter context is not opaque: host code that edits a context's
+session or key bypasses the pairing. No claim about what a tool
 does.

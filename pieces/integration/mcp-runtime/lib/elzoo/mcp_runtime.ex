@@ -64,7 +64,7 @@ defmodule Elzoo.McpRuntime do
          true <- Enum.all?(@keys, &(&1 in keys)),
          true <- Enum.all?(keys, &(&1 in @keys or &1 in @bounds)),
          true <- is_binary(opts[:url]) and not query?(opts[:url]),
-         true <- is_struct(opts[:policy], EgressPolicy),
+         %EgressPolicy{hosts: %MapSet{}, ports: %MapSet{}} <- opts[:policy],
          true <- is_function(opts[:resolver], 1) and is_function(opts[:secrets], 1),
          %{ref: ref, scope: scope} = request when map_size(request) == 2 <- opts[:credential],
          true <- not is_struct(request) and is_binary(ref) and is_binary(scope),
@@ -172,9 +172,9 @@ defmodule Elzoo.McpRuntime do
   end
 
   @doc """
-  Lists the tools of the server through a session of a client config that
-  `admit/1` gave for this config (same tenant, server text and URL; any other
-  session is a `FunctionClauseError`):
+  Lists the tools of the server through a runtime session whose client config
+  has this config's tenant, server text and URL, as `admit/1` gives it (any
+  other session is a `FunctionClauseError`):
   `%{{tenant, server} => {:ok, listing} | {:unavailable, reason}}`. The
   credential check runs first; `listing` is the unchanged result of
   `Elzoo.McpClient.list_tools/1`.
