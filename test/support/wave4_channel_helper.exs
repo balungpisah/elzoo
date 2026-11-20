@@ -4,6 +4,31 @@ Code.require_file(
 
 Code.require_file(Path.expand("../../examples/support/wave4_channel.ex", __DIR__))
 
+defmodule Elzoo.Wave4ChannelTest.EventWaitReader do
+  use GenServer
+
+  def start_link(result, limit), do: GenServer.start_link(__MODULE__, {result, limit})
+
+  def init({result, limit}), do: {:ok, %{result: result, limit: limit, calls: 0}}
+
+  def calls(reader), do: :sys.get_state(reader).calls
+
+  def put_result(reader, result) do
+    :sys.replace_state(reader, fn state -> %{state | result: result} end)
+    :ok
+  end
+
+  def handle_call({:event_waits, _scope, _limits}, _from, %{calls: calls, limit: limit} = state)
+      when calls < limit do
+    {:reply, {:ok, state.result}, %{state | calls: calls + 1}}
+  end
+
+  def handle_call({:event_waits, _scope, _limits}, _from, state),
+    do: {:reply, {:error, :read_limit}, state}
+
+  def handle_call(_request, _from, state), do: {:reply, {:error, :unsupported}, state}
+end
+
 defmodule Elzoo.Wave4ChannelTestHelper do
   alias Ecto.Adapters.SQL
   alias Elzoo.{DurableUnit, DynamicUnits, Lease, RunApprovalRelease}
