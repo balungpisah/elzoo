@@ -11,7 +11,8 @@ defmodule Elzoo.TokenVerify do
   @max_int 9_223_372_036_854_775_807
   @max_token 8192
   @algs ["EdDSA", "RS256"]
-  @forbidden ["jwk", "jku", "x5u", "x5c", "x5t", "x5t#S256", "crit"]
+  # b64 too: jose 1.11.13 honours "b64": false without crit, which would change the signed input.
+  @forbidden ["jwk", "jku", "x5u", "x5c", "x5t", "x5t#S256", "crit", "b64"]
   @members %{"EdDSA" => ["crv", "kty", "x"], "RS256" => ["e", "kty", "n"]}
   @min_modulus Integer.pow(2, 2047)
   @max_modulus Integer.pow(2, 8192)
@@ -147,7 +148,9 @@ defmodule Elzoo.TokenVerify do
   defp public?("EdDSA", {:jose_jwk_kty_okp_ed25519, <<_::256>>}), do: true
 
   defp public?("RS256", {:jose_jwk_kty_rsa, {:RSAPublicKey, n, e}}),
-    do: is_integer(n) and n >= @min_modulus and n < @max_modulus and is_integer(e) and e > 0
+    do:
+      is_integer(n) and n >= @min_modulus and n < @max_modulus and is_integer(e) and e >= 3 and
+        rem(e, 2) == 1
 
   defp public?(_, _), do: false
 

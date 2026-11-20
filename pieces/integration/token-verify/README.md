@@ -18,7 +18,7 @@ of:
 - `keys`: 1..16 atom-keyed maps with exactly `kid` (1..128 printable ASCII
   bytes, unique), `alg` (`"EdDSA"` or `"RS256"`) and `jwk`, a public JWK map
   with exactly `kty`, `crv`, `x` (OKP Ed25519) for EdDSA or `kty`, `n`, `e`
-  (RSA, 2048..8192-bit modulus) for RS256. Private members, another key type
+  (RSA, 2048..8192-bit modulus, odd exponent of at least 3) for RS256. Private members, another key type
   or curve, or a key that does not match its `alg` are refused.
 - `leeway_s`: integer `0..300`.
 - `subject`: the host's account linking, called as
@@ -40,7 +40,9 @@ first failing step decides:
    three non-empty unpadded base64url segments; else `:malformed`.
 2. The protected header is a duplicate-free JSON object with `alg` `"EdDSA"`
    or `"RS256"` and a string `kid`, and none of `jwk`, `jku`, `x5u`, `x5c`,
-   `x5t`, `x5t#S256` or `crit`; else `:malformed`. A header key is never used.
+   `x5t`, `x5t#S256`, `crit` or `b64`; else `:malformed`. A header key is
+   never used. `b64` is refused beyond the issue's list because jose 1.11.13
+   honours `"b64": false` without `crit`, which would change the signed input.
 3. A `kid` that is not configured is `:unknown_kid`. A header `alg` different
    from that key's `alg` is `:invalid_signature`. Only that key verifies, with
    `JOSE.JWS.verify_strict(key, [key.alg], token)`; any other result is
@@ -118,8 +120,8 @@ for another audience, and verifies an API key and a wrong one.
   fail.
 - Upstream: jose 1.11.13 `verify_strict/3`, `peek_protected/1` and
   `from_map/1`. Drift tests call jose directly: it refuses `alg: none` and an
-  HS256 token keyed with the RSA public PEM, and accepts EdDSA and RS256 with
-  their own keys. OTP 29.1.2 `:crypto.mac/4` and `:crypto.hash_equals/2`;
+  HS256 token keyed with the RSA public PEM, accepts EdDSA and RS256 with
+  their own keys, and honours `"b64": false` without `crit`. OTP 29.1.2 `:crypto.mac/4` and `:crypto.hash_equals/2`;
   jason 1.4.5 ordered objects.
 - No Cure law: the decisions are ordered checks around jose and OTP calls.
 

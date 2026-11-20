@@ -106,7 +106,13 @@ defmodule Elzoo.TokenVerifyTest do
   # Runs one verification and asserts that the result and any captured log hold none of the secrets.
   defp run(fun, secrets) do
     {result, log} = with_log(fun)
-    for secret <- secrets, do: assert(not String.contains?(inspect(result) <> log, secret))
+    raw = :erlang.term_to_binary(result)
+
+    for secret <- secrets do
+      assert not String.contains?(inspect(result) <> log, secret)
+      assert :binary.match(raw, secret) == :nomatch
+    end
+
     assert log == ""
     result
   end
@@ -264,6 +270,17 @@ defmodule Elzoo.TokenVerifyTest do
 
       assert {false, _, _} =
                JOSE.JWS.verify_strict(JOSE.JWK.from_map(public(ctx.ed_b)), ["EdDSA"], ed)
+
+      # jose honours "b64": false without crit (RFC 7797 requires crit), so the Adapter refuses b64.
+      # At 1.11.13 it signs over the header segment and the decoded payload bytes; with valid claims,
+      # only the b64 refusal stops such a token.
+      header = b64(~s({"alg":"EdDSA","kid":"ed-a","b64":false}))
+      raw = Jason.encode!(claims())
+      segment = b64(raw)
+      unencoded = header <> "." <> segment <> "." <> b64(sign(ctx.ed_a, header <> "." <> raw))
+      ed_a = JOSE.JWK.from_map(public(ctx.ed_a))
+      assert {true, ^raw, _} = JOSE.JWS.verify_strict(ed_a, ["EdDSA"], unencoded)
+      assert TokenVerify.verify_jwt(unencoded, jwt_config(ctx), @now) == {:error, :malformed}
     end
 
     test "a token whose alg differs from the named key's alg is invalid_signature", ctx do
@@ -285,7 +302,9 @@ defmodule Elzoo.TokenVerifyTest do
             {"x5c", ["MIIB"]},
             {"x5t", "abc"},
             {"x5t#S256", "abc"},
-            {"crit", ["exp"]}
+            {"crit", ["exp"]},
+            {"b64", false},
+            {"b64", true}
           ] do
         header = %{"alg" => "EdDSA", "kid" => "ed-a", member => value}
         assert jwt(token(ctx.ed_a, header, claims()), config) == {:error, :malformed}, member
@@ -506,6 +525,9 @@ defmodule Elzoo.TokenVerifyTest do
         assert jwt(ed(ctx, claims(%{"iat" => epoch + 1})), config) == {:error, :not_yet_valid}
         assert {:ok, _} = jwt(ed(ctx, claims(%{"nbf" => epoch})), config)
         assert jwt(ed(ctx, claims(%{"nbf" => epoch + 1})), config) == {:error, :not_yet_valid}
+        # Expiry is decided before not-yet-valid.
+        early_and_late = claims(%{"exp" => 0, "iat" => epoch + 1, "nbf" => epoch + 1})
+        assert jwt(ed(ctx, early_and_late), config) == {:error, :expired}
       end
     end
 
@@ -551,6 +573,8 @@ defmodule Elzoo.TokenVerifyTest do
       config = jwt_config(ctx)
       bad = claims(%{"iss" => "x", "aud" => "y", "exp" => 1})
       assert jwt(ed(ctx, bad), config) == {:error, :bad_issuer}
+      # Claim types are decided before the issuer.
+      assert jwt(ed(ctx, %{bad | "exp" => 1.0}), config) == {:error, :malformed}
       assert jwt(ed(ctx, Map.put(bad, "iss", @issuer)), config) == {:error, :bad_audience}
     end
   end
@@ -883,6 +907,8 @@ defmodule Elzoo.TokenVerifyTest do
         keys: [%{a | kid: "k\n"}],
         keys: [%{a | kid: "ké"}],
         keys: [%{a | jwk: %{"kty" => "OKP", "crv" => "Ed25519", "x" => "AAAA"}}],
+        keys: [%{c | jwk: %{c.jwk | "e" => "AQ"}}],
+        keys: [%{c | jwk: %{c.jwk | "e" => "AQAA"}}],
         leeway_s: 301,
         leeway_s: -1,
         leeway_s: 1.0,
