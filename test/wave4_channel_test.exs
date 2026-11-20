@@ -9993,7 +9993,7 @@ defmodule Elzoo.Wave4ChannelTest do
   end
 
   @tag :capacity_headroom
-  test "v2 one-over headroom refuses fresh primary and both primary/reply ASK releases" do
+  test "v2 one-over headroom refuses fresh primary admission" do
     fixture = capacity_reply_fixture([])
     {primary_listener, _reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
     trace_native_hash(fixture.native.task_supervisor)
@@ -10020,6 +10020,11 @@ defmodule Elzoo.Wave4ChannelTest do
                )
              )
 
+    assert take_hash_calls() == []
+  end
+
+  @tag :capacity_headroom
+  test "v2 one-over headroom refuses pending primary ASK release" do
     fixture = capacity_reply_fixture([:input, :release])
     {primary_listener, _reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
     trace_native_hash(fixture.native.task_supervisor)
