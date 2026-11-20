@@ -3,6 +3,7 @@
 import copy
 import importlib.util
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -30,14 +31,22 @@ def make_repo(root, scenario):
     sh(repo, "config", "user.email", "t@example.invalid")
     sh(repo, "config", "user.name", "t")
     (repo / "a").write_text("a\n")
-    sh(repo, "add", "a")
+    if scenario.startswith("planned"):
+        write_planned_index(repo, "Later.", added=False)
+    sh(repo, "add", "-A")
     sh(repo, "commit", "-qm", "base")
     if scenario == "root":
         return repo, sh(repo, "rev-parse", "HEAD"), None
     sh(repo, "switch", "-qc", "pr")
     # ELZ-071: scenarios whose pull request changes documentation paths (the default changes the file "b").
     pr_files = {"docs": ["docs/b.md"], "docs-code": ["docs/b.md", "scripts/x.py"], "docs-consuming": ["docs/consuming.md"],
-                "docs-ledger": ["LEDGER.md"], "docs-rename-out": ["scripts/a.md"]}.get(scenario, ["b"])
+                "docs-ledger": ["LEDGER.md"], "docs-rename-out": ["scripts/a.md"], "planned": ["tasks/ELZ-1.md"],
+                "planned-edited": ["tasks/ELZ-1.md"]}.get(scenario, ["b"])
+    if scenario.startswith("planned"):
+        # ELZ-277: a publication that adds one planned catalogue row and its ledger row ("planned-edited" also edits
+        # the existing row, which keeps the full check).
+        write_planned_index(repo, "Edited." if scenario == "planned-edited" else "Later.", added=True)
+        sh(repo, "add", "-A")
     for name in pr_files:
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text("b\n")
@@ -68,6 +77,17 @@ def make_repo(root, scenario):
     else:
         sh(repo, "merge", "-q", "--no-ff", "pr", "-m", "merge")
     return repo, sh(repo, "rev-parse", "HEAD"), pr_head
+
+
+def write_planned_index(repo, reason, added):
+    row = "| `{}` | {} | {} (planned) | — | none claimed | unassessed | {} |\n"
+    old = {"id": "state/m", "summary": "M", "disposition": "defer", "phase": "x", "status": "deferred", "reason": reason}
+    new = {"id": "domain/x", "summary": "X", "disposition": "own", "phase": "P4", "status": "planned", "reason": "New."}
+    (repo / "registry").mkdir(exist_ok=True)
+    (repo / "registry/catalogue.json").write_text(json.dumps({"schema_version": 1, "entries": [new, old] if added else [old]}))
+    (repo / "LEDGER.md").write_text("# Piece ledger\n\n| --- | --- | --- | --- | --- | --- | --- |\n" +
+                                    (row.format("domain/x", "planned", "own", "New.") if added else "") +
+                                    row.format("state/m", "deferred", "defer", reason))
 
 
 class FakeApi:
@@ -1146,6 +1166,23 @@ class DocsOnlyDecision(unittest.TestCase):
         lines = []
         skip.main(env, run_git, full, out=lines.append)
         self.assertTrue(lines[0].startswith("ELZOO PUSH CHECK SKIPPED (identical tree; exact-head full run passed): "))
+
+    def test_a_planned_only_publication_skips_and_an_edited_row_needs_the_full_marker(self):
+        # The classifier reads the catalogue and ledger blobs from the checkout (here the scenario repository).
+        for name, skips in (("planned", True), ("planned-edited", False)):
+            with self.subTest(name=name):
+                env, run_git, second = self.scenario(name)
+                cwd = os.getcwd()
+                os.chdir(run_git("rev-parse", "--show-toplevel"))
+                try:
+                    if skips:
+                        verdict, _reason, details = skip.decide(env, run_git, self.api(second))
+                        self.assertEqual((True, "docs-only"), (verdict, details["mode"]))
+                    else:
+                        with self.assertRaisesRegex(skip.Full, "not documentation only"):
+                            skip.decide(env, run_git, self.api(second))
+                finally:
+                    os.chdir(cwd)
 
     def test_a_code_change_in_the_merge_needs_the_full_marker(self):
         for name in ("docs-code", "docs-consuming", "docs-ledger", "docs-rename-out", "merge"):
