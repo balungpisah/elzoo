@@ -11090,37 +11090,22 @@ defmodule Elzoo.Wave4ChannelTest do
 
     before_association = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
     assert {:ok, %{revision: head_before}} = before_association
-    token = :wave4_reply_association_confirmation
 
-    assert :ok =
-             Elzoo.DurableLog.PostgresHarness.hook(
-               fixture.command_store,
-               :inject,
-               [:append, {:pause, token, :after_commit_reply}]
-             )
+    {confirm_store, confirm_probe} =
+      Elzoo.Wave4ChannelTest.ReadProbe.attach(fixture.command_store)
 
-    caller = Task.async(fn -> Wave4ChannelExample.advance(fixture.host) end)
+    Elzoo.Wave4ChannelTest.ReadProbe.transform(confirm_probe, :read, fn
+      _result, 1 -> {:error, :unavailable}
+      result, _count -> result
+    end)
 
-    writer =
-      wait_for_paused(
-        fixture.controller,
-        token,
-        System.monotonic_time(:millisecond) + 5_000
-      )
+    :sys.replace_state(fixture.host, fn host_state ->
+      input_handle = %{host_state.handles.input | store: confirm_store}
+      %{host_state | handles: %{host_state.handles | input: input_handle}}
+    end)
 
-    assert writer.operation == :append
-
-    assert :ok =
-             Elzoo.DurableLog.PostgresHarness.hook(
-               fixture.command_store,
-               :inject,
-               [:read, :unavailable]
-             )
-
-    assert {:committed, _} =
-             Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :release, [token])
-
-    assert {:unknown, :reply_association} = Task.await(caller, 10_000)
+    assert {:unknown, :reply_association} = Wave4ChannelExample.advance(fixture.host)
+    assert :read in Elzoo.Wave4ChannelTest.ReadProbe.calls(confirm_probe)
 
     reply_operation =
       Elzoo.Wave4ChannelTestHelper.reply_operation(fixture.profile, reply_event["event_id"])
