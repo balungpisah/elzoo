@@ -66,7 +66,8 @@ defmodule Elzoo.CureConsumerCaseHelperTest do
     on_exit(fn -> File.rm_rf!(Path.dirname(record)) end)
 
     # The consumer starts a port child (OTP gives it a session of its own) with a background grandchild,
-    # writes its own OS PID and every descendant's (PID, parent, command), then blocks.
+    # writes its own OS PID and every descendant's (PID, parent, command), then keeps writing output: the
+    # end of its output pipe would end it before its children.
     destination =
       consumer!(
         String.replace(
@@ -77,7 +78,8 @@ defmodule Elzoo.CureConsumerCaseHelperTest do
           tree = fn ->
             {table, 0} = System.cmd("ps", ["-A", "-o", "pid=,ppid=,comm="])
             rows = for line <- String.split(table, "\n", trim: true),
-                       [pid, ppid, comm | _] <- [String.split(line)], comm != "ps", do: {pid, ppid, comm}
+                       [pid, ppid, comm | _] <- [String.split(line)], Path.basename(comm) != "ps",
+                       do: {pid, ppid, Path.basename(comm)}
             seen = Enum.reduce(1..10, MapSet.new([root]), fn _, seen ->
               Enum.reduce(rows, seen, fn {pid, ppid, _}, seen ->
                 if ppid in seen, do: MapSet.put(seen, pid), else: seen
@@ -92,7 +94,7 @@ defmodule Elzoo.CureConsumerCaseHelperTest do
           end)
 
           File.write!(RECORD, Enum.map_join(rows, "\n", fn {pid, ppid, comm} -> "#{pid} #{ppid} #{comm}" end))
-          Process.sleep(:infinity)
+          Stream.repeatedly(fn -> IO.write("."); Process.sleep(2) end) |> Stream.run()
           """,
           "RECORD",
           inspect(record)

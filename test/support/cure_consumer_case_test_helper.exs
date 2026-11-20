@@ -500,29 +500,54 @@ defmodule Elzoo.CureConsumerCase do
     output
   end
 
-  @doc """
-  ELZ-289: `System.cmd/3` (stderr merged into stdout, `:cd` and `:env` as there) for a consumer VM that the
-  calling test owns. If ExUnit kills the test, for example on its timeout, it then runs the test's
-  `on_exit` callbacks; the one registered here stops the consumer and its descendants. OTP starts each port
-  program in a session of its own, so the consumer's own port children are outside its process group: the
-  callback follows the OS process tree instead. After a normal exit the callback is replaced by a no-op.
-  """
-  def owned_cmd(command, args, opts) do
+  # ELZ-289: `System.cmd/3` (stderr merged into stdout, `:cd` and `:env` as there) for a consumer VM that the
+  # calling test owns. If ExUnit kills the test, for example on its timeout, it then runs the test's
+  # `on_exit` callbacks; the one registered here stops the consumer and its descendants. OTP starts each port
+  # program in a session of its own, so the consumer's own port children are outside its process group: the
+  # callback follows the OS process tree instead. The port belongs to an unlinked process, so the consumer's
+  # output pipe stays open until the tree is stopped (a closed pipe ends a writing consumer, and its children
+  # would then leave the tree). After a normal exit the callback is replaced by a no-op.
+  defp owned_cmd(command, args, opts) do
     env =
       for {name, value} <- Keyword.get(opts, :env, []),
           do: {String.to_charlist(name), if(value, do: String.to_charlist(value), else: false)}
 
-    port =
-      Port.open(
-        {:spawn_executable, System.find_executable(command)},
-        [:binary, :exit_status, :hide, :stderr_to_stdout, args: args, cd: opts[:cd], env: env]
-      )
+    caller = self()
 
-    {:os_pid, os_pid} = Port.info(port, :os_pid)
+    {holder, monitor} =
+      spawn_monitor(fn ->
+        port =
+          Port.open(
+            {:spawn_executable, System.find_executable(command)},
+            [:binary, :exit_status, :hide, :stderr_to_stdout, args: args, cd: opts[:cd], env: env]
+          )
+
+        {:os_pid, os_pid} = Port.info(port, :os_pid)
+        send(caller, {self(), :os_pid, os_pid})
+        send(caller, {self(), :result, collect_port(port, [])})
+      end)
+
+    os_pid =
+      receive do
+        {^holder, :os_pid, os_pid} -> os_pid
+        {:DOWN, ^monitor, :process, _, reason} -> exit(reason)
+      end
+
     ref = make_ref()
-    ExUnit.Callbacks.on_exit(ref, fn -> stop_process_tree(os_pid) end)
-    result = collect_port(port, [])
+
+    ExUnit.Callbacks.on_exit(ref, fn ->
+      stop_process_tree(os_pid)
+      Process.exit(holder, :kill)
+    end)
+
+    result =
+      receive do
+        {^holder, :result, result} -> result
+        {:DOWN, ^monitor, :process, _, reason} -> exit(reason)
+      end
+
     ExUnit.Callbacks.on_exit(ref, fn -> :ok end)
+    Process.demonitor(monitor, [:flush])
     result
   end
 
