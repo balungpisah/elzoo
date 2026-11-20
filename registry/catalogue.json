@@ -691,7 +691,8 @@
       "summary": "AES-256-GCM envelopes under versioned per-subject keys",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/integration/encryption/piece.json",
       "reason": "ELZ-273: OTP crypto only; keys from integration/secrets; key destruction is the crypto-shredding boundary for retention-erasure."
     },
     {
