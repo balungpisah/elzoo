@@ -8389,7 +8389,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/pii-redaction/piece.json",
-      "manifest_sha256": "728675cdf348e23e181d6e88a73c20c894316526211170e5c3da49c0a3704ad0"
+      "manifest_sha256": "3cd1269062b2644f400a02eac05fd78eb35ffb3e51399bcdaab8c85e0a08ec6d"
     },
     {
       "id": "state/retention-erasure",
