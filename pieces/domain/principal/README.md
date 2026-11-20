@@ -73,7 +73,7 @@ shows an escalation, a nested delegation, a revoked parent and the human gate.
 
 ## Grounding
 
-- Proof: Cure owns the kind decisions and the delegation subset rule. Selected
+- Proof: Cure owns the kind functions `delegable` and `human` and the delegation subset rule. Selected
   laws `granted_scopes_within_parent` and `granted_spaces_within_parent` (every
   granted label is held, for all lists), `granted_scopes_exact` and
   `granted_spaces_exact` (a granted delegation is the request, never an
