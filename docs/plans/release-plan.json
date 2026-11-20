@@ -8133,10 +8133,12 @@
     {
       "id": "integration/token-verify",
       "job": "ELZ-268",
-      "note": "Planned offline verification of pinned-key EdDSA/RS256 JWTs and prefixed keyed-digest API keys into a domain/principal with fixed redacted failures; reuses locked jose 1.11.13 and OTP crypto; no JWKS fetch, OIDC ceremony or session store.",
+      "note": "Offline, caller-timed verification into a domain/principal: a compact JWS bearer token of at most 8,192 bytes, header alg EdDSA or RS256 with a kid and no jwk, jku, x5u, x5c, x5t, x5t#S256, crit or b64, verified only by the configured key its kid names with that key's own algorithm through jose 1.11.13 verify_strict; strict duplicate-free claims, exact issuer and audience, exp, iat and nbf with 0..300 s leeway, then one host subject Need and an epoch check with auth_epoch equal to iat; or a prefixed API key whose canonical 32-byte secret is compared by HMAC-SHA-256 under a digest-key Credential with :crypto.hash_equals before revocation, expiry and the epoch check. Fixed failure atoms, fixed-message ArgumentError for malformed configuration, redacted configs; no network, clock, key fetch, log or telemetry.",
       "baseline_status": "not in baseline (new row, ELZ-268)",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/token-verify/piece.json",
+      "manifest_sha256": "e24fb71dd6e866bccee63ab61a5f13cbce4302f6a586276d5afef85355f792c6"
     },
     {
       "id": "state/tenant-isolation",

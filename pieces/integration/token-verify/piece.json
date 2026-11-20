@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "id": "integration/token-verify",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": ["elixir", "otp", "jose", "jason"],
+  "dependencies": ["domain/principal", "integration/secrets"],
+  "contract": "Offline, caller-timed verification into a domain/principal: a compact JWS bearer token of at most 8,192 bytes, header alg EdDSA or RS256 with a kid and no jwk, jku, x5u, x5c, x5t, x5t#S256, crit or b64, verified only by the configured key its kid names with that key's own algorithm through jose 1.11.13 verify_strict; strict duplicate-free claims, exact issuer and audience, exp, iat and nbf with 0..300 s leeway, then one host subject Need and an epoch check with auth_epoch equal to iat; or a prefixed API key whose canonical 32-byte secret is compared by HMAC-SHA-256 under a digest-key Credential with :crypto.hash_equals before revocation, expiry and the epoch check. Fixed failure atoms, fixed-message ArgumentError for malformed configuration, redacted configs; no network, clock, key fetch, log or telemetry.",
+  "limits": [
+    "No JWKS fetch or key rotation, single-use jti, ES256 or other algorithms, JWE, OIDC ceremony, refresh, session store or identity provider; the host pins public keys and owns account linking through the subject Need.",
+    "Key-ID lookup timing is not constant: an unknown key ID and a wrong secret give the same result, but not the same time. Only the digest comparison is constant-time.",
+    "Signature verification is jose 1.11.13 behaviour, an upstream contract held by drift tests at the pinned version, not a local proof.",
+    "Secrecy is accidental-disclosure protection: no token, key, secret or digest-key byte is in a result, a raised message or captured log in the tested scenarios; no memory erasure, and a host Need may log what it receives.",
+    "Needs run synchronously and can block; the host bounds their execution. Time is the caller's now_unix_s; its accuracy is a host assumption.",
+    "Finite adversarial scenarios and negative controls, not proofs."
+  ],
+  "files": [
+    "examples/token_verify.exs",
+    "lib/elzoo/token_verify.ex",
+    "test/elzoo/token_verify_test.exs"
+  ],
+  "applications": ["crypto"],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/token_verify_test.exs",
+      "claim": "Listed scenarios pass: valid EdDSA and RS256 tokens and API key; alg none, HS256 keyed with the RSA public PEM, alg and key-type confusion, each forbidden header member including an attacker jwk and b64, missing, unknown and removed kid, key B naming key A; tampered, truncated and 8,192/8,193-byte tokens; signed and badly signed non-JSON, non-object and duplicate-key claims; bad time and string claims; time edges with leeway 0 and 300; issuer and audience mismatches; subject and API-key revocation, epochs and expiry, hidden before the digest match; raising and malformed Needs with call counts; API key shapes including a non-canonical secret; secrecy of results, raised messages, logs and Inspect; configuration bounds; jose drift tests; the checked example. Removing the alg allowlist, removing the forbidden-member check, trying every configured key and skipping the issuer check each make these tests fail (negative controls)."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jose",
+      "reference": "https://hexdocs.pm/jose/1.11.13/JOSE.JWS.html",
+      "claim": "Pinned jose 1.11.13: JOSE.JWS.peek_protected/1, JOSE.JWK.from_map/1 and JOSE.JWS.verify_strict/3 with a one-element algorithm list returning {true, raw payload, jws} only for a valid signature by that key; refusal of alg none and of an HS256 token keyed with the RSA public PEM, and its honouring of b64 false without crit, are held by drift tests at this version."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html#hash_equals/2",
+      "claim": "OTP 29.1.2 crypto HMAC-SHA-256 (:crypto.mac/4) and constant-time :crypto.hash_equals/2 for equal-length binaries."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html#decode/2",
+      "claim": "Pinned ordered-object decoding preserves object pairs for the recursive duplicate-key check and decodes integers and floats as distinct types."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host pins the issuer's genuine public keys, supplies an accurate now_unix_s, keeps the subject, digest_key and lookup Needs truthful (lookup stores HMAC-SHA-256 digests under the same digest key), sets current_epoch as its revocation mark in the same unit as iat, and does not log the token or key it passes in."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "The Adapter emits no events and no logs; the host owns instrumentation and must not log credentials."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time jwt_config (exactly issuer, audience, 1..16 pinned keys, leeway_s 0..300, subject Need) and api_key_config (exactly prefix, digest_key Need, lookup Need), validated with a fixed-message ArgumentError; time is a per-call operand. No hot update or global setting.",
+      "evidence": ["test/elzoo/token_verify_test.exs"]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle; revocation is the host's subject or lookup result and current_epoch."
+    }
+  }
+}
