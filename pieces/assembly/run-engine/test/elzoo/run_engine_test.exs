@@ -769,7 +769,9 @@ defmodule Elzoo.RunEngineTest do
           assert view(engine).phase == :waiting
           assert view(engine).request_count == 1
           send(task, :finish)
-          assert wait_for(engine, & &1.joins[1].closed).slots[{1, 0}].outcome == "completed"
+
+          assert wait_for(engine, &(&1.joins[1][:closed] == true)).slots[{1, 0}].outcome ==
+                   "completed"
         end
       end
     end
@@ -855,7 +857,7 @@ defmodule Elzoo.RunEngineTest do
         assert before.phase == if(rule == :pause, do: :paused, else: :terminal)
         assert before.outcome == if(rule == :finish, do: :out_of_budget, else: nil)
         send(task, :finish)
-        after_result = wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+        after_result = wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
         assert after_result.slots[{1, 0}].outcome == "completed"
         assert after_result.joins[1] == %{closed: true, outcome: :partial}
         assert after_result.request_count == 2
@@ -909,7 +911,7 @@ defmodule Elzoo.RunEngineTest do
       assert pending.slots[{3, 0}].outcome == "refused"
       refute pending.joins[1].closed
       send(task, :finish)
-      result = wait_for(engine, & &1.joins[1].closed)
+      result = wait_for(engine, &(&1.joins[1][:closed] == true))
       assert Enum.map(1..3, &result.slots[{&1, 0}].outcome) == ["completed", "refused", "refused"]
       assert Enum.all?(result.joins, fn {_, j} -> j.closed end)
       refute_receive {:local_started, _}
@@ -1302,7 +1304,7 @@ defmodule Elzoo.RunEngineTest do
         engine = start(c, directory: corrected)
 
         if stage == :result do
-          assert wait_for(engine, &(&1.slots[{1, 0}].phase == :settled)).slots[{1, 0}].outcome ==
+          assert wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled)).slots[{1, 0}].outcome ==
                    "completed"
 
           assert view(engine).request_count == 1
@@ -1632,10 +1634,10 @@ defmodule Elzoo.RunEngineTest do
 
       assert view(engine).slots[{1, 0}].phase == :running
       send(second, :finish)
-      partial = wait_for(engine, &(&1.slots[{1, 1}].phase == :settled))
+      partial = wait_for(engine, &(&1.slots[{1, 1}][:phase] == :settled))
       refute partial.joins[1].closed
       send(first, :finish)
-      completed = wait_for(engine, & &1.joins[1].closed)
+      completed = wait_for(engine, &(&1.joins[1][:closed] == true))
       assert completed.joins[1].outcome == :all
 
       assert {:ok, :applied} =
@@ -1688,7 +1690,7 @@ defmodule Elzoo.RunEngineTest do
         end
 
         key = if loss == :capacity, do: {1, 4}, else: {1, 0}
-        assert wait_for(engine, &(&1.slots[key].phase == :settled)).slots[key].outcome == "failed"
+        assert wait_for(engine, &(&1.slots[key][:phase] == :settled)).slots[key].outcome == "failed"
         {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
         join = DurableUnit.snapshot(unit).control.trackers[1].join |> Map.put(:now, fn -> 2_000 end)
         assert {:ok, branches} = Elzoo.Aggregation.status(join)
@@ -1846,7 +1848,7 @@ defmodule Elzoo.RunEngineTest do
 
         if authority == :changed, do: Agent.update(c.context, &%{&1 | authority: []})
         engine = start(c, bindings: bindings)
-        state = wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+        state = wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
 
         if authority == :unchanged do
           assert state.slots[{1, 0}].outcome == "completed"
@@ -3313,7 +3315,7 @@ defmodule Elzoo.RunEngineTest do
         c = fixture(pattern: {TestPattern, :sized, {kind, size}})
         engine = start(c)
         assert {:ok, :applied} = send_input(engine)
-        result = wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+        result = wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
         assert result.slots[{1, 0}].outcome == "completed" == allowed
         assert result.request_count == 1
         assert Enum.all?(rows(c), &(byte_size(&1.payload) <= 16_777_216))
@@ -4482,7 +4484,7 @@ defmodule Elzoo.RunEngineTest do
       refute_receive {:pattern_input, "root", %{"action_id" => "nested"}}, 100
 
       # Shared charge count: root request, inner request, inner finish, middle finish.
-      view = wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      view = wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
       assert view.request_count == 4
       assert view.generation_closed == false
 
@@ -4963,7 +4965,7 @@ defmodule Elzoo.RunEngineTest do
       wait_for(
         engine,
         fn view ->
-          not Map.has_key?(requests(c), 1) and view.slots[{1, 1}].phase == :settled
+          not Map.has_key?(requests(c), 1) and view.slots[{1, 1}][:phase] == :settled
         end,
         2_000
       )
@@ -5687,7 +5689,7 @@ defmodule Elzoo.RunEngineTest do
       engine = restart(c, engine, bindings: bindings)
       assert view(engine).slots[{2, 0}].outcome == "unknown"
       # A bounded wait: the parent must settle, it must not stay running.
-      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
       assert_receive {:pattern_input, "root", %{"action_id" => "nested"} = input}
       assert %{"outcome" => "completed", "schema_id" => "result", "payload" => ^payload} = input
       assert view(engine).slots[{1, 0}].outcome == "completed"
@@ -5715,7 +5717,7 @@ defmodule Elzoo.RunEngineTest do
       assert budget_status(c, "1:0") == %{committed: 0, reserved: 1}
 
       engine = restart(c, engine, bindings: bindings)
-      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
       # The child Budget still holds the lost action, the parent Budget the share.
       assert budget_status(c, "1:0") == %{committed: 0, reserved: 1}
       assert budget_status(c, "root") == %{committed: 0, reserved: 10}
@@ -5749,7 +5751,7 @@ defmodule Elzoo.RunEngineTest do
       assert {:ok, :applied} = send_input(engine)
       assert_receive {:effect_started, _lost, _}
       engine = restart(c, engine, bindings: bindings)
-      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
       # Open slots of the Run make progress in the drain that settled the parent.
       wait_for(engine, &settled?(&1, "a4"))
       assert [_] = outcome_records(c, "nested")
@@ -5822,7 +5824,7 @@ defmodule Elzoo.RunEngineTest do
       assert {:ok, :applied} = send_input(engine)
       assert_receive {:effect_started, _lost, _}
       engine = restart(c, engine, bindings: bindings)
-      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
       view = wait_for(engine, &(&1.outcome == :completed))
 
       # The slot of the grandchild's parent, inside the child, and the slot of the child, in the root.
@@ -6021,7 +6023,7 @@ defmodule Elzoo.RunEngineTest do
 
       # The child's second request is over the cap: the running parent is refused
       # out_of_budget and its child callable closes with it.
-      v = wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      v = wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
       assert v.slots[{1, 0}].outcome == "out_of_budget"
       callables = unit_state(c).control.callables
       assert callables["1:0"].closed == true
@@ -6218,7 +6220,7 @@ defmodule Elzoo.RunEngineTest do
       assert {:ok, :applied} = send_input(engine)
       assert_receive {:effect_started, _lost, _}
       engine = restart(c, engine, bindings: bindings)
-      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
       assert_receive {:pattern_input, "root", %{"action_id" => "nested"} = input}
       assert input["outcome"] == "failed"
       assert input["payload"]["reason"] == "nested_result_invalid"
@@ -6237,7 +6239,7 @@ defmodule Elzoo.RunEngineTest do
       assert_receive {:effect_started, _lost, _}
       engine = restart(c, engine, bindings: bindings)
       assert {:ok, :applied} = RunEngine.input(engine, "wake", wake(), verified())
-      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
       assert view(engine).slots[{1, 0}].outcome == "completed"
       assert [input] = outcome_records(c, "nested")
       assert input["payload"]["reason"] == "nested_completed"
@@ -6324,7 +6326,7 @@ defmodule Elzoo.RunEngineTest do
       assert expired[:actual] == nil
 
       engine = restart(c, engine, bindings: bindings)
-      wait_for(engine, &(&1.slots[{2, 0}].phase == :settled))
+      wait_for(engine, &(&1.slots[{2, 0}][:phase] == :settled))
       assert unit_state(c).control.callables["1:0"].closed
       assert view(engine).slots[{1, 0}].outcome == "expired"
       assert unit_state(c).slots[{1, 0}] == expired
@@ -6398,7 +6400,7 @@ defmodule Elzoo.RunEngineTest do
                  verified(%{occurrence: {3, 0}, verified_person: "person", actual: 0})
                )
 
-      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
       assert view(engine).slots[{1, 0}].outcome == "completed"
       assert unit_state(c).slots[{1, 0}][:actual] == nil
       # The lost entry is Expired: it left `reserved` and nothing was committed for it.
@@ -10573,7 +10575,7 @@ defmodule Elzoo.RunEngineTest do
       engine = start(c)
       assert {:ok, :applied} = send_input(engine)
       assert_receive {:effect_started, provider, _req}, 5_000
-      wait_for(engine, &(&1.slots[{1, 0}].phase == :running))
+      wait_for(engine, &(&1.slots[{1, 0}][:phase] == :running))
       state = unit_state(c)
       padded = pad_invocations(state, 64)
       id = String.duplicate("o", 160)
@@ -10699,7 +10701,7 @@ defmodule Elzoo.RunEngineTest do
       engine4 = start(c4)
       assert {:ok, :applied} = send_input(engine4)
       assert_receive {:effect_started, provider, _req}, 5_000
-      wait_for(engine4, &(&1.slots[{1, 0}].phase == :running))
+      wait_for(engine4, &(&1.slots[{1, 0}][:phase] == :running))
       padded4 = pad_invocations(unit_state(c4), 64)
 
       rec4 =
@@ -10902,7 +10904,9 @@ defmodule Elzoo.RunEngineTest do
       reader = reader_config(c)
       engine = start(c, bindings: bindings, result_reader: reader)
       assert {:ok, :applied} = send_input(engine)
-      assert wait_for(engine, &(&1.slots[{1, 0}].phase == :waiting)).slots[{1, 0}].phase == :waiting
+
+      assert wait_for(engine, &(&1.slots[{1, 0}][:phase] == :waiting)).slots[{1, 0}].phase ==
+               :waiting
 
       answer = %{
         "type" => "input",
@@ -11319,7 +11323,7 @@ defmodule Elzoo.RunEngineTest do
 
       ask_engine = start(ask, result_reader: reader_config(ask))
       assert {:ok, :applied} = send_input(ask_engine)
-      wait_for(ask_engine, &(&1.slots[{1, 0}].phase == :waiting))
+      wait_for(ask_engine, &(&1.slots[{1, 0}][:phase] == :waiting))
 
       assert {:pending, :not_completed} =
                RunEngine.result(ask_engine, result_scope(), result_limits())
@@ -11334,7 +11338,7 @@ defmodule Elzoo.RunEngineTest do
         start(approval, bindings: bindings, result_reader: reader_config(approval))
 
       assert {:ok, :applied} = send_input(approval_engine)
-      wait_for(approval_engine, &(&1.slots[{1, 0}].phase == :approval))
+      wait_for(approval_engine, &(&1.slots[{1, 0}][:phase] == :approval))
 
       assert {:pending, :not_completed} =
                RunEngine.result(approval_engine, result_scope(), result_limits())
