@@ -7795,6 +7795,13 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert {:unknown, :answer} = Elzoo.Wave4ChannelExample.advance(fixture.host)
 
+    assert {:ok, %{state: :pending, nonce: observed_primary_nonce}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [
+               primary_item.idempotency_key
+             ])
+
+    assert observed_primary_nonce == primary_item.nonce
+
     answer_head_before_reconciliation =
       Elzoo.Wave4ChannelTestHelper.command_head(fixture)
 

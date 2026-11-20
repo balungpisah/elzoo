@@ -3930,4 +3930,4 @@ Publication copy: [tasks/ELZ-266-fixed-two-source-root-channel.md](../../tasks/E
 
 **Product aims:** P13.
 
-**Acceptance:** Extend the existing root-channel consumer with a fixed two-source reply wait and corroborated reply hash, preserving v1 behavior. Bound CheckedCommand/resource use, recover original reply-first/primary-last acknowledgements, require real PostgreSQL and HTTP cases, and keep GET read-only.
+**Acceptance:** Extend the existing root-channel consumer with a fixed two-source v2 reply wait and corroborated retained-text hash while preserving immediate v1 behavior. Bound CheckedCommand/resource use, preserve pending-to-committed ASK result receipts, recover original reply-first/primary-last acknowledgements, require real PostgreSQL and HTTP cases, and keep GET read-only.

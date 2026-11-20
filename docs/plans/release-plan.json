@@ -7340,7 +7340,7 @@
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-266-fixed-two-source-root-channel.md"],
       "outputs": [],
-      "acceptance": "Extend the existing root-channel consumer with a fixed two-source reply wait and corroborated reply hash, preserving v1 behavior. Bound CheckedCommand/resource use, recover original reply-first/primary-last acknowledgements, require real PostgreSQL and HTTP cases, and keep GET read-only.",
+      "acceptance": "Extend the existing root-channel consumer with a fixed two-source v2 reply wait and corroborated retained-text hash while preserving immediate v1 behavior. Bound CheckedCommand/resource use, preserve pending-to-committed ASK result receipts, recover original reply-first/primary-last acknowledgements, require real PostgreSQL and HTTP cases, and keep GET read-only.",
       "product_aims": ["P13"],
       "issue": 608,
       "url": "https://github.com/balungpisah/elzoo/issues/608",

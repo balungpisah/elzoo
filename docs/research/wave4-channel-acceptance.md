@@ -190,8 +190,132 @@ is distinct from the historical hash above. No control mutation was committed.
 These controls show the named assertions detect the specific failures; they
 are not universal guarantees.
 
-This report covers the bounded ELZ-258 acceptance only. Level 4
-activation/replay/retention/gap Contract work remains unpublished. No streaming,
-provider-authentication, broker, subscriber-cursor or overall Wave 4 completion
-claim is made. The prior affected-gate result is historical; the final new
-affected gate is pending and was not run in this step.
+This is the historical ELZ-258 v1 acceptance record, not a current summary of
+later work. Its scope and gate counts above remain as recorded for that
+revision. ELZ-263/264/265 later added the v2 wait Contracts; the distinct
+ELZ-266 section below records the bounded two-source root composition and its
+evidence. Neither section establishes overall Wave 4 completion.
+
+## ELZ-266 — fixed two-source root-channel acceptance
+
+### Contract boundary and assumptions
+
+ELZ-263, ELZ-264 and ELZ-265 are the merged v2 Contracts for PatternStep,
+BotRunLifecycle and RunEngine event waits. ELZ-266 composes those Contracts in
+the existing root-channel consumer; it adds no Piece and preserves the ELZ-258
+immediate v1 path. This is finite consumer acceptance, not a generic event
+subscription, broker or provider guarantee.
+
+The v2 profile has fixed primary and reply targets and two separately signed
+loopback listeners with distinct source IDs, keys and admission closures. Both
+targets must be valid; an identical copy of the fixed target is accepted, but
+an arbitrary matched target is not. Requests use the literal
+`POST /elzoo/v1/messages` route. A MAC identifies the configured source; it does
+not authenticate a human. The host supplies trusted tenant/actor context,
+authority, clock, key provisioning, truthful public callbacks and retained
+history.
+
+The source and writer remain explicit Needs: callbacks must truthfully expose
+the public Store view, required event/outbox receipts must remain retained,
+and appends/ACKs must be serialized. Host-process shutdown alone does not fence
+an in-flight provider append. An uncertain same-host write remains blocked;
+replacement work starts only after the original provider writer has exited and
+the full `fence_and_reopen!/2` owner replacement is supplied. No new Engine or
+Unit is treated as proof of provider fencing.
+
+### Public protocol and evidence map
+
+| Boundary | Public path and evidence |
+| --- | --- |
+| Preserve v1 | `examples/wave4_channel.exs` runs the original immediate v1 flow first. It remains version 1 with no reply source; its trace completes two Runs and four messages. The historical ELZ-258 section above preserves its separate evidence. |
+| Fixed v2 source and identity | `test "startup requires a unique compatible binding and the fixed ASCII profile"` and `test "fixed reply source reads checked primary and reply evidence from PostgreSQL"` cover fixed targets, copied equal targets, rejected arbitrary matched targets, maximum IDs, canonical Outbox keys, two-source pairing and the checked evidence stream. A public `:read` fault makes `CheckedCommand.result/3` return `{:unknown, :unresolved}` and `ReplySource.read` return `{:error, :unavailable}`, not `:gap`; positive low-water evidence is a gap. Source shape, continuity, identity and receipt failures fail closed. |
+| Activation and reply | `test "reply profile activates a primary wait and keeps GET and reply intake read-only"` and `test "one signed reply wakes the primary, hashes retained text, acknowledges in order, and leaves a read-only final GET"` exercise the original wait/ticket, two signed sources, accepted native reply and retained reply-text hash. The native result is authoritative; the answer is not synthesized from primary text. |
+| ASK receipt transition | `test "v2 primary and reply ASK release the saved identities through ordered acknowledgements"` preserves the initial `pending_approval` receipt. Release returns `{:committed, revision}`; the public `CheckedCommand.result/3` is completed at that revision, and later signed replays retain the committed receipt. The pending receipt is not mislabeled as the terminal receipt. |
+| Recovery and ACK ordering | `test "fenced v2 recovery restores original wait, reply, ordered acknowledgements, and latest reader"`, `test "active v2 wait reopened after deadline reuses its original expiry wake"`, and `test "v2 superseded reply acknowledgement stays fenced before primary acknowledgement"` cover original Run/Attempt/ticket/occurrence, expiry, answer uncertainty, ACK uncertainty and nonce identity. Public `:read_ack` checks the original reply key and nonce; the reply ACK precedes the primary ACK. |
+| Read-only GET and encoding limit | Final GETs through both listeners return the same unchanged view. `test "GET encodes exactly one MiB and refuses one byte over from a controlled event-wait reader"` injects a test-only reader with a valid wait DTO and labeled padding: exactly 1,048,576 encoded bytes returns 200 and 1,048,577 returns 503. This tests the encoding guard only; it does not claim truthful fixed-service data can reach 1 MiB. |
+
+The runnable demo uses `advance/1`, `view/2` and `release_reply/4`. For a
+reply ASK it reads the public resource with `CheckedCommand.resource/3`,
+prepares authority with `prepare_reply_input/3`, and supplies one
+single-use approval envelope for the reviewer role. The v2 internal gates
+remain `:allow`. The ASK regression retains the exact `reply_revision == 3`
+assertion.
+
+The demo completes two v2 reply rounds with distinct Run/Attempt/ticket
+identities: two completed Runs, six messages and resource revision 10. ASK rows
+use a separate stream and do not advance the resource CAS revision. During the
+second wait, replayed primary/reply requests return their retained receipts
+without changing the wait, Run or head and without additional native work. The
+final GET through both listeners is read-only and identical. Reply ACK precedes
+primary ACK in each round.
+
+### Capacity, source and recovery limits
+
+The finite headroom matrix is:
+
+| Operation | Exact allowed head | One-over refusal head |
+| --- | ---: | ---: |
+| Fresh primary | 1017 | 1018 |
+| Primary ASK release | 1018 | 1019 |
+| Fresh reply | 1020 | 1021 |
+| Reply ASK release | 1021 | 1022 |
+
+The exact cases finish the full permitted flow at head 1024; one-over cases
+refuse before append, release or native work. Identity replay remains allowed
+at the cap. `test "full CheckedCommand resource snapshots reserve capacity
+before input admission"` uses public checked operations and metadata-aware
+projections: Conversation representations fit, but the complete retained
+CheckedCommand snapshot, metadata and CAS revision exceed 65,536 bytes, so a
+real signed primary is refused before append. The runtime slot proof permits
+64 messages and two associations and refuses the 65th message. Association
+capacity is coupled to message capacity because each association references a
+message; this is not an independent 64-messages-plus-one-association proof.
+
+The signed raw-body boundary accepts 65,536 bytes and rejects 65,537;
+4,096-byte reply text is allowed and 4,097 is refused. A real unrelated
+CheckedCommand resource mutation after association blocks native delivery and
+hashing while preserving the original Run/Attempt. Oversized source head 4,097
+and row 1,048,577 fail closed before event delivery. The source-fault matrix
+uses the public `:read` callback, not `:read_at`, to distinguish unavailable
+evidence from a confirmed gap.
+
+The native-recovery cuts preserve original identities and never retry
+accepted work after uncertain input. Full restart after active-wait expiry
+preserves the occurrence and emits one stable expiry wake with no hash. The
+answer-uncertainty test now reads the primary ACK while the answer is still
+unconfirmed; an actual early primary ACK is observable as `:acked` and fails
+that pending-source assertion.
+
+### Executed evidence and remaining gates
+
+The disposable target preflight reported PostgreSQL 16.15 and vector 0.8.7.
+The demo passed and cleaned up: the v1 trace completed two Runs/four messages;
+the v2 trace completed two Runs/six messages at revision 10 with two reply
+rounds, ordered ACKs and read-only replay/GET checks.
+
+The final root pair, `MIX_ENV=test mix test test/wave4_channel_test.exs
+test/wave4_command_conversation_test.exs --seed 0`, reported 76 passed in
+431.2 seconds at checkpoint `200d0de3`. That run preceded the added control-7
+pending-ACK assertion; the strengthened recovery test then passed alone
+(`1 passed, 67 excluded`). The root pair was not repeated after this
+test-only assertion.
+
+Seven temporary worktree controls failed their intended assertions with exit
+2. Every restore matched the same source SHA-256
+`584f3b269c49c805972cb2dab1d1df127c5653f797e6be4f08d00ebf6734c869`, and each
+restored focused test passed (`1 passed, 67 excluded`).
+
+| Control | Intended failure evidence |
+| --- | --- |
+| Premature hash on wait wake | The durable waiting-view assertion received `{:error, :unavailable}` instead of a waiting view. This failed before the explicit hash-call assertion; it demonstrates lost durable waiting, not a separately observed hash-counter failure. |
+| Reset reply cursor | `wait.cursor == head_before.revision` failed (0 versus 2). |
+| Fabricated pairing | A mismatched association handle returned an event instead of `{:error, :unavailable}`. |
+| Fabricated accepted-event key | Native reply was refused as `{:unknown, :native_reply}` instead of applied. |
+| Primary ACK before reply ACK | The primary disappeared from the pending outbox before the reply ACK. This control occurs after answer creation; control 7 covers the earlier answer boundary. |
+| Synthesized answer | The final answer failed the retained-reply-hash assertion. Two malformed draft mutations (unresolved helper reference; delimiter error) were excluded and not counted. |
+| Primary ACK at answer entry | An actual `Outbox.ack` at `append_answer/1` entry made public `:read_ack` report `:acked` where the new pre-confirmation assertion requires `:pending`. |
+
+These are finite controls, not universal guarantees. No affected/full gate,
+independent review, exact-head hosted check, merge-queue result or main-branch
+outcome is recorded here. Those release gates remain required; no future gate
+counts are predicted. This evidence does not claim overall Wave 4 completion.
