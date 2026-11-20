@@ -167,6 +167,20 @@ if [ "$(psql_admin -c "SELECT 1 FROM pg_database WHERE datname = 'elzoo_test'")"
   sudo -u postgres createdb -p "$pg_port" -O elzoo_test elzoo_test
 fi
 psql_admin -d elzoo_test -c 'CREATE EXTENSION IF NOT EXISTS vector'
+# A fixed non-owner, non-bypass application role that elzoo_test may SET ROLE to, without inheriting it (ELZ-285).
+# The role is cluster-wide; tests grant it privileges only in their own schemas and never alter or drop it.
+if [ "$(psql_admin -c "SELECT 1 FROM pg_roles WHERE rolname = 'elzoo_app'")" != 1 ]; then
+  psql_admin -c 'CREATE ROLE elzoo_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS'
+fi
+# A repeated GRANT keeps the one grant and sets its INHERIT and SET options again.
+psql_admin -c 'SET client_min_messages = warning' -c 'GRANT elzoo_app TO elzoo_test WITH INHERIT FALSE, SET TRUE'
+# As the test role: super, createrole and bypassrls of each role, then SET, USAGE (inherit) and the reverse.
+role_check="$(PGPASSWORD=elzoo_test psql -h localhost -p "$pg_port" -U elzoo_test -d elzoo_test -v ON_ERROR_STOP=1 -qAt -c "SELECT format('current_user=%s elzoo_test=%s,%s,%s elzoo_app=%s,%s,%s set=%s usage=%s app_member_of_test=%s', current_user, t.rolsuper, t.rolcreaterole, t.rolbypassrls, a.rolsuper, a.rolcreaterole, a.rolbypassrls, pg_has_role('elzoo_test', 'elzoo_app', 'SET'), pg_has_role('elzoo_test', 'elzoo_app', 'USAGE'), pg_has_role('elzoo_app', 'elzoo_test', 'MEMBER')) FROM pg_roles t, pg_roles a WHERE t.rolname = 'elzoo_test' AND a.rolname = 'elzoo_app'")"
+echo "    ELZOO ROLE CHECK $role_check"
+if [ "$role_check" != 'current_user=elzoo_test elzoo_test=f,f,f elzoo_app=f,f,f set=t usage=f app_member_of_test=f' ]; then
+  echo "PostgreSQL role check failed: $role_check" >&2
+  exit 1
+fi
 # Check the actual test connection, including database and role overrides; do not overwrite them.
 test_settings="$(PGPASSWORD=elzoo_test psql -h localhost -p "$pg_port" -U elzoo_test -d elzoo_test -v ON_ERROR_STOP=1 -qAt -c "SELECT current_setting('fsync'), current_setting('synchronous_commit'), current_setting('full_page_writes'), current_setting('max_connections')")"
 if [ "$test_settings" != 'on|on|on|300' ]; then
@@ -181,6 +195,7 @@ step "Login shell environment"
   echo 'export LANG="${LANG:-C.UTF-8}"'
   echo "export PATH=\"$elixir_dir/bin:$otp_dir/bin:$node_dir/bin:\$PATH\""
   echo "export ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost:$pg_port/elzoo_test"
+  echo "export ELZOO_TEST_APP_ROLE=elzoo_app"
   echo "export ELZOO_TEST_S3_URL=http://127.0.0.1:$MINIO_PORT"
   echo "export ELZOO_TEST_S3_BUCKET=$MINIO_BUCKET"
   echo "export ELZOO_TEST_S3_REGION=us-east-1"

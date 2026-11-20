@@ -46,6 +46,7 @@ class FakeDocker:
         self.calls = []
         self.queries = []
         self.next_port = 41000
+        self.role_check = ws.ROLE_CHECK_EXPECTED
         self.toplevel = None
         self.fail = {}
 
@@ -58,6 +59,8 @@ class FakeDocker:
         if user != "elzoo_test" or password != found[0].get("role_password"):
             raise ws.Stop('PostgreSQL refused the test role (28P01 password authentication failed for user '
                           '"elzoo_test")')
+        if sql == ws.ROLE_CHECK:
+            return [[self.role_check]]
         return [["16.15", "100", self.vector or None]]
 
     def add_foreign(self, name, labels=None, running=True):
@@ -335,20 +338,37 @@ class Up(ServicesCase):
             for c in self.docker.containers.values():
                 self.assertNotIn(secret, c["env"])
         # the test role is checked from the host, through the published port
-        self.assertEqual([("127.0.0.1", self.docker.containers[n["pg"]]["port"], "elzoo_test", "elzoo_test")],
+        self.assertEqual([("127.0.0.1", self.docker.containers[n["pg"]]["port"], "elzoo_test", "elzoo_test")] * 2,
                          self.docker.queries)
 
-    def test_the_superuser_creates_the_role_the_database_and_the_vector_extension(self):
+    def test_the_superuser_creates_the_roles_the_database_and_the_vector_extension(self):
         root = self.worktree()
         self.services(root).up()
         setup = [c for c in self.docker.calls if c["input"] and c["argv"][:2] == ["docker", "exec"]][0]
         self.assertIn("-U", setup["argv"])
         self.assertEqual("postgres", setup["argv"][setup["argv"].index("-U") + 1])
         script = setup["input"].decode()
-        for statement in ("CREATE ROLE elzoo_test LOGIN PASSWORD :'pw';", "CREATE DATABASE elzoo_test OWNER elzoo_test;",
-                          "\\connect elzoo_test", "CREATE EXTENSION vector;"):
-            self.assertIn(statement, script)
+        statements = ("CREATE ROLE elzoo_test LOGIN PASSWORD :'pw';",
+                      "CREATE ROLE elzoo_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;",
+                      "GRANT elzoo_app TO elzoo_test WITH INHERIT FALSE, SET TRUE;",
+                      "CREATE DATABASE elzoo_test OWNER elzoo_test;", "\\connect elzoo_test",
+                      "CREATE EXTENSION vector;")
+        self.assertEqual(sorted(script.index(s) for s in statements), [script.index(s) for s in statements])
         self.assertTrue(any("vector=0.8.7" in line for line in self.lines))
+        self.assertIn(f"ELZOO ROLE CHECK {ws.ROLE_CHECK_EXPECTED}", self.lines)
+        values = ws.read_env(root / ws.STATE_DIR / ws.ENV_FILE)
+        self.assertEqual("elzoo_app", values["ELZOO_TEST_APP_ROLE"])
+        self.assertIn("export ELZOO_TEST_APP_ROLE='elzoo_app'\n", (root / ws.STATE_DIR / ws.ENV_FILE).read_text())
+
+    def test_a_wrong_role_check_fails_closed_without_an_env_file(self):
+        for i, wrong in enumerate((ws.ROLE_CHECK_EXPECTED.replace("usage=f", "usage=t"),
+                                   ws.ROLE_CHECK_EXPECTED.replace("elzoo_app=f,f,f", "elzoo_app=f,f,t"), None)):
+            with self.subTest(wrong=wrong):
+                self.docker.role_check = wrong
+                root = self.worktree(f"wrong-{i}")
+                with self.assertRaisesRegex(ws.Stop, "role check"):
+                    self.services(root).up()
+                self.assertFalse((root / ws.STATE_DIR / ws.ENV_FILE).exists())
 
     def test_the_pinned_binary_is_copied_with_the_server_settings_of_ci_minio(self):
         root = self.worktree()

@@ -117,6 +117,26 @@ recreates the container from the pgvector variant with the same Debian base,
 observed 2026-11-09; re-verify before use), keeping the data volume, then
 creates the extension as above. The same Debian base keeps the C library
 collation of the existing data directory unchanged.
+
+Since ELZ-285 the superuser also creates, in every setup that creates
+`elzoo_test` (the CI step, `.agents/setup`, `scripts/worker-services.py`), one
+fixed application role that neither owns tables nor bypasses row security,
+and lets `elzoo_test` switch to it without inheriting it:
+
+    CREATE ROLE elzoo_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+    GRANT elzoo_app TO elzoo_test WITH INHERIT FALSE, SET TRUE;
+
+and exports `ELZOO_TEST_APP_ROLE=elzoo_app` beside `ELZOO_TEST_DATABASE_URL`.
+`elzoo_test` gains no attribute. Connected as `elzoo_test`, the setup then
+prints `ELZOO ROLE CHECK ...` and fails unless both roles have `rolsuper`,
+`rolcreaterole` and `rolbypassrls` false, `pg_has_role('elzoo_test',
+'elzoo_app', 'SET')` is true, `pg_has_role('elzoo_test', 'elzoo_app',
+'USAGE')` is false (an inheriting grant makes it true) and
+`pg_has_role('elzoo_app', 'elzoo_test', 'MEMBER')` is false. The role is
+cluster-wide, while grants are per database: a test grants `elzoo_app`
+privileges only on its own random schema, which `DROP SCHEMA ... CASCADE`
+removes, and never runs `DROP OWNED BY elzoo_app` or alters or drops the role.
+
 mix check must compile real Cure, execute selected Cure proofs, meaningful
 runtime tests and negative controls. It is not documentation or formatting
 lint. The default retains every independent consumer, including the full
