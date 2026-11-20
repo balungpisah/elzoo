@@ -661,6 +661,25 @@ defmodule Elzoo.RateLimitTest do
 
       assert {:error, :malformed} == RateLimit.admit(over, key(good), 1, 0)
       assert {:error, :unknown_ticket} == RateLimit.release(over, t0)
+
+      # Float counts or capacities that compare equal, and a replaced field.
+      for forged <- [
+            %{s | global: {:CapacityState, 100, 0.0}},
+            %{s | global: {:CapacityState, 100.0, 0}},
+            s |> Map.delete(:global) |> Map.put(:extra, nil)
+          ] do
+        assert {:error, :malformed} == RateLimit.admit(forged, key(good), 1, 0)
+      end
+
+      for forged <- [
+            %{held | global: {:CapacityState, 100, 1.0}},
+            %{held | slots: %{good => {:CapacityState, 100, 1.0}}},
+            %{held | slots: %{good => {:CapacityState, 100.0, 1}}},
+            held |> Map.delete(:global) |> Map.put(:extra, nil)
+          ] do
+        assert {:error, :malformed} == RateLimit.admit(forged, key(good), 1, 0)
+        assert {:error, :unknown_ticket} == RateLimit.release(forged, ticket)
+      end
     end
   end
 end

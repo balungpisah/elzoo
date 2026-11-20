@@ -151,6 +151,7 @@ defmodule Elzoo.RateLimit do
            principals: principals,
            slots: slots,
            live: live,
+           global: global,
            next: next
          } = s
        ) do
@@ -162,7 +163,7 @@ defmodule Elzoo.RateLimit do
         Map.has_key?(tenants, t) and capacity?(bp, n, held(live, t, next))
       end) and
       Enum.all?(live, fn {t, _} -> Map.has_key?(slots, t) end) and
-      capacity?(s.global, m, live |> Map.values() |> Enum.map(&map_size/1) |> Enum.sum())
+      capacity?(global, m, live |> Map.values() |> Enum.map(&map_size/1) |> Enum.sum())
   end
 
   defp state?(_), do: false
@@ -191,7 +192,7 @@ defmodule Elzoo.RateLimit do
 
   # Elzoo.Backpressure documents its erased state as {:CapacityState, capacity, in_flight}.
   defp capacity?(bp, capacity, held),
-    do: is_integer(held) and held <= capacity and bp == {:CapacityState, capacity, held}
+    do: is_integer(held) and held <= capacity and bp === {:CapacityState, capacity, held}
 
   defp bucket?({tokens, last}, rate),
     do:
