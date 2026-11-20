@@ -8455,10 +8455,12 @@
     {
       "id": "integration/mcp-runtime",
       "job": "ELZ-283",
-      "note": "Planned admission of one tenant-added MCP server: egress-policy resolve, then a bearer credential check through integration/secrets, then an mcp-client runtime config pinned to the checked addresses; lists keyed by {tenant, server}; OAuth waits for Wave 9.",
+      "note": "One MCP server that a tenant added at run time (Streamable HTTP, bearer token), turned into a ready integration/mcp-client runtime config only after three steps in fixed order: integration/egress-policy resolve/3 admits the https URL and every resolved address is public, else {:egress, reason} with egress-policy's own reason and nothing later runs; one integration/secrets resolution as the check before connecting, the value dropped, expired giving credentials_expired and any other failure or a raise, throw or exit of the secrets function giving credentials_unavailable; then Elzoo.McpClient.configure/1 with Elzoo.McpClient.RuntimeBinding and the egress host, port and whole checked address set (network :public), whose zero-arity credential Need resolves the reference again at each request. configure/1 takes exact keys, refuses a URL query and calls no Need. list_tools/2 keys the unchanged ready listing or unavailable{credentials_expired | credentials_unavailable | a finite reason of the ready client} by {tenant, server}, after the check. Tool calls stay the ready connect/2, admission/3, context/3 (bound to the admission's intent key, so a session of another runtime config cannot execute an intent admitted under this one) and call_tool/3 path. Errors never echo the URL, host, token or reference; no telemetry or log of its own.",
       "baseline_status": "not in baseline (new row, ELZ-283)",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/mcp-runtime/piece.json",
+      "manifest_sha256": "08572070bd6e84149cd0080041170f52a7d7a8db539f0071d31aee5483819d82"
     },
     {
       "id": "integration/identity",

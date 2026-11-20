@@ -747,8 +747,9 @@
       "summary": "Tenant-added runtime MCP server behind the egress policy",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-283: RC-59 Wave 5 commitment over the integration/mcp-client runtime mode (ELZ-282); integration/mcp-multi keeps build-time bindings."
+      "status": "ready",
+      "reason": "ELZ-283: RC-59 Wave 5 commitment over the integration/mcp-client runtime mode (ELZ-282); integration/mcp-multi keeps build-time bindings.",
+      "manifest": "pieces/integration/mcp-runtime/piece.json"
     },
     {
       "id": "integration/token-verify",
