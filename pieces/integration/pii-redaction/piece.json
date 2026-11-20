@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "integration/pii-redaction",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "otp"],
+  "dependencies": [],
+  "contract": "Pure redact/2 of one valid UTF-8 text of 0..65,536 bytes: listed kinds known (exact bytes of 0..64 host values of 1..256 bytes), email (ASCII local part 1..64, 2..127 labels of 1..63 bytes, domain at most 253 bytes, last label 2..63 letters, maximal span), card (13..19 digits, contiguous or one separator kind, Luhn, whole run) and phone (+ and 8..15 digits, no digit before the +, whole run). Fixed order: shape (malformed), rewrite of each input [pii: to [pii_:, candidates on the rewritten text with leftmost start, then longer span, then kind order known, email, card, phone, non-overlapping left to right, more than 256 findings (too_many), then in tokenize mode one call of the injected vault Need per distinct {kind, span} in first-occurrence order whose raise, throw, exit, malformed result or ref outside 1..64 bytes of [A-Za-z0-9_-] is unavailable with no partial text, and replacement by [pii:kind] (mask) or [pii:kind:ref] (tokenize). Findings are per-kind counts with no span; fixed error atoms; linear scanners; no I/O, clock, process, telemetry, log or rehydration.",
+  "limits": [
+    "Listed patterns only, with no claim of completeness: no names, addresses, national IDs, numbers without +, non-ASCII email local parts or classification. A text with no finding is not public data; the host still tags data classes for domain/provider-data-policy.",
+    "known values match exact bytes of the rewritten text only: case sensitive, no Unicode normalization, and a value holding [pii: does not match its input occurrence, which now reads [pii_:.",
+    "A card or phone number directly followed by a space or hyphen and another digit is read as the longer run: not found when that run fails the pattern (4111 1111 1111 1111 7 items) and found with the extra digit when the run passes.",
+    "No vault, rehydration (reference to value) or data-class decision: the vault Need is the host's (state/retention-erasure in the root acceptance) and must return stable references itself.",
+    "Finite listed scenarios and timing observations, not a proof of linear time or of detection."
+  ],
+  "files": [
+    "examples/elzoo/pii_redaction.exs",
+    "lib/elzoo/pii_redaction.ex",
+    "test/elzoo/pii_redaction_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/pii_redaction_test.exs",
+      "claim": "Listed scenarios of groups 1 kinds in both modes with counts, 2 boundaries (local part 64/65, label 63/64, domain 253/254, last label, digits beside a span, mixed-separator and joined runs, text 65,536/65,537 bytes, 64/65 known values of 1, 256 and 257 bytes, invalid UTF-8, non-binary text and option shape), 3 overlap, 4 escaping, 5 vault Need with counted calls, 256/257 findings and every listed failure, 6 adversarial 65,536-byte texts with printed timing observations and 7 secrecy of refusals and logs pass; every successful output in groups 1–7 is checked to hold only markers the call emitted. Three temporary production edits (Luhn check dropped, [pii: rewrite dropped, vault called before the too_many check) were negative controls that failed cases of groups 1, 2, 4, 5 and 7. Finite scenarios, not a universal proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/String.html#valid?/2",
+      "claim": "Relies on pinned Elixir 1.20.4 String.valid?/1, binary pattern matching and try/catch of errors, throws and exits."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/stdlib/binary.html#match/3",
+      "claim": "Relies on OTP 29.1.2 binary:match/3 returning the leftmost match of a compiled pattern list and, of several matches at that position, the longest; the known-value selection depends on it. Also binary:matches/2 and binary:replace/4."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host supplies the vault Need, keeps it pure enough that the same {kind, span} gives the same reference when it wants equal markers across calls, names the exact known values, tags data classes itself and redacts before text reaches a log, a prompt or an immutable stream."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure callable with no telemetry or log; mask mode is what a host uses for its own logs and telemetry."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Per call, no default and no hot reconfiguration: mode, known values and, in tokenize mode, the vault Need, refused whole when malformed. Bounds are fixed Contract constants.",
+      "evidence": ["test/elzoo/pii_redaction_test.exs"]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process, lifecycle or durable state to pause, drain or resume."
+    }
+  }
+}
