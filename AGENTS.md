@@ -38,8 +38,8 @@ Do not read `PLAN.md`, `GATES.md` or `gates/` (the one-time bootstrap) or
 ### Choose the flow
 
 Classify paths with `scripts/ci-change-class.py`; mixed or unclear changes take
-the heavier gate. Every implementation PR keeps one independent review
-(section 6), an exact-head hosted check and the merge queue (section 7).
+the heavier gate. Every implementation PR gets the review that section 6
+requires, an exact-head hosted check and the merge queue (section 7).
 Separate publication PRs keep the coordinator merge path (section 9).
 
 | Change | Publication and claim | Local gate → hosted check |
@@ -214,6 +214,15 @@ and merge requirements still apply. For a Piece task, the local gate is the smal
     mix check --piece "$(git merge-base origin/main HEAD)"
     git diff --check
 
+A low-risk Piece (no untrusted input, authentication, authorization, identity,
+secrets, cryptography, durable state, concurrency, unknown outcomes,
+external-effect boundaries or native code) may open its draft pull request and
+use the hosted `check-piece` run on the exact head as its small-gate evidence
+instead of the local run, because that job runs the same `mix check --piece`
+on the merge checkout against current `main`; record `Local gate: hosted
+check-piece <run ID>` with the Piece tests and `git diff --check` run locally.
+A Piece with any of that weight keeps the local small gate.
+
 A Piece task changes only files in Piece directories, the index and generated
 files of section 3, and documents. `scripts/ci-change-class.py` decides this.
 The small gate runs format, compile, the ledger and Registry checks, the
@@ -323,7 +332,13 @@ passes" or "listed scenarios pass", not "verified".
 
 ## 6. Review: one round
 
-Every change gets one independent review, including documents, index files and test repairs. Do not repeat a review of unchanged code.
+Every change that sets or changes a Contract (including task text), a security
+decision, executable code, tests or index rows that mark a Piece ready gets one
+independent review. A documentation or plan change that sets no Contract and no
+security decision needs none; when unsure, review. Match the depth to the risk: a Piece with any weight listed for the
+low-risk hosted path in section 5 gets the full review of "Reviewer by risk" in the coordinator guide; a
+small low-risk Piece gets one light review. Do not repeat a review of
+unchanged code.
 
 Freeze the diff for review; the local gate can run alongside that review.
 When the reviewed delta is unchanged, avoid repeated main chasing and local
@@ -386,7 +401,7 @@ window below apply. The full check runs on main after the merge.
 
 For a Piece-only pull request, the queue accepts the small gate only when its
 own classification also says Piece-only. It does not wait for the push run of
-`main`. The push run on `main` after the merge is the full check. Before a small-gate merge, the queue permits at most four outstanding first-parent commits after the newest covering green push run of `main`; at five it refuses until a newer covering green run. The coordinator also waits for a green `main` at the end of each level of tasks
+`main`. The push run on `main` after the merge is the full check. Before a small-gate merge, the queue permits at most four outstanding first-parent commits after the newest covering green push run of `main`; at five it refuses until a newer covering green run. The coordinator also waits for a green `main` before each publication
 ([coordinator](docs/development/13-coordinator.md)).
 
 If the queue stops on a conflict, or on a red check of the index files after

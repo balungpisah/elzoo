@@ -316,7 +316,7 @@ Run `python3 scripts/merge-queue.py <PR>...` from a checkout of this repository
 with `origin` pointing at `balungpisah/elzoo`. It uses the coordinator's own
 `gh` authentication, not CI credentials. That `gh` must list `--allow-escape-sequences` and `--slurp` in
 `gh api --help`, because the queue calls `gh api` with both; checked with 2.103.3 and 2.104.0 (ELZ-224). Obtain
-independent review first.
+the review that `AGENTS.md` section 6 requires first.
 No workflow, job, runner, label or token is added; CI keeps `contents: read`.
 The queue only handles same-repository, open, non-draft, mergeable PRs targeting
 `main` with an exact `task/ELZ-###` branch. Unknown mergeability is polled for
@@ -697,8 +697,7 @@ its Piece pass in the root project. The largest total was 125.3 s (`runtime/lua-
 small-gate merges can land before the first full run of `main` after them reports, within the window above. Counting
 every first-parent commit is conservative and can pause earlier than counting only Piece merges. A red full run then
 freezes the next merge, and the coordinator repairs forward from the pull request bodies
-([coordinator](13-coordinator.md)); the coordinator also waits for a green `main` at the end of each level of a
-wave. The hosted time of `check-piece` is not measured yet. Locally the mode took 253 seconds for a one-file change
+([coordinator](13-coordinator.md)); the coordinator also waits for a green `main` before each publication. The hosted time of `check-piece` is not measured yet. Locally the mode took 253 seconds for a one-file change
 in a leaf Piece and 376 seconds for a one-file change in `core/port` (10 affected ready IDs); most of it is the root
 test list.
 
