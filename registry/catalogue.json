@@ -406,7 +406,8 @@
       "summary": "Typed principal value with attenuated agent delegation",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/principal/piece.json",
       "reason": "ELZ-267: pure value, delegation and epoch/revocation check; authentication is integration/token-verify or the host, not this Piece."
     },
     {
