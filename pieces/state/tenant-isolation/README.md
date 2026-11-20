@@ -79,7 +79,8 @@ When `fun` swallowed a failed nested `repo.transact` and still returns `{:ok, va
 returns `{:error, :rollback}`, as `transact/2` does. DBConnection 2.10.2 refuses the clearing
 query on such an aborted transaction by disconnecting that connection (it logs an error and the
 pool reconnects); the helper then rolls back with `repo.rollback(:rollback)`. Under Sandbox the
-disconnect also ends the sandbox's own transaction.
+disconnect also ends the sandbox's own transaction, so the test's earlier writes are gone; the
+reconnected connection starts a new sandbox transaction.
 
 Why the clearing: under `Ecto.Adapters.SQL.Sandbox` the helper's transaction is a savepoint,
 and a transaction-local setting survives `RELEASE SAVEPOINT` into the outer transaction.

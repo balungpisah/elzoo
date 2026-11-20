@@ -15,7 +15,8 @@
     "Hierarchy is the host's: the database sees only an exact list of space IDs. Revocation applies at the next call.",
     "No per-command read/write split; ready Store tables (elzoo_log_records and others) are not protected; policies of a partitioned table do not apply to a partition queried directly; verify/3 does not check the readers' bodies.",
     "log: false silences only the Logger: the consumer Repo's query telemetry event still receives the set_config parameters (tenant and space list).",
-    "Only statements that fun runs through repo on the transaction's connection see the scope; a NULL space value is neither visible nor writable."
+    "Only statements that fun runs through repo on the transaction's connection see the scope; a NULL space value is neither visible nor writable.",
+    "When fun swallows a failed nested transact and returns {:ok, _}, DBConnection disconnects that pooled connection (and logs an error without IDs) while refusing the clearing query; under Ecto.Adapters.SQL.Sandbox that ends the test's sandbox transaction and its earlier writes."
   ],
   "files": [
     "lib/elzoo/tenant_isolation.ex",
