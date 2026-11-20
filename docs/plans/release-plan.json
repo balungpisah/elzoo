@@ -7682,6 +7682,29 @@
       "issue": 650,
       "url": "https://github.com/balungpisah/elzoo/issues/650",
       "issue_body_sha256": "ba1c4f0b95f1882bbe7397064491e008e74f1dee17b6382175ab66da9fde0d87"
+    },
+    {
+      "id": "ELZ-277",
+      "title": "ELZ-277 — Give a strictly planned-only publication the documents check",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-251"
+      ],
+      "status": "published 2026-11-20",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-277-planned-publication-docs-check.md"
+      ],
+      "outputs": [],
+      "acceptance": "The hosted classifier treats a strictly planned-only publication (documentation plus registry/catalogue.json and LEDGER.md, where the catalogue only adds planned rows without manifests and the ledger only gains their generated rows) as documentation only, for the workflow, the merge queue and the push-run skip; every other shape keeps its class. Guard tests for the accepted shape and near misses, queue and skip-decision tests, real-history classification, full local gate and full hosted check.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 640,
+      "url": "https://github.com/balungpisah/elzoo/issues/640",
+      "issue_body_sha256": "d3c32d9134d342a3e237500f8f3dad66f3c436c7124da95a81c87387670d5c5b"
     }
   ],
   "entries": [
