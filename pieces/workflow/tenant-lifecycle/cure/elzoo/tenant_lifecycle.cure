@@ -1,0 +1,117 @@
+# SPDX-License-Identifier: Apache-2.0
+# workflow/tenant-lifecycle: the transition table over the stored state and the
+# command that Elixir decodes from a validated snapshot and payload. Elixir
+# owns shape validation, the erase and invite facts, the invitation checks and
+# the switch writes through Elzoo.KillSwitch.
+mod Elzoo.TenantLifecycle
+  type TlState =
+    TlNone
+    | TlProvisioned
+    | TlActive
+    | TlSuspended
+    | TlClosing
+    | TlErased
+
+  type TlCommand =
+    TlProvisionCmd
+    | TlActivateCmd
+    | TlSuspendCmd
+    | TlCloseCmd
+    | TlEraseCmd
+    | TlInviteCmd
+    | TlAcceptCmd
+    | TlRevokeCmd
+
+  # The change of the reserved `lifecycle` tenant switch.
+  type TlSwitch = TlEngage | TlRelease | TlKeep
+
+  type TlOutcome =
+    TlMove(TlState, TlSwitch)
+    | TlStay
+    | TlTerminal
+    | TlInvalidTransition
+    | TlNotActive
+
+  @total true
+  @reducible
+  fn decide(state: TlState, command: TlCommand) -> TlOutcome =
+    match state
+      TlErased() -> TlTerminal()
+      TlNone() ->
+        match command
+          TlProvisionCmd() -> TlMove(TlProvisioned(), TlEngage())
+          TlInviteCmd() -> TlNotActive()
+          TlAcceptCmd() -> TlNotActive()
+          TlRevokeCmd() -> TlStay()
+          _ -> TlInvalidTransition()
+      TlProvisioned() ->
+        match command
+          TlActivateCmd() -> TlMove(TlActive(), TlRelease())
+          TlInviteCmd() -> TlNotActive()
+          TlAcceptCmd() -> TlNotActive()
+          TlRevokeCmd() -> TlStay()
+          _ -> TlInvalidTransition()
+      TlActive() ->
+        match command
+          TlSuspendCmd() -> TlMove(TlSuspended(), TlEngage())
+          TlCloseCmd() -> TlMove(TlClosing(), TlEngage())
+          TlInviteCmd() -> TlStay()
+          TlAcceptCmd() -> TlStay()
+          TlRevokeCmd() -> TlStay()
+          _ -> TlInvalidTransition()
+      TlSuspended() ->
+        match command
+          TlActivateCmd() -> TlMove(TlActive(), TlRelease())
+          TlCloseCmd() -> TlMove(TlClosing(), TlEngage())
+          TlInviteCmd() -> TlNotActive()
+          TlAcceptCmd() -> TlNotActive()
+          TlRevokeCmd() -> TlStay()
+          _ -> TlInvalidTransition()
+      TlClosing() ->
+        match command
+          TlEraseCmd() -> TlMove(TlErased(), TlKeep())
+          TlInviteCmd() -> TlNotActive()
+          TlAcceptCmd() -> TlNotActive()
+          TlRevokeCmd() -> TlStay()
+          _ -> TlInvalidTransition()
+
+  # ---------------------------------------------------------------- laws
+
+  # For every command: erased is terminal.
+  @total true
+  fn erased_is_terminal(c: TlCommand) -> Equivalent(TlOutcome, decide(TlErased(), c), TlTerminal()) =
+    reflexive(TlTerminal())
+
+  # provision moves none to provisioned and engages the switch.
+  @total true
+  fn provision_engages() -> Equivalent(TlOutcome, decide(TlNone(), TlProvisionCmd()), TlMove(TlProvisioned(), TlEngage())) =
+    reflexive(TlMove(TlProvisioned(), TlEngage()))
+
+  # activate from provisioned or suspended releases the switch.
+  @total true
+  fn activate_releases_provisioned() -> Equivalent(TlOutcome, decide(TlProvisioned(), TlActivateCmd()), TlMove(TlActive(), TlRelease())) =
+    reflexive(TlMove(TlActive(), TlRelease()))
+
+  @total true
+  fn activate_releases_suspended() -> Equivalent(TlOutcome, decide(TlSuspended(), TlActivateCmd()), TlMove(TlActive(), TlRelease())) =
+    reflexive(TlMove(TlActive(), TlRelease()))
+
+  # suspend from active engages the switch.
+  @total true
+  fn suspend_engages() -> Equivalent(TlOutcome, decide(TlActive(), TlSuspendCmd()), TlMove(TlSuspended(), TlEngage())) =
+    reflexive(TlMove(TlSuspended(), TlEngage()))
+
+  # close from active or suspended moves to closing with the switch engaged.
+  @total true
+  fn close_engages_active() -> Equivalent(TlOutcome, decide(TlActive(), TlCloseCmd()), TlMove(TlClosing(), TlEngage())) =
+    reflexive(TlMove(TlClosing(), TlEngage()))
+
+  @total true
+  fn close_engages_suspended() -> Equivalent(TlOutcome, decide(TlSuspended(), TlCloseCmd()), TlMove(TlClosing(), TlEngage())) =
+    reflexive(TlMove(TlClosing(), TlEngage()))
+
+  # erase from closing keeps the switch.
+  @total true
+  fn erase_keeps() -> Equivalent(TlOutcome, decide(TlClosing(), TlEraseCmd()), TlMove(TlErased(), TlKeep())) =
+    reflexive(TlMove(TlErased(), TlKeep()))
+end
