@@ -675,8 +675,9 @@
       "summary": "Outbound URL allowlist and public-address check",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-271: pure check plus injected resolver; transport owns connect, redirects and response bounds."
+      "status": "ready",
+      "reason": "ELZ-271: pure check plus injected resolver; transport owns connect, redirects and response bounds.",
+      "manifest": "pieces/integration/egress-policy/piece.json"
     },
     {
       "id": "domain/provider-data-policy",
