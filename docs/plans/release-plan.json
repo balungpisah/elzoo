@@ -8407,10 +8407,12 @@
     {
       "id": "integration/pii-redaction",
       "job": "ELZ-278",
-      "note": "Planned deterministic redaction of listed personal-data patterns and host-named exact values in one text: fixed markers (mask) or opaque references from an injected vault Need (tokenize); no classification, rehydration or vault.",
+      "note": "Pure redact/2 of one valid UTF-8 text of 0..65,536 bytes: listed kinds known (exact bytes of 0..64 host values of 1..256 bytes), email (ASCII local part 1..64, 2..127 labels of 1..63 bytes, domain at most 253 bytes, last label 2..63 letters, maximal span), card (13..19 digits, contiguous or one separator kind, Luhn, whole run) and phone (+ and 8..15 digits, no digit before the +, whole run). Fixed order: shape (malformed), rewrite of each input [pii: to [pii_:, candidates on the rewritten text with leftmost start, then longer span, then kind order known, email, card, phone, non-overlapping left to right, more than 256 findings (too_many), then in tokenize mode one call of the injected vault Need per distinct {kind, span} in first-occurrence order whose raise, throw, exit, malformed result or ref outside 1..64 bytes of [A-Za-z0-9_-] is unavailable with no partial text, and replacement by [pii:kind] (mask) or [pii:kind:ref] (tokenize). Findings are per-kind counts with no span; fixed error atoms; linear scanners; no I/O, clock, process, telemetry, log or rehydration.",
       "baseline_status": "not in baseline (new row, ELZ-278)",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/pii-redaction/piece.json",
+      "manifest_sha256": "3cd1269062b2644f400a02eac05fd78eb35ffb3e51399bcdaab8c85e0a08ec6d"
     },
     {
       "id": "state/retention-erasure",
@@ -8425,9 +8427,11 @@
     {
       "id": "delivery/rate-limit",
       "job": "ELZ-280",
-      "note": "Planned pure all-or-nothing admission: per-tenant and per-principal token buckets with exact retry_after and global plus per-tenant fair-share slots over delivery/backpressure; injected clock; absorbs delivery/fair-queue.",
+      "note": "Pure all-or-nothing admission over a caller-held state with an injected now_ms: one admission takes cost tokens from a per-tenant and a per-principal token bucket (whole-interval integer refill capped at capacity, no refill when the clock goes back) and one in-flight slot from a global and a per-tenant fair-share delivery/backpressure bound, or takes nothing and returns the unchanged state with the first refusing bound in the order keys, slots, tenant_slots, tenant_rate, principal_rate and, for a rate bound, the exact milliseconds until a retry could pass; release frees exactly the two slots of a live ticket once. At most max_keys buckets of each kind and per-tenant Backpressure states; a full bucket whose tenant has no live ticket is dropped to make room, oldest last_ms first. Fixed error atoms; no queue, process, clock, telemetry or log.",
       "baseline_status": "not in baseline (new row, ELZ-280)",
-      "disposition": "planned-contract",
+      "disposition": "ready-contract",
+      "manifest": "pieces/delivery/rate-limit/piece.json",
+      "manifest_sha256": "535d57a252292c6e600d4f08d2da6b842be068d708ab082cfbcd9d5c6e3a0e7b",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
