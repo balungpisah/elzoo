@@ -8157,9 +8157,11 @@
     {
       "id": "domain/provider-data-policy",
       "job": "ELZ-272",
-      "note": "Planned pure decision whether payload data classes (closed public/internal/confidential/pii/secret tag) may go to one provider, region and retention mode under a tenant policy; secret never admissible; non-allow is DENY.",
+      "manifest": "pieces/domain/provider-data-policy/piece.json",
+      "manifest_sha256": "03fd58fa003576bd19f7f6b5077043e8e32818454afa1c40d9a296f063d09ba8",
+      "note": "Closed data-class tag (public, internal, confidential, pii, secret) and one pure decision: a payload with 1..5 class tags may go to one provider, region and retention mode only when the tenant policy admits each class for that provider in that region under that retention mode. Fixed order: policy shape (error policy), request shape (error request), secret (never admissible), provider, then per class pii, confidential, internal, public: class, region, retention. Per-class admission with no inheritance; exact-byte text comparison; fixed result atoms that echo no input. The host treats every non-allow result as DENY.",
       "baseline_status": "not in baseline (new row, ELZ-272)",
-      "disposition": "planned-contract",
+      "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
