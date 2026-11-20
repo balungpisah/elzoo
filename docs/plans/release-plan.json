@@ -8404,7 +8404,7 @@
       "baseline_status": "not in baseline (new row, ELZ-280)",
       "disposition": "ready-contract",
       "manifest": "pieces/delivery/rate-limit/piece.json",
-      "manifest_sha256": "b3311390237d71eef5cf5534f6a99a3526c701b9512d81246613b51e98edf796",
+      "manifest_sha256": "535d57a252292c6e600d4f08d2da6b842be068d708ab082cfbcd9d5c6e3a0e7b",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
