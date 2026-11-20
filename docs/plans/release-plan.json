@@ -8145,7 +8145,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/encryption/piece.json",
-      "manifest_sha256": "f1286da5efc2fd3af561b4aa826484daee14d80eff2d2c2fb17b5ec98eebc53f"
+      "manifest_sha256": "da6965a659a64d96d2cdacfbeed3a978151f1db2162339f7022dbc4a78b77938"
     },
     {
       "id": "integration/identity",
