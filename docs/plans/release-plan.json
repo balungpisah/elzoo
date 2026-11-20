@@ -8146,7 +8146,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/tenant-isolation/piece.json",
-      "manifest_sha256": "04e89cb8c170199527bee1bb9e43bf3c2aa8a69a129fbccd6990ba18df5dfb7e"
+      "manifest_sha256": "e9919ae34f875cd5a0af6794dbca2f31146d5f31d60cae00c5d3fabf877d1589"
     },
     {
       "id": "integration/egress-policy",
