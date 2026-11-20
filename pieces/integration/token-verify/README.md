@@ -18,8 +18,9 @@ of:
 - `keys`: 1..16 atom-keyed maps with exactly `kid` (1..128 printable ASCII
   bytes, unique), `alg` (`"EdDSA"` or `"RS256"`) and `jwk`, a public JWK map
   with exactly `kty`, `crv`, `x` (OKP Ed25519) for EdDSA or `kty`, `n`, `e`
-  (RSA, 2048..8192-bit modulus, odd exponent of at least 3) for RS256. Private members, another key type
-  or curve, or a key that does not match its `alg` are refused.
+  (RSA, 2048..8192-bit modulus, odd exponent of at least 3) for RS256.
+  Private members, another key type or curve, or a key that does not match
+  its `alg` are refused.
 - `leeway_s`: integer `0..300`.
 - `subject`: the host's account linking, called as
   `subject.(%{issuer: iss, subject: sub})` and returning
@@ -100,7 +101,8 @@ appears in a return value, a raised message or captured log output; a Need's
 own exception is discarded. Needs receive only `iss` and `sub`, or `key_id`.
 The configs keep a redacted `Inspect`; the digest key arrives as an
 `Elzoo.Secrets.Credential` with its own redacted `Inspect` and is revealed
-only inside the Adapter for the digest. This is accidental-disclosure protection, not memory erasure.
+only inside the Adapter for the digest. This is accidental-disclosure
+protection, not memory erasure.
 
 ## Example
 
@@ -121,8 +123,8 @@ for another audience, and verifies an API key and a wrong one.
 - Upstream: jose 1.11.13 `verify_strict/3`, `peek_protected/1` and
   `from_map/1`. Drift tests call jose directly: it refuses `alg: none` and an
   HS256 token keyed with the RSA public PEM, accepts EdDSA and RS256 with
-  their own keys, and honours `"b64": false` without `crit`. OTP 29.1.2 `:crypto.mac/4` and `:crypto.hash_equals/2`;
-  jason 1.4.5 ordered objects.
+  their own keys, and honours `"b64": false` without `crit`. OTP 29.1.2
+  `:crypto.mac/4` and `:crypto.hash_equals/2`; jason 1.4.5 ordered objects.
 - No Cure law: the decisions are ordered checks around jose and OTP calls.
 
 ## Needs and limits
