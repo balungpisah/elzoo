@@ -10074,7 +10074,7 @@ defmodule Elzoo.RunEngineTest do
       view =
         wait_for(
           engine,
-          &(slot_by(&1, "root-done") |> then(fn s -> s && s.phase == :approval end)),
+          &match?(%{phase: :approval}, slot_by(&1, "root-done")),
           2_000
         )
 
