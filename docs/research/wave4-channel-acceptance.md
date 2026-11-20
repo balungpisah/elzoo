@@ -324,3 +324,43 @@ These are finite controls, not universal guarantees. No affected/full gate,
 independent review, exact-head hosted check, merge-queue result or main-branch
 outcome is recorded here. Those release gates remain required; no future gate
 counts are predicted. This evidence does not claim overall Wave 4 completion.
+
+### Fix-batch addendum — answer reconciliation and bounded discovery
+
+`reconcile_v2_answer/1` now retains the authoritatively confirmed answer
+revision. The same-host regression injects `[:read_at, :unavailable]` and
+`[:append, :reply_loss]`, then completes reply ACK, primary ACK, idle and
+next-primary admission/activation without `fence_and_reopen!/2`. It checks the
+original Run/Attempt, Outbox keys and nonces, one answer and one hash of the
+retained reply text. This confirmation-path `:read_at` fault is distinct from
+the public ReplySource `:read` matrix above; the existing fenced-recovery test
+remains separate coverage.
+
+Bounded `Outbox.pending/3` discovery now treats a full 64-item window without
+a matching primary as unknown, not absence. The other pending/idle branches
+that could infer absence also fail closed on an incomplete window; discovery
+remains bounded, with no pagination or unbounded scan. The signed-request
+regression seeds 64 foreign reply notifications on one foreign resource
+through `CheckedCommand` and checks 503 with unchanged resource, head, Outbox,
+Run and hash state both before and after host replacement. A complete 63-item
+window on one foreign resource still admits a visible primary as item 64; its
+retained signed replay leaves the resource, head and Outbox unchanged at the
+full window.
+
+Temporary pre-fix controls failed at the named assertions: same-host answer
+reconciliation produced `{:unknown, :ack}` instead of acknowledging the
+primary. With the original `pending_input?/1` absence inference temporarily
+restored, a signed primary behind 64 notices on one foreign resource was
+admitted with HTTP 202; public resource and `CheckedCommand.result` revisions
+both advanced to 1 before the required-503 assertion failed. This reproduces
+the write path, not only a status mismatch. The fixed regression checks 503
+and unchanged resource, head, Outbox, Run and hash state before and after host
+replacement. The fixed support source was restored byte-for-byte (SHA-256
+`2b966d8fdaaa59d8ebfeefb6c21f48b56b0221c35a70d86028d1484144c05dfd`).
+
+Finite verification used fresh PostgreSQL 16.15 / pgvector 0.8.7 targets. One
+focused invocation passed both bounded-window regressions (`2 passed, 69
+excluded`). The strengthened same-host regression passed separately (`1
+passed, 70 excluded`). Existing v1 loopback, two-round reply and fenced
+recovery tests were not rerun in this correction. No broad or affected gate
+was run in this batch.

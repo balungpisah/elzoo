@@ -239,7 +239,13 @@ defmodule Elzoo.Wave4ChannelExample do
           end)
 
         reply? = Enum.any?(items, &(&1.destination == @reply_destination))
-        if primary? and not reply?, do: :ok, else: {:error, :busy}
+
+        cond do
+          reply? -> {:error, :busy}
+          pending_window_full?(items) -> {:error, :unknown}
+          not primary? -> {:error, :busy}
+          true -> :ok
+        end
 
       _ ->
         {:error, :unknown}
@@ -1603,7 +1609,12 @@ defmodule Elzoo.Wave4ChannelExample do
   defp observe_pending_input(state, items) do
     case Enum.find(items, &(&1.destination == @destination)) do
       nil ->
-        {{:idle, :no_input}, state}
+        if pending_window_full?(items) do
+          {{:unknown, :input_observation},
+           %{state | poison: {:input_observation, :pending_window_full}}}
+        else
+          {{:idle, :no_input}, state}
+        end
 
       item ->
         observe_primary_item(state, item)
@@ -1630,6 +1641,10 @@ defmodule Elzoo.Wave4ChannelExample do
               {{:unknown, :reply_observation},
                %{state | poison: {:input_observation, :reply_without_primary}}}
 
+            pending_window_full?(items) ->
+              {{:unknown, :input_observation},
+               %{state | poison: {:input_observation, :pending_window_full}}}
+
             true ->
               {{:idle, :no_input}, state}
           end
@@ -1646,7 +1661,12 @@ defmodule Elzoo.Wave4ChannelExample do
               end
 
             is_nil(primary) and completed_pair_matches_metadata?(state.completed_pair, metadata) ->
-              {{:idle, :no_input}, state}
+              if pending_window_full?(items) do
+                {{:unknown, :input_observation},
+                 %{state | poison: {:input_observation, :pending_window_full}}}
+              else
+                {{:idle, :no_input}, state}
+              end
 
             true ->
               recover_v2_metadata(state, metadata, items, snapshot)
@@ -4172,7 +4192,14 @@ defmodule Elzoo.Wave4ChannelExample do
                    current.run_id,
                    answer_id(current.input_id)
                  ),
-                 do: {{:reconciled, :answer}, %{state | poison: nil, phase: :reply_ack}},
+                 do:
+                   {{:reconciled, :answer},
+                    %{
+                      state
+                      | current: Map.put(current, :answer_revision, revision),
+                        poison: nil,
+                        phase: :reply_ack
+                    }},
                  else: {{:unknown, :answer}, state}
 
             _ ->
@@ -5049,14 +5076,23 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp pending_input?(state) do
     case Outbox.pending(state.command_store, checked_stream(state.profile.tenant), @outbox_limit) do
-      {:ok, items} -> {:ok, Enum.any?(items, &(&1.destination == @destination))}
-      _ -> {:error, :unavailable}
+      {:ok, items} ->
+        cond do
+          Enum.any?(items, &(&1.destination == @destination)) -> {:ok, true}
+          pending_window_full?(items) -> {:error, :unavailable}
+          true -> {:ok, false}
+        end
+
+      _ ->
+        {:error, :unavailable}
     end
   rescue
     _ -> {:error, :unavailable}
   catch
     :exit, _ -> {:error, :unavailable}
   end
+
+  defp pending_window_full?(items), do: length(items) >= @outbox_limit
 
   defp unfinished?(state),
     do:
