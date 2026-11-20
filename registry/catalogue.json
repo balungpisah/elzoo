@@ -666,7 +666,8 @@
       "summary": "PostgreSQL row-level-security tenant floor",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/state/tenant-isolation/piece.json",
       "reason": "ELZ-270: restrictive forced policies over locked ecto_sql/postgrex; hierarchy is resolved by the host into an exact space list."
     },
     {

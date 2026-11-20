@@ -8118,10 +8118,12 @@
     {
       "id": "state/tenant-isolation",
       "job": "ELZ-270",
-      "note": "Planned PostgreSQL row-level-security floor: restrictive forced tenant/space policy with STABLE InitPlan setting readers, a transaction helper that sets and clears the scope, and a policy verifier; locked ecto_sql/postgrex only.",
+      "note": "PostgreSQL 16 row-level-security tenant floor over a consumer-owned Ecto Repo: a migration helper that installs two STABLE setting readers and protects a table with a forced restrictive tenant (and exact space-list) policy plus a replaceable permissive allow policy; transact/3 that refuses a bad scope, then an open transaction, and sets both transaction-local settings by bind parameter and clears them before the commit; verify/3 that reports unavailable, bypass role, not enabled, not forced, floor missing or floor changed, in that order, from a catalog read and a pure decision. Fail closed outside the helper.",
       "baseline_status": "not in baseline (new row, ELZ-270)",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/state/tenant-isolation/piece.json",
+      "manifest_sha256": "a47780fac429778ceb50cd0f0cdd1d5f5fdd83c1fc76d4f6b11b13057c763255"
     },
     {
       "id": "integration/egress-policy",
