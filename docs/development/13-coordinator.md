@@ -37,8 +37,8 @@
 - Publish the tasks that are ready to publish as one pull request, in this
   order. Only one publication is open at one time: two of them conflict in
   `docs/plans/release-plan.json` and in the generated views. Prefer opening
-  it between Piece merges, since each merge makes it stale; this never
-  delays a publishable task by more than one queue run.
+  it between Piece merges, since each merge makes it stale; do not hold
+  a publishable task for more than one queue run.
   1. Write each `tasks/ELZ-###-<slug>.md`. It must hold one line
      `- Dependencies: ELZ-..., ELZ-...`.
   2. Create each issue from its file, without the label `task`:

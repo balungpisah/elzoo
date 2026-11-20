@@ -335,9 +335,8 @@ passes" or "listed scenarios pass", not "verified".
 Every change that sets or changes a Contract (including task text), a security
 decision, executable code, tests or index rows that mark a Piece ready gets one
 independent review. A documentation or plan change that sets no Contract and no
-security decision needs none; when unsure, review. Match the depth to the risk: a Piece with untrusted input,
-authentication, authorization, secrets, cryptography, durable state or native
-code gets the full review of "Reviewer by risk" in the coordinator guide; a
+security decision needs none; when unsure, review. Match the depth to the risk: a Piece with any weight listed for the
+low-risk hosted path in section 5 gets the full review of "Reviewer by risk" in the coordinator guide; a
 small low-risk Piece gets one light review. Do not repeat a review of
 unchanged code.
 
