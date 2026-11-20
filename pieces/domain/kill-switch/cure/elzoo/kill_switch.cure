@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: Apache-2.0
+# domain/kill-switch: the gate verdict over flags that Elixir computes from a
+# validated CheckedCommand.resource/3 read. `available` is false for a missing,
+# unreadable or malformed read or target; the other flags say whether a switch
+# of that kind holds the target's tenant, recipe or tool.
+mod Elzoo.KillSwitch
+  type KillVerdict =
+    KillAllow
+    | KillUnavailable
+    | KillTenantSuspended
+    | KillRecipeSuspended
+    | KillToolSuspended
+
+  @total true
+  @reducible
+  fn verdict(available: Bool, tenant: Bool, recipe: Bool, tool: Bool) -> KillVerdict =
+    match available
+      False() -> KillUnavailable()
+      True() ->
+        match tenant
+          True() -> KillTenantSuspended()
+          False() ->
+            match recipe
+              True() -> KillRecipeSuspended()
+              False() ->
+                match tool
+                  True() -> KillToolSuspended()
+                  False() -> KillAllow()
+
+  # ---------------------------------------------------------------- laws
+
+  # For all switch flags: an unavailable read denies, whatever the switches say.
+  @total true
+  fn unavailable_denies(t: Bool, r: Bool, x: Bool) -> Equivalent(KillVerdict, verdict(False(), t, r, x), KillUnavailable()) =
+    reflexive(KillUnavailable())
+
+  # For all recipe and tool flags: a tenant switch wins over recipe and tool switches.
+  @total true
+  fn tenant_wins(r: Bool, x: Bool) -> Equivalent(KillVerdict, verdict(True(), True(), r, x), KillTenantSuspended()) =
+    reflexive(KillTenantSuspended())
+
+  # For every tool flag: with no tenant switch, a recipe switch wins over a tool switch.
+  @total true
+  fn recipe_before_tool(x: Bool) -> Equivalent(KillVerdict, verdict(True(), False(), True(), x), KillRecipeSuspended()) =
+    reflexive(KillRecipeSuspended())
+
+  # A tool switch alone denies.
+  @total true
+  fn tool_alone_denies() -> Equivalent(KillVerdict, verdict(True(), False(), False(), True()), KillToolSuspended()) =
+    reflexive(KillToolSuspended())
+
+  # Allow needs an available read and no switch for the target.
+  @total true
+  fn clear_allows() -> Equivalent(KillVerdict, verdict(True(), False(), False(), False()), KillAllow()) =
+    reflexive(KillAllow())
+end
