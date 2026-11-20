@@ -204,27 +204,15 @@ defmodule Elzoo.CureConsumerCase do
       Path.wildcard(Path.join([@root, "_build", "test", "lib", "*", "ebin"]))
       |> Enum.filter(&MapSet.member?(apps, Path.basename(Path.dirname(&1))))
 
-    bootstrap = Path.join(ctx.destination, "isolated.exs")
+    output =
+      run_consumer_suite!(
+        ctx.destination,
+        paths,
+        inner_tests,
+        if(ai_text_only?, do: @no_provider_check, else: ""),
+        label
+      )
 
-    File.write!(bootstrap, """
-    unless :code.which(Elzoo.Registry) == :non_existing and :code.which(:"Cure.Elzoo.Core") == :non_existing,
-      do: raise("Elzoo leaked into the consumer code path")
-    #{if ai_text_only?, do: @no_provider_check, else: ""}
-    Mix.CLI.main(#{inspect(["test", "--no-deps-check" | inner_tests], limit: :infinity)})
-    """)
-
-    args = Enum.flat_map(paths, &["-pa", &1]) ++ [bootstrap]
-
-    {output, status} =
-      timed("#{label} consumer_mix_test", fn ->
-        System.cmd("elixir", args,
-          cd: ctx.destination,
-          stderr_to_stdout: true,
-          env: [{"MIX_ENV", "test"}, {"MIX_BUILD_PATH", nil}, {"MIX_DEPS_PATH", nil}]
-        )
-      end)
-
-    assert status == 0, output
     assert output =~ "passed"
     refute output =~ "0 tests"
     refute File.exists?(Path.join(ctx.destination, "lib/elzoo/application.ex"))
@@ -456,11 +444,10 @@ defmodule Elzoo.CureConsumerCase do
 
     {output, status} =
       timed("#{label} runtime_vm", fn ->
-        System.cmd(
+        owned_cmd(
           "elixir",
           Enum.flat_map(runtime_paths, &["-pa", &1]) ++ ["--eval", runtime],
-          cd: ctx.destination,
-          stderr_to_stdout: true
+          cd: ctx.destination
         )
       end)
 
@@ -474,6 +461,99 @@ defmodule Elzoo.CureConsumerCase do
 
     if ai_text_only?,
       do: assert(output =~ "ai-text consumer: no provider module, ReqLLM or Plug loadable")
+  end
+
+  @doc """
+  ELZ-289: runs the consumer's own `mix test` in a fresh VM and returns its output. Status 0 alone does not
+  show that the suite finished: the VM exits 0 on SIGTERM (`init:stop/0`), and a nested suite prints the
+  same `Result: N passed` line as the consumer's own summary. So the bootstrap prints a line with a token of
+  this run after `mix test` returns, and only a run with status 0 and that line passes.
+  """
+  def run_consumer_suite!(destination, paths, inner_tests, prelude, label) do
+    bootstrap = Path.join(destination, "isolated.exs")
+    finished = "ELZOO CONSUMER SUITE FINISHED " <> Base.encode16(:crypto.strong_rand_bytes(8))
+
+    File.write!(bootstrap, """
+    unless :code.which(Elzoo.Registry) == :non_existing and :code.which(:"Cure.Elzoo.Core") == :non_existing,
+      do: raise("Elzoo leaked into the consumer code path")
+    #{prelude}
+    Mix.CLI.main(#{inspect(["test", "--no-deps-check" | inner_tests], limit: :infinity)})
+    IO.puts(#{inspect(finished)})
+    """)
+
+    args = Enum.flat_map(paths, &["-pa", &1]) ++ [bootstrap]
+
+    {output, status} =
+      timed("#{label} consumer_mix_test", fn ->
+        owned_cmd("elixir", args,
+          cd: destination,
+          env: [{"MIX_ENV", "test"}, {"MIX_BUILD_PATH", nil}, {"MIX_DEPS_PATH", nil}]
+        )
+      end)
+
+    assert status == 0, output
+
+    assert output =~ finished,
+           "the consumer VM exited 0, but its own mix test did not finish (no #{finished} line):\n" <>
+             output
+
+    output
+  end
+
+  @doc """
+  ELZ-289: `System.cmd/3` (stderr merged into stdout, `:cd` and `:env` as there) for a consumer VM that the
+  calling test owns. If ExUnit kills the test, for example on its timeout, it then runs the test's
+  `on_exit` callbacks; the one registered here stops the consumer and its descendants. OTP starts each port
+  program in a session of its own, so the consumer's own port children are outside its process group: the
+  callback follows the OS process tree instead. After a normal exit the callback is replaced by a no-op.
+  """
+  def owned_cmd(command, args, opts) do
+    env =
+      for {name, value} <- Keyword.get(opts, :env, []),
+          do: {String.to_charlist(name), if(value, do: String.to_charlist(value), else: false)}
+
+    port =
+      Port.open(
+        {:spawn_executable, System.find_executable(command)},
+        [:binary, :exit_status, :hide, :stderr_to_stdout, args: args, cd: opts[:cd], env: env]
+      )
+
+    {:os_pid, os_pid} = Port.info(port, :os_pid)
+    ref = make_ref()
+    ExUnit.Callbacks.on_exit(ref, fn -> stop_process_tree(os_pid) end)
+    result = collect_port(port, [])
+    ExUnit.Callbacks.on_exit(ref, fn -> :ok end)
+    result
+  end
+
+  defp collect_port(port, acc) do
+    receive do
+      {^port, {:data, data}} -> collect_port(port, [acc | data])
+      {^port, {:exit_status, status}} -> {IO.iodata_to_binary(acc), status}
+    end
+  end
+
+  # Stop the tree from the root down until no new child appears (a stopped process does not fork, and its
+  # children keep it as parent), then kill every stopped process.
+  defp stop_process_tree(root) do
+    pids = stop_descendants([root], [])
+    System.cmd("kill", ["-KILL" | Enum.map(pids, &Integer.to_string/1)], stderr_to_stdout: true)
+  end
+
+  defp stop_descendants([], stopped), do: stopped
+
+  defp stop_descendants(pids, stopped) do
+    System.cmd("kill", ["-STOP" | Enum.map(pids, &Integer.to_string/1)], stderr_to_stdout: true)
+    stopped = pids ++ stopped
+    {table, 0} = System.cmd("ps", ["-A", "-o", "pid=,ppid="])
+
+    children =
+      for line <- String.split(table, "\n", trim: true),
+          [pid, ppid] <- [Enum.map(String.split(line), &String.to_integer/1)],
+          ppid in stopped and pid not in stopped,
+          do: pid
+
+    stop_descendants(children, stopped)
   end
 
   # The files of one ID that `mix test` loads by default in the consumer: `*_test.exs` below `test/`.
@@ -557,9 +637,8 @@ defmodule Elzoo.CureConsumerCase do
 
     {output, status} =
       timed("#{label} install_configuration", fn ->
-        System.cmd("elixir", Enum.flat_map(paths, &["-pa", &1]) ++ [bootstrap],
+        owned_cmd("elixir", Enum.flat_map(paths, &["-pa", &1]) ++ [bootstrap],
           cd: ctx.destination,
-          stderr_to_stdout: true,
           env: [{"MIX_ENV", "test"}, {"MIX_BUILD_PATH", nil}, {"MIX_DEPS_PATH", nil}]
         )
       end)
