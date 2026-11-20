@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.TokenVerifyTest do
-  use ExUnit.Case, async: true
+  # Synchronous: run/2 asserts that the captured log is empty, and capture_log in an async module
+  # also captures other modules' logs (the intermittent failure of main run 44778242170).
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
   alias Elzoo.{Principal, Secrets, TokenVerify}

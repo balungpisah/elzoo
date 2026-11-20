@@ -7483,6 +7483,52 @@
       "issue": 619,
       "url": "https://github.com/balungpisah/elzoo/issues/619",
       "issue_body_sha256": "3804e8717f5df156f46a54d6f99597269b417467f1cb3889db6f4d9ee6323a66"
+    },
+    {
+      "id": "ELZ-275",
+      "title": "ELZ-275 — Make the tenant-isolation log test independent of the global Logger level",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-270"
+      ],
+      "status": "published 2026-11-20",
+      "owner_role": "coordinator; one-PR path; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-275-tenant-isolation-log-level.md"
+      ],
+      "outputs": [],
+      "acceptance": "The tenant-isolation log test sets the global Logger level to :info for its run and restores it, so the level-dependent failure of main run 44778242170 cannot recur; Contract, library, README, manifest, timeouts and budgets unchanged. Failure reproduced with a :warning global level, fixed test passes in the same condition, negative control with a logged helper query fails, Piece tests.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 635,
+      "url": "https://github.com/balungpisah/elzoo/issues/635",
+      "issue_body_sha256": "495338a6c937dcd4f068e4ba595c251225a1a19bc684d5d19fbe85beb8473767"
+    },
+    {
+      "id": "ELZ-276",
+      "title": "ELZ-276 — Run the token-verify tests synchronously so their empty-log check sees only their own logs",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-268"
+      ],
+      "status": "published 2026-11-20",
+      "owner_role": "coordinator; one-PR path; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-276-token-verify-sync-log-test.md"
+      ],
+      "outputs": [],
+      "acceptance": "The token-verify test module runs async: false, so its empty captured-log assertion cannot capture a concurrent module's log as in main run 44778242170; Contract, library, README, manifest, timeouts and budgets unchanged. Failure reproduced with a concurrent logging async module, fixed module passes in the same pairing, negative control with a library log line fails, repeated Piece tests.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 637,
+      "url": "https://github.com/balungpisah/elzoo/issues/637",
+      "issue_body_sha256": "fc7f74ebb3fd149b356b95ad908264417824972663e190e9368ccc6952216479"
     }
   ],
   "entries": [
@@ -8145,10 +8191,12 @@
     {
       "id": "state/tenant-isolation",
       "job": "ELZ-270",
-      "note": "Planned PostgreSQL row-level-security floor: restrictive forced tenant/space policy with STABLE InitPlan setting readers, a transaction helper that sets and clears the scope, and a policy verifier; locked ecto_sql/postgrex only.",
+      "note": "PostgreSQL 16 row-level-security tenant floor over a consumer-owned Ecto Repo: a migration helper that installs two STABLE setting readers and protects a table with a forced restrictive tenant (and exact space-list) policy plus a replaceable permissive allow policy; transact/3 that refuses a bad scope, then an open transaction, and sets both transaction-local settings by bind parameter and clears them before the commit; verify/3 that reports unavailable, bypass role, not enabled, not forced, floor missing or floor changed, in that order, from a catalog read and a pure decision. Fail closed outside the helper.",
       "baseline_status": "not in baseline (new row, ELZ-270)",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/state/tenant-isolation/piece.json",
+      "manifest_sha256": "e9919ae34f875cd5a0af6794dbca2f31146d5f31d60cae00c5d3fabf877d1589"
     },
     {
       "id": "integration/egress-policy",
