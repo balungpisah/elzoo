@@ -144,7 +144,16 @@ defmodule Elzoo.McpRuntimeTest do
     end)
   end
 
-  defp sockets, do: Enum.count(Port.list(), &(Port.info(&1, :name) == {:name, ~c"tcp_inet"}))
+  # Modules of this Piece's BEAM imports that open a socket or a transport.
+  defp transport_imports do
+    {:ok, {_, [imports: imports]}} = :beam_lib.chunks(:code.which(McpRuntime), [:imports])
+
+    for {mod, _, _} <- imports,
+        mod in [:gen_tcp, :ssl, :socket, :inet, ExMCP.Client] or
+          String.starts_with?(Atom.to_string(mod), ["Elixir.Mint", "Elixir.ExMCP"]),
+        uniq: true,
+        do: mod
+  end
 
   defp payload(tool, args) do
     Jason.encode!(%{"version" => 1, "tool" => tool, "arguments" => args, "release" => @release})
@@ -275,7 +284,6 @@ defmodule Elzoo.McpRuntimeTest do
     ]
 
     clients = mcp_clients()
-    ports = sockets()
 
     for {url, answer, reason} <- cases do
       {fun, counter} = resolver(answer)
@@ -290,8 +298,10 @@ defmodule Elzoo.McpRuntimeTest do
       assert :counters.get(counter, 1) == expected, url
     end
 
+    # No socket: no ExMCP.Client exists, and the Piece itself calls no socket
+    # or transport module (the ready client opens sockets only in its client).
     assert mcp_clients() == clients
-    assert sockets() == ports
+    assert transport_imports() == []
   end
 
   test "admission: an allowlisted https URL with two public addresses gives a ready runtime config pinned to the egress host, port and sorted set; the Need resolves again on each call; a query is configuration" do
@@ -398,7 +408,6 @@ defmodule Elzoo.McpRuntimeTest do
     v = vault(expiry: %{ref("tenant-a", "alpha") => 500})
     ref = ref("tenant-a", "alpha")
     clients = mcp_clients()
-    ports = sockets()
 
     admit = fn overrides ->
       {fun, counter} = resolver({:ok, @public})
@@ -435,7 +444,6 @@ defmodule Elzoo.McpRuntimeTest do
 
     assert counts(v) == {0, 0}
     assert mcp_clients() == clients
-    assert sockets() == ports
   end
 
   test "keying: two servers of one tenant and one server text in two tenants give distinct {tenant, server} keys and distinct rt1 identities for one ref; listings are the unchanged ready result and the check runs first",
@@ -545,11 +553,10 @@ defmodule Elzoo.McpRuntimeTest do
     # A live session of another runtime config (loopback, configured directly
     # with the ready client) that sends its own admission once.
     clients = mcp_clients()
-    ports = sockets()
     {_srv, live} = loopback(ctx, "alpha")
-    # Positive control of the counters that egress_first and credentials use.
+    # Positive control of the client counter that egress_first and credentials
+    # use (the loopback server starts no ExMCP.Client).
     assert mcp_clients() > clients
-    assert sockets() > ports
     snap = %{elem(McpClient.list_tools(live), 1) | server: "alpha"}
     {:ok, al} = McpClient.admission(live.config, decl, snap)
     assert al.key != aa.key
