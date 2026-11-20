@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "id": "integration/encryption",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "otp"],
+  "dependencies": ["integration/secrets"],
+  "applications": ["crypto"],
+  "contract": "AES-256-GCM envelope over OTP crypto under a caller-held 32-byte integration/secrets Credential key with an ID and version: EZE1 header (key ID 1..128 UTF-8 bytes without C0/C1 controls, version 1..2^53-1) authenticated as AEAD associated data before the caller's aad, a fresh 12-byte random nonce and a 16-byte tag fixed by layout. open/3 checks layout and aad (malformed), calls the keys Need once for the exact (key_id, version) (not_found is no_key, so destroying a key crypto-shreds its envelopes; anything else unusable is unavailable), then decrypts (invalid). key_ref/1 reads the header. Fixed atoms, total, no clock, log or telemetry.",
+  "limits": [
+    "No key store, key generation policy, key destruction, KMS or HSM, wrapping of data keys, streaming, ChaCha20-Poly1305, seal counting or memory erasure of keys or plaintext. One key version should seal at most 2^32 envelopes (random 96-bit nonces, NIST SP 800-38D); the host rotates.",
+    "The host keys Need must look up the exact (key_id, version) and map a destroyed key to {:error, :not_found}. Passing straight through Elzoo.Secrets.resolve/2 gives only the current version and :missing, which open/3 reports as :unavailable. Expiry is not rechecked, as in Elzoo.Secrets.reveal/1.",
+    "OpenSSL behaviour (AES-256-GCM, tag check, strong_rand_bytes) is an upstream contract of the pinned OTP 29.1.2; the drift tests pin selected observations only. A failure inside :crypto itself, such as an exhausted entropy source, is not translated.",
+    "Finite listed scenarios and a 10,000-seal nonce sanity check, not proofs of confidentiality, integrity or randomness."
+  ],
+  "files": [
+    "lib/elzoo/encryption.ex",
+    "test/elzoo/encryption_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/encryption_test.exs",
+      "claim": "Listed scenarios of groups 1 round trip and format pin, 2 integrity (listed tampers and every single-bit flip), 3 OTP drift, 4 shape, 5 Needs and crypto-shredding with counted calls, 6 nonces and 7 secrecy and totality pass. Three temporary production edits (header left out of the AAD, fixed nonce, skipped credential version check) were negative controls. Finite scenarios, not a universal proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html#crypto_one_time_aead/7",
+      "claim": "OTP 29.1.2 crypto_one_time_aead/6,7 and strong_rand_bytes/1 with OpenSSL 3.5 perform AES-256-GCM sealing, tag verification and nonce generation; tag length and nonce size are fixed by this Piece because OTP accepts shorter tags and IVs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/Kernel.SpecialForms.html#try/1",
+      "claim": "Elixir catch semantics for the Need's errors, throws and exits, binary pattern matching for the layout, and String.valid?/1 for key IDs."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The trusted host supplies 32-byte keys of adequate entropy, a keys Need that answers the exact (key_id, version) and returns {:error, :not_found} once a key is destroyed, rotation before 2^32 seals per key version, and safe handling of revealed keys and opened plaintext."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "No events, logs or telemetry are emitted; the caller owns instrumentation and must not log keys or plaintext."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "The algorithm, layout and bounds are fixed; the key credential and the keys Need are per-call operands, not ambient settings."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle; key rotation and destruction belong to the host."
+    }
+  }
+}
