@@ -719,8 +719,9 @@
       "summary": "Per-tenant and per-principal rate and fair-share admission",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-280: caller-held state, no queue or process; Oban partitioning stays consumer configuration."
+      "status": "ready",
+      "reason": "ELZ-280: caller-held state, no queue or process; Oban partitioning stays consumer configuration.",
+      "manifest": "pieces/delivery/rate-limit/piece.json"
     },
     {
       "id": "domain/kill-switch",

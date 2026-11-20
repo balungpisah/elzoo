@@ -8400,9 +8400,11 @@
     {
       "id": "delivery/rate-limit",
       "job": "ELZ-280",
-      "note": "Planned pure all-or-nothing admission: per-tenant and per-principal token buckets with exact retry_after and global plus per-tenant fair-share slots over delivery/backpressure; injected clock; absorbs delivery/fair-queue.",
+      "note": "Pure all-or-nothing admission over a caller-held state with an injected now_ms: one admission takes cost tokens from a per-tenant and a per-principal token bucket (whole-interval integer refill capped at capacity, no refill when the clock goes back) and one in-flight slot from a global and a per-tenant fair-share delivery/backpressure bound, or takes nothing and returns the unchanged state with the first refusing bound in the order keys, slots, tenant_slots, tenant_rate, principal_rate and, for a rate bound, the exact milliseconds until a retry could pass; release frees exactly the two slots of a live ticket once. At most max_keys buckets of each kind and per-tenant Backpressure states; a full bucket whose tenant has no live ticket is dropped to make room, oldest last_ms first. Fixed error atoms; no queue, process, clock, telemetry or log.",
       "baseline_status": "not in baseline (new row, ELZ-280)",
-      "disposition": "planned-contract",
+      "disposition": "ready-contract",
+      "manifest": "pieces/delivery/rate-limit/piece.json",
+      "manifest_sha256": "b3311390237d71eef5cf5534f6a99a3526c701b9512d81246613b51e98edf796",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
