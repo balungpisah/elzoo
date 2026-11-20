@@ -123,7 +123,8 @@ changes no Piece, ready entry, manifest, provider, executable input, or
 generated-ledger input beyond those planned additions; and has no uncertain
 impact. Check these conditions against the exact diff. Do not call it docs-only
 when the classifier says otherwise; hosted classification and publication
-main-green/freeze guards remain unchanged.
+main-green/freeze guards remain unchanged. ELZ-277 lets the hosted classifier
+recognise the strict shape; see "Planned-only publications" below.
 
 ## Redundant push runs and duplicate pull request checks (ELZ-058, ELZ-059)
 
@@ -474,7 +475,8 @@ is documentation only when it has at least one changed path and every changed pa
 `tasks/`, or one of the root files `README.md`, `GOAL.md`, `PLAN.md` and `AGENTS.md`, **except `docs/consuming.md`**: `Elzoo.Export`
 copies that file into every export (`lib/elzoo/export.ex`), so the export tests and the copied consumers read it. These
 are never documentation: `.github/`, `scripts/`, `lib/`, `test/`, `pieces/` (their READMEs too), `config/`,
-`registry/`, `mix.*` and the generated `LEDGER.md` (`test/registry_test.exs` and the `ledger` stage read it).
+`registry/`, `mix.*` and the generated `LEDGER.md` (`test/registry_test.exs` and the `ledger` stage read it), except
+the two index files of a planned-only publication (ELZ-277, below).
 Git is asked with `diff --raw -z --no-renames --no-abbrev --ignore-submodules=none --no-relative` (one function,
 `diff_argv`, builds it for the workflow, the queue and the skip decision; the last two options keep a host setting of
 `diff.ignoreSubmodules` or `diff.relative` from hiding a gitlink or a path outside the working directory), so a rename counts both paths; a symlink or submodule entry on
@@ -554,6 +556,26 @@ change against its first parent is documentation only **and the first parent has
 parent). This closes the second way to hide a red `main`: a documentation pull request merged by hand in the UI, which
 branch protection lets through with the short `check-hosted`, on top of a frozen or unfinished main. The log line then reads `ELZOO PUSH CHECK SKIPPED (identical tree;
 exact-head docs-only check passed): ...`. Everything else of the skip decision is unchanged.
+
+**Planned-only publications (ELZ-277).** A publication that only adds planned catalogue rows is documentation only as
+well, for the workflow, the queue and the push-run skip, which all call `docs_only_output` of the classifier. Its paths are
+documentation plus `registry/catalogue.json` and `LEDGER.md`, both modified regular files (mode `100644`, status `M`).
+The classifier reads the base and head blob of each of the two files by the object names of the raw diff
+(`git cat-file blob`, exact bytes) and requires: every top-level field and every existing entry unchanged in value
+(type-strict: `1`, `1.0` and `true` differ; key order and string escaping inside an entry are ignored, as the Registry
+reads the same values) and the entries in the same order; one or more added entries, each with exactly `id`, `summary`,
+`disposition`, `phase`, `status` `planned` and `reason` (so no manifest), all strings with a letter or digit and no
+control character, an `id` of the Registry form and unique; no duplicate JSON key and no `NaN` or `Infinity`; and a head
+`LEDGER.md` that equals the base one with the row that `Elzoo.Registry.ledger/1` writes for each added entry inserted
+in ID order (`|` in a reason escaped as `cell/1` does). Anything else, including an existing deferred row that becomes
+planned, a Piece or provider path, a stale or hand-edited ledger, malformed JSON or UTF-8 and a failed blob read, keeps
+the old class. In the short check, `check-roadmap.py` compares the catalogue IDs with the plan; the Registry test does
+not run, so the classifier's own reading above stands in for the planned-row checks of `Elzoo.Registry.load!/1` (ID
+form, status, non-empty reason, unique IDs) and for the ledger drift test. Those planned rows reach no export, consumer
+or other root test. The queue reads the blobs from its own repository after `git fetch`, as it already runs the diff.
+The guard tests in `scripts/test-ci-change-class.py` cover the accepted shape and the near misses; on real history the
+pure-addition publications #559, #572 and #587 qualify, and #617 and #625, which also turned deferred rows into planned
+rows, do not.
 
 **Limits.** A documentation-only pull request is not checked by `mix test`: documentation that tests read must stay out of
 the allowlist (the guard test above enforces it). **A green short `check-hosted` is evidence for the queue only.** Branch

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "domain/kill-switch",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir"],
+  "dependencies": ["assembly/checked-command", "workflow/approval", "workflow/pattern-step"],
+  "contract": "Pure tenant, recipe and tool suspension over the \"switches\" field of a tenant control resource. prepare/3 is an assembly/checked-command preparer that engages or releases one switch {engaged_at, id, kind, reason} for payload exactly {op, kind, id, reason} and facts exactly {now}, writing only \"switches\" as a canonical list (0..64 entries, unique and sorted by {kind, id, reason}) and answering {engaged, revision}; refusals in the order invalid_request, reserved_reason (byte prefix lifecycle), cross_tenant, already_engaged / not_engaged / too_many. engage/2 and release/2 are the list transitions behind it and accept reserved reasons. check/2 over the exact CheckedCommand.resource/3 return and a target {tenant, recipe, tool} returns :allow or {:deny, code} with kill_switch_unavailable for a missing, unreadable, other-tenant or malformed read or a malformed target, then tenant_suspended, recipe_suspended, tool_suspended; it never raises. Fixed codes never echo an ID. No I/O, clock, process, storage, telemetry or log.",
+  "limits": [
+    "A switch takes effect at the host's next resource/3 read before a call; a call already running uses the read it started with. Gates are pure and fixed at construction, so the host builds a CheckedCommand handle over a fresh read before each execute/3 or release/4.",
+    "A RunEngine gate sees only the read taken before start_link/1. A switch engaged during a live Run is enforced by the host's own Run control (RunEngine control/4 pause, and the verified-person continue after release), not by the gate; that composition is documented in the README and shown by the ELZ-286 acceptance, not by this Piece's tests. A gate verdict RunEngine already committed survives restart, so admitted actions and their effects are not recalled.",
+    "A CheckedCommand gate denial is retained under its operation ID: a command refused while a switch was engaged needs a new operation_id after the release.",
+    "No platform-wide switch across tenants, no expiry or timer, no wildcard or prefix target. The tool name is the host's trusted mapping of the action (for example a workflow/tool-registry alias); the recipe is the host's trusted Run recipe. An action mapped to tool nil is checked against tenant and recipe switches only; the README gate denies an unmapped action.",
+    "The snapshot tenant and resource and the read and target tenant follow the domain/principal text rule, stricter than CheckedCommand identity (no C0 or C1 control characters): a tenant whose ID breaks it is refused by every command and denied kill_switch_unavailable by every gate, failing closed.",
+    "The kill-switch descriptor's own gate must not call check/2, or a suspended tenant could never be released. Dual control is the host's ASK policy through ready workflow/approval; the operator's exact-value authority over the one switches value is the host's Authorization context.",
+    "Selected Cure laws cover the verdict order over the four flags Elixir supplies; read, target and list validation, flag computation, the preparer and its refusal order are Elixir-side and test-grounded only."
+  ],
+  "files": [
+    "cure/elzoo/kill_switch.cure",
+    "lib/elzoo/kill_switch.ex",
+    "test/elzoo/kill_switch_test.exs",
+    "examples/kill_switch.exs"
+  ],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/kill_switch.cure", "symbol": "unavailable_denies", "claim": "For all switch flags, an unavailable read gives KillUnavailable."},
+    {"kind": "proof", "file": "cure/elzoo/kill_switch.cure", "symbol": "tenant_wins", "claim": "For all recipe and tool flags, an available read with a tenant switch gives KillTenantSuspended."},
+    {"kind": "proof", "file": "cure/elzoo/kill_switch.cure", "symbol": "recipe_before_tool", "claim": "For every tool flag, with no tenant switch a recipe switch gives KillRecipeSuspended."},
+    {"kind": "proof", "file": "cure/elzoo/kill_switch.cure", "symbol": "tool_alone_denies", "claim": "A tool switch alone gives KillToolSuspended."},
+    {"kind": "proof", "file": "cure/elzoo/kill_switch.cure", "symbol": "clear_allows", "claim": "An available read with no switch for the target gives KillAllow."},
+    {"kind": "type", "file": "cure/elzoo/kill_switch.cure", "claim": "Pinned Cure checks types and totality of the verdict decision; the source audit reports no axiom, hole, unresolved, unaudited, opaque or unproved-total definition."},
+    {"kind": "test", "file": "test/elzoo/kill_switch_test.exs", "claim": "Listed scenarios: engage and release of each kind; two reasons on one target; already_engaged, not_engaged, too_many (64 pass, 65 refused); reserved_reason for lifecycle, lifecycle_x and lifecyclex; cross_tenant; other fields ignored and never written; a canonical list over shuffled engage orders; payload keys, kind Tenant, IDs at 0, 1, 128 and 129 bytes, invalid UTF-8, NUL, DEL and U+0085, reasons of 65 bytes and uppercase, now at -1, 2^63 and a float, stored lists unsorted, duplicated or of 65 entries as invalid_request; each check/2 code and its order, allow for other targets and revision 0, kill_switch_unavailable for :not_found, {:refused, :invalid_request}, {:unknown, :storage}, another tenant's view, malformed lists and targets, and 3,000 generated terms without a raise; on the Memory Store with real CheckedCommand descriptors, an engage that commits and denies, a second descriptor's command refused by the README gate and retained as {:denied, {:gate, \"tenant_suspended\"}} under its operation ID after the release while a new ID commits, release of a tenant switch through the kill-switch descriptor, the README gate over PatternStep v1 and v2 frames read through encode/1 (tool, recipe, unmapped action, unavailable read), engage replay, ASK unchanged until a distinct reviewer's once-evidence and the proposer as reviewer refused. Letting check/2 allow an unavailable read, skipping the reserved-reason refusal and checking recipe before tenant each make these tests fail (negative controls). Finite scenarios, not universal proofs."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Pinned Cure compilation, reduction checking and BEAM decision semantics; compiler soundness not locally proved."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir/OTP term ordering of binary tuples, String.valid?/1, the utf8 binary pattern and List.keysort/2 for the canonical byte order."},
+    {"kind": "assumption", "claim": "The host authenticates the operator and reviewer, owns the policy, Approval verifier and exact-value authority for the switches write, maps each action to a trusted tool name and recipe, takes a fresh resource/3 read before each gate it builds, and pauses live Runs through RunEngine control/4 when it engages a switch that covers them."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure functions emit no observations and no logs; the host owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "Fixed Contract bounds (64 switches, 128-byte IDs, 64-byte reasons, 0..2^63-1 ms); the read, target and facts are per-call operands, not settings."},
+    "control": {"status": "supported", "contract": "Engage and release are retained, revision-fenced CheckedCommand commands through the host's descriptor with this preparer; ASK policy gives dual control through workflow/approval. No process or lifecycle of its own.", "evidence": ["test/elzoo/kill_switch_test.exs"]}
+  }
+}

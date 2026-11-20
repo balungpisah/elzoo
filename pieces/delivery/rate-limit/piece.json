@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "id": "delivery/rate-limit",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir"],
+  "dependencies": ["delivery/backpressure"],
+  "contract": "Pure all-or-nothing admission over a caller-held state with an injected now_ms: one admission takes cost tokens from a per-tenant and a per-principal token bucket (whole-interval integer refill capped at capacity, no refill when the clock goes back) and one in-flight slot from a global and a per-tenant fair-share delivery/backpressure bound, or takes nothing and returns the unchanged state with the first refusing bound in the order keys, slots, tenant_slots, tenant_rate, principal_rate and, for a rate bound, the exact milliseconds until a retry could pass; release frees exactly the two slots of a live ticket once. At most max_keys buckets of each kind and per-tenant Backpressure states; a full bucket whose tenant has no live ticket is dropped to make room, oldest last_ms first. Fixed error atoms; no queue, process, clock, telemetry or log.",
+  "limits": [
+    "One caller-held state that the host serializes: no distributed or multi-node limit and no persistence across restarts (a restart starts full). No queue, waiting, weighted fairness or priority; Oban fair queuing stays consumer queue and partition configuration. Costs are the host's estimate.",
+    "The key cap fails closed with keys: a flood of new principals in one tenant can refuse new principals of other tenants once max_keys is reached, so set it above the expected active set. A dropped bucket that is created again starts its interval phase at that now_ms, so its next refill can come up to one interval later than if it had been kept.",
+    "Each call revalidates the whole state in time linear in its buckets and live tickets. Finite seeded scenarios and a reference-model trace, not a proof."
+  ],
+  "files": [
+    "examples/elzoo/rate_limit.exs",
+    "lib/elzoo/rate_limit.ex",
+    "test/elzoo/rate_limit_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/rate_limit_test.exs",
+      "claim": "Listed scenarios pass for config bounds and key shape, exact refill, retry_after and cap including a clock that goes back and times up to 2^63 - 1, the unchanged state on each of the five refusals and their order, global and per-tenant fair-share slots with exact and double release, idle-bucket eviction order and Backpressure state bounds, malformed texts, costs, times and forged states, and a seeded 10,000-step admit/release trace (seed {280, 644, 2026}) that agrees step by step with an independent reference model; the kept-tenant-token, last_ms-to-now and skipped-tenant-slot negative controls fail under temporary edits. Finite evidence, not a proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned Elixir integer arithmetic, map and term ordering semantics, not a local proof."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host holds and serializes the state, passes a truthful now_ms and releases each admitted ticket when its work ends. Slot counts use delivery/backpressure through its public API, and its README-documented erased state is read only to check a state's counts."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure policy decision; it emits no telemetry or log, and errors are fixed atoms that never echo a tenant or principal."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time options are exactly tenant_rate, principal_rate, max_in_flight, tenant_in_flight and max_keys, validated by new/1 with {:error, :config}; there is no hot update, and changed limits are a new state.",
+      "evidence": ["test/elzoo/rate_limit_test.exs"]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "The Piece owns no process or lifecycle to pause, drain, resume or stop."
+    }
+  }
+}

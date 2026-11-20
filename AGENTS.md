@@ -286,8 +286,11 @@ every existing catalogue row and adds only planned entries without manifests;
 changes no Piece, ready entry, manifest, provider, executable input, or
 generated-ledger input beyond those planned additions; and has no uncertain
 impact. Check those conditions against the exact diff. This is not docs-only
-when the classifier says otherwise. Hosted classification, full hosted checks
-when selected, and publication main-green/freeze rules remain unchanged.
+when the classifier says otherwise. The hosted classifier gives the strict
+shape (added planned catalogue rows and their generated ledger rows, no edit
+of an existing row) the docs-only check (ELZ-277). Hosted classification, full
+hosted checks when selected, and publication main-green/freeze rules remain
+unchanged.
 
 Each push to a pull request starts the hosted check on the new head:
 

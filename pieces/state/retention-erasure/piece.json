@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "id": "state/retention-erasure",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": ["ecto_sql", "postgrex", "elixir", "otp"],
+  "dependencies": ["integration/encryption", "integration/secrets"],
+  "applications": ["crypto"],
+  "contract": "Per-subject personal-data vault over a consumer-owned Ecto Repo on PostgreSQL 16: three tables from Migration.install/1; put/3 seals a 0..65,536-byte plaintext with integration/encryption under the subject's key (key ID subject, aad the random v1_ ref) inside one transaction that holds the subject row FOR SHARE and refuses an erased subject; the subject key (32 random bytes, version 1, ON CONFLICT DO NOTHING then re-read) is stored only sealed under the host KEK Need (key ID elzoo-vault-kek, aad version and subject); fetch/2 opens by ref (missing is not_found, invalid stays invalid, else unavailable); erase/2 upserts the subject as erased under its row lock and deletes its key and entry rows in one transaction, so earlier envelope copies have no key in the vault; status/2. Refuses malformed input, then the caller's open transaction, before any query or Need call. Fixed atoms, log: false, no telemetry; never touches elzoo_log_records.",
+  "limits": [
+    "Dead tuples, WAL and backups keep wrapped subject keys until PostgreSQL reclaims them. A copied wrapped key unwraps while its KEK version exists (its key ID is elzoo-vault-kek, not the subject): destroying the old KEK version after the backup retention period finishes the erasure, and that is the host's duty.",
+    "No subject-key rotation (one key version should seal fewer than 2^32 envelopes, as integration/encryption states), no KEK re-wrap, no artifact or object tombstones, no retention schedule and no tenant column or row-level security on the vault tables; the host namespaces subjects (principal:<id>, tenant:<id>).",
+    "log: false (on every query and on the transactions) silences only the Logger: the consumer Repo's query telemetry event still receives subjects, refs, envelopes and wrapped keys as parameters.",
+    "No memory erasure of keys or plaintext in the VM; the KEK Need is called synchronously inside put/3's transaction while the subject row lock is held, and the host bounds it.",
+    "An :unavailable result can be an unknown outcome when the connection is lost during COMMIT: erase/2 is idempotent and the host retries it until :ok; a put/3 may have stored an entry whose ref the caller never received, which stays sealed until the subject is erased.",
+    "Finite listed scenarios on one local PostgreSQL 16, including barrier-controlled races; not proofs of confidentiality, atomicity or erasure."
+  ],
+  "files": [
+    "lib/elzoo/retention_erasure.ex",
+    "lib/elzoo/retention_erasure/migration.ex",
+    "test/elzoo/retention_erasure_test.exs",
+    "test/support/retention_erasure_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/retention_erasure_test.exs",
+      "claim": "Listed scenarios on the worker's own disposable PostgreSQL 16 database behind a fail-closed target guard, in random schemas dropped afterwards: 1 round trip of 0-, 1- and 65,536-byte plaintexts for 1- and 128-byte subjects, one key version 1 per subject and raw rows without plaintext or key bytes; 2 erasure (other subject still opens, a later put is erased and calls no Need, a pre-erase envelope copy gives no_key over the current key rows, the copied wrapped key unwraps until its KEK version is destroyed, erase of an absent subject); 3 envelope and wrapped-key swaps give invalid or unavailable; 4 barrier-controlled first-put and put/erase races with lock waits observed, including an erase-first race on an absent subject (one key row, no key or entry left); 5 KEK Need faults and counted calls; 6 shape, bounds, in_transaction and unreachable Repo; 7 secrecy of results, messages, Inspect and captured logs (no BEGIN, COMMIT or ROLLBACK logged). Skipping the erased check, erasing keys but not the state, a fixed entry aad, reading the state without FOR SHARE and logging the transactions each fail cases of groups 1-4 or 7 (negative controls). Finite scenarios, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/16/explicit-locking.html#LOCKING-ROWS",
+      "claim": "PostgreSQL 16 row locks (FOR SHARE conflicts with the row lock of INSERT ... ON CONFLICT DO UPDATE), INSERT ... ON CONFLICT DO NOTHING with RETURNING, read-committed snapshots per statement, foreign keys and clock_timestamp() are upstream server contracts reached through Postgrex 0.22.4."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "Ecto SQL 3.14.0 Repo.transact/2 commit and rollback on an error tuple, in_transaction?/0, Ecto.Adapters.SQL.query!/4 with log: false and migration execute/1 are upstream behavior; DBConnection 2.10.2 raises for an unreachable pool."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html#strong_rand_bytes/1",
+      "claim": "OTP 29.1.2 crypto:strong_rand_bytes/1 supplies the 32-byte subject keys and the 16 random bytes of each ref."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/Kernel.SpecialForms.html#try/1",
+      "claim": "Elixir catch semantics for the KEK Need and Repo failures, String.valid?/1 and the utf8 binary pattern for subjects, Regex anchors for prefixes and refs, Base.url_encode64/2."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The trusted host supplies a KEK Need that answers :current and the exact versions it still holds with 32-byte credentials and {:error, :not_found} once a version is destroyed, destroys old KEK versions after its backup retention period, namespaces subjects, keeps vault rows out of exports and does not record the Repo's query telemetry parameters."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "The Piece emits no events and no logs; its own queries and transactions pass log: false, and the consumer Repo's query telemetry is unchanged (a limit: it receives the parameters)."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Fixed Contract bounds (128-byte subjects, 65,536-byte plaintexts, 63-byte prefix); the Repo, prefix and KEK Need are vault operands, not ambient settings."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle; erase/2 is a data operation and KEK destruction belongs to the host."
+    }
+  }
+}
