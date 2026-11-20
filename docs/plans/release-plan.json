@@ -8408,10 +8408,12 @@
     {
       "id": "domain/kill-switch",
       "job": "ELZ-281",
-      "note": "Planned pure CheckedCommand preparer for a tenant resource's switches field plus a check over a resource/3 read that denies suspended tenants, recipes and tools and fails closed on an unavailable read.",
+      "note": "Pure tenant, recipe and tool suspension over the \"switches\" field of a tenant control resource. prepare/3 is an assembly/checked-command preparer that engages or releases one switch {engaged_at, id, kind, reason} for payload exactly {op, kind, id, reason} and facts exactly {now}, writing only \"switches\" as a canonical list (0..64 entries, unique and sorted by {kind, id, reason}) and answering {engaged, revision}; refusals in the order invalid_request, reserved_reason (byte prefix lifecycle), cross_tenant, already_engaged / not_engaged / too_many. engage/2 and release/2 are the list transitions behind it and accept reserved reasons. check/2 over the exact CheckedCommand.resource/3 return and a target {tenant, recipe, tool} returns :allow or {:deny, code} with kill_switch_unavailable for a missing, unreadable, other-tenant or malformed read or a malformed target, then tenant_suspended, recipe_suspended, tool_suspended; it never raises. Fixed codes never echo an ID. No I/O, clock, process, storage, telemetry or log.",
       "baseline_status": "not in baseline (new row, ELZ-281)",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/kill-switch/piece.json",
+      "manifest_sha256": "7688e003ec9416c413f8af798deb09a3d0b573b98857817d4fec69507e5c5e3e"
     },
     {
       "id": "workflow/tenant-lifecycle",

@@ -727,7 +727,8 @@
       "summary": "Audited tenant, recipe and tool suspension gate",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/kill-switch/piece.json",
       "reason": "ELZ-281: engines unchanged; the host gates on a fresh CheckedCommand.resource/3 read; dual control via workflow/approval."
     },
     {
