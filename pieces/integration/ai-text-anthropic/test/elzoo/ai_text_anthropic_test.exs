@@ -487,7 +487,9 @@ defmodule Elzoo.AiText.AnthropicTest do
     req =
       Map.put(request(), "messages", [%{"role" => "user", "text" => secret_prompt}])
 
+    previous = Logger.level()
     Logger.configure(level: :debug)
+    on_exit(fn -> Logger.configure(level: previous) end)
 
     log =
       capture_log([level: :debug], fn ->
@@ -508,7 +510,6 @@ defmodule Elzoo.AiText.AnthropicTest do
         end
       end)
 
-    Logger.configure(level: :warning)
     refute log =~ @key
     refute log =~ secret_prompt
     refute log =~ secret_output
