@@ -246,16 +246,21 @@ RC-01 (stored state across a format change, wave 4), RC-42 (durable dedup for
 events in, wave 4), RC-06 (waves 4 and 5), RC-03 and RC-04 (wave 6). They are
 unchanged here.
 
-## Waves 4 to 9: Wave 4 first level registered; later levels proposed
+## Waves 4 to 9: Wave 4 levels 1–4 merged; Wave 5 planned
 
 These handles are listed so that an earlier Contract does not close a door
-that a later wave needs. This publication registers only Wave 4's first-level
-task Contracts ELZ-245, ELZ-246 and ELZ-247; it does not claim runtime
-implementation. Later Wave 4 levels remain proposals. Waves 5 to 9 retain the
-existing serial rule: a wave is registered when the preceding wave is
-accepted. See [bot-platform-wave4.md](bot-platform-wave4.md) for all 24
-dispositions and dependency levels. A handle with a job in brackets is an
-existing catalogue row that the job owns; the one exception is
+that a later wave needs. Wave 4's registered Levels 1–4 (including Pieces
+`delivery/debounce`, `domain/trigger-binding`, `assembly/checked-command`,
+`state/conversation`, `integration/webhook-in`, in-place v2 event waits on
+`workflow/pattern-step` / `workflow/bot-run-lifecycle` / `assembly/run-engine`,
+and root consumer acceptances `ELZ-252`, `ELZ-258`, `ELZ-266`) are merged on
+`main`; see [bot-platform-wave4.md](bot-platform-wave4.md) for all 24
+dispositions and finite evidence limits. Wave 5 planning dispositions and
+pre-registration gates live in [bot-platform-wave5.md](bot-platform-wave5.md)
+(not registered yet; publishes no task and promotes no Piece). Waves 5 to 9
+retain the existing serial rule: a wave is registered when the preceding wave
+and its pre-registration gates are accepted. A handle with a job in brackets
+is an existing catalogue row that the job owns; the one exception is
 `delivery/durable-idempotency` (RC-42), which is a candidate gap and not a
 catalogue row.
 
@@ -268,55 +273,38 @@ catalogue row.
 | 8 | Bots talk | `delivery/durable-mailbox`, `workflow/loop-guard`, `workflow/delegation`, `workflow/handoff`, `workflow/human-escalation`, `workflow/turn-policy`, `delivery/room`, `state/shared-board`, `workflow/work-item` (RC-11), `assembly/task-workflow` (RC-37), `integration/a2a-server`, `integration/a2a-client` |
 | 9 | More tools, doors, models and money | `integration/oauth-client`, `integration/webhook-out`, `workflow/client-tool`, `workflow/code-mode`, `integration/openapi-tool`, `integration/mcp-server`, `workflow/package-vetting`, `integration/connector-drive`, `integration/channel-slack`, `integration/channel-whatsapp`, `integration/channel-telegram`, `integration/channel-email-in`, `integration/ai-text-compatible`, `integration/ai-text-google`, `integration/ai-multimodal`, `integration/ai-model-catalogue`, `delivery/model-routing` (RC-25), `delivery/resequence` (RC-28), `runtime/load-shed`, `domain/payment-lifecycle` (RC-24), `integration/payments` (RC-24), `assembly/ledger-checkout` (RC-41), `domain/plan`, `domain/invoice` |
 
-### A door that wave 1 keeps open: a command with no Run
+### A door that wave 1 kept open: a command with no Run (delivered in Wave 4)
 
-`assembly/checked-command` (wave 4) is named because a wave-1 Contract can
-close its door. It has no catalogue row and no job.
+`assembly/checked-command` was named during wave 1 so that wave-1 Contracts
+would not close the door on administration commands outside a Run (make a
+binding, invite a member, publish a version). Wave 4 delivered that Contract
+in `ELZ-249` (`assembly/checked-command`) and verified Memory/PostgreSQL
+composition and native `assembly/run-engine` parity in `ELZ-252`. Its ready
+limits (including `low_water == 0` contiguous history recovery and host-vouched
+tenant/actor context) are recorded in `pieces/assembly/checked-command/piece.json`
+and feed directly into Wave 5's identity and erasure design in
+[bot-platform-wave5.md](bot-platform-wave5.md).
 
-The engine of RC-50 checks each action of a Run: payload schema, identity,
-host gate, budget, authority and approval rule. An administration command
-needs the same checks. Examples, when a person gives them outside a Run: make
-a binding, invite a member, publish a version. Such a command has no Run of
-the engine, no pattern and no budget.
-Today no Piece gives those checks to that caller. A consumer that writes them
-a second time can get a different verdict for the same action.
+### Subsequent waves (Waves 6–9) — pruned planning baseline
 
-The engine is not expected to serve this caller unchanged. Three differences
-are known:
+Like Waves 4 and 5, Waves 6–9 must avoid turning every named handle into a
+separate Piece. Ready Pieces (`runtime/telemetry`, `integration/observability`,
+`state/audit-log`, `integration/search-data`, `integration/text-chunking`,
+`integration/ai-embedding`, `integration/ai-text-*`, `integration/mcp-client`,
+`domain/money`, `delivery/effect-intent`) already cover a large share of the
+original handle list. When each wave is drafted, start from this pruned core
+rather than the unpruned 74-handle wishlist:
 
-- The engine refuses an action identity that the Run already used. A command
-  gives back the recorded result of an equal repeat. That is the durable
-  identity of RC-42.
-- The engine needs a budget. A command has none.
-- The engine records an outcome after the work. A command commits its change
-  and its outcome record together.
-
-`state/audit-log` records the attribution of a change. An action that changes
-no record has no audit row there, so no ready Piece records a denied command
-today. `domain/authorization` leaves the retention of a denial to the caller.
-
-The brief is written when wave 4 is registered. It must hold at least these
-aims:
-
-1. For an action that passes the schema and identity checks and that the
-   budget admits, the command and the engine give the same verdict from the
-   same trusted context, policy, gate and host state.
-2. The acting principal, the effect class and the tenant are trusted values
-   from the host and never come from a payload.
-3. The change that is applied is exactly the write set that the committed
-   authorization allow or approval release covers.
-4. A change commits with its outcome record, and a denied command gets a
-   record. The ready Store refuses a call inside a caller transaction, so a
-   change outside the Store needs RC-42 or an equal.
-5. An approval that waits survives a restart.
-
-RC-50 carries one blocker line for this door. Its admission records whether a
-later Assembly can reuse the check order with no Run of the engine, and in
-which form. RC-50 gets no new API and no new acceptance item for it.
+| Wave | Pruned core Pieces (~target) | Reused / collapsed (no new Piece) | Deferred / conditional |
+| --- | --- | --- | --- |
+| **6 · Count and see** | `state/run-transcript` (carrying tree/span trace view), `delivery/dead-letter-store`, `domain/metering`, `domain/quota` (with `domain/entitlement` & `run_id`-idempotent tenant allowance reservation/settlement), `domain/pricing`, `domain/journal` (double-entry over ready `domain/money`, absorbing `domain/wallet`), `workflow/eval` (dataset-backed bot evaluation over ready `runtime/recipe-test` + `state/artifact`, absorbing `state/eval-dataset`) | `runtime/telemetry`, `integration/observability` (already ready — replaces `runtime/telemetry-events`, `runtime/metrics`, `runtime/trace`, `runtime/log`, `runtime/alert`), `state/audit-log`, `workflow/budget` (`spend-alert` is a budget threshold) | `runtime/faces`, `state/projection`, `state/feedback`, `workflow/red-team`, `ui/component` (stay consumer-driven until a concrete caller exists) |
+| **7 · Remember and know** | `state/memory-record` (absorbing `domain/memory-scope` & `workflow/memory-write-policy`), `integration/search-text` (PostgreSQL FTS/`pg_trgm`), `integration/document-parse`, `workflow/citation`, `assembly/knowledge-ingest` (service-principal Run composition over ready `document-parse` + `text-chunking` + `ai-embedding` + `search-data`) | `integration/search-data` (`pgvector`), `integration/text-chunking`, `integration/ai-embedding`, `workflow/context-selection`, Wave 5 `state/tenant-isolation` RLS (replaces `workflow/permission-mirror`), `workflow/memory-extract` & `workflow/memory-recall` (pure pattern/module steps over `state/memory-record` + `search-data`) | `state/cache`, `state/bot-data`, `integration/ai-rerank`, `integration/connector-web`, `integration/connector-database`, `assembly/data-pipeline` |
+| **8 · Bots talk** *(held on G10 room-life decision)* | `delivery/durable-mailbox` (Store/outbox-backed bot & room mailbox), `workflow/turn-policy`, `delivery/room`, `workflow/delegation` (absorbing `handoff`, `loop-guard`, `human-escalation`), `workflow/work-item` | `assembly/run-engine` (unchanged Contract; rooms roll over before the 256-action cap via host-owned rollover to a new Unit carrying bounded summary state), `state/conversation` | `state/shared-board`, `assembly/task-workflow`, `integration/a2a-server`, `integration/a2a-client` (only when a concrete external A2A peer exists) |
+| **9 · More tools, doors, models and money** | `integration/oauth-client`, `integration/webhook-out`, `integration/mcp-server`, `workflow/code-mode` (Lua-first over ready `runtime/lua-sandbox`), `integration/ai-multimodal`, `integration/ai-text-compatible` / `integration/ai-text-google`, `delivery/model-routing`, `domain/payment-lifecycle` + `integration/payments` (over ready `domain/money` + `delivery/effect-intent`, preferring no-custody / sub-account split settlement) | `integration/ai-text-anthropic`, `integration/ai-text-openai`, `integration/webhook-in`, `domain/money`, `delivery/effect-intent`, `domain/journal` (Wave 6) | Individual channel adapters (`slack`, `whatsapp`, `telegram`, `email-in` — build each concrete channel as consumer demand arrives, starting with the first active channel), `integration/openapi-tool`, `workflow/package-vetting`, `integration/connector-drive`, `domain/plan`, `domain/invoice`, `runtime/load-shed` |
 
 ### A decision that wave 8 waits for: the life of a room
 
-Wave 8 is not registered before the owner decides this point. The coordinator
+Wave 8 is not registered before the owner confirms this point. The coordinator
 asks the owner first, and records the answer here.
 
 The ready `assembly/run-engine` (ELZ-127) gives one Unit "64 active/256
@@ -325,12 +313,15 @@ is not reset by that period." After 256 actions the engine refuses the next
 request of that host. A Run has a request cap of at most 256 and ends. A room
 is one host that lives long, so a room reaches the limit.
 
-Two candidates are known. Neither is chosen.
+Two candidates are known (recommended default: candidate 1 — consumer/room
+rollover to a fresh host Unit, keeping `assembly/run-engine`'s Contract
+unchanged):
 
-- The consumer starts a new host identity for the room and carries the needed
-  state over. Elzoo gets no new Piece.
-- A new Piece of wave 8 moves a room to a new Unit. The ready engine keeps its
-  ID and Contract.
+- **Recommended:** The consumer (or Wave 8 `delivery/room`) starts a new host
+  identity for the room before hitting 256 actions and carries the bounded
+  summary state over. `assembly/run-engine` keeps its ID and Contract.
+- Alternative: A dedicated Wave 8 migration Piece moves a room across Units
+  while keeping `assembly/run-engine`'s ID and Contract unchanged.
 
 ## What stays with the consumer
 
@@ -383,9 +374,11 @@ Resolved on 2026-11-14; these decisions are also recorded in `release-plan.json`
 
 | Decision | Job |
 | --- | --- |
-| The language of model-written code | not registered (wave 9) |
+| Confirm Wave 5 core Pieces stay plain Elixir/Cure/Ecto/Postgrex (+ pinned `jose 1.11.13`) rather than wrapping Ash (recommended in [bot-platform-wave5.md](bot-platform-wave5.md)) | not registered (wave 5) |
+| Confirm PII-vault / crypto-shredding boundary for `state/retention-erasure` so erasure preserves `assembly/checked-command` (`low_water == 0`) and Carbonite `state/audit-log` (recommended in [bot-platform-wave5.md](bot-platform-wave5.md)) | not registered (wave 5) |
+| Confirm room rollover default (fresh Unit before 256 lifetime actions of `assembly/run-engine`) | not registered (wave 8) |
 | The turn policies of a room | not registered (wave 8) |
-| What a room does when its Unit reaches the 256 lifetime actions of `assembly/run-engine`. Wave 8 is not registered before this is decided | not registered (wave 8) |
+| The language of model-written code | not registered (wave 9) |
 
 ## Check
 
