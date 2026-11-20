@@ -3,8 +3,10 @@
 `Elzoo.TenantLifecycle` moves a tenant through its lifecycle and consumes
 one-use invitations as `assembly/checked-command` commands. It is a pure
 preparer Piece: no store, process, I/O, clock, telemetry or log of its own.
-CheckedCommand, KillSwitch, Membership and Approval are used through their
-public APIs and not changed.
+The code calls only the public `Elzoo.KillSwitch.engage/2`, `release/2` and
+`check/2` and `Elzoo.PatternStep.encode/1`; the host runs it inside
+`Elzoo.CheckedCommand`, with `workflow/approval` for dual control and
+`domain/membership` for the accepted membership. None of them is changed.
 
 It works over the tenant control resource that `domain/kill-switch` also uses.
 It reads and writes the `"lifecycle"` and `"invitations"` fields. On a
@@ -182,6 +184,10 @@ such as "issue tokens only for an `active` tenant".
   notice at most once per command identity.
 - No reminder, resend or expiry sweep: an expired invitation stays until
   revoked or until `close`.
+- A command that a policy answers ASK is prepared again at release with the
+  facts retained at proposal, so its `now` (and an `accept`'s expiry check) is
+  the proposal time. Use ASK for lifecycle ops; the Approval evidence age and
+  expiry bound the delay.
 - Values that break the text rule are refused `invalid_request`, failing
   closed, also for a tenant ID that CheckedCommand itself would accept.
 

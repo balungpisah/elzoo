@@ -543,6 +543,7 @@ defmodule Elzoo.TenantLifecycleTest do
         assert invalid?(snap, payload, {:record, tl(Enum.sort(pairs))})
         assert invalid?(snap, payload, {:record, [{"now", @now} | pairs]})
         assert invalid?(snap, payload, {:list, pairs})
+        if length(pairs) > 1, do: assert(invalid?(snap, payload, {:record, Enum.reverse(pairs)}))
       end
 
       assert TenantLifecycle.prepare(snap, request(op("suspend"), snap.revision), %{
@@ -588,7 +589,18 @@ defmodule Elzoo.TenantLifecycleTest do
       malformed_invitations = [
         {:list, [b, a]},
         {:list, [a, a]},
-        {:list, List.duplicate(a, 33)},
+        {:list,
+         for(
+           n <- 1..33,
+           do:
+             {:record,
+              List.keyreplace(
+                a_fields,
+                "id",
+                0,
+                {"id", {:text, "i-" <> String.pad_leading(Integer.to_string(n), 2, "0")}}
+              )}
+         )},
         {:list, [a | b]},
         {:list,
          [{:record, List.keyreplace(a_fields, "code_digest", 0, {"code_digest", {:bytes, "x"}})}]},
@@ -774,16 +786,19 @@ defmodule Elzoo.TenantLifecycleTest do
     do: CheckedCommand.resource(tl_handle(store, :not_found), scope(@admin), @resource)
 
   # The host takes a fresh read, gives the actor exact-value authority for the
-  # writes this command produces over it, and executes. `at` pins the
-  # expected revision for a race.
+  # writes this command produces over it, and executes.
   defp command(store, operation_id, payload, data, opts) do
+    {handle, context, request} = plan(store, operation_id, payload, data, opts)
+    {handle, context, request, CheckedCommand.execute(handle, context, request)}
+  end
+
+  defp plan(store, operation_id, payload, data, opts) do
     actor = Keyword.get(opts, :actor, @admin)
     {:ok, snap} = read = read(store)
-    revision = Keyword.get(opts, :at, snap.revision)
-    request = request(payload, revision, operation_id)
+    request = request(payload, snap.revision, operation_id)
 
     own =
-      case TenantLifecycle.prepare(%{snap | revision: revision}, request, facts(data, actor)) do
+      case TenantLifecycle.prepare(snap, request, facts(data, actor)) do
         {:ok, writes, _} -> writes
         {:refused, _} -> []
       end
@@ -797,8 +812,7 @@ defmodule Elzoo.TenantLifecycleTest do
       facts: data
     }
 
-    handle = tl_handle(store, read)
-    {handle, context, request, CheckedCommand.execute(handle, context, request)}
+    {tl_handle(store, read), context, request}
   end
 
   defp run(store, operation_id, payload, data, opts \\ []),
@@ -912,11 +926,14 @@ defmodule Elzoo.TenantLifecycleTest do
       store = active_store()
       assert {:completed, %{revision: 3}} = run(store, "invite-1", invite("i-1"), data("invite"))
 
-      {h1, _, _, first} =
-        command(store, "accept-a", accept("i-1"), data("accept"), actor: "bob", at: 3)
+      # Both are read, authorized and prepared at revision 3 before either executes.
+      {h1, c1, r1} = plan(store, "accept-a", accept("i-1"), data("accept"), actor: "bob")
+      {h2, c2, r2} = plan(store, "accept-b", accept("i-1"), data("accept"), actor: "carol")
+      assert r1.expected_revision == 3 and r2.expected_revision == 3
+      assert c1.own == c2.own and c1.own != []
 
-      {h2, _, _, second} =
-        command(store, "accept-b", accept("i-1"), data("accept"), actor: "carol", at: 3)
+      first = CheckedCommand.execute(h1, c1, r1)
+      second = CheckedCommand.execute(h2, c2, r2)
 
       assert {:completed, %{revision: 4, response: {:record, _}}} = first
       assert second == {:conflict, :stale_revision}

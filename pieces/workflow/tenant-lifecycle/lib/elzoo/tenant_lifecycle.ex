@@ -319,9 +319,8 @@ defmodule Elzoo.TenantLifecycle do
       end
 
     with true <- text?(actor) and proper?(pairs) and Enum.all?(pairs, &match?({_, _}, &1)),
-         sorted = List.keysort(pairs, 0),
-         ^keys <- Enum.map(sorted, &elem(&1, 0)),
-         data = Map.new(sorted),
+         ^keys <- Enum.map(pairs, &elem(&1, 0)),
+         data = Map.new(pairs),
          true <- time?(data["now"]),
          {:ok, data} <- digests(data) do
       {:ok, actor, data}
