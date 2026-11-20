@@ -8413,7 +8413,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/kill-switch/piece.json",
-      "manifest_sha256": "7688e003ec9416c413f8af798deb09a3d0b573b98857817d4fec69507e5c5e3e"
+      "manifest_sha256": "971613eddc65847123cecf183492f6dee11a0d037a99b45e969ac78a2c498182"
     },
     {
       "id": "workflow/tenant-lifecycle",
