@@ -703,7 +703,8 @@
       "summary": "Deterministic PII masking and vault-reference tokenization",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/integration/pii-redaction/piece.json",
       "reason": "ELZ-278: listed patterns and exact host values only, no completeness claim; the vault Need is state/retention-erasure."
     },
     {
