@@ -7682,6 +7682,29 @@
       "issue": 650,
       "url": "https://github.com/balungpisah/elzoo/issues/650",
       "issue_body_sha256": "ba1c4f0b95f1882bbe7397064491e008e74f1dee17b6382175ab66da9fde0d87"
+    },
+    {
+      "id": "ELZ-277",
+      "title": "ELZ-277 — Give a strictly planned-only publication the documents check",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-251"
+      ],
+      "status": "published 2026-11-20",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-277-planned-publication-docs-check.md"
+      ],
+      "outputs": [],
+      "acceptance": "The hosted classifier treats a strictly planned-only publication (documentation plus registry/catalogue.json and LEDGER.md, where the catalogue only adds planned rows without manifests and the ledger only gains their generated rows) as documentation only, for the workflow, the merge queue and the push-run skip; every other shape keeps its class. Guard tests for the accepted shape and near misses, queue and skip-decision tests, real-history classification, full local gate and full hosted check.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 640,
+      "url": "https://github.com/balungpisah/elzoo/issues/640",
+      "issue_body_sha256": "d3c32d9134d342a3e237500f8f3dad66f3c436c7124da95a81c87387670d5c5b"
     }
   ],
   "entries": [
@@ -8392,10 +8415,12 @@
     {
       "id": "state/retention-erasure",
       "job": "ELZ-279",
-      "note": "Planned per-subject PostgreSQL vault: entries sealed by integration/encryption under a KEK-wrapped subject key; erase destroys the key and entries in one transaction and never touches elzoo_log_records.",
+      "note": "Per-subject personal-data vault over a consumer-owned Ecto Repo on PostgreSQL 16: three tables from Migration.install/1; put/3 seals a 0..65,536-byte plaintext with integration/encryption under the subject's key (key ID subject, aad the random v1_ ref) inside one transaction that holds the subject row FOR SHARE and refuses an erased subject; the subject key (32 random bytes, version 1, ON CONFLICT DO NOTHING then re-read) is stored only sealed under the host KEK Need (key ID elzoo-vault-kek, aad version and subject); fetch/2 opens by ref (missing is not_found, invalid stays invalid, else unavailable); erase/2 upserts the subject as erased under its row lock and deletes its key and entry rows in one transaction, so earlier envelope copies have no key in the vault; status/2. Refuses malformed input, then the caller's open transaction, before any query or Need call. Fixed atoms, log: false, no telemetry; never touches elzoo_log_records.",
       "baseline_status": "not in baseline (new row, ELZ-279)",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/state/retention-erasure/piece.json",
+      "manifest_sha256": "176e7287a9373709abac01b19723dd2eae499f1881d97645e0950feccb05bd96"
     },
     {
       "id": "delivery/rate-limit",
