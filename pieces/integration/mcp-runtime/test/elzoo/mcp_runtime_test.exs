@@ -134,7 +134,7 @@ defmodule Elzoo.McpRuntimeTest do
   # connect is not exercised.
   defp offline(client), do: %Session{config: client, client: nil, ledger: nil}
 
-  # Live ExMCP.Client processes and TCP sockets of this node.
+  # Live ExMCP.Client processes of this node.
   defp mcp_clients do
     Enum.count(Process.list(), fn pid ->
       case Process.info(pid, :dictionary) do
