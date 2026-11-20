@@ -33,11 +33,15 @@ policy to change the allowlist.
 
 1. `url` is a binary of 1..2048 bytes, `URI.new/1` succeeds, the host is a
    non-empty binary, and there is no userinfo (also not an empty `@`) and no
-   fragment (also not an empty trailing `#`); else `:malformed`.
+   fragment (also not an empty trailing `#`); else `:malformed`. Invalid
+   UTF-8 is `:malformed` without calling `URI.new/1`, which raises on it at
+   the pinned Elixir/OTP.
 2. The scheme is `"https"` (`URI.new/1` lowercases it); else `:scheme`.
 3. The host, after ASCII lowercasing, satisfies the name rule; else `:host`.
 4. The host is in `hosts`; else `:not_allowed`.
-5. The port (`URI` default 443) is in `ports`; else `:port`.
+5. The port (`URI` default 443) is in `ports`; else `:port`. `URI.new/1`
+   reads an empty port (`host:/`) as 443 and drops leading zeros (`:0443`);
+   the returned `port` is the canonical integer.
 
 ### Name rule
 

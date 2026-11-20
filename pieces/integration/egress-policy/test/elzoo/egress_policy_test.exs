@@ -58,6 +58,10 @@ defmodule Elzoo.EgressPolicyTest do
       url = "HTTPS://API.Example.com:443/"
       assert EgressPolicy.check(url, policy()) == {:ok, %{host: @host, port: 443}}
 
+      for url <- ["https://api.example.com:/", "https://api.example.com:0443/"] do
+        assert EgressPolicy.check(url, policy()) == {:ok, %{host: @host, port: 443}}, url
+      end
+
       assert {:ok, %{host: @host, port: 443, addresses: [@google]}} =
                EgressPolicy.resolve(url, policy(), answering([@google]))
 
@@ -118,6 +122,14 @@ defmodule Elzoo.EgressPolicyTest do
     {:space, "https://api example.com/"},
     {:backslash, "https://api.example.com\\x"},
     {:newline, "https://api.example.com/\n"},
+    # Invalid UTF-8 in each part; URI.new/1 raises on these instead of refusing.
+    {:invalid_utf8_lead, <<0xFF>> <> "https://api.example.com/"},
+    {:invalid_utf8_userinfo, "https://u" <> <<0xFF>> <> "@api.example.com/"},
+    {:invalid_utf8_host, "https://ap" <> <<0xC3>> <> "i.example.com/"},
+    {:invalid_utf8_authority_end, "https://api.example.com" <> <<0xFF>>},
+    {:invalid_utf8_path, "https://api.example.com/" <> <<0xFF>>},
+    {:invalid_utf8_query, "https://api.example.com/?q=" <> <<0x80>>},
+    {:invalid_utf8_fragment, "https://api.example.com/#" <> <<0xFF>>},
     {:non_ascii_host, "https://äpi.example.com/"},
     {:no_slashes, "https:api.example.com"},
     {:empty_host, "https:///x"},
@@ -533,7 +545,8 @@ defmodule Elzoo.EgressPolicyTest do
         "http://api.example.com/?q=#{@secret}",
         "https://#{@secret}.example.com/?q=#{@secret}",
         "https://#{@secret}.0x1/",
-        "https://api.example.com:444/?q=#{@secret}"
+        "https://api.example.com:444/?q=#{@secret}",
+        "https://#{@secret}" <> <<0xFF>> <> "@api.example.com/?q=#{@secret}"
       ]
 
       answers = [

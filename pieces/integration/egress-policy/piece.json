@@ -7,7 +7,7 @@
   "kind": "owned",
   "providers": ["elixir"],
   "dependencies": [],
-  "contract": "Outbound URL policy for tenant- or model-supplied URLs: policy/1 takes exactly 1..256 unique lowercase DNS names and 1..16 unique ports or raises one fixed ArgumentError; pure check/2 admits only a 1..2048-byte https URL without userinfo or fragment whose lowercased host satisfies the name rule (no IP literal, numeric or hex last label, percent-encoding or trailing dot), is exactly allowlisted and uses an allowlisted port, in fixed refusal order; resolve/3 then calls the injected resolver Need once and returns the distinct sorted addresses only when every one of 1..32 answered addresses is public under the Piece's fixed IPv4, IPv4-mapped and IPv6 table. Fixed error atoms never echo the URL or host; no clock, socket, telemetry, log, HTTP client, redirect following or response bound.",
+  "contract": "Outbound URL policy for tenant- or model-supplied URLs: policy/1 takes exactly 1..256 unique lowercase DNS names and 1..16 unique ports or raises one fixed ArgumentError; pure check/2 admits only a valid UTF-8, 1..2048-byte https URL without userinfo or fragment whose lowercased host satisfies the name rule (no IP literal, numeric or hex last label, percent-encoding or trailing dot), is exactly allowlisted and uses an allowlisted port, in fixed refusal order; resolve/3 then calls the injected resolver Need once and returns the distinct sorted addresses only when every one of 1..32 answered addresses is public under the Piece's fixed IPv4, IPv4-mapped and IPv6 table. Fixed error atoms never echo the URL or host; no clock, socket, telemetry, log, HTTP client, redirect following or response bound.",
   "limits": [
     "No HTTP client, redirect following, response bound, DNS timeout or DNS cache: the transport connects only to a returned address with SNI and Host set to host, passes each redirect through resolve/3 and bounds the body; the resolver Need bounds itself.",
     "No wildcard or suffix host, no IP-literal allowlist and no private-network opt-in.",
@@ -22,13 +22,13 @@
     {
       "kind": "test",
       "file": "test/elzoo/egress_policy_test.exs",
-      "claim": "Listed scenarios pass for admission, every check/2 refusal in order with the resolver call count, the 2048/2049-byte, 63/64-byte label and 253/254-byte name bounds, resolver outcomes including 32/33 addresses, raise, throw and exit, both sides of every IPv4 and IPv6 table boundary, IPv4-mapped classification, mixed-answer rebinding, policy option validation and secrecy of results, raised messages and logs; the any-address-public, skipped IPv4-mapped classification, resolver-before-allowlist and dropped-userinfo negative controls fail under temporary edits. Finite scenarios, not a universal proof."
+      "claim": "Listed scenarios pass for admission, every check/2 refusal in order (including invalid UTF-8 in each URL part) with the resolver call count, the 2048/2049-byte, 63/64-byte label and 253/254-byte name bounds, resolver outcomes including 32/33 addresses, raise, throw and exit, both sides of every IPv4 and IPv6 table boundary, IPv4-mapped classification, mixed-answer rebinding, policy option validation and secrecy of results, raised messages and logs; the any-address-public, skipped IPv4-mapped classification, resolver-before-allowlist and dropped-userinfo negative controls fail under temporary edits. Finite scenarios, not a universal proof."
     },
     {
       "kind": "upstream",
       "provider": "elixir",
       "reference": "https://hexdocs.pm/elixir/1.20.4/URI.html#new/1",
-      "claim": "Pinned URI.new/1 lowercases the scheme, keeps the host as written, fills the https default port 443, and reports userinfo, an empty trailing fragment and invalid characters as the policy reads them."
+      "claim": "For valid UTF-8 input, pinned URI.new/1 lowercases the scheme, keeps the host as written, fills the https default port 443, and reports userinfo, an empty trailing fragment and invalid characters as the policy reads them; it raises on invalid UTF-8, which the policy refuses before calling it."
     },
     {
       "kind": "assumption",

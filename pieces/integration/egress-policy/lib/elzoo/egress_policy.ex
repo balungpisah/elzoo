@@ -140,7 +140,8 @@ defmodule Elzoo.EgressPolicy do
   defp members(_improper, _max, _valid?, _set), do: :error
 
   defp parse(url) when is_binary(url) and byte_size(url) in 1..@max_url_bytes do
-    case URI.new(url) do
+    # URI.new/1 raises on invalid UTF-8 at the pinned Elixir/OTP, so refuse it first.
+    case String.valid?(url) and URI.new(url) do
       {:ok, %URI{host: host, userinfo: nil, fragment: nil} = uri}
       when is_binary(host) and host != "" ->
         {:ok, uri}
