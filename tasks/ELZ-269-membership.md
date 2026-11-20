@@ -19,7 +19,7 @@ Not in this task: one-use invitations (single use is a durable compare-and-set t
 
 - `spaces`: 1..1024 maps with exactly `id`, `tenant`, `parent` (`nil` or a space `id`) and `block_inheritance` (boolean). A flat tenant is one space with `parent: nil`.
 - `roles`: 0..256 maps with exactly `id` and `permissions` (0..256 texts, counted before coalescing).
-- `memberships`: 0..1024 maps with exactly `principal`, `space`, `role`, `valid_from`, `valid_to` (`nil` or an integer) and `revoked_at` (`nil` or an integer). Identical entries coalesce.
+- `memberships`: 0..1024 maps with exactly `principal`, `space`, `role`, `valid_from`, `valid_to` (`nil` or an integer) and `revoked_at` (`nil` or an integer), counted before coalescing. Identical entries coalesce.
 - `non_inheriting`: 0..16 permission prefixes.
 
 Functions:
@@ -27,7 +27,7 @@ Functions:
 - `Elzoo.Membership.permissions(principal, space_id, facts, now_unix_s)` returns `{:ok, permissions}` (a sorted, duplicate-free list, possibly empty) or `{:error, reason}` with `reason` in `:principal | :now | :facts | :unknown_space | :cross_tenant`.
 - `Elzoo.Membership.spaces(principal, permission, facts, now_unix_s)` returns `{:ok, space_ids}`, the sorted space IDs of the principal's tenant where `permission` is in `permissions/4`, or `{:error, reason}` with `reason` in `:principal | :now | :facts | :permission`.
 
-Order for both: revalidate the principal, then `now_unix_s`, then facts, then the target (`space_id` text and existence, then its tenant; or `permission` text). The principal is revalidated only through the public ELZ-267 API, `Elzoo.Principal.check(principal, %{current_epoch: 0, revoked_ids: []})`. By the ELZ-267 Contract that call is `:ok` exactly for a valid principal, since every `auth_epoch` is ≥ 0. Any other result is `:principal`. Epoch and revocation of the principal remain the host's `Elzoo.Principal.check/2` call before this one. Errors are the fixed atoms and never echo supplied values.
+Order for both: revalidate the principal, then `now_unix_s`, then facts, then the target (`space_id` text and existence, both `:unknown_space`, then its tenant; or `permission` text). The principal is revalidated only through the public ELZ-267 API, `Elzoo.Principal.check(principal, %{current_epoch: 0, revoked_ids: []})`. By the ELZ-267 Contract that call is `:ok` exactly for a valid principal, since every `auth_epoch` is ≥ 0. Any other result is `:principal`. Epoch and revocation of the principal remain the host's `Elzoo.Principal.check/2` call before this one. Errors are the fixed atoms and never echo supplied values.
 
 ## Resolution rule
 
@@ -51,6 +51,6 @@ Order for both: revalidate the principal, then `now_unix_s`, then facts, then th
 5. Tenancy: a target space of another tenant is `:cross_tenant`. The facts hold memberships of the same principal ID in tenants T1 and T2, and the principal belongs to T1. `spaces/4` then never lists a space of T2, and `permissions/4` at a T1 space ignores the T2 membership.
 6. Agent: an agent resolves its parent's memberships intersected with its `allowed_scopes`. A target outside its `allowed_spaces` gives `{:ok, []}`. A membership naming the agent's own `id` grants nothing. A parent membership that is revoked at `now` removes the agent's permissions with it.
 7. `spaces/4` agrees with `permissions/4` on every space and permission of the fixtures in groups 2–6; an unknown permission gives `{:ok, []}`. An unknown `space_id` is `:unknown_space`. A forged principal (an agent without `delegated_by`, unsorted scopes, a 129-byte tenant) is `:principal` before any fact error. A malformed `now` with valid facts is `:now`.
-8. Negative controls, one at a time: remove the `block_inheritance` check; remove the non-inheriting filter; remove the `revoked_at` clause; remove the tenant filter in `spaces/4`. Each must make a case of groups 2–5 fail. Restore before the final gates.
+8. Negative controls, one at a time: remove the `block_inheritance` check; remove the non-inheriting filter; remove the `revoked_at` clause; remove both the rule 2 membership tenant clause and any space-tenant restriction in `spaces/4` together (each alone is masked by the other); remove the target tenant check in `permissions/4`. Each must make a case of groups 2–5 fail. Restore before the final gates.
 
-Limits to state: no invitations, tenant status, durable state or concurrency; facts are as fresh as the host made them, so a revocation takes effect at the next call that sees it; no authorization decision. Run the Piece tests and the new-Piece small gate (including the copied consumer), the roadmap and claims checks and the diff check. One independent review, the exact-head hosted check and the merge queue are required.
+Limits to state: no invitations, tenant status, per-space custom roles, durable state or concurrency; an agent's `allowed_spaces` match exactly and not through the tree, so with ELZ-267's 256-entry cap an agent acts in at most 256 named spaces; facts are as fresh as the host made them, so a revocation takes effect at the next call that sees it; no authorization decision. Run the Piece tests and the new-Piece small gate (including the copied consumer), the roadmap and claims checks and the diff check. One independent review, the exact-head hosted check and the merge queue are required.
