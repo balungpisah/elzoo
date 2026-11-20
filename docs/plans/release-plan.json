@@ -2042,21 +2042,19 @@
       "release": "V1",
       "stage": "pieces",
       "outputs": [
-        "integration/identity",
-        "domain/principal"
+        "integration/identity"
       ],
       "dependencies": [
         "ELZ-033",
         "RC-05",
         "ELZ-024"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for domain/principal by published ELZ-267; output moved. integration/identity stays a conditional host recipe (Wave 5 plan).",
       "contract": "Verified provider identity (issuer, subject, audience) -> stable scoped principal. Authentication and account linking remain provider contracts; no custom password or token protocol.",
       "acceptance": "Wrong issuer/audience, expired/revoked session, ambiguous linking and tenant crossover; supplied principal strings are not authentication evidence.",
       "reuse": "Evaluate AshAuthentication/OIDC ecosystem at one selected boundary; pin and test exact adoption before ready.",
       "paths": [
-        "pieces/integration/identity/",
-        "pieces/domain/principal/"
+        "pieces/integration/identity/"
       ],
       "blockers": [
         "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
@@ -7345,6 +7343,40 @@
       "issue": 608,
       "url": "https://github.com/balungpisah/elzoo/issues/608",
       "issue_body_sha256": "789a97468fd883d08f990133cb6446ab0903f7433e129ca97a91cf4534a38395"
+    },
+    {
+      "id": "ELZ-267",
+      "title": "ELZ-267 — Typed principals whose delegation never widens authority",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-024"],
+      "status": "published 2026-11-20",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-267-principal.md"],
+      "outputs": ["domain/principal"],
+      "acceptance": "Pure Piece: bounded human/service principal validation with canonical scope/space sets; one-level agent delegation refused whole on escalation, nested or self delegation; check refuses revoked principal or revoked parent before stale epoch; human-only gate; forged structs refused; negative controls on subset and parent-revocation checks. No provider, I/O or edits to ready Pieces.",
+      "product_aims": ["P13"],
+      "issue": 615,
+      "url": "https://github.com/balungpisah/elzoo/issues/615",
+      "issue_body_sha256": "0d3c67ce7b870bb3b5ea06c19f2a405021a06d1e031770a5f42c607a733591c7"
+    },
+    {
+      "id": "ELZ-268",
+      "title": "ELZ-268 — Verify bearer JWTs and API keys offline into principals",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-083", "ELZ-105", "ELZ-267"],
+      "status": "published 2026-11-20",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-268-token-verify.md"],
+      "outputs": ["integration/token-verify"],
+      "acceptance": "Offline EdDSA/RS256 JWT verification against 1..16 pinned public keys with the key's own algorithm only, exact issuer/audience, injected time with bounded leeway and host subject Need; prefixed API keys by keyed HMAC digest and constant-time compare; fixed failure atoms, no leakage of token or secret bytes; existing jose/OTP providers only, no pin change.",
+      "product_aims": ["P13"],
+      "issue": 616,
+      "url": "https://github.com/balungpisah/elzoo/issues/616",
+      "issue_body_sha256": "776c2ac631120358c9387f3b4755340b38ea66a87c786740925060b3ee96b821"
     }
   ],
   "entries": [
@@ -7814,10 +7846,10 @@
     },
     {
       "id": "domain/principal",
-      "job": "RC-06",
-      "note": "Map authenticated human/service/agent identities to scoped principals for C1/C2/C6; integrate an identity provider, not a new password/token system.",
+      "job": "ELZ-267",
+      "note": "Planned pure typed principal (human, service, agent): bounded validation, one-level agent delegation refused whole when it exceeds the parent, and epoch/revocation check against caller-supplied facts. No identity provider, token parsing, I/O or authorization decision.",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -7989,6 +8021,14 @@
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/webhook-in/piece.json",
       "manifest_sha256": "44541c299f5679d119e12936728eae83138e65c13dd38050b3a087e5f26c9435"
+    },
+    {
+      "id": "integration/token-verify",
+      "job": "ELZ-268",
+      "note": "Planned offline verification of pinned-key EdDSA/RS256 JWTs and prefixed keyed-digest API keys into a domain/principal with fixed redacted failures; reuses locked jose 1.11.13 and OTP crypto; no JWKS fetch, OIDC ceremony or session store.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "integration/identity",
