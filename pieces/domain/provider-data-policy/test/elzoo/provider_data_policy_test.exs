@@ -63,6 +63,35 @@ defmodule Elzoo.ProviderDataPolicyTest do
       assert Policy.decide(policy, req("p1", "us", "zero", [:public, :pii])) == {:deny, :region}
     end
 
+    test "each adjacent pair of the fixed order: the earlier class's failure wins" do
+      # pii before confidential: pii fails on region, confidential is absent.
+      policy = with_classes([admit(:pii, ["us"], ["zero"])])
+
+      assert Policy.decide(policy, req("p1", "eu", "zero", [:confidential, :pii])) ==
+               {:deny, :region}
+
+      # confidential before internal: confidential fails on retention, internal on region.
+      policy =
+        with_classes([admit(:confidential, ["eu"], ["30d"]), admit(:internal, ["us"], ["zero"])])
+
+      assert Policy.decide(policy, req("p1", "eu", "zero", [:internal, :confidential])) ==
+               {:deny, :retention}
+
+      # internal before public: internal fails on region, public is absent.
+      policy = with_classes([admit(:internal, ["us"], ["zero"])])
+
+      assert Policy.decide(policy, req("p1", "eu", "zero", [:public, :internal])) ==
+               {:deny, :region}
+    end
+
+    test "region before retention within a class, and class by class across classes" do
+      assert Policy.decide(@policy, req("p1", "us", "30d", [:pii])) == {:deny, :region}
+
+      # pii passes region and fails retention; public fails region. pii comes first.
+      policy = with_classes([admit(:pii, ["eu"], ["zero"]), admit(:public, ["us"], ["30d"])])
+      assert Policy.decide(policy, req("p1", "eu", "30d", [:public, :pii])) == {:deny, :retention}
+    end
+
     test "a malformed policy wins over a malformed request" do
       assert Policy.decide(%{providers: :x}, %{provider: "p1"}) == {:error, :policy}
       assert Policy.decide(nil, nil) == {:error, :policy}
