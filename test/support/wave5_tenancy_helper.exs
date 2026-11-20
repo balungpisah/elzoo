@@ -704,7 +704,10 @@ defmodule Elzoo.Wave5.TenancyHelper do
   def leaks(p, values) do
     needles = Enum.flat_map(values, &[&1, Base.encode16(&1, case: :lower)])
 
-    for {table, row} <- all_rows(p), needle <- needles, String.contains?(row, needle), do: table
+    for {table, row} <- all_rows(p),
+        Enum.any?(needles, &String.contains?(row, &1)),
+        uniq: true,
+        do: table
   end
 
   def log_rows(p) do

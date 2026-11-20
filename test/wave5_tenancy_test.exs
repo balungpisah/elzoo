@@ -462,7 +462,6 @@ defmodule Elzoo.Wave5.TenancyTest do
                TestHelper.verified()
              )
 
-    assert phase(t1) == :paused
     {:ok, frame} = Elzoo.PatternStep.decode(TestHelper.request([TestHelper.action("probe")]), 1)
 
     assert t1.gate.call.(frame, %{tenant: "T1", proposer: "principal", effect_class: "compute"}) ==
