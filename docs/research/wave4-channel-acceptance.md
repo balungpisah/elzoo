@@ -206,7 +206,6 @@ the existing root-channel consumer; it adds no Piece and preserves the ELZ-258
 immediate v1 path. This is finite consumer acceptance, not a generic event
 subscription, broker or provider guarantee.
 
-targets must be valid; an identical copy of the fixed target is accepted, but
 Each profile uses its declared fixed target: the v1 immediate path selects
 `NativeBindings.target/0`; the v2 `wait_then_hash` profile selects
 `NativeBindings.reply_target/0`. V1 keeps one listener; v2 starts two separately
