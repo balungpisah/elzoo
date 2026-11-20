@@ -172,7 +172,7 @@ psql_admin -d elzoo_test -c 'CREATE EXTENSION IF NOT EXISTS vector'
 if [ "$(psql_admin -c "SELECT 1 FROM pg_roles WHERE rolname = 'elzoo_app'")" != 1 ]; then
   psql_admin -c 'CREATE ROLE elzoo_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS'
 fi
-# A repeated GRANT keeps the one grant and resets its options.
+# A repeated GRANT keeps the one grant and sets its INHERIT and SET options again.
 psql_admin -c 'SET client_min_messages = warning' -c 'GRANT elzoo_app TO elzoo_test WITH INHERIT FALSE, SET TRUE'
 # As the test role: super, createrole and bypassrls of each role, then SET, USAGE (inherit) and the reverse.
 role_check="$(PGPASSWORD=elzoo_test psql -h localhost -p "$pg_port" -U elzoo_test -d elzoo_test -v ON_ERROR_STOP=1 -qAt -c "SELECT format('current_user=%s elzoo_test=%s,%s,%s elzoo_app=%s,%s,%s set=%s usage=%s app_member_of_test=%s', current_user, t.rolsuper, t.rolcreaterole, t.rolbypassrls, a.rolsuper, a.rolcreaterole, a.rolbypassrls, pg_has_role('elzoo_test', 'elzoo_app', 'SET'), pg_has_role('elzoo_test', 'elzoo_app', 'USAGE'), pg_has_role('elzoo_app', 'elzoo_test', 'MEMBER')) FROM pg_roles t, pg_roles a WHERE t.rolname = 'elzoo_test' AND a.rolname = 'elzoo_app'")"
