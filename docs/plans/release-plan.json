@@ -7460,6 +7460,29 @@
       "issue": 624,
       "url": "https://github.com/balungpisah/elzoo/issues/624",
       "issue_body_sha256": "f7bc8957afa9a6a647e504d5ae5f5d52e510ac2a4b7bc98a1cbdfdb3dd939dd1"
+    },
+    {
+      "id": "ELZ-274",
+      "title": "ELZ-274 — Release a replied HTTPJob pool slot before the next call",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-011"
+      ],
+      "status": "published 2026-11-20",
+      "owner_role": "coordinator; one-PR path; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-274-http-job-transport-slot.md"
+      ],
+      "outputs": [],
+      "acceptance": "Call.run removes a replied pool child before returning, so the owner's completion authentication on a one-slot transport pool is not refused by the send's finished child; Contract, README, manifest, timeouts and budgets unchanged. Unchanged-test reproduction under load with captured owner state, a deterministic regression test that fails with the old Call.run, focused repeats, Piece tests and the Piece small gate.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 619,
+      "url": "https://github.com/balungpisah/elzoo/issues/619",
+      "issue_body_sha256": "3804e8717f5df156f46a54d6f99597269b417467f1cb3889db6f4d9ee6323a66"
     }
   ],
   "entries": [
@@ -8128,26 +8151,32 @@
     {
       "id": "integration/egress-policy",
       "job": "ELZ-271",
-      "note": "Planned outbound URL policy: https only, exact allowlisted DNS name and port, no IP literals, injected resolver whose every address must be public; no HTTP client, redirects or response bound.",
+      "note": "Outbound URL policy for tenant- or model-supplied URLs: policy/1 takes exactly 1..256 unique lowercase DNS names and 1..16 unique ports or raises one fixed ArgumentError; pure check/2 admits only a valid UTF-8, 1..2048-byte https URL without userinfo or fragment whose lowercased host satisfies the name rule (no IP literal, numeric or hex last label, percent-encoding or trailing dot), is exactly allowlisted and uses an allowlisted port, in fixed refusal order; resolve/3 then calls the injected resolver Need once and returns the distinct sorted addresses only when every one of 1..32 answered addresses is public under the Piece's fixed IPv4, IPv4-mapped and IPv6 table. Fixed error atoms never echo the URL or host; no clock, socket, telemetry, log, HTTP client, redirect following or response bound.",
       "baseline_status": "not in baseline (new row, ELZ-271)",
-      "disposition": "planned-contract",
+      "disposition": "ready-contract",
+      "manifest": "pieces/integration/egress-policy/piece.json",
+      "manifest_sha256": "b85f823dc074eadb28ebfb5919378e66ae489a40bf8057db8444c85c85ad30d8",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "domain/provider-data-policy",
       "job": "ELZ-272",
-      "note": "Planned pure decision whether payload data classes (closed public/internal/confidential/pii/secret tag) may go to one provider, region and retention mode under a tenant policy; secret never admissible; non-allow is DENY.",
+      "manifest": "pieces/domain/provider-data-policy/piece.json",
+      "manifest_sha256": "03fd58fa003576bd19f7f6b5077043e8e32818454afa1c40d9a296f063d09ba8",
+      "note": "Closed data-class tag (public, internal, confidential, pii, secret) and one pure decision: a payload with 1..5 class tags may go to one provider, region and retention mode only when the tenant policy admits each class for that provider in that region under that retention mode. Fixed order: policy shape (error policy), request shape (error request), secret (never admissible), provider, then per class pii, confidential, internal, public: class, region, retention. Per-class admission with no inheritance; exact-byte text comparison; fixed result atoms that echo no input. The host treats every non-allow result as DENY.",
       "baseline_status": "not in baseline (new row, ELZ-272)",
-      "disposition": "planned-contract",
+      "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "integration/encryption",
       "job": "ELZ-273",
-      "note": "Planned AES-256-GCM envelope over OTP crypto under a versioned per-subject integration/secrets key with authenticated header; key-destruction crypto-shredding gives no_key; no key store, KMS or wrapping.",
+      "note": "AES-256-GCM envelope over OTP crypto under a caller-held 32-byte integration/secrets Credential key with an ID and version: EZE1 header (key ID 1..128 UTF-8 bytes without C0/C1 controls, version 1..2^53-1) authenticated as AEAD associated data before the caller's aad, a fresh 12-byte random nonce and a 16-byte tag fixed by layout. open/3 checks layout and aad (malformed), calls the keys Need once for the exact (key_id, version) (not_found is no_key, so destroying a key crypto-shreds its envelopes; anything else unusable is unavailable), then decrypts (invalid). key_ref/1 reads the header. Fixed atoms, total, no clock, log or telemetry.",
       "baseline_status": "not in baseline (new row, ELZ-273)",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/encryption/piece.json",
+      "manifest_sha256": "da6965a659a64d96d2cdacfbeed3a978151f1db2162339f7022dbc4a78b77938"
     },
     {
       "id": "integration/identity",
