@@ -7506,6 +7506,29 @@
       "issue": 635,
       "url": "https://github.com/balungpisah/elzoo/issues/635",
       "issue_body_sha256": "495338a6c937dcd4f068e4ba595c251225a1a19bc684d5d19fbe85beb8473767"
+    },
+    {
+      "id": "ELZ-276",
+      "title": "ELZ-276 — Run the token-verify tests synchronously so their empty-log check sees only their own logs",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-268"
+      ],
+      "status": "published 2026-11-20",
+      "owner_role": "coordinator; one-PR path; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-276-token-verify-sync-log-test.md"
+      ],
+      "outputs": [],
+      "acceptance": "The token-verify test module runs async: false, so its empty captured-log assertion cannot capture a concurrent module's log as in main run 44778242170; Contract, library, README, manifest, timeouts and budgets unchanged. Failure reproduced with a concurrent logging async module, fixed module passes in the same pairing, negative control with a library log line fails, repeated Piece tests.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 637,
+      "url": "https://github.com/balungpisah/elzoo/issues/637",
+      "issue_body_sha256": "fc7f74ebb3fd149b356b95ad908264417824972663e190e9368ccc6952216479"
     }
   ],
   "entries": [
