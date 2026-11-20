@@ -9608,8 +9608,10 @@ defmodule Elzoo.Wave4ChannelTest do
 
     reply_identity = {fixture.profile.tenant, fixture.profile.actor, reply_operation}
 
-    assert {:ok, {{_, 202, _}, _, _}} =
+    assert {:ok, {{_, 202, _}, _, reply_receipt}} =
              Elzoo.Wave4ChannelTestHelper.post(reply_listener, reply_event)
+
+    assert %{"status" => "pending_approval"} = Jason.decode!(reply_receipt)
 
     assert {:approval_pending, %{key: reply_key, requirement: reply_requirement}} =
              Elzoo.CheckedCommand.result(
@@ -9861,15 +9863,23 @@ defmodule Elzoo.Wave4ChannelTest do
     assert Task.Supervisor.children(fixture.native.task_supervisor) == tasks_before_second_reply
     assert take_hash_calls() == []
 
-    assert {:committed, 3} =
+    assert {:committed, reply_revision} =
              Elzoo.Wave4ChannelExample.release_reply(fixture.host, reply, scope, reply_evidence)
 
-    assert {:completed, %{revision: 3}} =
+    assert reply_revision == 3
+
+    assert {:completed, %{revision: ^reply_revision}} =
              Elzoo.CheckedCommand.result(
                fixture.handles.reply_input,
                %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
                reply_identity
              )
+
+    assert {:ok, {{_, 202, _}, _, reply_committed_receipt}} =
+             Elzoo.Wave4ChannelTestHelper.post(reply_listener, reply_event)
+
+    assert %{"status" => "committed", "revision" => ^reply_revision} =
+             Jason.decode!(reply_committed_receipt)
 
     assert {:ok, [^primary_item, reply_item]} =
              Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
@@ -9924,10 +9934,27 @@ defmodule Elzoo.Wave4ChannelTest do
                fixture.profile.conversation_id
              )
 
-    for {listener, event} <- [{primary_listener, primary_event}, {reply_listener, reply_event}] do
-      assert {:ok, {{_, status, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
-      assert status in 200..299
-    end
+    assert {:ok, {{_, status, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(primary_listener, primary_event)
+
+    assert status in 200..299
+
+    assert {:completed, %{revision: ^reply_revision}} =
+             Elzoo.CheckedCommand.result(
+               fixture.handles.reply_input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               reply_identity
+             )
+
+    tasks_before_reply_replay = Task.Supervisor.children(fixture.native.task_supervisor)
+
+    assert {:ok, {{_, 202, _}, _, reply_replay_receipt}} =
+             Elzoo.Wave4ChannelTestHelper.post(reply_listener, reply_event)
+
+    assert reply_replay_receipt == reply_committed_receipt
+
+    assert %{"status" => "committed", "revision" => ^reply_revision} =
+             Jason.decode!(reply_replay_receipt)
 
     assert {:ok, %{revision: 1024, low_water: 0}} =
              Elzoo.Wave4ChannelTestHelper.command_head(fixture)
@@ -9940,6 +9967,8 @@ defmodule Elzoo.Wave4ChannelTest do
              )
 
     assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert Task.Supervisor.children(fixture.native.task_supervisor) == tasks_before_reply_replay
+    assert take_hash_calls() == []
 
     state_before_get = :sys.get_state(fixture.host)
     head_before_get = Elzoo.Wave4ChannelTestHelper.command_head(fixture)

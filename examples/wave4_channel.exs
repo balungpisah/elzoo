@@ -33,21 +33,10 @@ defmodule Elzoo.Wave4ChannelDemo do
     Logger.configure(level: :warning)
     {:ok, repo_pid} = Repo.start_link(url: url, pool_size: 8)
     Process.unlink(repo_pid)
-    prefix = "wave4_channel_demo_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
 
     try do
-      create_schema!(Repo, prefix)
-      migrate_schema!(Repo, prefix)
-
-      case run_owned_services(Repo, prefix) do
-        {:ok, :complete} ->
-          drop_schema!(Repo, prefix)
-          :ok
-
-        {:error, _reason} ->
-          drop_schema!(Repo, prefix)
-          raise "Wave 4 demo failed; database configuration is not displayed"
-      end
+      run_mode!(Repo, :immediate_v1)
+      run_mode!(Repo, :reply_v2)
     rescue
       _ -> raise "Wave 4 demo failed; database configuration is not displayed"
     after
@@ -60,6 +49,22 @@ defmodule Elzoo.Wave4ChannelDemo do
     )
 
     :ok
+  end
+
+  defp run_mode!(repo, mode) do
+    prefix = "wave4_channel_demo_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+    create_schema!(repo, prefix)
+
+    try do
+      migrate_schema!(repo, prefix)
+
+      case run_owned_services(repo, prefix, mode) do
+        {:ok, :complete} -> :ok
+        {:error, _reason} -> raise "Wave 4 demo mode failed"
+      end
+    after
+      drop_schema!(repo, prefix)
+    end
   end
 
   defp database_url! do
@@ -86,13 +91,7 @@ defmodule Elzoo.Wave4ChannelDemo do
   end
 
   defp migrate_schema!(repo, prefix) do
-    try do
-      :ok = Ecto.Migrator.up(Repo, 1, Migration, prefix: prefix, log: false)
-    rescue
-      error ->
-        drop_schema!(repo, prefix)
-        reraise error, __STACKTRACE__
-    end
+    :ok = Ecto.Migrator.up(Repo, 1, Migration, prefix: prefix, log: false)
   end
 
   defp drop_schema!(repo, prefix) do
@@ -105,8 +104,8 @@ defmodule Elzoo.Wave4ChannelDemo do
     :ok
   end
 
-  defp run_owned_services(repo, prefix) do
-    with {:ok, resources} <- build_services(repo, prefix),
+  defp run_owned_services(repo, prefix, mode) do
+    with {:ok, resources} <- build_services(repo, prefix, mode),
          {:ok, infrastructure} <- start_infrastructure() do
       Process.unlink(infrastructure)
 
@@ -120,15 +119,8 @@ defmodule Elzoo.Wave4ChannelDemo do
     end
   end
 
-  defp build_services(repo, prefix) do
-    profile = %{
-      tenant: "wave4-demo-tenant",
-      actor: "wave4-demo-actor",
-      source_id: "wave4-demo-source",
-      conversation_id: "wave4-demo-conversation",
-      deadline_ms: System.system_time(:millisecond) + @deadline_ms,
-      native_target: Elzoo.Wave4ChannelExample.NativeBindings.target()
-    }
+  defp build_services(repo, prefix, mode) do
+    profile = profile(mode)
 
     run_store =
       Postgres.store(repo,
@@ -141,16 +133,11 @@ defmodule Elzoo.Wave4ChannelDemo do
     {:held, held} = Lease.claim(lease, @lease_stream, @lease_owner, @lease_ttl_ms)
 
     command_store =
-      Postgres.store(repo, prefix: prefix, fold: command_fold(), limits: command_limits())
+      Postgres.store(repo, prefix: prefix, fold: command_fold(mode), limits: command_limits())
 
-    {:ok, handles} = Elzoo.Wave4ChannelExample.CommandBindings.build(command_store, gates())
+    {:ok, handles} = build_handles(mode, command_store)
 
-    unit_options = [
-      operator: {Elzoo.RunEngine, :step, %{version: 1, control: nil, slots: %{}, requests: %{}}},
-      retention_count: 1_024,
-      max_record_bytes: 16_777_216,
-      max_checkpoint_bytes: 33_554_432
-    ]
+    unit_options = unit_options(mode)
 
     unit_store =
       Postgres.store(repo,
@@ -171,7 +158,9 @@ defmodule Elzoo.Wave4ChannelDemo do
     {:ok,
      %{
        profile: profile,
+       mode: mode,
        signing_key: :crypto.strong_rand_bytes(32),
+       reply_signing_key: if(mode == :reply_v2, do: :crypto.strong_rand_bytes(32)),
        command_store: command_store,
        handles: handles,
        run_store: run_store,
@@ -264,8 +253,8 @@ defmodule Elzoo.Wave4ChannelDemo do
       directory: directory,
       registry: @engine_registry,
       unit_registry: @unit_registry,
-      supervisor: @unit_supervisor,
-      task_supervisor: @task_supervisor,
+      supervisor: Process.whereis(@unit_supervisor),
+      task_supervisor: Process.whereis(@task_supervisor),
       unit_store: resources.unit_store,
       evidence_store: resources.evidence_store,
       engine: Elzoo.Wave4ChannelExample.NativeBindings.build(resources.profile)
@@ -277,8 +266,8 @@ defmodule Elzoo.Wave4ChannelDemo do
       command_store: resources.command_store,
       handles: resources.handles,
       native: native,
-      authority: fn _mode, _event, _request, _facts -> %{} end,
-      policy: fn _mode, _event, _at -> channel_policy() end,
+      authority: authority(resources),
+      policy: fn mode, _event, _at -> policy_for(resources.mode, mode) end,
       clock: fn -> System.system_time(:millisecond) end
     ]
 
@@ -287,7 +276,7 @@ defmodule Elzoo.Wave4ChannelDemo do
         Process.unlink(host)
 
         try do
-          run_with_listener(host, resources)
+          run_mode_listener(host, owner, resources)
         after
           stop_host!(host, infrastructure, directory)
         end
@@ -298,7 +287,14 @@ defmodule Elzoo.Wave4ChannelDemo do
   end
 
   defp run_with_listener(host, resources) do
-    case start_listener(host, resources.profile, resources.signing_key) do
+    start_listener(
+      host,
+      resources.profile,
+      resources.profile.source_id,
+      resources.signing_key,
+      &Elzoo.Wave4ChannelExample.admit(host, &1, &2)
+    )
+    |> case do
       {:ok, listener} ->
         try do
           capture_demo(fn -> demonstrate!(host, listener, resources) end)
@@ -311,12 +307,93 @@ defmodule Elzoo.Wave4ChannelDemo do
     end
   end
 
-  defp command_fold do
+  defp run_mode_listener(host, _owner, %{mode: :immediate_v1} = resources) do
+    run_with_listener(host, resources)
+  end
+
+  defp run_mode_listener(host, owner, %{mode: :reply_v2} = resources) do
+    profile = resources.profile
+
+    with {:ok, primary} <-
+           start_listener(
+             host,
+             profile,
+             profile.source_id,
+             resources.signing_key,
+             &Elzoo.Wave4ChannelExample.admit(host, &1, &2)
+           ) do
+      try do
+        with {:ok, reply} <-
+               start_listener(
+                 host,
+                 profile,
+                 profile.reply_source_id,
+                 resources.reply_signing_key,
+                 &Elzoo.Wave4ChannelExample.admit_reply(host, &1, &2)
+               ) do
+          try do
+            capture_demo(fn -> demonstrate_reply!(host, owner, primary, reply, resources) end)
+          after
+            stop_listener!(reply)
+          end
+        end
+      after
+        stop_listener!(primary)
+      end
+    end
+  end
+
+  defp profile(:immediate_v1) do
+    %{
+      tenant: "wave4-demo-tenant",
+      actor: "wave4-demo-actor",
+      source_id: "wave4-demo-source",
+      conversation_id: "wave4-demo-conversation",
+      deadline_ms: System.system_time(:millisecond) + @deadline_ms,
+      native_target: Elzoo.Wave4ChannelExample.NativeBindings.target()
+    }
+  end
+
+  defp profile(:reply_v2) do
+    %{
+      tenant: "wave4-demo-tenant",
+      actor: "wave4-demo-actor",
+      source_id: "wave4-demo-primary-source",
+      reply_source_id: "wave4-demo-reply-source",
+      conversation_id: "wave4-demo-reply-conversation",
+      deadline_ms: System.system_time(:millisecond) + @deadline_ms,
+      native_target: Elzoo.Wave4ChannelExample.NativeBindings.reply_target()
+    }
+  end
+
+  defp build_handles(:immediate_v1, store),
+    do: Elzoo.Wave4ChannelExample.CommandBindings.build(store, gates(:immediate_v1))
+
+  defp build_handles(:reply_v2, store),
+    do: Elzoo.Wave4ChannelExample.CommandBindings.build_reply(store, gates(:reply_v2))
+
+  defp unit_options(mode) do
+    version = if mode == :immediate_v1, do: 1, else: 2
+
+    [
+      operator:
+        {Elzoo.RunEngine, :step, %{version: version, control: nil, slots: %{}, requests: %{}}},
+      retention_count: 1_024,
+      max_record_bytes: 16_777_216,
+      max_checkpoint_bytes: 33_554_432
+    ]
+  end
+
+  defp command_fold(mode) do
     %{
       initial: %{},
       kinds: %{"checked_command" => :state_bearing},
       versions: [1],
-      destinations: ["wave4-channel-input"],
+      destinations:
+        if(mode == :reply_v2,
+          do: ["wave4-channel-input", "wave4-channel-reply"],
+          else: ["wave4-channel-input"]
+        ),
       reduce: fn model, _, _, _ -> model end
     }
   end
@@ -337,7 +414,7 @@ defmodule Elzoo.Wave4ChannelDemo do
   defp evidence_limits,
     do: %{max_record_bytes: 131_072, max_batch_size: 1, max_checkpoint_bytes: 1_048_576}
 
-  defp gates do
+  defp gates(:immediate_v1) do
     %{
       input: fn _, _ -> :allow end,
       association: fn _, _ -> :allow end,
@@ -345,12 +422,34 @@ defmodule Elzoo.Wave4ChannelDemo do
     }
   end
 
-  defp channel_policy do
+  defp gates(:reply_v2) do
+    %{
+      input: fn _, _ -> :allow end,
+      reply: fn _, _ -> :allow end,
+      association: fn _, _ -> :allow end,
+      reply_association: fn _, _ -> :allow end,
+      answer: fn _, _ -> :allow end
+    }
+  end
+
+  defp channel_policy(verdict \\ :allow) do
+    rule =
+      if verdict == :ask do
+        %{
+          id: "wave4-demo-review",
+          effect_class: "conversation.write",
+          verdict: :ask,
+          requirement: %{name: "wave4-demo-review", version: 1, scope: :once}
+        }
+      else
+        %{id: "wave4-demo-allow", effect_class: "conversation.write", verdict: verdict}
+      end
+
     artifact = %{
       id: "wave4-demo-channel-policy",
       version: 1,
       effect_classes: ["conversation.write"],
-      rules: [%{id: "wave4-demo-allow", effect_class: "conversation.write", verdict: :allow}]
+      rules: [rule]
     }
 
     Map.put(
@@ -358,6 +457,52 @@ defmodule Elzoo.Wave4ChannelDemo do
       :content_hash,
       :crypto.hash(:sha256, :erlang.term_to_binary(artifact, [:deterministic]))
     )
+  end
+
+  defp policy_for(:immediate_v1, _mode), do: channel_policy()
+
+  defp policy_for(:reply_v2, mode) when mode in [:reply_input, :reply_release],
+    do: channel_policy(:ask)
+
+  defp policy_for(:reply_v2, _mode), do: channel_policy()
+
+  defp authority(%{mode: :immediate_v1}), do: fn _mode, _event, _request, _facts -> %{} end
+
+  defp authority(%{profile: profile, handles: handles, mode: :reply_v2}) do
+    fn mode, _event, request, facts ->
+      if mode == :reply_release do
+        scope = %{
+          tenant: profile.tenant,
+          actor: profile.actor,
+          resources: [profile.conversation_id]
+        }
+
+        prepared_facts = %{tenant: profile.tenant, actor: profile.actor, data: facts}
+
+        with {:ok, snapshot} <-
+               Elzoo.CheckedCommand.resource(
+                 handles.reply_input,
+                 scope,
+                 profile.conversation_id
+               ),
+             {:ok, writes, _response} <-
+               Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
+                 snapshot,
+                 request,
+                 prepared_facts
+               ) do
+          %{
+            approver: %{identity: "reviewer", authority: writes},
+            now: System.system_time(:millisecond),
+            revoked: []
+          }
+        else
+          _ -> %{}
+        end
+      else
+        %{}
+      end
+    end
   end
 
   defp trigger_binding(profile) do
@@ -370,22 +515,20 @@ defmodule Elzoo.Wave4ChannelDemo do
       "schema_id" => "elzoo.message/v1",
       "schema_version" => 1,
       "enabled" => true,
-      "target" => Elzoo.Wave4ChannelExample.NativeBindings.target()
+      "target" => profile.native_target
     }
   end
 
-  defp start_listener(host, profile, signing_key) do
+  defp start_listener(host, profile, source_id, signing_key, admit) do
     ref = make_ref()
     scope = scope(profile)
 
     webhook = [
-      source_id: profile.source_id,
+      source_id: source_id,
       key: fn -> {:ok, signing_key} end,
       clock: fn -> System.system_time(:second) end,
       principal: fn _conn -> {:ok, scope} end,
-      admit: fn event, trusted_scope ->
-        Elzoo.Wave4ChannelExample.admit(host, event, trusted_scope)
-      end
+      admit: admit
     ]
 
     options = [
@@ -475,6 +618,384 @@ defmodule Elzoo.Wave4ChannelDemo do
     :ok
   end
 
+  defp demonstrate_reply!(host, owner, primary_listener, reply_listener, resources) do
+    profile = resources.profile
+    scope = scope(profile)
+    stream = checked_stream(profile.tenant)
+
+    first = reply_round!(host, owner, primary_listener, reply_listener, resources, 1)
+
+    second =
+      reply_round!(host, owner, primary_listener, reply_listener, resources, 2, fn ->
+        before = get_view!(primary_listener.url, profile.conversation_id)
+        {:ok, head_before} = Store.read(resources.command_store, :head, [stream])
+
+        {:ok, resource_before} =
+          Elzoo.CheckedCommand.resource(resources.handles.input, scope, profile.conversation_id)
+
+        {202, primary_receipt} = post_signed!(primary_listener.url, first.primary_request)
+
+        {202, reply_committed_receipt} =
+          post_signed!(reply_listener.url, first.reply_request)
+
+        true = primary_receipt == first.primary_receipt
+        true = reply_committed_receipt == first.reply_committed_receipt
+        after_replay = get_view!(primary_listener.url, profile.conversation_id)
+        {:ok, head_after} = Store.read(resources.command_store, :head, [stream])
+
+        {:ok, resource_after} =
+          Elzoo.CheckedCommand.resource(resources.handles.input, scope, profile.conversation_id)
+
+        true = before == after_replay
+        true = head_before == head_after
+        true = resource_before == resource_after
+      end)
+
+    final_primary = get_view!(primary_listener.url, profile.conversation_id)
+    final_reply = get_view!(reply_listener.url, profile.conversation_id)
+    true = final_primary == final_reply
+    view = final_primary["view"]
+    true = view["revision"] == 10
+    true = length(view["messages"]) == 6
+    true = length(view["runs"]) == 2
+    true = Enum.all?(view["runs"], &(&1["outcome"] == "completed"))
+
+    answers =
+      view["messages"] |> Enum.filter(&(&1["role"] == "assistant")) |> Enum.map(& &1["text"])
+
+    true = answers == [expected_answer(first.reply_text), expected_answer(second.reply_text)]
+
+    run_ids = Enum.map(view["runs"], & &1["run_id"])
+    true = length(Enum.uniq(run_ids)) == 2
+    {:ok, first_run} = RunApprovalRelease.status(owner, hd(run_ids))
+    {:ok, second_run} = RunApprovalRelease.status(owner, List.last(run_ids))
+    true = first_run.current_attempt != second_run.current_attempt
+    true = first.ticket != second.ticket
+
+    {:ok, head_before_get} = Store.read(resources.command_store, :head, [stream])
+
+    {:ok, resource_before_get} =
+      Elzoo.CheckedCommand.resource(resources.handles.input, scope, profile.conversation_id)
+
+    ^final_primary = get_view!(primary_listener.url, profile.conversation_id)
+    ^final_reply = get_view!(reply_listener.url, profile.conversation_id)
+    {:ok, head_after_get} = Store.read(resources.command_store, :head, [stream])
+
+    {:ok, resource_after_get} =
+      Elzoo.CheckedCommand.resource(resources.handles.input, scope, profile.conversation_id)
+
+    true = head_before_get == head_after_get
+    true = resource_before_get == resource_after_get
+
+    IO.puts("reply rounds: 2; reply ACK precedes primary ACK in each round")
+
+    IO.puts(
+      "replay 1: original primary and reply receipts retained; second wait/run/head unchanged"
+    )
+
+    IO.puts("completed Runs: 2; messages: 6; revision: 10")
+    IO.puts("native answers: #{Enum.join(answers, " | ")}")
+    :ok
+  end
+
+  defp reply_round!(
+         host,
+         owner,
+         primary_listener,
+         reply_listener,
+         resources,
+         number,
+         during_wait \\ fn -> :ok end
+       ) do
+    profile = resources.profile
+    scope = scope(profile)
+    prefix = "demo-v2-#{number}"
+    text = "retained reply text #{number}"
+
+    expected_revision =
+      if number == 1 do
+        0
+      else
+        get_view!(primary_listener.url, profile.conversation_id)["view"]["revision"]
+      end
+
+    primary =
+      event(
+        profile,
+        prefix <> "-primary",
+        prefix <> "-input",
+        expected_revision,
+        "primary message #{number}"
+      )
+
+    primary_request = signed_request(primary, profile.source_id, resources.signing_key)
+    {202, primary_receipt} = post_signed!(primary_listener.url, primary_request)
+
+    {:ok, [primary_item | _]} =
+      Elzoo.Outbox.pending(resources.command_store, checked_stream(profile.tenant), 64)
+
+    true = primary_item.destination == "wave4-channel-input"
+
+    wait_steps = drive_until_wait!(host, driver_deadline(profile))
+
+    Process.put(
+      {__MODULE__, :unit_ids},
+      (Process.get({__MODULE__, :unit_ids}) || []) ++
+        for({:engine_started, unit_id} <- wait_steps, do: unit_id)
+    )
+
+    waiting = get_view!(primary_listener.url, profile.conversation_id)["view"]
+    [wait] = waiting["event_waits"]["waits"]
+    true = wait["status"] == "waiting" and wait["action_id"] == "reply"
+    ticket = wait["correlation_id"]
+
+    [unit_id] = for {:engine_started, unit_id} <- wait_steps, do: unit_id
+    [{engine, _}] = Registry.lookup(@engine_registry, unit_id)
+    [active_run] = Enum.reject(waiting["runs"], &(&1["outcome"] == "completed"))
+    run_id = active_run["run_id"]
+    {:ok, run_status_before_reply} = RunApprovalRelease.status(owner, run_id)
+    run_attempt_id = run_status_before_reply.current_attempt
+
+    native_scope = %{
+      tenant: profile.tenant,
+      principal: profile.actor,
+      run_id: run_id
+    }
+
+    during_wait.()
+
+    reply = event(profile, prefix <> "-reply", ticket, waiting["revision"], text)
+    reply_request = signed_request(reply, profile.reply_source_id, resources.reply_signing_key)
+
+    {:ok, head_before_ask} =
+      Store.read(resources.command_store, :head, [checked_stream(profile.tenant)])
+
+    {:ok, resource_before_ask} =
+      Elzoo.CheckedCommand.resource(resources.handles.input, scope, profile.conversation_id)
+
+    {:ok, reply_resource_before_ask} =
+      Elzoo.CheckedCommand.resource(
+        resources.handles.reply_input,
+        scope,
+        profile.conversation_id
+      )
+
+    true = reply_resource_before_ask == resource_before_ask
+
+    {202, reply_receipt} = post_signed!(reply_listener.url, reply_request)
+    %{"status" => "pending_approval"} = Jason.decode!(reply_receipt)
+
+    {:ok, head_after_ask} =
+      Store.read(resources.command_store, :head, [checked_stream(profile.tenant)])
+
+    {:ok, resource_after_ask} =
+      Elzoo.CheckedCommand.resource(resources.handles.input, scope, profile.conversation_id)
+
+    true = resource_before_ask.revision == resource_after_ask.revision
+    true = head_after_ask.revision > head_before_ask.revision
+
+    operation = demo_id("input", [profile.reply_source_id, reply["event_id"]])
+
+    {:approval_pending, pending} =
+      Elzoo.CheckedCommand.result(
+        resources.handles.reply_input,
+        %{tenant: profile.tenant, actor: profile.actor},
+        {profile.tenant, profile.actor, operation}
+      )
+
+    now = System.system_time(:millisecond)
+
+    evidence = %{
+      purpose: :command,
+      tenant: profile.tenant,
+      evidence: %{
+        verifier: "wave4-command-approver",
+        evidence_id: "demo-reply-approval-#{number}",
+        reviewer: "reviewer",
+        request: pending.key,
+        decision: :approve,
+        scope: :once,
+        issued_at: now - 1_000,
+        expiry: now + 60_000
+      }
+    }
+
+    {:committed, reply_revision} =
+      Elzoo.Wave4ChannelExample.release_reply(
+        host,
+        normalized_event(reply),
+        scope,
+        evidence
+      )
+
+    {:completed, %{revision: ^reply_revision}} =
+      Elzoo.CheckedCommand.result(
+        resources.handles.reply_input,
+        %{tenant: profile.tenant, actor: profile.actor},
+        {profile.tenant, profile.actor, operation}
+      )
+
+    {202, reply_committed_receipt} = post_signed!(reply_listener.url, reply_request)
+
+    %{"status" => "committed", "revision" => ^reply_revision} =
+      Jason.decode!(reply_committed_receipt)
+
+    {:ok, pending_items} =
+      Elzoo.Outbox.pending(resources.command_store, checked_stream(profile.tenant), 64)
+
+    reply_item = Enum.find(pending_items, &(&1.destination == "wave4-channel-reply"))
+    true = is_map(reply_item) and primary_item.sequence < reply_item.sequence
+
+    native_result =
+      drive_until_native_result!(host, engine, native_scope, driver_deadline(profile))
+
+    true =
+      native_result.run_id == run_id and native_result.attempt_id == run_attempt_id and
+        native_result.action_id == "hash" and
+        native_result.payload["answer"] == expected_answer(text)
+
+    {:ok, %{waits: [accepted_wait]}} =
+      Elzoo.RunEngine.event_waits(engine, native_scope, %{
+        max_records: 2_048,
+        max_bytes: 16_777_216
+      })
+
+    true =
+      accepted_wait.accepted_event.event_id == reply_item.idempotency_key and
+        accepted_wait.accepted_event.sequence == reply_item.sequence
+
+    drive_until_ack_receipt!(host, resources.command_store, reply_item, driver_deadline(profile))
+    assert_ack!(resources.command_store, reply_item)
+
+    {:ok, %{state: :pending, nonce: primary_nonce}} =
+      Store.read(resources.command_store, :read_ack, [primary_item.idempotency_key])
+
+    true = primary_nonce == primary_item.nonce
+
+    primary_steps = drive_until_ack!(host, primary["input_id"], driver_deadline(profile))
+
+    Process.put(
+      {__MODULE__, :unit_ids},
+      (Process.get({__MODULE__, :unit_ids}) || []) ++
+        for({:engine_started, unit_id} <- primary_steps, do: unit_id)
+    )
+
+    assert_ack!(resources.command_store, primary_item)
+    completed = get_view!(primary_listener.url, profile.conversation_id)["view"]
+    true = Enum.any?(completed["messages"], &(&1["text"] == text))
+    true = Enum.any?(completed["messages"], &(&1["text"] == expected_answer(text)))
+    run = Enum.find(completed["runs"], &(&1["run_id"] == run_id))
+    true = is_map(run)
+    {:ok, run_status} = RunApprovalRelease.status(owner, run["run_id"])
+    true = run["run_id"] == run_id and run_status.current_attempt == run_attempt_id
+
+    %{
+      primary_request: primary_request,
+      primary_receipt: primary_receipt,
+      reply_request: reply_request,
+      reply_committed_receipt: reply_committed_receipt,
+      ticket: ticket,
+      reply_text: text,
+      run_id: run["run_id"],
+      attempt_id: run_status.current_attempt
+    }
+  end
+
+  defp drive_until_wait!(host, deadline), do: drive_until_wait!(host, deadline, [])
+
+  defp drive_until_wait!(host, deadline, steps) do
+    if System.monotonic_time(:millisecond) >= deadline, do: raise("reply wait timed out")
+
+    case Elzoo.Wave4ChannelExample.advance(host) do
+      {:pending, :event_waiting} ->
+        Enum.reverse(steps)
+
+      {:blocked, _} ->
+        raise "reply wait blocked"
+
+      {:error, _} ->
+        raise("reply wait unavailable")
+
+      step ->
+        if match?({:pending, _}, step), do: Process.sleep(2)
+        drive_until_wait!(host, deadline, [step | steps])
+    end
+  end
+
+  defp drive_until_native_result!(host, engine, scope, deadline) do
+    case Elzoo.RunEngine.result(engine, scope, %{max_records: 2_048, max_bytes: 16_777_216}) do
+      {:ok, result} ->
+        result
+
+      {:pending, _} ->
+        advance_native_result!(host, deadline)
+        drive_until_native_result!(host, engine, scope, deadline)
+
+      {:error, :unavailable} ->
+        advance_native_result!(host, deadline)
+        drive_until_native_result!(host, engine, scope, deadline)
+
+      _ ->
+        raise "native result unavailable"
+    end
+  end
+
+  defp advance_native_result!(host, deadline) do
+    if System.monotonic_time(:millisecond) >= deadline, do: raise("native result timed out")
+
+    case Elzoo.Wave4ChannelExample.advance(host) do
+      {:blocked, _} -> raise "native result blocked"
+      {:error, _} -> raise "native result unavailable"
+      {:pending, _} -> Process.sleep(2)
+      {:unknown, _} -> raise "native result unknown"
+      _ -> :ok
+    end
+  end
+
+  defp drive_until_ack_receipt!(host, store, item, deadline) do
+    case Store.read(store, :read_ack, [item.idempotency_key]) do
+      {:ok, %{state: :acked}} ->
+        :ok
+
+      _ ->
+        if System.monotonic_time(:millisecond) >= deadline, do: raise("reply ACK timed out")
+
+        case Elzoo.Wave4ChannelExample.advance(host) do
+          {:error, _} -> raise("reply ACK unavailable")
+          {:pending, _} -> Process.sleep(2)
+          _ -> :ok
+        end
+
+        drive_until_ack_receipt!(host, store, item, deadline)
+    end
+  end
+
+  defp assert_ack!(store, item) do
+    assert_ack = Store.read(store, :read_ack, [item.idempotency_key])
+    {:ok, %{state: :acked, idempotency_key: key, nonce: nonce, ack_nonce: ack_nonce}} = assert_ack
+    true = key == item.idempotency_key and nonce == item.nonce and ack_nonce == item.nonce
+  end
+
+  defp expected_answer(text),
+    do: "answer:" <> Base.encode16(:crypto.hash(:sha256, text), case: :lower)
+
+  defp demo_id(domain, terms) do
+    digest =
+      :crypto.hash(
+        :sha256,
+        :erlang.term_to_binary({:wave4_channel, 1, domain, terms}, [:deterministic])
+      )
+
+    domain <> ":" <> Base.url_encode64(digest, padding: false)
+  end
+
+  defp checked_stream(tenant),
+    do:
+      "cc1:" <>
+        Base.url_encode64(:erlang.term_to_binary({:cc, 1, tenant}, [:deterministic]),
+          padding: false
+        )
+
   defp event(profile, event_id, input_id, expected_revision, text) do
     %{
       "version" => 1,
@@ -483,6 +1004,17 @@ defmodule Elzoo.Wave4ChannelDemo do
       "input_id" => input_id,
       "expected_revision" => expected_revision,
       "text" => text
+    }
+  end
+
+  defp normalized_event(event) do
+    %{
+      version: event["version"],
+      event_id: event["event_id"],
+      conversation_id: event["conversation_id"],
+      input_id: event["input_id"],
+      expected_revision: event["expected_revision"],
+      text: event["text"]
     }
   end
 
@@ -615,9 +1147,11 @@ defmodule Elzoo.Wave4ChannelDemo do
         _ -> {:error, :demo_failed}
       end
     rescue
-      _ -> {:error, :demo_failed}
+      _ ->
+        {:error, :demo_failed}
     catch
-      _, _ -> {:error, :demo_failed}
+      _, _ ->
+        {:error, :demo_failed}
     end
   end
 
