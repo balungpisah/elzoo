@@ -1,0 +1,197 @@
+# SPDX-License-Identifier: Apache-2.0
+# domain/principal: the kind decisions and the delegation subset rule. Elixir
+# validates foreign values and supplies each label as its byte list, because
+# pinned Cure reduces Int equality on literals only and never unfolds String
+# equality inside proofs; label equality here is exact byte equality.
+mod Elzoo.Principal
+  type PrincipalKind = KindHuman | KindService | KindAgent
+  type Delegation = Granted(List(List(Int)), List(List(Int))) | Escalation
+
+  @total true
+  @reducible
+  fn both(a: Bool, b: Bool) -> Bool =
+    match a
+      True() -> b
+      False() -> False()
+
+  @total true
+  @reducible
+  fn eq_int(a: Int, b: Int) -> Bool =
+    pickup
+      a == b -> True()
+      else -> False()
+
+  @total true
+  @reducible
+  fn eq_bytes(a: List(Int), b: List(Int)) -> Bool =
+    match a
+      [] ->
+        match b
+          [] -> True()
+          [y | ys] -> False()
+      [x | xs] ->
+        match b
+          [] -> False()
+          [y | ys] -> both(eq_int(x, y), eq_bytes(xs, ys))
+
+  @total true
+  @reducible
+  fn member(l: List(Int), ls: List(List(Int))) -> Bool =
+    match ls
+      [] -> False()
+      [x | rest] ->
+        match eq_bytes(l, x)
+          True() -> True()
+          False() -> member(l, rest)
+
+  # Subset with respect to eq_bytes.
+  @total true
+  @reducible
+  fn subset(xs: List(List(Int)), ys: List(List(Int))) -> Bool =
+    match xs
+      [] -> True()
+      [x | rest] ->
+        match member(x, ys)
+          True() -> subset(rest, ys)
+          False() -> False()
+
+  # ---------------------------------------------------------------- kind decisions
+
+  # Only a human or a service may delegate; an agent parent is one level too deep.
+  @total true
+  @reducible
+  fn delegable(k: PrincipalKind) -> Bool =
+    match k
+      KindHuman() -> True()
+      KindService() -> True()
+      KindAgent() -> False()
+
+  @total true
+  @reducible
+  fn human(k: PrincipalKind) -> Bool =
+    match k
+      KindHuman() -> True()
+      KindService() -> False()
+      KindAgent() -> False()
+
+  # ---------------------------------------------------------------- delegation
+
+  @total true
+  @reducible
+  fn grant(ok: Bool, scopes: List(List(Int)), spaces: List(List(Int))) -> Delegation =
+    match ok
+      True() -> Granted(scopes, spaces)
+      False() -> Escalation()
+
+  # The request is granted whole when every scope and every space is held, else refused whole.
+  @total true
+  @reducible
+  fn delegate(held_scopes: List(List(Int)), held_spaces: List(List(Int)), scopes: List(List(Int)), spaces: List(List(Int))) -> Delegation =
+    grant(both(subset(scopes, held_scopes), subset(spaces, held_spaces)), scopes, spaces)
+
+  @total true
+  @reducible
+  fn granted_scopes(d: Delegation) -> List(List(Int)) =
+    match d
+      Granted(s, p) -> s
+      Escalation() -> []
+
+  @total true
+  @reducible
+  fn granted_spaces(d: Delegation) -> List(List(Int)) =
+    match d
+      Granted(s, p) -> p
+      Escalation() -> []
+
+  @total true
+  @reducible
+  fn granted(d: Delegation) -> Bool =
+    match d
+      Granted(s, p) -> True()
+      Escalation() -> False()
+
+  # ---------------------------------------------------------------- laws: kinds
+
+  @total true
+  fn agent_parent_not_delegable() -> Equivalent(Bool, delegable(KindAgent()), False()) =
+    reflexive(False())
+
+  @total true
+  fn human_parent_delegable() -> Equivalent(Bool, delegable(KindHuman()), True()) =
+    reflexive(True())
+
+  @total true
+  fn service_parent_delegable() -> Equivalent(Bool, delegable(KindService()), True()) =
+    reflexive(True())
+
+  @total true
+  fn human_is_human() -> Equivalent(Bool, human(KindHuman()), True()) =
+    reflexive(True())
+
+  @total true
+  fn service_not_human() -> Equivalent(Bool, human(KindService()), False()) =
+    reflexive(False())
+
+  @total true
+  fn agent_not_human() -> Equivalent(Bool, human(KindAgent()), False()) =
+    reflexive(False())
+
+  # ---------------------------------------------------------------- laws: delegation never widens
+
+  # Inspect pattern: b is subset(scopes, held_scopes), hb its equation.
+  @total true
+  fn grant_scopes_within(b: Bool, c: Bool, scopes: List(List(Int)), spaces: List(List(Int)), held: List(List(Int)), hb: Equivalent(Bool, subset(scopes, held), b)) -> Equivalent(Bool, subset(granted_scopes(grant(both(b, c), scopes, spaces)), held), True()) =
+    match b
+      False() -> reflexive(True())
+      True() ->
+        match c
+          True() -> hb
+          False() -> reflexive(True())
+
+  # Inspect pattern: c is subset(spaces, held_spaces), hc its equation.
+  @total true
+  fn grant_spaces_within(b: Bool, c: Bool, scopes: List(List(Int)), spaces: List(List(Int)), held: List(List(Int)), hc: Equivalent(Bool, subset(spaces, held), c)) -> Equivalent(Bool, subset(granted_spaces(grant(both(b, c), scopes, spaces)), held), True()) =
+    match b
+      False() -> reflexive(True())
+      True() ->
+        match c
+          True() -> hc
+          False() -> reflexive(True())
+
+  # For all held and requested lists: every granted scope is a held scope.
+  @total true
+  fn granted_scopes_within_parent(hs: List(List(Int)), hp: List(List(Int)), s: List(List(Int)), p: List(List(Int))) -> Equivalent(Bool, subset(granted_scopes(delegate(hs, hp, s, p)), hs), True()) =
+    grant_scopes_within(subset(s, hs), subset(p, hp), s, p, hs, reflexive(subset(s, hs)))
+
+  # For all held and requested lists: every granted space is a held space.
+  @total true
+  fn granted_spaces_within_parent(hs: List(List(Int)), hp: List(List(Int)), s: List(List(Int)), p: List(List(Int))) -> Equivalent(Bool, subset(granted_spaces(delegate(hs, hp, s, p)), hp), True()) =
+    grant_spaces_within(subset(s, hs), subset(p, hp), s, p, hp, reflexive(subset(p, hp)))
+
+  # Inspect pattern: the grant of a decision is the request or nothing.
+  @total true
+  fn grant_scopes_whole(ok: Bool, scopes: List(List(Int)), spaces: List(List(Int)), h: Equivalent(Bool, granted(grant(ok, scopes, spaces)), True())) -> Equivalent(List(List(Int)), granted_scopes(grant(ok, scopes, spaces)), scopes) =
+    match ok
+      True() -> reflexive(scopes)
+      False() ->
+        match h
+          reflexive() -> impossible
+
+  @total true
+  fn grant_spaces_whole(ok: Bool, scopes: List(List(Int)), spaces: List(List(Int)), h: Equivalent(Bool, granted(grant(ok, scopes, spaces)), True())) -> Equivalent(List(List(Int)), granted_spaces(grant(ok, scopes, spaces)), spaces) =
+    match ok
+      True() -> reflexive(spaces)
+      False() ->
+        match h
+          reflexive() -> impossible
+
+  # A granted delegation carries exactly the requested scopes: never an intersection.
+  @total true
+  fn granted_scopes_exact(hs: List(List(Int)), hp: List(List(Int)), s: List(List(Int)), p: List(List(Int)), h: Equivalent(Bool, granted(delegate(hs, hp, s, p)), True())) -> Equivalent(List(List(Int)), granted_scopes(delegate(hs, hp, s, p)), s) =
+    grant_scopes_whole(both(subset(s, hs), subset(p, hp)), s, p, h)
+
+  # A granted delegation carries exactly the requested spaces: never an intersection.
+  @total true
+  fn granted_spaces_exact(hs: List(List(Int)), hp: List(List(Int)), s: List(List(Int)), p: List(List(Int)), h: Equivalent(Bool, granted(delegate(hs, hp, s, p)), True())) -> Equivalent(List(List(Int)), granted_spaces(delegate(hs, hp, s, p)), p) =
+    grant_spaces_whole(both(subset(s, hs), subset(p, hp)), s, p, h)
+end
