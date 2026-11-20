@@ -364,3 +364,20 @@ excluded`). The strengthened same-host regression passed separately (`1
 passed, 70 excluded`). Existing v1 loopback, two-round reply and fenced
 recovery tests were not rerun in this correction. No broad or affected gate
 was run in this batch.
+
+### Review-follow-up addendum — reply association recovery
+
+Reply-association recovery now retains the original operation and completed
+receipt when the committed append is followed by an unavailable resource read.
+The same-host signed-HTTP regression uses PostgreSQL, pauses the association
+append after commit, injects an unavailable `:read` through the PostgreSQL
+harness for resource confirmation, and verifies the completed receipt and
+same-Run association through `CheckedCommand` reads. The failed confirmation
+returns unknown with the original primary and reply notices pending and no
+hash call. After public reads confirm the committed association, a same-host
+reconciliation retry with `:read` still unavailable also returns unknown,
+preserves both pending notices, and makes no hash call. Once reads are
+healthy, the same host reconciles it, applies the reply, completes one answer,
+and acknowledges the original reply and primary keys with their original
+nonces; Run/Attempt identity and the single retained-reply hash are checked.
+Existing receipt and same-Run resource corroboration remain required.

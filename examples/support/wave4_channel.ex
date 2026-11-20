@@ -2868,7 +2868,13 @@ defmodule Elzoo.Wave4ChannelExample do
           reply = %{reply | association_revision: revision}
           {{:reply_associated, revision}, %{state | reply: reply, phase: :reply_input}}
         else
-          {{:unknown, :reply_association}, %{state | poison: {:reply_association, :identity}}}
+          {{:unknown, :reply_association},
+           %{
+             state
+             | poison:
+                 {:reply_association, reply.association_operation,
+                  {:completed, %{revision: revision, response: response}}}
+           }}
         end
 
       {:unknown, _} = result ->

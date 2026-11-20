@@ -11027,6 +11027,220 @@ defmodule Elzoo.Wave4ChannelTest do
     end)
   end
 
+  @tag timeout: 300_000
+  test "same-host reply association recovery stays fenced through post-commit read failures" do
+    fixture = Elzoo.Wave4ChannelTestHelper.reply_fixture()
+    {primary_listener, reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
+    trace_native_hash(fixture.native.task_supervisor)
+
+    primary_event =
+      Elzoo.Wave4ChannelTestHelper.event(%{"event_id" => "reply-association-read-failure-primary"})
+
+    primary_id = primary_event["input_id"]
+
+    assert {:ok, {{_, 202, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(primary_listener, primary_event)
+
+    assert {:observed, ^primary_id} = Wave4ChannelExample.advance(fixture.host)
+    Enum.each(1..11, fn _ -> Wave4ChannelExample.advance(fixture.host) end)
+
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+
+    assert {:ok, %{event_waits: %{waits: [wait]}}} = Wave4ChannelExample.view(fixture.host, scope)
+    assert wait.status == :waiting
+    assert {:ok, [primary_item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert {:ok, before_reply} =
+             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
+
+    reply_text = "post-commit association recovery"
+
+    reply_event =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "reply-association-read-failure-reply",
+        "input_id" => wait.correlation_id,
+        "expected_revision" => before_reply.revision,
+        "text" => reply_text
+      })
+
+    assert {:ok, {{_, 202, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(reply_listener, reply_event)
+
+    assert {:ok, [^primary_item, reply_item]} =
+             Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert {:reply_observed, reply_key} = Wave4ChannelExample.advance(fixture.host)
+    assert reply_key == reply_item.idempotency_key
+
+    run_id =
+      Elzoo.Wave4ChannelTestHelper.run_id(
+        fixture.profile,
+        primary_event["event_id"],
+        primary_id
+      )
+
+    attempt_id = Elzoo.Wave4ChannelTestHelper.attempt_id(run_id)
+    assert {:ok, run_before} = RunApprovalRelease.status(fixture.owner, run_id)
+    assert run_before.current_attempt == attempt_id
+
+    before_association = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    assert {:ok, %{revision: head_before}} = before_association
+    token = :wave4_reply_association_confirmation
+
+    assert :ok =
+             Elzoo.DurableLog.PostgresHarness.hook(
+               fixture.command_store,
+               :inject,
+               [:append, {:pause, token, :after_commit_reply}]
+             )
+
+    caller = Task.async(fn -> Wave4ChannelExample.advance(fixture.host) end)
+
+    writer =
+      wait_for_paused(
+        fixture.controller,
+        token,
+        System.monotonic_time(:millisecond) + 5_000
+      )
+
+    assert writer.operation == :append
+
+    assert :ok =
+             Elzoo.DurableLog.PostgresHarness.hook(
+               fixture.command_store,
+               :inject,
+               [:read, :unavailable]
+             )
+
+    assert {:committed, _} =
+             Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :release, [token])
+
+    assert {:unknown, :reply_association} = Task.await(caller, 10_000)
+
+    reply_operation =
+      Elzoo.Wave4ChannelTestHelper.reply_operation(fixture.profile, reply_event["event_id"])
+
+    association_operation =
+      Elzoo.Wave4ChannelTestHelper.association_operation_for(
+        fixture.profile,
+        reply_operation,
+        wait.correlation_id
+      )
+
+    assert {:completed, %{revision: association_revision}} =
+             CheckedCommand.result(
+               fixture.handles.reply_association,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               {fixture.profile.tenant, fixture.profile.actor, association_operation}
+             )
+
+    assert {:ok, committed_resource} =
+             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
+
+    assert committed_resource.revision == association_revision
+
+    assert {:ok, committed_snapshot} =
+             Wave4ChannelExample.CommandBindings.conversation_snapshot(
+               committed_resource,
+               fixture.profile.tenant
+             )
+
+    assert {:ok, committed_conversation} = Conversation.view(committed_snapshot, scope)
+
+    assert Enum.any?(committed_conversation.associations, fn association ->
+             association.input_message_id == reply_event["input_id"] and
+               association.run_id == run_id
+           end)
+
+    head_after_association = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    assert {:ok, %{revision: head_after}} = head_after_association
+    assert head_after == head_before + 1
+
+    assert {:ok, [^primary_item, ^reply_item]} =
+             Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert take_hash_calls() == []
+
+    assert :ok =
+             Elzoo.DurableLog.PostgresHarness.hook(
+               fixture.command_store,
+               :inject,
+               [:read, :unavailable]
+             )
+
+    assert {:unknown, :reply_association} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, [^primary_item, ^reply_item]} =
+             Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert take_hash_calls() == []
+
+    assert {:reconciled, :reply_association} = Wave4ChannelExample.advance(fixture.host)
+    assert {:native_reply, :applied} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, _native_result} =
+             wait_public_result(
+               :sys.get_state(fixture.host).engine,
+               %{tenant: fixture.profile.tenant, principal: fixture.profile.actor, run_id: run_id},
+               System.monotonic_time(:millisecond) + 10_000
+             )
+
+    assert {:result, :completed} = Wave4ChannelExample.advance(fixture.host)
+    assert {:answered, answer_revision} = Wave4ChannelExample.advance(fixture.host)
+
+    result_scope = %{tenant: fixture.profile.tenant, actor: fixture.profile.actor}
+
+    answer_operation =
+      Elzoo.Wave4ChannelTestHelper.answer_operation(
+        fixture.profile,
+        primary_event["event_id"],
+        primary_id
+      )
+
+    answer_identity = {fixture.profile.tenant, fixture.profile.actor, answer_operation}
+
+    assert {:completed, %{revision: ^answer_revision}} =
+             CheckedCommand.result(fixture.handles.answer, result_scope, answer_identity)
+
+    assert {:ok, run_before_ack} = RunApprovalRelease.status(fixture.owner, run_id)
+    assert run_before_ack.current_attempt == attempt_id
+    assert {:reply_acknowledged, ^reply_key} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, %{state: :acked, idempotency_key: ^reply_key, ack_nonce: reply_nonce}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [reply_key])
+
+    assert reply_nonce == reply_item.nonce
+    assert {:acknowledged, ^primary_id} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, %{state: :acked, idempotency_key: primary_key, ack_nonce: primary_nonce}} =
+             Elzoo.DurableLog.Store.read(
+               fixture.command_store,
+               :read_ack,
+               [primary_item.idempotency_key]
+             )
+
+    assert primary_key == primary_item.idempotency_key
+    assert primary_nonce == primary_item.nonce
+    assert {:ok, run_after_ack} = RunApprovalRelease.status(fixture.owner, run_id)
+    assert stable_run_status(run_after_ack) == stable_run_status(run_before_ack)
+
+    assert {:ok, completed_resource} =
+             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
+
+    assert completed_resource.revision == answer_revision
+
+    assert {:ok, completed_snapshot} =
+             Wave4ChannelExample.CommandBindings.conversation_snapshot(
+               completed_resource,
+               fixture.profile.tenant
+             )
+
+    assert {:ok, completed_conversation} = Conversation.view(completed_snapshot, scope)
+    answer_id = Elzoo.Wave4ChannelTestHelper.answer_id(primary_id)
+    assert Enum.count(completed_conversation.messages, &(&1.message_id == answer_id)) == 1
+    assert [^reply_text] = take_hash_calls()
+  end
+
   defp advance_to_answer(host, deadline, steps) do
     if :sys.get_state(host).phase == :answer do
       :ok
