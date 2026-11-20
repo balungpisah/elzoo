@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "domain/provider-data-policy",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir"],
+  "dependencies": [],
+  "contract": "Closed data-class tag (public, internal, confidential, pii, secret) and one pure decision: a payload with 1..5 class tags may go to one provider, region and retention mode only when the tenant policy admits each class for that provider in that region under that retention mode. Fixed order: policy shape (error policy), request shape (error request), secret (never admissible), provider, then per class pii, confidential, internal, public: class, region, retention. Per-class admission with no inheritance; exact-byte text comparison; fixed result atoms that echo no input. The host treats every non-allow result as DENY.",
+  "limits": [
+    "No content inspection or classification: the host or integration/pii-redaction tags the data, and a wrong tag gives a wrong decision.",
+    "No provider identity verification and no claim that a provider's region or retention statement is true; these are host Needs.",
+    "No ASK, no policy identity hash and no decision record; the host records the decision with its checked command.",
+    "Not a replacement for domain/authorization or integration/egress-policy; it calls neither.",
+    "Region and retention vocabularies are the host's; the Piece compares exact bytes and gives them no meaning."
+  ],
+  "files": [
+    "lib/elzoo/provider_data_policy.ex",
+    "test/elzoo/provider_data_policy_test.exs"
+  ],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/provider_data_policy_test.exs", "claim": "Listed scenarios pass: data_classes order, admission, decision order, policy and request shape with bounds at limit and limit + 1, text bounds and control characters on both sides, exact bytes, no echo. Three negative controls (secret refusal dropped, only the first request class checked, pii admitting internal) each failed a case of the admission or order groups. Finite scenarios, not a universal proof."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Relies on pinned Elixir/OTP binary equality, String.valid?/1 and Regex Unicode matching."},
+    {"kind": "assumption", "claim": "The host tags each payload with its data classes, supplies the tenant's current policy, treats every result other than :allow as DENY, and holds provider region and retention claims as its own Needs."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure callable with no telemetry or log; the host gate instruments and records decisions."},
+    "config": {"status": "supported", "contract": "Per call, no default and no hot reconfiguration: the tenant policy (shape and bounds as in the README). Bounds are fixed Contract constants.", "evidence": ["test/elzoo/provider_data_policy_test.exs"]},
+    "control": {"status": "not_applicable", "contract": "No lifecycle to pause, drain or resume."}
+  }
+}
