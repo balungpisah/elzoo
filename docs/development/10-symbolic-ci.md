@@ -1184,6 +1184,24 @@ PostgreSQL database" step therefore runs, as the `postgres` superuser after `cre
 extension is licensed under the PostgreSQL License (upstream statement); CI runs the image unchanged and does not
 redistribute it.
 
+Since ELZ-285 (owner approval 2026-11-20, recorded in `docs/plans/bot-platform.md`) the same step of every job that
+has it also creates, as the superuser after `CREATE ROLE elzoo_test` and before the tests, one fixed application role
+that neither owns the protected tables nor bypasses row security, and grants it to `elzoo_test` for `SET ROLE` only:
+`CREATE ROLE elzoo_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS` and
+`GRANT elzoo_app TO elzoo_test WITH INHERIT FALSE, SET TRUE`. It writes `ELZOO_TEST_APP_ROLE=elzoo_app` to
+`$GITHUB_ENV` beside `ELZOO_TEST_DATABASE_URL`. `elzoo_test` gains no attribute (`CREATEROLE` would let every test
+create cluster-wide roles). Then, connected as `elzoo_test`, the step prints one line
+
+    ELZOO ROLE CHECK current_user=elzoo_test elzoo_test=f,f,f elzoo_app=f,f,f set=t usage=f app_member_of_test=f
+
+(`rolsuper`, `rolcreaterole`, `rolbypassrls` of each role; `pg_has_role('elzoo_test', 'elzoo_app', 'SET')`;
+`pg_has_role('elzoo_test', 'elzoo_app', 'USAGE')`; `pg_has_role('elzoo_app', 'elzoo_test', 'MEMBER')`) and fails
+on any other line. `MEMBER` and `SET` are true whether the grant inherits or not; `USAGE` is what catches an
+inheriting grant. The role is cluster-wide while grants are per database: tests grant it privileges only on their
+own random schemas, which `DROP SCHEMA ... CASCADE` removes, and never run `DROP OWNED BY elzoo_app` or alter or drop
+the role. `.agents/setup` and `scripts/worker-services.py` run the same statements and the same check. Limits: the
+role-check line is an observation of the catalog in that job, not a proof of the row-security behavior of any Piece.
+
 Limits: the image facts are observations of the pinned digest on the stated date, not a supply-chain proof; the
 pgvector build and the extension behavior are upstream's work. The local test database is an operator action, see
 `docs/development/01-workflow.md`.
