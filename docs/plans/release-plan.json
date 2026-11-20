@@ -8460,7 +8460,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/mcp-runtime/piece.json",
-      "manifest_sha256": "f7da1ac351ec39c56a7d53a8af62bb02608ea312e36b93302aa2179d7cae0c5c"
+      "manifest_sha256": "8d0fe3f9a15ffb7e8f90d6b9210b67e8c3210dbe74f6ebb8492f897fc024bd5a"
     },
     {
       "id": "integration/identity",
