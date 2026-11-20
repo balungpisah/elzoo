@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "id": "integration/egress-policy",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir"],
+  "dependencies": [],
+  "contract": "Outbound URL policy for tenant- or model-supplied URLs: policy/1 takes exactly 1..256 unique lowercase DNS names and 1..16 unique ports or raises one fixed ArgumentError; pure check/2 admits only a valid UTF-8, 1..2048-byte https URL without userinfo or fragment whose lowercased host satisfies the name rule (no IP literal, numeric or hex last label, percent-encoding or trailing dot), is exactly allowlisted and uses an allowlisted port, in fixed refusal order; resolve/3 then calls the injected resolver Need once and returns the distinct sorted addresses only when every one of 1..32 answered addresses is public under the Piece's fixed IPv4, IPv4-mapped and IPv6 table. Fixed error atoms never echo the URL or host; no clock, socket, telemetry, log, HTTP client, redirect following or response bound.",
+  "limits": [
+    "No HTTP client, redirect following, response bound, DNS timeout or DNS cache: the transport connects only to a returned address with SNI and Host set to host, passes each redirect through resolve/3 and bounds the body; the resolver Need bounds itself.",
+    "No wildcard or suffix host, no IP-literal allowlist and no private-network opt-in.",
+    "Addresses are only as fresh as the resolver's answer; the address table is fixed and no wider than the globally reachable set of the IANA special-purpose registries, and also refuses multicast and NAT64."
+  ],
+  "files": [
+    "examples/elzoo/egress_policy.exs",
+    "lib/elzoo/egress_policy.ex",
+    "test/elzoo/egress_policy_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/egress_policy_test.exs",
+      "claim": "Listed scenarios pass for admission, every check/2 refusal in order (including invalid UTF-8 in each URL part) with the resolver call count, the 2048/2049-byte, 63/64-byte label and 253/254-byte name bounds, resolver outcomes including 32/33 addresses, raise, throw and exit, both sides of every IPv4 and IPv6 table boundary, IPv4-mapped classification, mixed-answer rebinding, policy option validation and secrecy of results, raised messages and logs; the any-address-public, skipped IPv4-mapped classification, resolver-before-allowlist and dropped-userinfo negative controls fail under temporary edits. Finite scenarios, not a universal proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/URI.html#new/1",
+      "claim": "For valid UTF-8 input, pinned URI.new/1 lowercases the scheme, keeps the host as written, fills the https default port 443, and reports userinfo, an empty trailing fragment and invalid characters as the policy reads them. Invalid UTF-8 is refused before the call; that URI.new/1 raises on it is observed at the pinned version, not documented, and the policy does not rely on it."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The resolver Need answers truthfully for the host it is given and bounds its own time; the transport connects only to an address returned by resolve/3 and resolves every redirect again. The Piece does not observe either."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure policy decision; it emits no telemetry or log, and errors are fixed atoms."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time options are exactly hosts and ports, validated by policy/1 with a fixed ArgumentError; there is no hot update, and a changed allowlist is a new policy.",
+      "evidence": [
+        "test/elzoo/egress_policy_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "The Piece owns no process or lifecycle to pause, drain, resume or stop."
+    }
+  }
+}

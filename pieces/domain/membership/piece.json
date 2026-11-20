@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "id": "domain/membership",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir"],
+  "dependencies": ["domain/principal"],
+  "contract": "Pure resolution of the sorted permissions a domain/principal holds at one space at one injected time from bounded host facts (spaces in an optional same-tenant tree of depth at most 32, named roles, memberships with a validity window and soft revocation, non-inheriting prefixes), and of the sorted spaces of the principal's tenant where one permission holds. The authority owner is the principal, or an agent's parent; a membership grants at its space and below it unless a block_inheritance space lies on the path or the permission has a non-inheriting byte prefix; nothing flows upward, across branches or across tenants; an agent is capped by its allowed_scopes and exact allowed_spaces. Fixed error atoms in the order principal, now, facts, target. No I/O, clock, storage, invitation, tenant status or authorization decision.",
+  "limits": [
+    "No invitations, tenant status, per-space role definitions, wildcard permissions, durable state or concurrency.",
+    "An agent's allowed_spaces match exactly and not through the tree: with the 256-entry cap of domain/principal an agent acts in at most 256 named spaces. A human's or service's own allowed_scopes and allowed_spaces do not cap its memberships; they bound only what it can delegate.",
+    "Facts are as fresh as the host made them: a revocation takes effect at the next call that sees it. Principal epoch and revocation remain the host's Elzoo.Principal.check/2 call before this one.",
+    "No authorization decision: the host maps permissions into exact domain/authorization rules. Ready domain/authorization, assembly/checked-command and state/audit-log are not changed.",
+    "Selected Cure laws cover the flow decision over the barrier flags Elixir supplies; that Elixir supplies exactly the flags from the target up to, but excluding, each membership space on its root path, owner selection, the activity window, tenancy, agent capping, fact validation, coalescing, ordering and error order are Elixir-side and test-grounded only."
+  ],
+  "files": [
+    "cure/elzoo/membership.cure",
+    "lib/elzoo/membership.ex",
+    "test/elzoo/membership_test.exs",
+    "examples/membership.exs"
+  ],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/membership.cure", "symbol": "grants_at_own_space", "claim": "For every permission class, a membership grants at its own space: flows of the empty path is true."},
+    {"kind": "proof", "file": "cure/elzoo/membership.cure", "symbol": "local_only_never_flows", "claim": "For every non-empty path, a permission with a non-inheriting prefix does not flow below its membership space."},
+    {"kind": "proof", "file": "cure/elzoo/membership.cure", "symbol": "barrier_closes", "claim": "For all barrier lists xs and ys, a path with a block_inheritance flag between them is not open."},
+    {"kind": "proof", "file": "cure/elzoo/membership.cure", "symbol": "barrier_blocks", "claim": "For all paths that hold a block_inheritance flag anywhere and every permission class, nothing flows from the membership space to the target."},
+    {"kind": "proof", "file": "cure/elzoo/membership.cure", "symbol": "open_path_flows", "claim": "An inheriting permission flows over a non-empty path whose flags are all open (hypothesis form)."},
+    {"kind": "type", "file": "cure/elzoo/membership.cure", "claim": "Pinned Cure checks types and totality of the flow decision; the source audit reports no axiom, hole, unresolved, unaudited, opaque or unproved-total definition."},
+    {"kind": "test", "file": "test/elzoo/membership_test.exs", "claim": "Listed scenarios: fact validation for shape, key set, struct and string-keyed maps, improper lists, every count bound (1..1024 spaces, 0..256 roles, 0..256 permissions with 257 duplicated entries, 0..1024 memberships counted before coalescing, 0..16 prefixes), duplicate space and role IDs, absent and cross-tenant parents, cycles and self-parents, depth 32 and 33, absent membership space or role, valid_to <= valid_from, text at 0, 1, 128 and 129 bytes, invalid UTF-8, NUL, DEL and U+0085 in every text field, and times -1, 0, 2^63-1, 2^63 and a float in every time field; flat tenant members, non-members, role unions and valid_from, valid_to and revoked_at edges; the R, A (blocking), B, C hierarchy; exact-byte non-inheriting prefixes; cross-tenant targets and a same-ID membership in another tenant; agent capping, exact allowed_spaces, own-ID memberships and parent revocation; spaces/4 agreeing with permissions/4 on every fixture; error order; Cure laws, audit and the checked example. Removing, one at a time, the block_inheritance check, the non-inheriting filter, the revoked_at clause, the membership tenant clause together with the spaces/4 tenant restriction, and the target tenant check of permissions/4 makes these tests fail (negative controls). Finite scenarios, not universal proofs."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Pinned Cure compilation, reduction checking and BEAM decision semantics; compiler soundness not locally proved."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir/OTP binary byte order (:lists.usort/1, Enum.sort/1), :binary.longest_common_prefix/1, String.valid?/1, the utf8 binary pattern and term equality for exact-byte comparison."},
+    {"kind": "assumption", "claim": "The host builds principals from authenticated state and calls Elzoo.Principal.check/2 with the real epoch and revoked IDs before this Piece, supplies facts read from its own storage and keeps revoked membership rows, and maps the permissions into its own authorization rules."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure functions emit no observations and no logs; the host owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "Fixed Contract bounds (128-byte text, 1024 spaces, 256 roles, 256 permissions per role, 1024 memberships, 16 prefixes, depth 32, 0..2^63-1 times); facts and time are per-call operands, not settings."},
+    "control": {"status": "not_applicable", "contract": "No process or lifecycle; revocation is a fact the host supplies per call."}
+  }
+}
