@@ -8473,7 +8473,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/mcp-client/piece.json",
-      "manifest_sha256": "e6663695e6ace3a96ed47923c84568a4df3d5e450a23ffb223d1feaba087e6f7"
+      "manifest_sha256": "3de40a7456f7fdd161453e3b7ae1ced3d33c4727c4d289a6ebffdebdb8bad889"
     },
     {
       "id": "integration/notification",
