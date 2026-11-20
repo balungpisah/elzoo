@@ -7852,7 +7852,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/principal/piece.json",
-      "manifest_sha256": "ec2cb10d3d74b330b2740c5e3acc680448ee233f7fa5a3c70cc85810f95b8b9e"
+      "manifest_sha256": "b3468d849382ec5505a07a5a042bcad59ba82cd0df4e0d172735ba777fd5037d"
     },
     {
       "id": "domain/quota",
