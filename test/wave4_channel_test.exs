@@ -11241,6 +11241,186 @@ defmodule Elzoo.Wave4ChannelTest do
     assert [^reply_text] = take_hash_calls()
   end
 
+  @tag timeout: 300_000
+  test "committed reply-input loss reconciles after native expiry and preserves canonical ACKs" do
+    {:ok, clock_state} = Agent.start_link(fn -> System.system_time(:millisecond) end)
+    on_exit(fn -> if Process.alive?(clock_state), do: Agent.stop(clock_state) end)
+    clock = fn -> Agent.get(clock_state, & &1) end
+    deadline = clock.() + 120_000
+
+    gate_control = start_supervised!({Agent, fn -> %{fault: nil, store: nil} end}, id: make_ref())
+
+    gates = %{
+      input: fn _frame, _context -> :allow end,
+      reply: controlled_gate(gate_control),
+      association: fn _frame, _context -> :allow end,
+      answer: fn _frame, _context -> :allow end
+    }
+
+    fixture =
+      Elzoo.Wave4ChannelTestHelper.reply_fixture(
+        clock: clock,
+        deadline_ms: deadline,
+        gates: gates
+      )
+
+    set_gate_fault(gate_control, fixture.command_store, :reply_loss)
+    {primary_listener, reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
+    trace_native_hash(fixture.native.task_supervisor)
+
+    primary_event =
+      Elzoo.Wave4ChannelTestHelper.event(%{"event_id" => "expired-committed-reply-primary"})
+
+    primary_id = primary_event["input_id"]
+
+    run_id =
+      Elzoo.Wave4ChannelTestHelper.run_id(
+        fixture.profile,
+        primary_event["event_id"],
+        primary_id
+      )
+
+    attempt_id = Elzoo.Wave4ChannelTestHelper.attempt_id(run_id)
+
+    assert {:ok, {{_, 202, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(primary_listener, primary_event)
+
+    assert {:observed, ^primary_id} = Wave4ChannelExample.advance(fixture.host)
+    Enum.each(1..11, fn _ -> Wave4ChannelExample.advance(fixture.host) end)
+
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+
+    assert {:ok, %{event_waits: %{waits: [wait]}}} = Wave4ChannelExample.view(fixture.host, scope)
+    assert wait.status == :waiting
+    assert clock.() < deadline
+
+    assert {:ok, [primary_item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert primary_item.destination == "wave4-channel-input"
+
+    result_scope = %{tenant: fixture.profile.tenant, actor: fixture.profile.actor}
+
+    assert {:ok, before_reply} =
+             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
+
+    reply_event =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "expired-committed-reply-input",
+        "input_id" => wait.correlation_id,
+        "expected_revision" => before_reply.revision,
+        "text" => "committed before expiry, never delivered"
+      })
+
+    reply_operation =
+      Elzoo.Wave4ChannelTestHelper.reply_operation(fixture.profile, reply_event["event_id"])
+
+    assert {:ok, {{_, 503, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(reply_listener, reply_event)
+
+    reply_identity = {fixture.profile.tenant, fixture.profile.actor, reply_operation}
+
+    assert {:completed, %{revision: reply_revision}} =
+             CheckedCommand.result(fixture.handles.reply_input, result_scope, reply_identity)
+
+    assert reply_revision == before_reply.revision + 1
+
+    assert {:ok, [^primary_item, reply_item]} =
+             Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    reply_key = reply_item.idempotency_key
+    assert reply_item.destination == "wave4-channel-reply"
+    assert {:ok, {stream, sequence, 1}} = Outbox.parse_id(reply_key)
+    assert stream == checked_stream(fixture.profile.tenant)
+    assert sequence > 0
+
+    assert {:ok, before_run_expiry} = RunApprovalRelease.status(fixture.owner, run_id)
+    assert before_run_expiry.current_attempt == attempt_id
+
+    Agent.update(clock_state, fn _ -> deadline + 1 end)
+    assert {:reconciled, :reply_input_expired} = Wave4ChannelExample.advance(fixture.host)
+
+    expired_state = :sys.get_state(fixture.host)
+    assert expired_state.reply.input_state == :committed_expired
+    assert expired_state.reply.release_state == :input_committed
+    assert expired_state.reply.item == nil
+    assert Map.get(expired_state.reply, :native_input_id) == nil
+
+    assert {:native_expiry_wake, :applied} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:terminal, :out_of_time} =
+             wait_public_result(
+               expired_state.engine,
+               %{tenant: fixture.profile.tenant, principal: fixture.profile.actor, run_id: run_id},
+               System.monotonic_time(:millisecond) + 10_000
+             )
+
+    assert {:terminal, :out_of_time} = Wave4ChannelExample.advance(fixture.host)
+
+    terminal_state = :sys.get_state(fixture.host)
+    assert terminal_state.reply.item.idempotency_key == reply_key
+    assert terminal_state.reply.item.nonce == reply_item.nonce
+    assert Map.get(terminal_state.reply, :native_input_id) == nil
+    assert Map.get(terminal_state.reply.wait, :accepted_event) == nil
+    assert {:reply_acknowledged, ^reply_key} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, %{state: :acked, idempotency_key: ^reply_key, ack_nonce: reply_nonce}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [reply_key])
+
+    assert reply_nonce == reply_item.nonce
+    assert {:ok, [^primary_item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert {:acknowledged, ^primary_id} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, %{state: :acked, idempotency_key: primary_key, ack_nonce: primary_nonce}} =
+             Elzoo.DurableLog.Store.read(
+               fixture.command_store,
+               :read_ack,
+               [primary_item.idempotency_key]
+             )
+
+    assert primary_key == primary_item.idempotency_key
+    assert primary_nonce == primary_item.nonce
+    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert {:completed, %{revision: ^reply_revision}} =
+             CheckedCommand.result(fixture.handles.reply_input, result_scope, reply_identity)
+
+    answer_operation =
+      Elzoo.Wave4ChannelTestHelper.answer_operation(
+        fixture.profile,
+        primary_event["event_id"],
+        primary_id
+      )
+
+    assert {:unknown, :not_observed} =
+             CheckedCommand.result(
+               fixture.handles.answer,
+               result_scope,
+               {fixture.profile.tenant, fixture.profile.actor, answer_operation}
+             )
+
+    assert {:ok, final_resource} =
+             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
+
+    assert final_resource.revision == reply_revision
+
+    assert {:ok, final_snapshot} =
+             Wave4ChannelExample.CommandBindings.conversation_snapshot(
+               final_resource,
+               fixture.profile.tenant
+             )
+
+    assert {:ok, final_conversation} = Conversation.view(final_snapshot, scope)
+    assert Enum.count(final_conversation.messages, &(&1.role == "source")) == 2
+    refute Enum.any?(final_conversation.messages, &(&1.role == "assistant"))
+    assert Enum.count(final_conversation.associations, &(&1.run_id == run_id)) == 1
+
+    assert {:ok, after_run_expiry} = RunApprovalRelease.status(fixture.owner, run_id)
+    assert after_run_expiry.current_attempt == before_run_expiry.current_attempt
+    assert after_run_expiry.attempts == before_run_expiry.attempts
+    assert after_run_expiry.outcome == :out_of_time
+    assert :sys.get_state(fixture.host).current == nil
+    assert take_hash_calls() == []
+  end
+
   defp advance_to_answer(host, deadline, steps) do
     if :sys.get_state(host).phase == :answer do
       :ok

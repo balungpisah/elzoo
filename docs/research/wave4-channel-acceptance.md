@@ -365,7 +365,7 @@ passed, 70 excluded`). Existing v1 loopback, two-round reply and fenced
 recovery tests were not rerun in this correction. No broad or affected gate
 was run in this batch.
 
-### Review-follow-up addendum — reply association recovery
+### Review-follow-up addendum — reply association and expiry recovery
 
 Reply-association recovery now retains the original operation and completed
 receipt when the committed append is followed by an unavailable resource read.
@@ -381,3 +381,28 @@ healthy, the same host reconciles it, applies the reply, completes one answer,
 and acknowledges the original reply and primary keys with their original
 nonces; Run/Attempt identity and the single retained-reply hash are checked.
 Existing receipt and same-Run resource corroboration remain required.
+
+Committed reply-input loss after the deadline now follows the existing
+bounded reply-notice discovery path when native expiry has already become
+authoritative. The signed request returns 503 while public `CheckedCommand`
+result lookup observes the committed reply. After clock advancement and the
+native expiry wake, the regression recovers the original reply key and nonce,
+then acknowledges reply before primary using public `read_ack` results. It
+checks stable Run/Attempt identity, no native reply input or accepted event,
+no assistant message or answer receipt, and no hash call. The existing
+committed approval-release-after-expiry regression also passes.
+
+The pre-fix association control first returned unknown after the post-commit
+read failure; public reads then observed the completed receipt and same-Run
+association, but a same-host retry with storage healthy returned
+`{:blocked, :reply_association}` instead of reconciling. The pre-fix
+committed-reply expiry control reached the authoritative `:out_of_time` result
+but host advancement returned `{:unknown, :reply_state}` instead of terminal
+handling. The fixed controlled-deadline regression asserts exact
+`:out_of_time`. Final focused runs used a worker-service-created disposable
+PostgreSQL 16.15 / pgvector 0.8.7 test target whose preflight fingerprint
+matched its connection identity, and passed separately: association recovery (`1 passed, 72
+excluded`), committed reply-input expiry (`1 passed, 72 excluded`), and the
+approval-release expiry control (`1 passed, 72 excluded`). These are finite
+focused results, not a broad or affected gate or an overall Wave 4 completion
+claim.

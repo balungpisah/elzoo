@@ -1568,13 +1568,11 @@ defmodule Elzoo.Wave4ChannelExample do
   defp continue_expired_v2_current(
          %{reply: %{release_state: :committed_expired, item: nil}} = state
        ) do
-    case observe_reply(%{state | phase: :reply_observe}) do
-      {{:reply_observed, _}, next_state} ->
-        observe_result(%{next_state | phase: :result})
+    rediscover_expired_v2_reply(state)
+  end
 
-      other ->
-        other
-    end
+  defp continue_expired_v2_current(%{reply: %{input_state: :committed_expired, item: nil}} = state) do
+    rediscover_expired_v2_reply(state)
   end
 
   defp continue_expired_v2_current(%{phase: :reply_ack} = state), do: acknowledge_reply(state)
@@ -1589,6 +1587,16 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp continue_expired_v2_current(state),
     do: observe_result(%{state | phase: :result})
+
+  defp rediscover_expired_v2_reply(state) do
+    case observe_reply(%{state | phase: :reply_observe}) do
+      {{:reply_observed, _}, next_state} ->
+        observe_result(%{next_state | phase: :result})
+
+      other ->
+        other
+    end
+  end
 
   defp observe_input(state) do
     stream = checked_stream(state.profile.tenant)
