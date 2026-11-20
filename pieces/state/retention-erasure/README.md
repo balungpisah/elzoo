@@ -113,8 +113,12 @@ driver failure is `:unavailable`; nothing raised reaches the caller.
   `integration/encryption` states), no KEK re-wrap, no artifact or object tombstones, no
   retention schedule and no tenant column or row-level security on the vault tables.
 - The Piece emits no telemetry and no log; errors are fixed atoms that never echo a subject,
-  plaintext, key or envelope. But `log: false` only silences the Logger: the consumer Repo's
-  query telemetry event receives subjects, refs, envelopes and wrapped keys as parameters.
+  plaintext, key or envelope. Its queries and its transactions (`BEGIN`, `COMMIT`, `ROLLBACK`)
+  pass `log: false`. But that only silences the Logger: the consumer Repo's query telemetry
+  event receives subjects, refs, envelopes and wrapped keys as parameters.
+- `:unavailable` can be an unknown outcome: a connection lost during `COMMIT` may have
+  committed. `erase` is idempotent, so retry it until `:ok`. A `put` may have stored an entry
+  whose ref the caller never received; it stays sealed until the subject is erased.
 - The KEK Need runs synchronously inside `put`'s transaction while the subject row is locked;
   the host bounds it. No memory erasure of keys or plaintext.
 
@@ -139,8 +143,9 @@ target guard, in random schemas dropped afterwards, one `describe` per acceptanc
    subject and to another version: `:invalid` or `:unavailable`, never another plaintext.
 4. Barrier-controlled races: two first puts of one new subject (one waiting on the other's
    subject row, and both past the lock with the `ON CONFLICT` re-read) store one key row; a put
-   holding `FOR SHARE` makes the erase wait, so the put commits first and its entry is gone; an
-   erase holding its row lock makes the put `:erased`; 30 free races leave no key or entry.
+   holding `FOR SHARE` makes the erase wait (observed in `pg_stat_activity`), so the put commits
+   first and its entry is gone; an erase stopped after its upsert, for an existing and for an
+   absent subject, makes the waiting put `:erased`; 30 free races leave no key or entry.
 5. KEK Need: raise, throw, exit, `{:error, :not_found}`, `{:ok, "raw"}`, a 31-byte value and a
    wrong version each `:unavailable` with no row written; counted calls, none for `:malformed`
    or `:in_transaction`.
@@ -148,10 +153,12 @@ target guard, in random schemas dropped afterwards, one `describe` per acceptanc
    a 65,537-byte plaintext; malformed refs, all before any query (on a Repo that was never
    started); every call inside `repo.transact/2`; an unreachable Repo; bad prefixes and options.
 7. Secrecy: no plaintext, subject, subject key or KEK byte in results, raised messages,
-   `Inspect` or a debug-level logging Repo's captured log.
+   `Inspect` or a debug-level logging Repo's captured log, which also holds no vault table name
+   and no `BEGIN`, `COMMIT` or `ROLLBACK` of the Piece.
 
 Negative controls (temporary edits, reverted): skipping the `erased` check in `put` fails
 groups 2 and 4; erasing keys but not the subject state fails groups 2 and 4; a fixed entry
-`aad` fails groups 1–3; reading the subject state without `FOR SHARE` fails group 4. Finite
+`aad` fails groups 1–3; reading the subject state without `FOR SHARE` fails group 4; logging
+the Piece's transactions fails group 7. Finite
 scenarios, not proofs; row locks, `ON CONFLICT` and transactions are PostgreSQL's, AES-GCM is
 OTP's via `integration/encryption`. No Cure law is selected.

@@ -10,8 +10,8 @@ defmodule Elzoo.RetentionErasure do
   an entry envelope taken earlier has no key in the vault.
 
   Errors are fixed atoms and never echo a subject, plaintext, key or envelope. The Piece emits
-  no telemetry and no log; its own queries run with `log: false` (the Repo's query telemetry
-  still receives their parameters, see the README).
+  no telemetry and no log; its own queries and transactions (`BEGIN`, `COMMIT`, `ROLLBACK`) run
+  with `log: false` (the Repo's query telemetry still receives them, see the README).
   """
   alias Ecto.Adapters.SQL
   alias Elzoo.Encryption
@@ -47,22 +47,25 @@ defmodule Elzoo.RetentionErasure do
     call(vault, subject?(subject) and plaintext?(plaintext), fn v ->
       ref = "v1_" <> Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
 
-      v.repo.transact(fn ->
-        q!(
-          v,
-          "INSERT INTO #{v.prefix}.elzoo_vault_subjects (subject, state) VALUES ($1, 'active') ON CONFLICT (subject) DO NOTHING",
-          [subject]
-        )
+      v.repo.transact(
+        fn ->
+          q!(
+            v,
+            "INSERT INTO #{v.prefix}.elzoo_vault_subjects (subject, state) VALUES ($1, 'active') ON CONFLICT (subject) DO NOTHING",
+            [subject]
+          )
 
-        case q!(
-               v,
-               "SELECT state FROM #{v.prefix}.elzoo_vault_subjects WHERE subject = $1 FOR SHARE",
-               [subject]
-             ) do
-          [["active"]] -> seal_entry(v, subject, ref, plaintext)
-          [["erased"]] -> {:error, :erased}
-        end
-      end)
+          case q!(
+                 v,
+                 "SELECT state FROM #{v.prefix}.elzoo_vault_subjects WHERE subject = $1 FOR SHARE",
+                 [subject]
+               ) do
+            [["active"]] -> seal_entry(v, subject, ref, plaintext)
+            [["erased"]] -> {:error, :erased}
+          end
+        end,
+        log: false
+      )
     end)
   end
 
@@ -115,24 +118,27 @@ defmodule Elzoo.RetentionErasure do
   def erase(vault, subject) do
     call(vault, subject?(subject), fn v ->
       result =
-        v.repo.transact(fn ->
-          # The upsert takes the subject row lock that put/3 holds FOR SHARE. The first
-          # erasure time is kept.
-          q!(
-            v,
-            """
-            INSERT INTO #{v.prefix}.elzoo_vault_subjects AS s (subject, state, erased_at)
-            VALUES ($1, 'erased', floor(extract(epoch FROM clock_timestamp()))::bigint)
-            ON CONFLICT (subject) DO UPDATE
-              SET state = 'erased', erased_at = COALESCE(s.erased_at, EXCLUDED.erased_at)
-            """,
-            [subject]
-          )
+        v.repo.transact(
+          fn ->
+            # The upsert takes the subject row lock that put/3 holds FOR SHARE. The first
+            # erasure time is kept.
+            q!(
+              v,
+              """
+              INSERT INTO #{v.prefix}.elzoo_vault_subjects AS s (subject, state, erased_at)
+              VALUES ($1, 'erased', floor(extract(epoch FROM clock_timestamp()))::bigint)
+              ON CONFLICT (subject) DO UPDATE
+                SET state = 'erased', erased_at = COALESCE(s.erased_at, EXCLUDED.erased_at)
+              """,
+              [subject]
+            )
 
-          q!(v, "DELETE FROM #{v.prefix}.elzoo_vault_entries WHERE subject = $1", [subject])
-          q!(v, "DELETE FROM #{v.prefix}.elzoo_vault_keys WHERE subject = $1", [subject])
-          {:ok, :ok}
-        end)
+            q!(v, "DELETE FROM #{v.prefix}.elzoo_vault_entries WHERE subject = $1", [subject])
+            q!(v, "DELETE FROM #{v.prefix}.elzoo_vault_keys WHERE subject = $1", [subject])
+            {:ok, :ok}
+          end,
+          log: false
+        )
 
       with {:ok, :ok} <- result, do: :ok
     end)

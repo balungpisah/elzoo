@@ -380,7 +380,7 @@ defmodule Elzoo.RetentionErasureTest do
         holder = receive_kek_call(if existing?, do: 1, else: :current)
         erase = Task.async(fn -> RE.erase(v, subject) end)
         # With FOR SHARE the erase waits for the put; without it the erase commits now.
-        await_blocked(p, 1, [erase])
+        assert await_blocked(p, 1, [erase]) == :blocked
         send(holder, :release)
         assert {:ok, ref} = Task.await(put)
         assert Task.await(erase) == :ok
@@ -393,40 +393,42 @@ defmodule Elzoo.RetentionErasureTest do
       end
     end
 
-    test "erase holding its lock, then put: the put is :erased", %{p: p, v: v} do
-      before = put!(v, "A", "earlier")
-      test = self()
+    test "erase holding its lock, then put: the put is :erased, for an existing and an absent subject",
+         %{p: p, v: v, kek: kek} do
+      for {subject, existing?} <- [{"A", true}, {"ghost", false}] do
+        if existing?, do: put!(v, subject, "earlier")
+        calls = length(TestKek.calls(kek))
+        test = self()
 
-      # The test locks one entry row so that the erase stops inside its transaction, after its
-      # subject upsert and before its entry delete commits.
-      locker =
-        Task.async(fn ->
-          AdminRepo.transact(fn ->
-            Harness.query!(
-              AdminRepo,
-              ~s|SELECT 1 FROM "#{p}".elzoo_vault_entries WHERE ref = $1 FOR UPDATE|,
-              [before]
-            )
+        # The test holds the entries table in SHARE mode so that the erase stops inside its
+        # transaction, after its subject upsert (uncommitted for an absent subject) and before
+        # its entry delete.
+        locker =
+          Task.async(fn ->
+            AdminRepo.transact(fn ->
+              Harness.query!(AdminRepo, ~s|LOCK TABLE "#{p}".elzoo_vault_entries IN SHARE MODE|)
+              send(test, :locked)
 
-            send(test, :locked)
-
-            receive do
-              :release -> {:ok, :ok}
-            end
+              receive do
+                :release -> {:ok, :ok}
+              end
+            end)
           end)
-        end)
 
-      assert_receive :locked, 5_000
-      erase = Task.async(fn -> RE.erase(v, "A") end)
-      assert await_blocked(p, 1, [erase]) == :blocked
-      put = Task.async(fn -> RE.put(v, "A", "racing") end)
-      await_blocked(p, 2, [put])
-      send(locker.pid, :release)
-      assert Task.await(locker) == {:ok, :ok}
-      assert Task.await(erase) == :ok
-      assert Task.await(put) == {:error, :erased}
-      assert count(p, "elzoo_vault_keys", "A") == 0
-      assert count(p, "elzoo_vault_entries", "A") == 0
+        assert_receive :locked, 5_000
+        erase = Task.async(fn -> RE.erase(v, subject) end)
+        assert await_blocked(p, 1, [erase]) == :blocked
+        put = Task.async(fn -> RE.put(v, subject, "racing") end)
+        assert await_blocked(p, 2, [put]) == :blocked
+        send(locker.pid, :release)
+        assert Task.await(locker) == {:ok, :ok}
+        assert Task.await(erase) == :ok
+        assert Task.await(put) == {:error, :erased}
+        assert RE.status(v, subject) == {:ok, :erased}
+        assert count(p, "elzoo_vault_keys", subject) == 0
+        assert count(p, "elzoo_vault_entries", subject) == 0
+        assert length(TestKek.calls(kek)) == calls
+      end
     end
 
     test "free races of put and erase leave no key or entry of the subject", %{p: p, v: v} do
@@ -691,6 +693,8 @@ defmodule Elzoo.RetentionErasureTest do
       end
 
       refute log =~ "elzoo_vault"
+      # Transactions too: no BEGIN, COMMIT or ROLLBACK of the Piece reaches the Logger.
+      refute log =~ ~r/\b(begin|commit|rollback)\b/i
     end
 
     test "subject keys never leave the vault in a result", %{p: p, v: v, kek: kek} do
