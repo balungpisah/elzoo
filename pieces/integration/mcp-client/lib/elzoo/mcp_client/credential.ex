@@ -5,8 +5,9 @@ defmodule Elzoo.McpClient.Credential do
   accepted only if it is at least 24 bytes and is not a substring of any
   Adapter-emitted fixed string (`fixed/0`: every literal of at least 24 bytes in
   this Piece's compiled modules, enumerated from the compiled source by a test)
-  nor of the binding's configured strings (server identity, endpoint, provider
-  account, binding id and module name). Otherwise the auth provider refuses it
+  nor of the binding's configured strings (server identity, endpoint URL and
+  host, provider account, binding id and module name; in runtime mode the server
+  identity and endpoint are the `runtime` ones). Otherwise the auth provider refuses it
   before any send, which is `refused{credentials_unavailable}`.
   """
   alias Elzoo.McpClient.Config
@@ -33,6 +34,7 @@ defmodule Elzoo.McpClient.Credential do
     "Elixir.Elzoo.McpClient.Ledger",
     "Elixir.Elzoo.McpClient.Outcome",
     "Elixir.Elzoo.McpClient.Redact",
+    "Elixir.Elzoo.McpClient.RuntimeBinding",
     "Elixir.Elzoo.McpClient.Session",
     "Elixir.Elzoo.McpClient.Snapshot",
     "Elixir.Elzoo.McpClient.Transport",
@@ -61,8 +63,8 @@ defmodule Elzoo.McpClient.Credential do
   def fixed, do: @fixed
 
   @doc "The binding's configured strings for a Config."
-  def configured(%Config{binding: binding, settings: settings}) do
-    {:ok, b, _} = Elzoo.McpClient.Binding.load(binding)
+  def configured(%Config{binding: binding, runtime: runtime, settings: settings}) do
+    {:ok, b, _} = Elzoo.McpClient.Binding.load(binding, runtime)
 
     [
       settings.server,

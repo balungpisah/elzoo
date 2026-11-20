@@ -2,11 +2,14 @@
 defmodule Elzoo.McpClient.Config do
   @moduledoc """
   Trusted construction Config built by `Elzoo.McpClient.configure/1`.
-  `credentials` is the injected credential Need; `seal_key` is process-local.
+  `credentials` is the injected credential Need; `seal_key` is process-local;
+  `runtime` is the run-time endpoint map of `Elzoo.McpClient.RuntimeBinding`
+  (else nil).
   Inspect shows only the binding module: the credential Need and seal never print.
   """
   @enforce_keys [
     :binding,
+    :runtime,
     :settings,
     :tenant,
     :credentials,

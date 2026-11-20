@@ -111,12 +111,28 @@ defmodule Elzoo.McpClient.Binding do
 
   def account(%{server: s, endpoint: %{url: u}, network: n}), do: "mcp:#{n}:#{u}##{s}"
 
-  @doc "Loads and cross-checks the EffectIntent descriptor and the MCP settings."
-  def load(module) do
+  @doc """
+  Loads and cross-checks the EffectIntent descriptor and the MCP settings. With
+  `runtime` (only for `Elzoo.McpClient.RuntimeBinding`), the settings come from
+  the run-time endpoint map and carry its pinned `addresses`.
+  """
+  def load(module, runtime \\ nil)
+
+  def load(Elzoo.McpClient.RuntimeBinding = module, runtime) when is_map(runtime) do
     with {:ok, b} <- Elzoo.EffectIntent.Binding.load(module),
-         true <- b.adapter == Elzoo.McpClient.Adapter and b.replay == :none,
-         true <-
-           b.failures == @failures and Enum.sort(b.no_send_attestations) == Enum.sort(@no_send),
+         true <- shared?(b) and b.provider_account == "mcp:runtime",
+         {:ok, settings} <- runtime(runtime) do
+      {:ok, b, settings}
+    else
+      _ -> {:error, :binding}
+    end
+  rescue
+    _ -> {:error, :binding}
+  end
+
+  def load(module, nil) do
+    with {:ok, b} <- Elzoo.EffectIntent.Binding.load(module),
+         true <- shared?(b),
          true <- function_exported?(module, :__mcp_client_binding__, 0),
          %{server: s, endpoint: %{url: u}, network: n} = settings <-
            module.__mcp_client_binding__(),
@@ -137,4 +153,27 @@ defmodule Elzoo.McpClient.Binding do
   rescue
     _ -> {:error, :binding}
   end
+
+  def load(_, _), do: {:error, :binding}
+
+  defp shared?(b),
+    do:
+      b.adapter == Elzoo.McpClient.Adapter and b.replay == :none and b.failures == @failures and
+        Enum.sort(b.no_send_attestations) == Enum.sort(@no_send)
+
+  # Exactly server, endpoint, network (:public or :loopback) and 1..32 distinct
+  # :inet addresses.
+  defp runtime(%{server: s, endpoint: u, network: n, addresses: a} = r)
+       when map_size(r) == 4 and n in [:public, :loopback] and is_list(a) do
+    with true <- Wire.text?(s, 128),
+         {:ok, endpoint} <- Wire.endpoint(u, n),
+         true <- length(a) in 1..32 and length(Enum.uniq(a)) == length(a),
+         true <- Enum.all?(a, &:inet.is_ip_address/1) do
+      {:ok, %{server: s, endpoint: endpoint, network: n, addresses: a}}
+    else
+      _ -> :error
+    end
+  end
+
+  defp runtime(_), do: :error
 end

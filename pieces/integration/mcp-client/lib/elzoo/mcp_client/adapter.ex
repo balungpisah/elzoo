@@ -26,7 +26,7 @@ defmodule Elzoo.McpClient.Adapter do
   def send_effect(req) do
     with %{context: %Context{session: %Session{config: c} = s} = ctx, key: key} <- req,
          %{attempt_id: attempt_id} <- req,
-         {:ok, b, settings} <- Binding.load(c.binding),
+         {:ok, b, settings} <- Binding.load(c.binding, c.runtime),
          true <- b.digest == req.binding and settings == c.settings,
          true <- Wire.hex?(key) and is_binary(req.arguments) do
       # The credential as resolved before and after the call: a server that
