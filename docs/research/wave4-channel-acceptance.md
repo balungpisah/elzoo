@@ -206,10 +206,13 @@ the existing root-channel consumer; it adds no Piece and preserves the ELZ-258
 immediate v1 path. This is finite consumer acceptance, not a generic event
 subscription, broker or provider guarantee.
 
-The v2 profile has fixed primary and reply targets and two separately signed
-loopback listeners with distinct source IDs, keys and admission closures. Both
 targets must be valid; an identical copy of the fixed target is accepted, but
-an arbitrary matched target is not. Requests use the literal
+Each profile uses its declared fixed target: the v1 immediate path selects
+`NativeBindings.target/0`; the v2 `wait_then_hash` profile selects
+`NativeBindings.reply_target/0`. V1 keeps one listener; v2 starts two separately
+signed loopback listeners with distinct source IDs, keys and admission
+closures. Target validation accepts an identical copy of that profile's
+declared constant and rejects an arbitrary matched target. Requests use the literal
 `POST /elzoo/v1/messages` route. A MAC identifies the configured source; it does
 not authenticate a human. The host supplies trusted tenant/actor context,
 authority, clock, key provisioning, truthful public callbacks and retained
@@ -242,8 +245,9 @@ remain `:allow`. The ASK regression retains the exact `reply_revision == 3`
 assertion.
 
 The demo completes two v2 reply rounds with distinct Run/Attempt/ticket
-identities: two completed Runs, six messages and resource revision 10. ASK rows
-use a separate stream and do not advance the resource CAS revision. During the
+identities: two completed Runs, six messages and resource revision 10. ASK
+metadata does not advance resource CAS; command-stream head and resource CAS
+are separate positions. During the
 second wait, replayed primary/reply requests return their retained receipts
 without changing the wait, Run or head and without additional native work. The
 final GET through both listeners is read-only and identical. Reply ACK precedes
@@ -266,10 +270,12 @@ at the cap. `test "full CheckedCommand resource snapshots reserve capacity
 before input admission"` uses public checked operations and metadata-aware
 projections: Conversation representations fit, but the complete retained
 CheckedCommand snapshot, metadata and CAS revision exceed 65,536 bytes, so a
-real signed primary is refused before append. The runtime slot proof permits
-64 messages and two associations and refuses the 65th message. Association
-capacity is coupled to message capacity because each association references a
-message; this is not an independent 64-messages-plus-one-association proof.
+real signed primary is refused before append. The runtime slot tests complete a
+signed reply flow at 64 messages and two associations, and refuse admission of
+a signed primary whose full projected flow would require a 65th message. They do
+not attempt a direct 65th-message append. Association capacity is coupled to
+message capacity because each association references a message; this is not an
+independent 64-messages-plus-one-association proof.
 
 The signed raw-body boundary accepts 65,536 bytes and rejects 65,537;
 4,096-byte reply text is allowed and 4,097 is refused. A real unrelated
@@ -311,7 +317,7 @@ restored focused test passed (`1 passed, 67 excluded`).
 | Reset reply cursor | `wait.cursor == head_before.revision` failed (0 versus 2). |
 | Fabricated pairing | A mismatched association handle returned an event instead of `{:error, :unavailable}`. |
 | Fabricated accepted-event key | Native reply was refused as `{:unknown, :native_reply}` instead of applied. |
-| Primary ACK before reply ACK | The primary disappeared from the pending outbox before the reply ACK. This control occurs after answer creation; control 7 covers the earlier answer boundary. |
+| Primary ACK before reply ACK | The injected primary `Outbox.ack` ran before the reply ACK. The test observed the primary missing from the pending outbox after the reply ACK. This control occurs after answer creation; control 7 covers the earlier answer boundary. |
 | Synthesized answer | The final answer failed the retained-reply-hash assertion. Two malformed draft mutations (unresolved helper reference; delimiter error) were excluded and not counted. |
 | Primary ACK at answer entry | An actual `Outbox.ack` at `append_answer/1` entry made public `:read_ack` report `:acked` where the new pre-confirmation assertion requires `:pending`. |
 
