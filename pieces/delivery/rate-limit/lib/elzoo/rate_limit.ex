@@ -34,8 +34,7 @@ defmodule Elzoo.RateLimit do
       when map_size(key) == 2 and is_integer(cost) and cost >= 1 and is_integer(now) and
              now >= 0 and now <= @max_ms do
     if state?(s) and text?(t) and text?(p) and
-         cost <= min(s.tenant_rate.capacity, s.principal_rate.capacity) and
-         not Map.has_key?(Map.get(s.live, t, %{}), s.next),
+         cost <= min(s.tenant_rate.capacity, s.principal_rate.capacity),
        do: decide(s, t, {t, p}, cost, now),
        else: {:error, :malformed}
   end
@@ -138,9 +137,9 @@ defmodule Elzoo.RateLimit do
 
   defp ceil_div(a, b), do: div(a + b - 1, b)
 
-  # The whole state is checked on every call, in time linear in its buckets:
-  # config, every bucket, and that each Backpressure count equals the live
-  # tickets it covers. Ticket ids are checked where they are read.
+  # The whole state is checked on every call, in time linear in its buckets and
+  # live tickets: config, every bucket, every ticket id below next, and that each
+  # Backpressure count equals the live tickets it covers and fits its bound.
   defp state?(
          %__MODULE__{
            tenant_rate: tr,
@@ -160,7 +159,7 @@ defmodule Elzoo.RateLimit do
       buckets?(principals, k, &principal_key?/1, pr) and
       is_map(slots) and map_size(slots) == map_size(tenants) and is_map(live) and
       Enum.all?(slots, fn {t, bp} ->
-        Map.has_key?(tenants, t) and capacity?(bp, n, held(live, t))
+        Map.has_key?(tenants, t) and capacity?(bp, n, held(live, t, next))
       end) and
       Enum.all?(live, fn {t, _} -> Map.has_key?(slots, t) end) and
       capacity?(s.global, m, live |> Map.values() |> Enum.map(&map_size/1) |> Enum.sum())
@@ -176,17 +175,23 @@ defmodule Elzoo.RateLimit do
   defp principal_key?({t, p}), do: text?(t) and text?(p)
   defp principal_key?(_), do: false
 
-  defp held(live, t) do
+  defp held(live, t, next) do
     case Map.fetch(live, t) do
-      :error -> 0
-      {:ok, ids} when is_map(ids) and map_size(ids) > 0 -> map_size(ids)
-      {:ok, _} -> nil
+      :error ->
+        0
+
+      {:ok, ids} when is_map(ids) and map_size(ids) > 0 ->
+        if Enum.all?(ids, &match?({id, true} when is_integer(id) and id >= 0 and id < next, &1)),
+          do: map_size(ids)
+
+      {:ok, _} ->
+        nil
     end
   end
 
   # Elzoo.Backpressure documents its erased state as {:CapacityState, capacity, in_flight}.
   defp capacity?(bp, capacity, held),
-    do: is_integer(held) and bp == {:CapacityState, capacity, held}
+    do: is_integer(held) and held <= capacity and bp == {:CapacityState, capacity, held}
 
   defp bucket?({tokens, last}, rate),
     do:

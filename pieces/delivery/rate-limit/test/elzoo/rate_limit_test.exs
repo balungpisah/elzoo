@@ -466,7 +466,7 @@ defmodule Elzoo.RateLimitTest do
         principal_rate: rate(3, 3, 20),
         max_in_flight: 3,
         tenant_in_flight: 2,
-        max_keys: 3
+        max_keys: 2
       ]
 
       {:ok, s} = RateLimit.new(config)
@@ -510,8 +510,8 @@ defmodule Elzoo.RateLimitTest do
               end
             end
 
-          assert map_size(s.slots) <= 3 and map_size(s.tenants) <= 3, "step #{step}"
-          assert map_size(s.principals) <= 3, "step #{step}"
+          assert map_size(s.slots) <= 2 and map_size(s.tenants) <= 2, "step #{step}"
+          assert map_size(s.principals) <= 2, "step #{step}"
           # The same buckets were kept and dropped.
           assert Map.keys(s.tenants) == Map.keys(m.tenants), "step #{step}"
           assert Map.keys(s.principals) == Map.keys(m.principals), "step #{step}"
@@ -624,6 +624,9 @@ defmodule Elzoo.RateLimitTest do
             %{s | slots: %{good => :none}},
             %{held | live: %{good => []}},
             %{held | live: %{good => %{held.next => true}}},
+            %{held | live: %{good => %{-1 => true}}},
+            %{held | live: %{good => %{:x => true}}},
+            %{held | live: %{good => %{0 => :nope}}},
             %{held | live: %{}},
             %{held | slots: %{}},
             %{held | global: elem(Elzoo.Backpressure.new(100), 1)},
@@ -643,6 +646,21 @@ defmodule Elzoo.RateLimitTest do
                RateLimit.release(%{held | global: {:CapacityState, 100, 0}}, ticket)
 
       assert {:ok, _} = RateLimit.release(held, ticket)
+
+      # Counts that agree with the live tickets but exceed their bounds.
+      {:ok, one} = RateLimit.new(opts(max_in_flight: 1, tenant_in_flight: 1))
+      {t0, one} = ok!(one, key(good), 1, 0)
+
+      over = %{
+        one
+        | live: %{good => %{0 => true, 1 => true}},
+          slots: %{good => {:CapacityState, 1, 2}},
+          global: {:CapacityState, 1, 2},
+          next: 2
+      }
+
+      assert {:error, :malformed} == RateLimit.admit(over, key(good), 1, 0)
+      assert {:error, :unknown_ticket} == RateLimit.release(over, t0)
     end
   end
 end

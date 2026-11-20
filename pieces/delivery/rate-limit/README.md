@@ -101,8 +101,8 @@ Backpressure README documents.
 - The key cap fails closed with `:keys`, so a flood of new principals in one
   tenant can refuse new principals of other tenants once `max_keys` is
   reached. Set it above the expected active set.
-- Each call revalidates the state in time linear in its buckets and live
-  tenants.
+- Each call revalidates the whole state in time linear in its buckets and
+  live tickets.
 - Config is construction-time; there is no hot update.
 
 ## Grounding

@@ -11,7 +11,7 @@
   "limits": [
     "One caller-held state that the host serializes: no distributed or multi-node limit and no persistence across restarts (a restart starts full). No queue, waiting, weighted fairness or priority; Oban fair queuing stays consumer queue and partition configuration. Costs are the host's estimate.",
     "The key cap fails closed with keys: a flood of new principals in one tenant can refuse new principals of other tenants once max_keys is reached, so set it above the expected active set. A dropped bucket that is created again starts its interval phase at that now_ms, so its next refill can come up to one interval later than if it had been kept.",
-    "Each call revalidates the whole state in time linear in its buckets and live tenants; ticket ids are checked where they are read. Finite seeded scenarios and a reference-model trace, not a proof."
+    "Each call revalidates the whole state in time linear in its buckets and live tickets. Finite seeded scenarios and a reference-model trace, not a proof."
   ],
   "files": [
     "examples/elzoo/rate_limit.exs",
