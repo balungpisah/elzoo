@@ -1,0 +1,87 @@
+# SPDX-License-Identifier: Apache-2.0
+# domain/membership: whether a permission granted at a membership space M flows
+# to a target space D. Elixir walks the validated tree and supplies `path`, the
+# block_inheritance flags of the spaces from D up to, but excluding, M (empty
+# when D is M), and `local_only`, whether the permission starts with a
+# non-inheriting prefix. Nothing flows upward or across branches because
+# Elixir only asks for an M on the path from D to its root.
+mod Elzoo.Membership
+  @total true
+  @reducible
+  fn append(xs: List(Bool), ys: List(Bool)) -> List(Bool) =
+    match xs
+      [] -> ys
+      [x | rest] -> [x | append(rest, ys)]
+
+  # Named list constructors: the pinned parser takes no list literal in a type index.
+  @total true
+  @reducible
+  fn here() -> List(Bool) = []
+
+  @total true
+  @reducible
+  fn cons(b: Bool, rest: List(Bool)) -> List(Bool) = [b | rest]
+
+  # True when no space on the path blocks inheritance.
+  @total true
+  @reducible
+  fn open(path: List(Bool)) -> Bool =
+    match path
+      [] -> True()
+      [b | rest] ->
+        match b
+          True() -> False()
+          False() -> open(rest)
+
+  # At M itself every permission holds; below M only an inheriting permission
+  # over an open path holds.
+  @total true
+  @reducible
+  fn flows(path: List(Bool), local_only: Bool) -> Bool =
+    match path
+      [] -> True()
+      [b | rest] ->
+        match local_only
+          True() -> False()
+          False() -> open([b | rest])
+
+  # ---------------------------------------------------------------- laws
+
+  # For every permission: a membership grants at its own space.
+  @total true
+  fn grants_at_own_space(local_only: Bool) -> Equivalent(Bool, flows(here(), local_only), True()) =
+    reflexive(True())
+
+  # For every path below M: a non-inheriting permission never leaves M.
+  @total true
+  fn local_only_never_flows(b: Bool, rest: List(Bool)) -> Equivalent(Bool, flows(cons(b, rest), True()), False()) =
+    reflexive(False())
+
+  # For all paths: one barrier anywhere closes the path.
+  @total true
+  fn barrier_closes(xs: List(Bool), ys: List(Bool)) -> Equivalent(Bool, open(append(xs, cons(True(), ys))), False()) =
+    match xs
+      [] -> reflexive(False())
+      [x | rest] ->
+        match x
+          True() -> reflexive(False())
+          False() -> barrier_closes(rest, ys)
+
+  # For all paths and permissions: a barrier anywhere between D and M stops the flow.
+  @total true
+  fn barrier_blocks(xs: List(Bool), ys: List(Bool), local_only: Bool) -> Equivalent(Bool, flows(append(xs, cons(True(), ys)), local_only), False()) =
+    match xs
+      [] ->
+        match local_only
+          True() -> reflexive(False())
+          False() -> reflexive(False())
+      [x | rest] ->
+        match local_only
+          True() -> reflexive(False())
+          False() -> barrier_closes(cons(x, rest), ys)
+
+  # An open path of any length carries an inheriting permission.
+  @total true
+  fn open_path_flows(rest: List(Bool), h: Equivalent(Bool, open(rest), True())) -> Equivalent(Bool, flows(cons(False(), rest), False()), True()) =
+    h
+end
