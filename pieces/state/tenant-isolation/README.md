@@ -75,6 +75,12 @@ The result is exactly `repo.transact/2`'s: `{:ok, value}`, `{:error, reason}`, a
 still returns `{:ok, value}`, the clearing query fails in the aborted transaction and the call
 raises; the transaction is rolled back either way.
 
+When `fun` swallowed a failed nested `repo.transact` and still returns `{:ok, value}`, the call
+returns `{:error, :rollback}`, as `transact/2` does. DBConnection 2.10.2 refuses the clearing
+query on such an aborted transaction by disconnecting that connection (it logs an error and the
+pool reconnects); the helper then rolls back with `repo.rollback(:rollback)`. Under Sandbox the
+disconnect also ends the sandbox's own transaction.
+
 Why the clearing: under `Ecto.Adapters.SQL.Sandbox` the helper's transaction is a savepoint,
 and a transaction-local setting survives `RELEASE SAVEPOINT` into the outer transaction.
 
@@ -103,11 +109,15 @@ same arguments and identifier rule as `protect/2` (else the same `ArgumentError`
 `:floor_changed` compares `pg_get_expr` of the table's floor with the same policy rebuilt on a
 temporary table whose columns copy the protected columns' types (`format_type`), in one
 transaction under one `search_path`; the rebuild runs in a savepoint that is always rolled
-back, so `verify/3` also works inside a caller's transaction. A column or readers schema that
+back, so `verify/3` also works inside a caller's transaction, except that an `:unavailable`
+result there marks the caller's transaction for rollback. A column or readers schema that
 does not exist gives `:floor_changed`. The rebuild needs the `TEMP` privilege, which PUBLIC has
 by default. `Elzoo.TenantIsolation.decide/1` is the pure decision over the read facts.
 
 Run `verify/3` connected as the application role, for each protected table, before serving.
+That role needs `USAGE` on the `prefix` schema (the readers keep PostgreSQL's default `EXECUTE`
+for PUBLIC); without it every query of a protected table fails with 42501 and `verify/3` gives
+`:unavailable`.
 
 ## Limits
 
@@ -117,6 +127,10 @@ Run `verify/3` connected as the application role, for each protected table, befo
   role ignores them. Production should connect as a non-owner, non-bypass application role.
   That boundary is tested only where the test role may create roles; elsewhere, including the
   hosted check, the test prints `NOT EXERCISED`.
+- `verify/3` checks the table and its floor, not the bodies of the two readers: the owner of
+  the `prefix` schema can replace them.
+- Policies of a partitioned table do not apply when a partition is queried directly: protect
+  each partition the application can name.
 - Revocation applies at the next call: a running call keeps the list it started with.
 - No per-command read/write split: the floor is one `FOR ALL` policy.
 - Ready Store tables (`elzoo_log_records` and the others) are not protected by this Piece.

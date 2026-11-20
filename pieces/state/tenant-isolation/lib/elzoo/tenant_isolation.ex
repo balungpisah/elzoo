@@ -38,7 +38,7 @@ defmodule Elzoo.TenantIsolation do
 
             case fun.() do
               {:ok, _} = ok ->
-                SQL.query!(repo, @clear, [], log: false)
+                clear!(repo)
                 ok
 
               other ->
@@ -50,6 +50,18 @@ defmodule Elzoo.TenantIsolation do
       _ ->
         {:error, {:tenant_isolation, :scope}}
     end
+  end
+
+  # After a nested repo.transact inside fun failed, DBConnection 2.10.2 has marked the transaction
+  # aborted and refuses every statement with this error; transact/2 would return
+  # {:error, :rollback} for that transaction, so the call returns the same.
+  defp clear!(repo) do
+    SQL.query!(repo, @clear, [], log: false)
+  rescue
+    e in DBConnection.ConnectionError ->
+      if e.message == "transaction rolling back",
+        do: repo.rollback(:rollback),
+        else: reraise(e, __STACKTRACE__)
   end
 
   @doc """

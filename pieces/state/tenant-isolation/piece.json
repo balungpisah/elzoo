@@ -13,7 +13,7 @@
     "A floor against a forgotten filter, not against code that runs its own SQL: any code holding the connection can call set_config and pick a tenant.",
     "The table owner can NO FORCE, DISABLE or drop policies and a superuser or BYPASSRLS role ignores them; production connects as a non-owner, non-bypass application role. That boundary runs only where the test role may create roles; the hosted check and the default worker database print NOT EXERCISED.",
     "Hierarchy is the host's: the database sees only an exact list of space IDs. Revocation applies at the next call.",
-    "No per-command read/write split; ready Store tables (elzoo_log_records and others) are not protected.",
+    "No per-command read/write split; ready Store tables (elzoo_log_records and others) are not protected; policies of a partitioned table do not apply to a partition queried directly; verify/3 does not check the readers' bodies.",
     "log: false silences only the Logger: the consumer Repo's query telemetry event still receives the set_config parameters (tenant and space list).",
     "Only statements that fun runs through repo on the transaction's connection see the scope; a NULL space value is neither visible nor writable."
   ],
@@ -27,7 +27,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/tenant_isolation_test.exs",
-      "claim": "Listed scenarios on the worker's own disposable PostgreSQL 16 database behind a fail-closed target guard, in random schemas dropped afterwards, as the forced owner that does not bypass row security: flat-table reads, updates and deletes of T1 only and 42501 on a T2 insert or move; spaced-table exact space lists including NULL, {a}, \"q\", b\\s and , IDs, empty and flat scopes, next-call revocation, out-of-list and NULL-space writes refused; fail closed outside the helper and after commit, error, rollback, raise and a caught failure on one pooled connection under DBConnection.ConnectionPool and Ecto.Adapters.SQL.Sandbox; nested call :in_transaction runs nothing; row_security off gives 42501; restrictive composition with added permissive policies and with none; JSON EXPLAIN InitPlan readers; verify reasons for NO FORCE, DISABLE, dropped, permissive, FOR SELECT, TO CURRENT_USER and changed floors, swapped, renamed and missing columns, another prefix, varchar columns, inside a caller transaction, an unreachable Repo, and the pure decision table with bypass first; scope, list and identifier bounds; the telemetry limit. The non-owner application-role boundary runs only when the test role may create roles, else it prints NOT EXERCISED. Making the floor permissive, dropping FORCE, omitting the clearing and removing the in_transaction? refusal each fail cases of groups 1-4 (negative controls). Finite scenarios, not proofs."
+      "claim": "Listed scenarios on the worker's own disposable PostgreSQL 16 database behind a fail-closed target guard, in random schemas dropped afterwards, as the forced owner that does not bypass row security: flat-table reads, updates and deletes of T1 only and 42501 on a T2 insert or move; spaced-table exact space lists including NULL, {a}, \"q\", b\\s and , IDs, empty and flat scopes, next-call revocation, out-of-list and NULL-space writes refused; fail closed outside the helper and after commit, error, rollback value, raise, a non-tuple return, a caught failed statement and a swallowed failed nested transact (which returns {:error, :rollback} like transact/2) on one pooled connection, each under DBConnection.ConnectionPool and under Ecto.Adapters.SQL.Sandbox; nested call :in_transaction runs nothing; row_security off gives 42501; restrictive composition with added permissive policies and with none; JSON EXPLAIN InitPlan readers; verify reasons for NO FORCE, DISABLE, dropped, permissive, FOR SELECT, TO CURRENT_USER and changed floors, swapped, renamed and missing columns, another prefix, varchar columns, inside a caller transaction, an unreachable Repo, and the pure decision table with bypass first; scope, list and identifier bounds; the helper's queries absent from a logging Repo's log; the telemetry limit. The non-owner application-role boundary runs only when the test role may create roles, else it prints NOT EXERCISED. Making the floor permissive, dropping FORCE, omitting the clearing and removing the in_transaction? refusal each fail cases of groups 1-4 (negative controls). Finite scenarios, not proofs."
     },
     {
       "kind": "upstream",
@@ -39,13 +39,13 @@
       "kind": "upstream",
       "provider": "ecto_sql",
       "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
-      "claim": "Ecto SQL 3.14.0 Repo.transact/2 results and rollback, in_transaction?/0, Ecto.Adapters.SQL.Sandbox savepoints, migration execute/1 and the query telemetry event that fires with log: false are upstream behavior."
+      "claim": "Ecto SQL 3.14.0 Repo.transact/2 results and rollback, in_transaction?/0, Ecto.Adapters.SQL.Sandbox savepoints, migration execute/1 and the query telemetry event that fires with log: false are upstream behavior; its dependency DBConnection 2.10.2 raises DBConnection.ConnectionError for an unreachable pool and refuses a statement in a transaction aborted by a failed nested transaction with the message \"transaction rolling back\" (observed in the tests)."
     },
     {
       "kind": "upstream",
       "provider": "elixir",
       "reference": "https://hexdocs.pm/elixir/1.20.4/",
-      "claim": "Elixir String.valid?/1, the utf8 binary pattern and Regex anchors for the text and identifier rules; DBConnection 2.10.2 (a dependency of ecto_sql) raises DBConnection.ConnectionError for an unreachable pool."
+      "claim": "Elixir String.valid?/1, the utf8 binary pattern and Regex anchors for the text and identifier rules."
     },
     {
       "kind": "assumption",

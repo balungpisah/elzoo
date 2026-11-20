@@ -9,7 +9,16 @@ defmodule Elzoo.TenantIsolationTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Elzoo.TenantIsolation, as: TI
   alias Elzoo.TenantIsolation.Migration
-  alias Elzoo.TenantIsolation.{AdminRepo, AppRepo, DownRepo, Harness, SandboxRepo, TestRepo}
+
+  alias Elzoo.TenantIsolation.{
+    AdminRepo,
+    AppRepo,
+    DownRepo,
+    Harness,
+    LogRepo,
+    SandboxRepo,
+    TestRepo
+  }
 
   @message "invalid tenant isolation identifier or options"
   @denied :insufficient_privilege
@@ -221,64 +230,73 @@ defmodule Elzoo.TenantIsolationTest do
     end
   end
 
+  # Outside the helper, then after each outcome of a call, on the repo's one connection: the
+  # readers show no tenant and no space and the tables no row.
+  defp fail_closed_sequence(repo, p) do
+    scope = %{tenant: "T1", spaces: ["s1"]}
+    assert [nil, [], 0, 0, pid] = outside(repo, p)
+
+    assert {:ok, ["T1", ["s1"], 2, 0, ^pid]} =
+             TI.transact(repo, scope, fn -> {:ok, outside(repo, p)} end)
+
+    assert [nil, [], 0, 0, ^pid] = outside(repo, p)
+
+    assert {:error, :boom} = TI.transact(repo, scope, fn -> {:error, :boom} end)
+    assert [nil, [], 0, 0, ^pid] = outside(repo, p)
+
+    assert {:error, :value} = TI.transact(repo, scope, fn -> repo.rollback(:value) end)
+    assert [nil, [], 0, 0, ^pid] = outside(repo, p)
+
+    assert_raise RuntimeError, "raised", fn ->
+      TI.transact(repo, scope, fn -> raise "raised" end)
+    end
+
+    assert [nil, [], 0, 0, ^pid] = outside(repo, p)
+
+    assert_raise ArgumentError, fn -> TI.transact(repo, scope, fn -> :neither end) end
+    assert [nil, [], 0, 0, ^pid] = outside(repo, p)
+
+    # fun caught a failed statement and still returns {:ok, _}: the clearing query raises.
+    assert_raise Postgrex.Error, ~r/current transaction is aborted/, fn ->
+      TI.transact(repo, scope, fn ->
+        {:error, _} = qr(repo, "INSERT INTO #{p}.flat (tenant, body) VALUES ('T2', 'z')")
+        {:ok, :caught}
+      end)
+    end
+
+    assert [nil, [], 0, 0, ^pid] = outside(repo, p)
+    assert bodies(repo, p, "flat", %{tenant: "T2"}) == ["c", "d"]
+
+    # fun swallowed a failed nested transact and returns {:ok, _}: transact/2 gives
+    # {:error, :rollback}, and so does the helper. DBConnection disconnects the aborted
+    # connection on the refused clearing query (and logs it), so the pid may change here; under
+    # Sandbox that disconnect also ends the sandbox transaction and its seeded rows.
+    nested = fn ->
+      {:error, :inner} = repo.transact(fn -> {:error, :inner} end)
+      {:ok, :swallowed}
+    end
+
+    capture_log(fn ->
+      assert repo.transact(nested) == {:error, :rollback}
+      assert TI.transact(repo, scope, nested) == {:error, :rollback}
+      assert [nil, [], 0, 0, _] = outside(repo, p)
+    end)
+  end
+
   describe "3 fail closed" do
-    test "on one pooled connection: outside, after commit, error, rollback, raise and a caught failure",
+    test "on one pooled connection (DBConnection.ConnectionPool) every outcome leaves no scope",
          %{p: p} do
       seed_flat(p)
-      scope = %{tenant: "T1", spaces: ["s1"]}
-      assert [nil, [], 0, 0, pid] = outside(p)
       assert denied?(q("INSERT INTO #{p}.flat (tenant, body) VALUES ('T1', 'z')"))
-
-      assert {:ok, ["T1", ["s1"], 2, 0, ^pid]} =
-               TI.transact(TestRepo, scope, fn -> {:ok, outside(p)} end)
-
-      assert [nil, [], 0, 0, ^pid] = outside(p)
-
-      assert {:error, :boom} = TI.transact(TestRepo, scope, fn -> {:error, :boom} end)
-      assert [nil, [], 0, 0, ^pid] = outside(p)
-
-      assert {:error, :value} = TI.transact(TestRepo, scope, fn -> TestRepo.rollback(:value) end)
-      assert [nil, [], 0, 0, ^pid] = outside(p)
-
-      assert_raise RuntimeError, "raised", fn ->
-        TI.transact(TestRepo, scope, fn -> raise "raised" end)
-      end
-
-      assert [nil, [], 0, 0, ^pid] = outside(p)
-
-      assert_raise ArgumentError, fn -> TI.transact(TestRepo, scope, fn -> :neither end) end
-      assert [nil, [], 0, 0, ^pid] = outside(p)
-
-      # fun caught a failed statement and still returns {:ok, _}: the clearing query raises.
-      assert_raise Postgrex.Error, ~r/current transaction is aborted/, fn ->
-        TI.transact(TestRepo, scope, fn ->
-          {:error, _} = q("INSERT INTO #{p}.flat (tenant, body) VALUES ('T2', 'z')")
-          {:ok, :caught}
-        end)
-      end
-
-      assert [nil, [], 0, 0, ^pid] = outside(p)
+      fail_closed_sequence(TestRepo, p)
       assert bodies(p, "flat", t1()) == ["a", "b"]
     end
 
-    test "under Ecto.Adapters.SQL.Sandbox savepoints the same sequence leaves no scope", %{p: p} do
+    test "under Ecto.Adapters.SQL.Sandbox savepoints every outcome leaves no scope", %{p: p} do
       :ok = Sandbox.checkout(SandboxRepo)
       on_exit(fn -> Sandbox.checkin(SandboxRepo) end)
       seed_flat(p, SandboxRepo)
-      scope = %{tenant: "T1", spaces: ["s1"]}
-      assert [nil, [], 0, 0, pid] = outside(SandboxRepo, p)
-
-      assert {:ok, ["T1", ["s1"], 2, 0, ^pid]} =
-               TI.transact(SandboxRepo, scope, fn -> {:ok, outside(SandboxRepo, p)} end)
-
-      assert [nil, [], 0, 0, ^pid] = outside(SandboxRepo, p)
-
-      assert {:error, :boom} = TI.transact(SandboxRepo, scope, fn -> {:error, :boom} end)
-      assert [nil, [], 0, 0, ^pid] = outside(SandboxRepo, p)
-
-      assert_raise RuntimeError, fn -> TI.transact(SandboxRepo, scope, fn -> raise "x" end) end
-      assert [nil, [], 0, 0, ^pid] = outside(SandboxRepo, p)
-      assert bodies(SandboxRepo, p, "flat", %{tenant: "T2"}) == ["c", "d"]
+      fail_closed_sequence(SandboxRepo, p)
     end
 
     test "a call nested in an open transaction is :in_transaction and runs nothing", %{p: p} do
@@ -667,6 +685,22 @@ defmodule Elzoo.TenantIsolationTest do
       after
         :telemetry.detach(id)
       end
+    end
+
+    test "the helper's set and clear queries are not logged by a logging Repo (log: false)" do
+      Harness.start!(LogRepo, pool_size: 1, log: :info)
+      scope = %{tenant: "tenant-log-probe", spaces: ["space-log-probe"]}
+
+      log =
+        capture_log(fn ->
+          assert {:ok, :ok} = TI.transact(LogRepo, scope, fn -> {:ok, :ok} end)
+          {:ok, _} = SQL.query(LogRepo, "SELECT $1::text", ["control-log-probe"])
+        end)
+
+      assert log =~ "control-log-probe"
+      refute log =~ "tenant-log-probe"
+      refute log =~ "space-log-probe"
+      refute log =~ "set_config"
     end
 
     test "non-owner, non-bypass application role", %{p: p} do

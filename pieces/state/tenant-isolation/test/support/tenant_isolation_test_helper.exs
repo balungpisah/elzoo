@@ -15,6 +15,10 @@ defmodule Elzoo.TenantIsolation.AppRepo do
   use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
 end
 
+defmodule Elzoo.TenantIsolation.LogRepo do
+  use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
+end
+
 defmodule Elzoo.TenantIsolation.DownRepo do
   use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
 end
@@ -73,7 +77,7 @@ defmodule Elzoo.TenantIsolation.Harness do
   def start!(repo, opts) do
     url = url!()
     configured = url |> URI.parse() |> Map.fetch!(:path) |> String.trim_leading("/")
-    {:ok, pid} = repo.start_link([url: url, log: false] ++ opts)
+    {:ok, pid} = repo.start_link([url: url] ++ Keyword.merge([log: false], opts))
     Process.unlink(pid)
 
     ExUnit.Callbacks.on_exit(fn ->
