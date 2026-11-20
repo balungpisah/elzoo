@@ -11,7 +11,7 @@
 
 One pure Policy over a caller-held state, in plain Elixir with Cure where it fits; no new provider. One admission takes a token from a per-tenant bucket and from a per-principal bucket, and one in-flight slot from a global bound and from a per-tenant fair-share bound, or it takes nothing. A refusal names the bound that refused it and, for a rate bound, the exact milliseconds until a retry could pass. Nothing is dropped silently and nothing waits.
 
-For the slot counts, reuse the ready `delivery/backpressure` (ELZ-006) public API (`Elzoo.Backpressure.new/1`, `admit/1` and `release/1`): one state for the global bound and one for each tenant. Only the token bucket and the all-or-nothing combination are new policy. Fair queuing of Oban jobs stays Oban queue and partition configuration of the consumer. This Piece builds no queue, scheduler or process, and reads no clock: `now_ms` is injected.
+For the slot counts, reuse the ready `delivery/backpressure` (ELZ-006) public API (`Elzoo.Backpressure.new/1`, `admit/1` and `release/1`): one state for the global bound and one for each tenant. `Elzoo.Backpressure` exposes no in-flight count, so whether a tenant holds a slot is read from the state's live tickets, which name their tenant. Only the token bucket and the all-or-nothing combination are new policy. Fair queuing of Oban jobs stays Oban queue and partition configuration of the consumer. This Piece builds no queue, scheduler or process, and reads no clock: `now_ms` is injected.
 
 ## Interface
 
@@ -32,7 +32,7 @@ For the slot counts, reuse the ready `delivery/backpressure` (ELZ-006) public AP
 ## Refill rule and bounds
 
 - A bucket starts full at its first use and keeps `tokens` and `last_ms`. At `now_ms >= last_ms` it adds `refill * div(now_ms - last_ms, interval_ms)` tokens, capped at `capacity`, and advances `last_ms` by whole intervals only. At `now_ms < last_ms` (a clock that went back) it adds nothing and keeps `last_ms`. No float is used.
-- A bucket that would be full at `now_ms`, whose tenant holds no slot, is the same as an absent bucket. It may be dropped to make room, oldest `last_ms` first, with ties in byte order of the key.
+- A bucket that would be full at `now_ms`, whose tenant has no live ticket, is the same as an absent bucket. It may be dropped to make room, oldest `last_ms` first, with ties in byte order of the key. A tenant's Backpressure state is dropped together with its tenant bucket (it is at zero then, since the tenant has no live ticket) and is created again at the tenant's next admission. So the per-tenant Backpressure states stay bounded by `max_keys`.
 - Errors are fixed atoms that never echo a tenant or principal. The Piece emits no telemetry and no log.
 
 ## Acceptance
@@ -41,7 +41,7 @@ For the slot counts, reuse the ready `delivery/backpressure` (ELZ-006) public AP
 2. Buckets: with capacity 3, refill 1 and interval 1,000, three admissions at t=0 pass and the fourth is `:tenant_rate` with `retry_after_ms` 1,000. At t=999 the retry is still refused with 1. At t=1,000 one passes. At t=10,000 the bucket is full again (the cap holds). A cost of 2 with 1 token left gives the exact wait. A `now_ms` that goes back adds nothing and does not rewind `last_ms`.
 3. All or nothing: a refusal at each of the five reasons leaves the returned state equal to the input (`==`), with no token taken and no slot held, including when the tenant bucket passed and the principal bucket refused.
 4. Fair share: with `max_in_flight` 4 and `tenant_in_flight` 2, tenant A holds 2 slots and its third is `:tenant_slots`. Tenant B still gets 2. A fifth for tenant C is `:slots`. A release frees exactly A's slot, and a double release is `:unknown_ticket`. A noisy tenant that has spent all its tokens does not reduce another tenant's admissions.
-5. Keys: with `max_keys` 2, a third tenant is `:keys` while both buckets are non-full or hold slots. It is admitted once one of them is idle and full at `now_ms`, which drops the oldest idle bucket.
+5. Keys: with `max_keys` 2, a third tenant is `:keys` while both buckets are non-full or hold slots. It is admitted once one of them is idle and full at `now_ms`, which drops the oldest idle bucket and that tenant's Backpressure state, so the number of per-tenant Backpressure states never exceeds `max_keys` (assert it on the state after every step of group 6 too).
 6. Model check: a seeded sequence of 10,000 random `admit`/`release` operations with random times (including times that go back) over 3 tenants and 3 principals agrees, step by step, with an independent reference model written in the test from the rules above. Record the seed.
 7. Shape: texts at 0, 1, 128 and 129 bytes, invalid UTF-8, NUL, DEL and U+0085; cost 0, cost above a capacity and a float; a negative `now_ms` and 2^63; a forged state. Each is `:malformed`.
 8. Negative controls, one at a time: take the tenant token before checking the principal bucket and keep it on refusal; let `last_ms` move to `now_ms` on refill (the fractional interval is lost); skip the per-tenant slot bound. Each must make a case of groups 2–4 or 6 fail. Restore before the final gates.

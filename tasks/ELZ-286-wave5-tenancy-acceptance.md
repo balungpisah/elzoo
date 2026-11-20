@@ -1,7 +1,7 @@
 # ELZ-286 — Exercise many tenants safely end to end on PostgreSQL as a non-owner application role
 
 - Phase: Wave 5 Level 3 (sub-level 3c), mandatory root consumer acceptance
-- Dependencies: ELZ-268, ELZ-269, ELZ-270, ELZ-272, ELZ-278, ELZ-279, ELZ-281, ELZ-283, ELZ-284, ELZ-285
+- Dependencies: ELZ-127, ELZ-249, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-278, ELZ-279, ELZ-281, ELZ-283, ELZ-284, ELZ-285
 - Release: V1B
 - Output: none
 - Change class: shared root consumer acceptance; full/affected gate
@@ -24,15 +24,30 @@ There are two flat tenants, T1 and T2, and one hierarchical tenant T3. T3 has ro
 4. Non-inheriting scope: `money.pay` held at R resolves at R only, the `money.pay` space list excludes C, and a write that needs it at C is refused by the host check. A membership at C grants it there.
 5. Provider data policy: a model action whose payload is tagged `:pii`, bound for a provider the tenant policy does not admit, is denied by the host gate on a live RunEngine Run (`domain/provider-data-policy` `{:deny, _}` mapped to `{:deny, code}`). An admitted one passes. A malformed policy denies.
 6. Runtime MCP egress: `Elzoo.McpRuntime.admit/1` for a tenant-added URL whose resolver answers `10.0.0.5`, `169.254.169.254`, `127.0.0.1` or a mixed public/private set is refused with `{:egress, :non_public_address}`. The credential Need is never called and no client process starts (counted).
-7. Kill switch on live work: a tenant switch committed through CheckedCommand on the PostgreSQL Store. Then the next action of a live RunEngine Run of that tenant is refused by the gate with `tenant_suspended`, a checked command of another descriptor is refused, and a new Run is not started. T2's Run proceeds. The release lets the next action pass. A gate built over a failed `resource/3` read (an unreachable Store binding) denies `kill_switch_unavailable`. Every gate is built over a read taken just before its call, as ELZ-281 requires. `workflow/tenant-lifecycle` `suspend` has the same effect and `activate` undoes it.
+7. Kill switch on live work. Both engines fix their gate at construction and gates do no I/O (ELZ-281). With live RunEngine Runs of T1 and T2, a tenant switch for T1 is committed through CheckedCommand on the PostgreSQL Store. The switch descriptor's own gate does not deny on the tenant switch.
+   - A new T1 Run is refused: the host's `check/2` over a read taken before `start_link/1` denies `tenant_suspended`, and no engine starts.
+   - The live T1 Run is stopped by the host through RunEngine `control/4` pause, and its next input dispatches no new work. Its gate, built over the read taken before its `start_link/1`, is not what stops it.
+   - A T1 checked command of another descriptor, through a handle built just before `execute/3` over a fresh read, is refused with `{:denied, {:gate, "tenant_suspended"}}`.
+   - The T2 Run and T2 commands proceed throughout.
+   - After the release (committed while the switch is engaged), the T1 Run continues through the engine's verified-person continue control (`control/4`), a new T1 Run starts, and the refused command commits under a new `operation_id`. Its old operation ID still replays the retained denial.
+   - A CheckedCommand handle whose gate is built over a failed `resource/3` read (an unreachable Store binding) denies `kill_switch_unavailable`.
+   - `workflow/tenant-lifecycle` `suspend` has the same effect on new Runs and commands, and `activate` (committed while the lifecycle switch is engaged) undoes it.
 8. Invitations on real PostgreSQL: invite and accept as checked commands. Two accepts with distinct operation IDs race at one revision behind a controlled barrier: exactly one commits, the other has the retained stale result, and the host applies exactly one membership. Replay of the winner returns its response. No invitation code appears in any `elzoo_log_records` row.
 9. Crypto-shredding with intact logs: user text with an email and a known name is tokenized by `integration/pii-redaction`, whose vault Need is `Elzoo.RetentionErasure.put/3` for the subject. The checked command's payload then holds only refs (search every stored row for the raw values: none). `erase` makes every ref `:not_found`. A fresh CheckedCommand handle then recovers the tenant stream (`low_water == 0`) with equal `result/3` and `resource/3`, and no `elzoo_log_records` row was deleted or changed (row count and per-row SHA-256 before and after). Lifecycle `close` then `erase` with `vault_erased: true` commits only after `RetentionErasure.status/2` is `erased` for the tenant's subjects.
-10. Negative controls in this acceptance, one at a time: connect the application Repo without `SET ROLE` (as owner), and group 1's refusals must fail; replace the kill-switch gate with `:allow`, and group 7 must fail; pass the raw text instead of the tokenized text, and group 9's search must fail. Restore before the final passing checks. These validate the harness; they do not replace the Pieces' own controls.
+10. Negative controls in this acceptance, one at a time: connect the application Repo without `SET ROLE` (as owner), and group 1's refusals must fail; replace the kill-switch CheckedCommand gate with `:allow`, and group 7's command refusal must fail; pass the raw text instead of the tokenized text, and group 9's search must fail. Restore before the final passing checks. These validate the harness; they do not replace the Pieces' own controls.
 
 ## Owned paths and validation
 
-`test/wave5_tenancy_test.exs`, an optional bounded fixture `test/support/wave5_tenancy_helper.exs`, and `docs/research/wave5-tenancy.md`. No Piece, root dependency or pin, export, registry, CI, workflow or queue change. The short report records the exact cases, commands, environment versions, negative-control failures and their restoration, and limits. It makes no complete-Wave claim.
+Owned paths, as in ELZ-266:
 
-Limits to state: Carbonite `state/audit-log` is not composed (it needs its own audit-owner role), so audit capture of these commands is not shown. The MCP success path over a public endpoint is not shown. Identity providers are pinned test keys. Durability claims stay those of the reused Pieces.
+- `test/wave5_tenancy_test.exs` and an optional bounded fixture `test/support/wave5_tenancy_helper.exs`;
+- `docs/research/wave5-tenancy.md`;
+- the Wave 5 completion note in `docs/plans/bot-platform-wave5.md`;
+- this task file and this task's row in `docs/plans/release-plan.json`;
+- the generated `LEDGER.md`, `docs/plans/views.md` and `docs/plans/dependencies.mmd`.
+
+No Piece, root dependency or pin, export, registry, CI, workflow or queue change. The short report records the exact cases, commands, environment versions, negative-control failures and their restoration, and limits. It makes no complete-Wave claim.
+
+Limits to state: a RunEngine gate cannot see a switch engaged during its Run; live Runs stop through the host's Run control. A command refused by a gate keeps that retained denial under its operation ID. Carbonite `state/audit-log` is not composed (it needs its own audit-owner role), so audit capture of these commands is not shown. The MCP success path over a public endpoint is not shown. Identity providers are pinned test keys. Durability claims stay those of the reused Pieces.
 
 Run the new root acceptance with real disposable PostgreSQL and the role of ELZ-285, then `mix check --affected origin/main`, the live roadmap and claims checks and the diff check. No selected-Piece shortcut. One independent review, exact-head hosted checks and the coordinator merge queue are required. Never turn a skipped database test or a mocked protocol into integration evidence.

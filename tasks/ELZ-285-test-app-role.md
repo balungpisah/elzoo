@@ -29,7 +29,7 @@ CREATE ROLE elzoo_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBY
 GRANT elzoo_app TO elzoo_test WITH INHERIT FALSE, SET TRUE;
 ```
 
-Then export `ELZOO_TEST_APP_ROLE=elzoo_app` beside `ELZOO_TEST_DATABASE_URL`. Afterwards, connected as `elzoo_test`, check that both roles have `rolsuper`, `rolcreaterole` and `rolbypassrls` false, that `pg_has_role('elzoo_test', 'elzoo_app', 'SET')` is true and that `pg_has_role('elzoo_app', 'elzoo_test', 'MEMBER')` is false. Any other result fails the step.
+Then export `ELZOO_TEST_APP_ROLE=elzoo_app` beside `ELZOO_TEST_DATABASE_URL`. Afterwards, connected as `elzoo_test`, check that both roles have `rolsuper`, `rolcreaterole` and `rolbypassrls` false, that `pg_has_role('elzoo_test', 'elzoo_app', 'SET')` is true, that `pg_has_role('elzoo_test', 'elzoo_app', 'USAGE')` is false (no inherited privileges) and that `pg_has_role('elzoo_app', 'elzoo_test', 'MEMBER')` is false. Any other result fails the step. `MEMBER` and `SET` are true whether the grant inherits or not; on the orb's PostgreSQL 16.16, `USAGE` was false with `INHERIT FALSE` and true with `INHERIT TRUE`, so the `USAGE` check is what catches an inheriting grant.
 
 Owned paths:
 
@@ -47,5 +47,5 @@ The role is cluster-wide while grants are per database. Tests grant privileges o
 
 1. A hosted run on the exact head prints the role check for each job and is green. `scripts/test-worker-services.py` asserts both statements and the export. `.agents/setup` run twice on a fresh orb leaves one role and one grant.
 2. A local scratch check (not committed), as `elzoo_test` with `SET ROLE elzoo_app` on a forced, protected table, repeats the probe above: the owner-only DDL fails and `row_security = off` fails. Record the output.
-3. Negative control: temporarily grant with `INHERIT TRUE` or add `BYPASSRLS` to the role in the setup. The role check must fail. Restore before the final gates.
-4. Gate: the relevant guard tests (`python3 scripts/test-worker-services.py`, `python3 scripts/test-ci-runners.py`, `python3 scripts/test-ci-change-class.py`), then `mix check --affected origin/main` and `git diff --check`, the full hosted check, one independent review and the merge queue. This is a coordinator-owned non-Piece change, so the one-PR publication path of `AGENTS.md` section 1 applies if the coordinator does it.
+3. Negative controls, one at a time: temporarily grant with `INHERIT TRUE` (the `USAGE` check must fail), and separately add `BYPASSRLS` to the role in the setup (the attribute check must fail). Restore before the final gates.
+4. Gate: the relevant guard tests (`python3 scripts/test-worker-services.py`, `python3 scripts/test-ci-runners.py`, `python3 scripts/test-ci-change-class.py`), then `mix check --affected origin/main` and `git diff --check`, the full hosted check, one independent review and the merge queue.
