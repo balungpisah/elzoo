@@ -38,8 +38,11 @@ real server).
   digest, so a runtime owner's Adapter context must be bound to its admission:
   `context(session, admission, recipient)` returns `{:ok, context}` only when the
   session's Config gives that admission's identity and intent key, and the Adapter
-  sends only for a request with that key. A mispaired context, or a runtime context
-  from `context/2`, is `unknown{adapter_error}` before any send.
+  sends only for a request with that key. A context bound to another admission, or a
+  runtime context from `context/2`, is `unknown{adapter_error}` before any send. The
+  `Context` struct is not opaque: the Adapter checks the key it carries, not that
+  `context/3` built it, so host code that edits a context's session or key bypasses
+  the pairing.
 - `Elzoo.McpClient.configure/1` — `binding`, `tenant`, `credentials` (the credential
   Need: a zero-arity function returning `{:ok, bearer_token}`), `protocol_mode`
   (`:modern_only`, `:legacy_only`, `:prefer_modern`), `call_timeout_ms`,

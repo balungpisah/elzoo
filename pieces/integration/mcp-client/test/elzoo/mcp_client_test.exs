@@ -1644,6 +1644,19 @@ defmodule Elzoo.McpClientTest do
     assert {:error, :context} = McpClient.context(sb, aa, self())
     assert {:error, :context} = McpClient.context(sa, ab, self())
     assert {:error, :context} = McpClient.context(sa, %{aa | ref: "call-2"}, self())
+    {:ok, other_tenant} = runtime_config(ctx, runtime(ctx))
+    st = %{sa | config: %{other_tenant | tenant: "tenant-b"}}
+    assert {:error, :context} = McpClient.context(st, aa, self())
+
+    # A build-time session accepts a bound context too, and refuses a mismatched one.
+    b = session(ctx)
+    {:ok, abt} = McpClient.admission(b.config, decl, snap)
+    {:ok, cbt} = McpClient.context(b, abt, self())
+    assert cbt.key == abt.key
+    assert {:error, :context} = McpClient.context(b, aa, self())
+    bt = owner_with(b, abt, ctx, %{cbt | key: aa.key})
+    assert {:ok, :dispatched} = Intent.advance(bt, :dispatch)
+    refute match?({:Confirmed, _}, settled(bt).phase)
     {:ok, ca} = McpClient.context(sa, aa, self())
     {:ok, cb} = McpClient.context(sb, ab, self())
     assert ca.key == aa.key and cb.key == ab.key
