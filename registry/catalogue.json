@@ -699,6 +699,54 @@
       "reason": "ELZ-273: OTP crypto only; keys from integration/secrets; key destruction is the crypto-shredding boundary for retention-erasure."
     },
     {
+      "id": "integration/pii-redaction",
+      "summary": "Deterministic PII masking and vault-reference tokenization",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-278: listed patterns and exact host values only, no completeness claim; the vault Need is state/retention-erasure."
+    },
+    {
+      "id": "state/retention-erasure",
+      "summary": "Per-subject PII vault with crypto-shredding erasure",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-279: reuses integration/encryption, integration/secrets and locked ecto_sql/postgrex; no artifact tombstones, schedules or key rotation."
+    },
+    {
+      "id": "delivery/rate-limit",
+      "summary": "Per-tenant and per-principal rate and fair-share admission",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-280: caller-held state, no queue or process; Oban partitioning stays consumer configuration."
+    },
+    {
+      "id": "domain/kill-switch",
+      "summary": "Audited tenant, recipe and tool suspension gate",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-281: engines unchanged; the host gates on a fresh CheckedCommand.resource/3 read; dual control via workflow/approval."
+    },
+    {
+      "id": "workflow/tenant-lifecycle",
+      "summary": "Tenant lifecycle and one-use invitations as checked commands",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-284: owner decision 2026-11-20 makes it a Piece; pure preparer over assembly/checked-command and domain/kill-switch."
+    },
+    {
+      "id": "integration/mcp-runtime",
+      "summary": "Tenant-added runtime MCP server behind the egress policy",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-283: RC-59 Wave 5 commitment over the integration/mcp-client runtime mode (ELZ-282); integration/mcp-multi keeps build-time bindings."
+    },
+    {
       "id": "integration/token-verify",
       "summary": "Offline JWT and API-key verification into principals",
       "disposition": "own",

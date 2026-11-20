@@ -326,6 +326,15 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-274](https://github.com/balungpisah/elzoo/issues/619) | V1B / pieces | ELZ-011 | published 2026-11-20 | coordinator; one-PR path; independent review and merge queue |
 | [ELZ-275](https://github.com/balungpisah/elzoo/issues/635) | V1B / pieces | ELZ-270 | published 2026-11-20 | coordinator; one-PR path; independent review and merge queue |
 | [ELZ-276](https://github.com/balungpisah/elzoo/issues/637) | V1B / pieces | ELZ-268 | published 2026-11-20 | coordinator; one-PR path; independent review and merge queue |
+| [ELZ-278](https://github.com/balungpisah/elzoo/issues/642) | V1B / pieces | ELZ-033 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-279](https://github.com/balungpisah/elzoo/issues/643) | V1B / pieces | ELZ-033, ELZ-105, ELZ-273 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-280](https://github.com/balungpisah/elzoo/issues/644) | V1B / pieces | ELZ-033, ELZ-006 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-281](https://github.com/balungpisah/elzoo/issues/645) | V1B / pieces | ELZ-033, ELZ-024, ELZ-249 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-282](https://github.com/balungpisah/elzoo/issues/646) | V1B / pieces | ELZ-033, ELZ-083 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-283](https://github.com/balungpisah/elzoo/issues/647) | V1B / pieces | ELZ-033, ELZ-105, ELZ-271, ELZ-282 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-284](https://github.com/balungpisah/elzoo/issues/648) | V1B / pieces | ELZ-033, ELZ-024, ELZ-249, ELZ-281 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-285](https://github.com/balungpisah/elzoo/issues/649) | V1B / pieces | ELZ-033 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-286](https://github.com/balungpisah/elzoo/issues/650) | V1B / pieces | ELZ-127, ELZ-249, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-278, ELZ-279, ELZ-281, ELZ-283, ELZ-284, ELZ-285 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -407,6 +416,12 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [integration/egress-policy](../../pieces/integration/egress-policy/piece.json) | not in baseline (new row, ELZ-271) | V1B / pieces | ELZ-271 / P13 | ready-contract: Outbound URL policy for tenant- or model-supplied URLs: policy/1 takes exactly 1..256 unique lowercase DNS names and 1..16 unique ports or raises one fixed ArgumentError; pure check/2 admits only a valid UTF-8, 1..2048-byte https URL without userinfo or fragment whose lowercased host satisfies the name rule (no IP literal, numeric or hex last label, percent-encoding or trailing dot), is exactly allowlisted and uses an allowlisted port, in fixed refusal order; resolve/3 then calls the injected resolver Need once and returns the distinct sorted addresses only when every one of 1..32 answered addresses is public under the Piece's fixed IPv4, IPv4-mapped and IPv6 table. Fixed error atoms never echo the URL or host; no clock, socket, telemetry, log, HTTP client, redirect following or response bound. |
 | [domain/provider-data-policy](../../pieces/domain/provider-data-policy/piece.json) | not in baseline (new row, ELZ-272) | V1B / pieces | ELZ-272 / P13 | ready-contract: Closed data-class tag (public, internal, confidential, pii, secret) and one pure decision: a payload with 1..5 class tags may go to one provider, region and retention mode only when the tenant policy admits each class for that provider in that region under that retention mode. Fixed order: policy shape (error policy), request shape (error request), secret (never admissible), provider, then per class pii, confidential, internal, public: class, region, retention. Per-class admission with no inheritance; exact-byte text comparison; fixed result atoms that echo no input. The host treats every non-allow result as DENY. |
 | [integration/encryption](../../pieces/integration/encryption/piece.json) | not in baseline (new row, ELZ-273) | V1B / pieces | ELZ-273 / P13 | ready-contract: AES-256-GCM envelope over OTP crypto under a caller-held 32-byte integration/secrets Credential key with an ID and version: EZE1 header (key ID 1..128 UTF-8 bytes without C0/C1 controls, version 1..2^53-1) authenticated as AEAD associated data before the caller's aad, a fresh 12-byte random nonce and a 16-byte tag fixed by layout. open/3 checks layout and aad (malformed), calls the keys Need once for the exact (key_id, version) (not_found is no_key, so destroying a key crypto-shreds its envelopes; anything else unusable is unavailable), then decrypts (invalid). key_ref/1 reads the header. Fixed atoms, total, no clock, log or telemetry. |
+| integration/pii-redaction | not in baseline (new row, ELZ-278) | V1B / pieces | ELZ-278 / P13 | planned-contract: Planned deterministic redaction of listed personal-data patterns and host-named exact values in one text: fixed markers (mask) or opaque references from an injected vault Need (tokenize); no classification, rehydration or vault. |
+| state/retention-erasure | not in baseline (new row, ELZ-279) | V1B / pieces | ELZ-279 / P13 | planned-contract: Planned per-subject PostgreSQL vault: entries sealed by integration/encryption under a KEK-wrapped subject key; erase destroys the key and entries in one transaction and never touches elzoo_log_records. |
+| delivery/rate-limit | not in baseline (new row, ELZ-280) | V1B / pieces | ELZ-280 / P13 | planned-contract: Planned pure all-or-nothing admission: per-tenant and per-principal token buckets with exact retry_after and global plus per-tenant fair-share slots over delivery/backpressure; injected clock; absorbs delivery/fair-queue. |
+| domain/kill-switch | not in baseline (new row, ELZ-281) | V1B / pieces | ELZ-281 / P13 | planned-contract: Planned pure CheckedCommand preparer for a tenant resource's switches field plus a check over a resource/3 read that denies suspended tenants, recipes and tools and fails closed on an unavailable read. |
+| workflow/tenant-lifecycle | not in baseline (new row, ELZ-284) | V1B / pieces | ELZ-284 / P13 | planned-contract: Planned pure CheckedCommand preparer for tenant lifecycle (provisioned, active, suspended, closing, erased) and one-use invitations, writing the reserved lifecycle kill-switch in the same append; no membership store, erasure or code delivery. |
+| integration/mcp-runtime | not in baseline (new row, ELZ-283) | V1B / pieces | ELZ-283 / P13 | planned-contract: Planned admission of one tenant-added MCP server: egress-policy resolve, then a bearer credential check through integration/secrets, then an mcp-client runtime config pinned to the checked addresses; lists keyed by {tenant, server}; OAuth waits for Wave 9. |
 | integration/identity | deferred | V1 / pieces | RC-06 / P04, P05, P09, P12 | blocked-admission-proposal: Authentication/provider boundary for domain/principal; sessions, revocation and account linking need explicit tests. AshAuthentication is one candidate when Ash fits; no provider adopted. |
 | [integration/jobs](../../pieces/integration/jobs/piece.json) | planned | V1 / pieces | ELZ-010 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | merged-ready-contract; task acceptance separate: Oban 2.24.2 translation: unique job per (queue, job_key), enqueue that reports only persisted job ids (conflict without id is {:retry, :unique_lock_held}), a per-queue runner registration and an Oban worker that traps exits, maps an escaping exit to a snooze and refuses unknown args versions, and a Relay over one ELZ-009 outbox stream that acks :done items, keeps skipped items pending and continues within the page. |
 | [integration/json](../../pieces/integration/json/piece.json) | ready | V1 / pieces | ELZ-004 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | retained-ready-contract: Use Jason directly for JSON values and explicit encode/decode errors. |
@@ -506,7 +521,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286.
 
 ### V2-ACCEPT
 
@@ -4046,3 +4061,93 @@ Publication copy: [tasks/ELZ-276-token-verify-sync-log-test.md](../../tasks/ELZ-
 **Product aims:** P13.
 
 **Acceptance:** The token-verify test module runs async: false, so its empty captured-log assertion cannot capture a concurrent module's log as in main run 44778242170; Contract, library, README, manifest, timeouts and budgets unchanged. Failure reproduced with a concurrent logging async module, fixed module passes in the same pairing, negative control with a library log line fails, repeated Piece tests.
+
+### ELZ-278
+
+ELZ-278 — Replace listed personal data in text with markers or opaque vault references
+
+Publication copy: [tasks/ELZ-278-pii-redaction.md](../../tasks/ELZ-278-pii-redaction.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Mask and tokenize modes for every listed kind with counts, both sides of each pattern and size bound, leftmost-longest-kind overlap rule, [pii: escaping, vault Need once per distinct span after the bound check and fail closed, linear-time adversarial inputs, no span echo; three negative controls.
+
+### ELZ-279
+
+ELZ-279 — Keep personal data in a per-subject vault that erasure makes unreadable
+
+Publication copy: [tasks/ELZ-279-retention-erasure.md](../../tasks/ELZ-279-retention-erasure.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Real PostgreSQL 16: round trip, erasure makes every ref not_found and a pre-erase copy no_key, envelope and wrapped-key swaps never open another subject, concurrent first puts and put/erase races, KEK Need failures write nothing, shape bounds, no secret echo; four negative controls.
+
+### ELZ-280
+
+ELZ-280 — Admit work per tenant and principal within rate and fair-share slot bounds, refusing with a retry time
+
+Publication copy: [tasks/ELZ-280-rate-limit.md](../../tasks/ELZ-280-rate-limit.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Config bounds, exact token-bucket refill and retry_after including a clock that goes back, all-or-nothing state on every refusal, per-tenant fair-share slots over delivery/backpressure, idle-bucket eviction, a seeded 10,000-step reference-model check; three negative controls.
+
+### ELZ-281
+
+ELZ-281 — Suspend a tenant, recipe or tool through an audited checked command that every gate refuses on
+
+Publication copy: [tasks/ELZ-281-kill-switch.md](../../tasks/ELZ-281-kill-switch.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Preparer engage/release with canonical list, reserved lifecycle prefix and cross-tenant refusal, check/2 deny order and fail closed on every unavailable read, Memory Store CheckedCommand composition with a gate over a fresh resource/3 read and dual control through Approval; three negative controls.
+
+### ELZ-282
+
+ELZ-282 — Let the MCP client take one endpoint at configure time, connecting only to addresses the host checked
+
+Publication copy: [tasks/ELZ-282-mcp-client-runtime-endpoint.md](../../tasks/ELZ-282-mcp-client-runtime-endpoint.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Existing mcp-client and mcp-multi tests unchanged; RuntimeBinding on the loopback evidence server through the EffectIntent owner; pinned addresses used instead of DNS; public private-address refusal before any byte; runtime intent identity includes server and endpoint; ex_mcp 1.8.1 drift tests; three negative controls.
+
+### ELZ-283
+
+ELZ-283 — Admit a tenant-added MCP server only through the egress policy, with a bearer token per call
+
+Publication copy: [tasks/ELZ-283-mcp-runtime.md](../../tasks/ELZ-283-mcp-runtime.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Egress refusal before any credential call or client start, admission config pinned to the full checked address set, credential failure mapping, {tenant, server} keying and distinct intent identities, no URL/token echo; successful public connect not exercised by design; three negative controls.
+
+### ELZ-284
+
+ELZ-284 — Move a tenant through its lifecycle and consume one-use invitations as checked commands
+
+Publication copy: [tasks/ELZ-284-tenant-lifecycle.md](../../tasks/ELZ-284-tenant-lifecycle.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Exhaustive lifecycle transition table with the reserved lifecycle kill-switch write, invitation refusal order and expiry edges, codes never in command history, Memory Store CheckedCommand composition with replay and a stale second accept, dual control for suspend, shape bounds; four negative controls.
+
+### ELZ-285
+
+ELZ-285 — Provision a fixed non-owner, non-bypass application role for the test databases
+
+Publication copy: [tasks/ELZ-285-test-app-role.md](../../tasks/ELZ-285-test-app-role.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Fixed elzoo_app role (NOLOGIN, NOSUPERUSER, NOBYPASSRLS, NOCREATEROLE) granted to elzoo_test for SET ROLE only in every setup that creates elzoo_test, with a fail-closed role check; hosted run green, local probe of owner-only DDL refusal, INHERIT TRUE and BYPASSRLS negative controls, full gate.
+
+### ELZ-286
+
+ELZ-286 — Exercise many tenants safely end to end on PostgreSQL as a non-owner application role
+
+Publication copy: [tasks/ELZ-286-wave5-tenancy-acceptance.md](../../tasks/ELZ-286-wave5-tenancy-acceptance.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Real PostgreSQL as the non-owner application role: RLS floor, token to membership to rows, soft revocation, non-inheriting scope, provider data policy, runtime MCP egress refusal, kill switch on new and live Runs, racing invitation accepts, crypto-shredding with intact checked-command recovery; Carbonite audit log out of scope.
