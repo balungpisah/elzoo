@@ -83,7 +83,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-05 | V1 / pieces | ELZ-033, ELZ-011 | superseded for integration/secrets by published ELZ-105; output moved | one claimed task worker after admission |
 | RC-06 | V1 / pieces | ELZ-033, RC-05, ELZ-024 | superseded for domain/principal by published ELZ-267; output moved. integration/identity stays a conditional host recipe (Wave 5 plan). | one claimed task worker after admission |
 | RC-10 | V1 / pieces | ELZ-033, ELZ-009, ELZ-024 | superseded for state/audit-log by published ELZ-055 (output moved); no remaining output | one claimed task worker after admission |
-| RC-07 | V1 / pieces | ELZ-033, RC-06, ELZ-024, RC-10 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-07 | V1 / pieces | ELZ-033, RC-06, ELZ-024, RC-10 | superseded for domain/membership by published ELZ-269; output moved. domain/entitlement stays with RC-07 (Wave 6 per the Wave 5 plan). | one claimed task worker after admission |
 | RC-08 | V1 / pieces | ELZ-033, ELZ-022, RC-07, ELZ-009 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-09 | V1 / pieces | ELZ-033, ELZ-024, RC-06 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-11 | V1 / pieces | ELZ-033, ELZ-026, ELZ-028, ELZ-024, RC-10 | blocked: unpublished admission proposal | one claimed task worker after admission |
@@ -318,6 +318,11 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-266](https://github.com/balungpisah/elzoo/issues/608) | V1B / pieces | ELZ-258, ELZ-265 | published 2026-11-18 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-267](https://github.com/balungpisah/elzoo/issues/615) | V1B / pieces | ELZ-033, ELZ-024 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-268](https://github.com/balungpisah/elzoo/issues/616) | V1B / pieces | ELZ-033, ELZ-083, ELZ-105, ELZ-267 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-269](https://github.com/balungpisah/elzoo/issues/620) | V1B / pieces | ELZ-033, ELZ-267 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-270](https://github.com/balungpisah/elzoo/issues/621) | V1B / pieces | ELZ-033 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-271](https://github.com/balungpisah/elzoo/issues/622) | V1B / pieces | ELZ-033 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-272](https://github.com/balungpisah/elzoo/issues/623) | V1B / pieces | ELZ-033 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-273](https://github.com/balungpisah/elzoo/issues/624) | V1B / pieces | ELZ-033, ELZ-105 | published 2026-11-20 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -369,7 +374,7 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [domain/authorization](../../pieces/domain/authorization/piece.json) | deferred | V1 / pieces | ELZ-024 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | merged-ready-contract; task acceptance separate: Pure ALLOW/ASK/DENY reducer over typed exact-match rules (effect class, principal, tenant, resource, payload, target, field, write value) with deny > ask > allow, default deny, whole-action escrow on ASK, and whole-proposal rejection when writes exceed the trusted own authority or, for a child, the parent's authority. Trusted proposer and host-derived effect class come from context; proposal copies must match. Portable tagged value domain with duplicate-preserving records and fixed bounds; three failure classes (DENY, invalid_input, unavailable_context). Policy identity (id, version, content_hash) on every decision. |
 | domain/entitlement | deferred | V1 / pieces | RC-07 / P04, P05, P09 | blocked-admission-proposal: Provider-backed subscription/feature availability for C2/C8; explicit grace/revocation policy, separate from identity and quota. No billing implementation. |
 | domain/journal | deferred | V2 / pieces | RC-22 / P09, P10 | blocked-admission-proposal: Balanced posting with stable operation identity and immutable corrections for C3/C4; reuse transactional storage or a suitable ledger provider; not the Piece Ledger or a new storage engine. |
-| domain/membership | deferred | V1 / pieces | RC-07 / P04, P05, P09 | blocked-admission-proposal: Scoped membership, one-use invitation and revocation for C1/C2; reuse storage/auth capabilities and own only missing policy. |
+| domain/membership | deferred | V1B / pieces | ELZ-269 / P13 | planned-contract: Planned pure resolution of a principal's permissions at one space from host facts: temporal and soft-revoked memberships, named roles, optional space tree with block_inheritance barriers and non-inheriting prefixes, agent attenuation; no invitations, tenant status, storage or authorization decision. |
 | domain/metering | deferred | V2 / pieces | RC-21 / P09 | blocked-admission-proposal: C9 separates estimates from reconciled usage, deduplicates usage records and preserves corrections; no billing/price/admission policy implied. ELZ-025 study: unreported provider usage is a distinct count, never zero; a budget that cannot be verified from observed usage stops admission. |
 | [domain/money](../../pieces/domain/money/piece.json) | deferred | V2 / pieces | ELZ-031 / P09, P10 | merged-ready-contract; task acceptance separate: Exact currency amounts over a closed, versioned ISO 4217 registry folded append-only from a dated, source-attributed derived extract (current list 2026-09-17, historic list 2026-01-01): a currency is a registry member with alpha code, numeric code or explicit absence, and minor-unit exponent or explicit :not_applicable/:not_recorded, plus its status and registry version; an amount is an integer count of minor units scaled by that exponent. Pure Cure same-currency add/subtract/compare/negate and ratio allocation (1..1000 non-negative integer ratios, positive sum, shares truncated toward zero, residual placed :first/:last/:spread on positive-ratio parts and reported as already placed); untrusted alpha/numeric parse distinguishes malformed from unknown; version-specific membership on every call (forged_currency); exact Decimal-string and %Decimal{} boundaries with declared rounding modes; canonical versioned codec bytes that decode to the original identity after registry updates. Typed rejections: currency_mismatch, unknown_currency, malformed_code, retired_currency, scale_overflow, malformed_amount, invalid_ratios, unknown_rounding_mode, unknown_placement, no_minor_unit, forged_currency, unknown_registry_version. No Float. |
 | domain/payment-lifecycle | deferred | V2 / pieces | RC-24 / P10 | blocked-admission-proposal: Authorize/capture/refund/unknown-outcome transitions for C3; provider-specific semantics and reconciliation before retries. No provider adopted. Unknown-outcome recovery mechanics are shared with delivery/effect-intent (ELZ-023). |
@@ -395,6 +400,10 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [integration/http](../../pieces/integration/http/piece.json) | ready | V1 / pieces | ELZ-013 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | retained-ready-contract: Use Req directly for an HTTP client request with explicit retry, redirect, body and timeout choices. |
 | [integration/webhook-in](../../pieces/integration/webhook-in/piece.json) | not in baseline (new row, ELZ-257) | V1B / pieces | ELZ-257 / P13 | ready-contract: One Plug adapter for signed plain-text POST /elzoo/v1/messages: fixed source and route, raw-body HMAC-SHA-256 and ±300-second freshness; bounded 65,536-byte body and 15,000-ms returned-read budget; strict six-field JSON event, host-vouched principal with conversation resource grant, and exactly one admission Need call; fixed halted JSON outcomes, with malformed or exceptional admission outcomes unknown and no Run or delivery claim. |
 | integration/token-verify | not in baseline (new row, ELZ-268) | V1B / pieces | ELZ-268 / P13 | planned-contract: Planned offline verification of pinned-key EdDSA/RS256 JWTs and prefixed keyed-digest API keys into a domain/principal with fixed redacted failures; reuses locked jose 1.11.13 and OTP crypto; no JWKS fetch, OIDC ceremony or session store. |
+| state/tenant-isolation | not in baseline (new row, ELZ-270) | V1B / pieces | ELZ-270 / P13 | planned-contract: Planned PostgreSQL row-level-security floor: restrictive forced tenant/space policy with STABLE InitPlan setting readers, a transaction helper that sets and clears the scope, and a policy verifier; locked ecto_sql/postgrex only. |
+| integration/egress-policy | not in baseline (new row, ELZ-271) | V1B / pieces | ELZ-271 / P13 | planned-contract: Planned outbound URL policy: https only, exact allowlisted DNS name and port, no IP literals, injected resolver whose every address must be public; no HTTP client, redirects or response bound. |
+| domain/provider-data-policy | not in baseline (new row, ELZ-272) | V1B / pieces | ELZ-272 / P13 | planned-contract: Planned pure decision whether payload data classes (closed public/internal/confidential/pii/secret tag) may go to one provider, region and retention mode under a tenant policy; secret never admissible; non-allow is DENY. |
+| integration/encryption | not in baseline (new row, ELZ-273) | V1B / pieces | ELZ-273 / P13 | planned-contract: Planned AES-256-GCM envelope over OTP crypto under a versioned per-subject integration/secrets key with authenticated header; key-destruction crypto-shredding gives no_key; no key store, KMS or wrapping. |
 | integration/identity | deferred | V1 / pieces | RC-06 / P04, P05, P09, P12 | blocked-admission-proposal: Authentication/provider boundary for domain/principal; sessions, revocation and account linking need explicit tests. AshAuthentication is one candidate when Ash fits; no provider adopted. |
 | [integration/jobs](../../pieces/integration/jobs/piece.json) | planned | V1 / pieces | ELZ-010 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | merged-ready-contract; task acceptance separate: Oban 2.24.2 translation: unique job per (queue, job_key), enqueue that reports only persisted job ids (conflict without id is {:retry, :unique_lock_held}), a per-queue runner registration and an Oban worker that traps exits, maps an escaping exit to a snooze and refuses unknown args versions, and a Relay over one ELZ-009 outbox stream that acks :done items, keeps skipped items pending and continues within the page. |
 | [integration/json](../../pieces/integration/json/piece.json) | ready | V1 / pieces | ELZ-004 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | retained-ready-contract: Use Jason directly for JSON values and explicit encode/decode errors. |
@@ -494,7 +503,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273.
 
 ### V2-ACCEPT
 
@@ -3954,3 +3963,53 @@ Publication copy: [tasks/ELZ-268-token-verify.md](../../tasks/ELZ-268-token-veri
 **Product aims:** P13.
 
 **Acceptance:** Offline EdDSA/RS256 JWT verification against 1..16 pinned public keys with the key's own algorithm only, exact issuer/audience, injected time with bounded leeway and host subject Need; prefixed API keys by keyed HMAC digest and constant-time compare; fixed failure atoms, no leakage of token or secret bytes; existing jose/OTP providers only, no pin change.
+
+### ELZ-269
+
+ELZ-269 — Scoped memberships and roles that never leak upward or across tenants
+
+Publication copy: [tasks/ELZ-269-membership.md](../../tasks/ELZ-269-membership.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Pure permission resolution with exact temporal and soft-revocation edges, block_inheritance barriers, non-inheriting prefixes, no upward, sibling or cross-tenant leakage, agent attenuation, spaces/4 agreeing with permissions/4; four negative controls.
+
+### ELZ-270
+
+ELZ-270 — A PostgreSQL row-security floor that hides every other tenant's rows
+
+Publication copy: [tasks/ELZ-270-tenant-isolation.md](../../tasks/ELZ-270-tenant-isolation.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Real PostgreSQL 16 evidence as forced owner: cross-tenant read/write refusal, spaced isolation, fail closed outside the helper and after commit, error or raise on one pooled connection including Sandbox savepoints, restrictive composition, InitPlan EXPLAIN, verifier reasons; non-owner boundary NOT EXERCISED where roles cannot be created.
+
+### ELZ-271
+
+ELZ-271 — Admit an outbound URL only to an allowlisted host whose every address is public
+
+Publication copy: [tasks/ELZ-271-egress-policy.md](../../tasks/ELZ-271-egress-policy.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Fixed check order, IP-literal and encoded-host refusal, resolver Need once only after the allowlist, all-or-nothing public-address table with both sides of every boundary, rebinding refusal, no URL echo; four negative controls.
+
+### ELZ-272
+
+ELZ-272 — Refuse to send classified data to a provider, region or retention mode the tenant does not admit
+
+Publication copy: [tasks/ELZ-272-provider-data-policy.md](../../tasks/ELZ-272-provider-data-policy.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Closed data-class tag and per-class provider/region/retention admission in fixed order, secret never admissible, malformed policy or request is an error the host treats as DENY, exact-byte comparison; three negative controls.
+
+### ELZ-273
+
+ELZ-273 — Seal records under a versioned per-subject key so that destroying the key erases them
+
+Publication copy: [tasks/ELZ-273-encryption.md](../../tasks/ELZ-273-encryption.md).
+
+**Product aims:** P13.
+
+**Acceptance:** AES-256-GCM round trip and format pin, header and every byte authenticated, fixed 16-byte tag and 12-byte nonce by layout with OTP drift tests, key Need once, shredded key is no_key, total functions with no secret echo; three negative controls.
