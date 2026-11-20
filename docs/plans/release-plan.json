@@ -8397,7 +8397,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/retention-erasure/piece.json",
-      "manifest_sha256": "87630c927ba2420c32cccc47fb5bc740f0cbf8ca00985f8564fd32bbe616096e"
+      "manifest_sha256": "06012524cdeffe9e42bb6bc63ba7ac59338bafe453103505dfe0aee5271e4896"
     },
     {
       "id": "delivery/rate-limit",
