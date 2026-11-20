@@ -35,8 +35,10 @@ the global bound and one for each tenant. Apache-2.0.
 control characters (the `domain/principal` text rule). A principal bucket is
 keyed by `{tenant, principal}`. `cost` is an integer from 1 to the smaller
 capacity. `now_ms` is an integer in `0..9_223_372_036_854_775_807`. Anything
-else, or a state that `new/1` and these functions could not have produced, is
-`:malformed`.
+else is `:malformed`, and so is a forged state: one with other fields, an
+invalid config, a bucket or key outside its bounds, a live ticket id that is
+not an integer below the next id, or a Backpressure count that does not equal
+its live tickets or exceeds its bound.
 
 ### Refusal order
 
