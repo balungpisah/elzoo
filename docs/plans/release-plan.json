@@ -7930,10 +7930,12 @@
     {
       "id": "domain/principal",
       "job": "ELZ-267",
-      "note": "Planned pure typed principal (human, service, agent): bounded validation, one-level agent delegation refused whole when it exceeds the parent, and epoch/revocation check against caller-supplied facts. No identity provider, token parsing, I/O or authorization decision.",
+      "note": "Pure typed principal (human, service, agent): bounded validation with canonical byte-sorted scope and space sets, one-level agent delegation that copies tenant and epoch and is refused whole on escalation, nested or self delegation, and a check against caller-supplied epoch and revocation facts that refuses a revoked principal or revoked parent before a stale epoch. Every function revalidates hand-built structs; errors are fixed atoms. No identity provider, token parsing, I/O, clock, storage or authorization decision.",
       "baseline_status": "deferred",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/principal/piece.json",
+      "manifest_sha256": "b3468d849382ec5505a07a5a042bcad59ba82cd0df4e0d172735ba777fd5037d"
     },
     {
       "id": "domain/quota",
