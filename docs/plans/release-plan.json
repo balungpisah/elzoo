@@ -8192,7 +8192,8 @@
       "outputs": [],
       "acceptance": "Elzoo.Journal.new/1 raises its fixed ArgumentError for a registry: value that Elzoo.Money.Registry.build!/1 could not have built (versions, snapshot keys, entries), and still accepts the default and every built registry (other-family recheck finding); Contract, README and other behavior unchanged, no other Piece edited. Malformed-registry regression, key-only negative control, Piece tests, local small gate.",
       "product_aims": [
-        "P13"
+        "P09",
+        "P10"
       ],
       "issue": 726,
       "url": "https://github.com/balungpisah/elzoo/issues/726",
@@ -8215,7 +8216,8 @@
       "outputs": [],
       "acceptance": "Elzoo.Journal.history/3 sends one SQL statement after the tenant scope setup that returns the account's currency identity and the bounded page and tells an unknown account from an empty page, as the ELZ-297 single-read rule says (other-family recheck finding); results, bounds and row security unchanged. Statement-count test through Repo telemetry, two-statement negative control, Piece tests, local small gate.",
       "product_aims": [
-        "P13"
+        "P09",
+        "P10"
       ],
       "issue": 727,
       "url": "https://github.com/balungpisah/elzoo/issues/727",
