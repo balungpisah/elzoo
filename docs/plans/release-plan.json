@@ -8357,14 +8357,14 @@
         "tasks/ELZ-318-quota-unit-uniqueness.md"
       ],
       "outputs": [],
-      "acceptance": "Elzoo.Quota.Migration.install/1 gives elzoo_quota_units UNIQUE (tenant, run_id, unit) in place of its plain index, a second layer under the reservation primary key (owner decision before the first release); every public result unchanged, README, migration comment and manifest describe both layers. Catalog schema test; negative controls: without the reservation key the rule refuses the duplicate reserve and rolls back (replacing #704's first case-14 control), without both layers case 3 fails; existing tests and the copied consumer pass; local small gate.",
+      "acceptance": "Elzoo.Quota.Migration.install/1 gives elzoo_quota_units UNIQUE (tenant, run_id, unit) in place of its plain index, a second layer under the reservation primary key (owner decision before the first release); every public result unchanged, README and migration comment describe both layers, piece.json grounding names the schema test (contract and limits unchanged). Catalog schema test; negative controls: without the reservation key the rule refuses the duplicate reserve with SQLSTATE 23505 and rolls back (replacing #704's first case-14 control), without both layers case 3 fails; existing tests and the explicit domain/quota copied-consumer test pass; local small gate.",
       "product_aims": [
         "P09",
         "P13"
       ],
       "issue": 736,
       "url": "https://github.com/balungpisah/elzoo/issues/736",
-      "issue_body_sha256": "0969bbdf0e3e635f4690f7580cdfaf1c325c0cb5aaca53a549e400e9b6e9aa05"
+      "issue_body_sha256": "4974680817f77ca2232caca9726176a9cc9c8ea45a0b8b5cb753bbcd9c17d9c2"
     }
   ],
   "entries": [
