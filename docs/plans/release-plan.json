@@ -8100,6 +8100,27 @@
       "issue": 711,
       "url": "https://github.com/balungpisah/elzoo/issues/711",
       "issue_body_sha256": "3e164c9e6b2e9336de33f9bd7f97577a71ee93971e59384d7f718f862e887640"
+    },
+    {
+      "id": "ELZ-308",
+      "title": "ELZ-308 — Record the Continuum and Temporal ideas for later waves and the first release",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-308-continuum-notes.md"
+      ],
+      "outputs": [],
+      "acceptance": "bot-platform.md records the owner's 2026-11-21 decisions from the Continuum and Temporal evaluations: Wave 8 room rollover as a continuation chain whose successors and child Runs keep the pinned recipe version, a closed mailbox input surface and a per-child parent-close rule (delivery/room, delivery/durable-mailbox, workflow/delegation); Wave 9 saga rules (assembly/ledger-checkout, domain/payment-lifecycle) and a failure-given retry delay with optional jitter for undispatched results (delivery/retry-timeout in place, first caller delivery/model-routing); frozen record fixtures for run-engine, pattern-step and recipe-test when the first release freezes the formats; five deferred items kept until a caller needs them; docs/dependencies.md lists Continuum v0.9.3 as evaluated and not adopted. No Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 713,
+      "url": "https://github.com/balungpisah/elzoo/issues/713",
+      "issue_body_sha256": "d07220e5dc7577a1cc6653a9cbbedf28ffcc9c85a99f1f48e27e4ac38d69e6bd"
     }
   ],
   "entries": [
