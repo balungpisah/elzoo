@@ -34,7 +34,7 @@ tenant floor (`tenant_column: "tenant"`, `space_column: nil`):
 | --- | --- | --- |
 | `elzoo_quota_counters` | `tenant`, `window_tag`, `window_id`, `unit`, `committed`, `held`, `reserved` (each `numeric(38,0)`, `>= 0`) | `PRIMARY KEY (tenant, window_tag, window_id, unit)` |
 | `elzoo_quota_reservations` | `tenant`, `run_id`, `window_tag`, `window_id`, `expiry_ms bigint`, `request_digest bytea`, `state` (`open`, `released`, `settled`) | `PRIMARY KEY (tenant, run_id)` |
-| `elzoo_quota_units` | `tenant`, `run_id`, `unit`, `estimate numeric(38,0)`, `settled_unknown`, `actual numeric(38,0)` (`NULL` while open or held), `basis`, `actor_ref`, `reason` | foreign key to the reservation, `UNIQUE (tenant, run_id, unit)` (its index is the table's only index) |
+| `elzoo_quota_units` | `tenant`, `run_id`, `unit`, `estimate numeric(38,0)`, `settled_unknown`, `actual numeric(38,0)` (`NULL` while open or held), `basis`, `actor_ref`, `reason` | foreign key to the reservation, whose key keeps the unit rows unique; `UNIQUE (tenant, run_id, unit)` as a second layer |
 
 A unit is stored as its atom name, or `cache_write_tokens:<ttl>`; a window `{:period, id}` as
 `window_tag` `period` and `window_id` `id`. The unit rows of a reservation are written once,
