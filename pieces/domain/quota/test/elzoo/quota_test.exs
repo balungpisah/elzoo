@@ -775,4 +775,33 @@ defmodule Elzoo.QuotaTest do
     assert apply(cure, :reconcile, [c.(1, 8, 0), 6, 0]) == c.(1, 2, 0)
     assert apply(cure, :release, [c.(1, 2, 6), 6]) == c.(1, 2, 0)
   end
+
+  # ------------------------------------------------------------ 14
+
+  test "14 the unit rows: one unique constraint on (tenant, run_id, unit), its index the only one",
+       %{p: p} do
+    units = Harness.table(p, :units)
+
+    # Column names in key order, from the catalog.
+    columns = fn rel, keys ->
+      "array(SELECT a.attname::text FROM unnest(#{keys}) WITH ORDINALITY AS k(n, i) JOIN pg_attribute a ON a.attrelid = #{rel} AND a.attnum = k.n ORDER BY k.i)"
+    end
+
+    keys =
+      Harness.q!(
+        OwnerRepo,
+        "SELECT c.contype::text, #{columns.("c.conrelid", "c.conkey")}, c.conindid::regclass::text FROM pg_constraint c WHERE c.conrelid = to_regclass($1) AND c.contype IN ('p', 'u')",
+        [units]
+      )
+
+    indexes =
+      Harness.q!(
+        OwnerRepo,
+        "SELECT i.indexrelid::regclass::text, i.indisunique, #{columns.("i.indrelid", "i.indkey::int2[]")} FROM pg_index i WHERE i.indrelid = to_regclass($1)",
+        [units]
+      )
+
+    assert [["u", ["tenant", "run_id", "unit"], index]] = keys
+    assert indexes == [[index, true, ["tenant", "run_id", "unit"]]]
+  end
 end
