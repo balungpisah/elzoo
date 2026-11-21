@@ -282,6 +282,72 @@ Errors are exactly `{:error, :scope}`, `{:error, :invalid_limits}`,
 `{:error, :unavailable}` and `{:error, :read_limit}`; owner/identity mismatch
 is not an empty result.
 
+### Read-only Run transcript
+
+`transcript(engine, scope, limits)` shows what one Run did, from its committed
+history in commit order. It takes the same call path, 60,000 ms caller limit,
+exact `scope` and `limits`, optional `result_reader` configuration, reading,
+budgets, owner and head rechecks and errors as `event_waits/3`:
+`{:error, :scope}`, `{:error, :invalid_limits}`,
+`{:error, :reader_unconfigured}`, `{:error, :read_limit}`,
+`{:error, :history}` and `{:error, :unavailable}`. There is no completion
+selection, so `:completion_mismatch` does not occur. It works for every Run state;
+a running, waiting, paused or ASK Run returns its history so far. The result is
+`{:ok, %{run_id: run_id, entries: [entry]}}`.
+
+Each entry is derived from the change of the folded state that one committed
+record makes, together with that record. Every entry has `type`, `sequence` (the
+Unit row of the input that holds the record; its result row is the next one) and
+`at_ms`, the record's own time: `input["at_ms"]` of a protocol record, `at_ms` of
+a gate, admission, authorization, nested, finish, nested-actual, resource-cursor
+or event-activation record, `view.at_ms` of a `:run_view` record,
+`command.at_ms` of a `:lifecycle` record, and `nil` for `:configure`,
+`:precheck`, `:continuation` and `:resume_input`. Within one record, entries come
+in this type order, then by occurrence (the engine's `{request, index}`). A `path`
+lists the occurrences of the enclosing `nested_callable` actions from the root
+down; it is `[]` in the root callable.
+
+| `type` | Further fields |
+| --- | --- |
+| `:input` | `input_id`, `kind`: each committed protocol record of the scoped Run |
+| `:gate` | `occurrence`, `verdict` (`:allow`, `:deny`), `reason`, `gate_id`, `gate_version` |
+| `:action` | `occurrence`, `path`, `attempt_id`, `kind`, `action_id`, `schema_id`, `schema_version`, `payload`: the slot is admitted |
+| `:authorization` | `occurrence`, `verdict` (`:allow`, `:ask`, `:deny`, or `:refused` when no decision was recorded), `policy` (`%{id, version, content_hash}` or `nil`) |
+| `:nested_start` | `occurrence` of the `nested_callable` action, `schema_id`, `schema_version`, `payload` of the start |
+| `:nested_finish` | `occurrence` of the `nested_callable` action, `schema_id`, `schema_version`, `payload` of the child's first admitted finish that the engine keeps |
+| `:settlement` | `occurrence`, `path`, `action_id`, `outcome`, `by` (the kind of the settling record, such as `:protocol`, `:run_view` or `:finish`), `reason`, `actual` |
+| `:actual` | `occurrence`, `actual`: a settled slot's actual changes later from none to an integer |
+| `:terminal` | `outcome`: the Run becomes terminal |
+
+A settlement has a `reason` only when the settling record is a protocol outcome
+under the refusal schema `elzoo.run-engine.refusal` whose correlation occurrence
+and `action_id` name that slot and whose own effect settled it, as the engine's
+own expiry pass and protocol rule of that fold step decide (the reader reruns that
+pure engine code on the folded state before the record; it calls no callback, and
+like the fold it depends on the current engine code); a slot that the same
+record settles by expiry (the named slot too, when its deadline had passed and the
+outcome came too late) or
+`run_closed`, and the closers inside a fold step (`attempt_closed`,
+`run_closed`, `local_closed`), give `nil`, and `by` tells them apart. `actual` is
+`0` for a `finish` action settled by its `:finish` record and `:unknown` when no
+actual is recorded. Gate and precheck records settle no slot; a refusal settles
+later through the engine's outcome record. A span of an action is its `:action`
+entry to its `:settlement` entry in recorded time; the reader reads no clock.
+Entry types, fields and `by` kinds may gain members in a later in-place version;
+a caller matches on the ones it uses.
+
+Only the scoped Run's entries are returned: on a Unit whose history holds earlier
+Runs, entries start at the record that configures the scoped `run_id`, and a
+protocol record of another Run (a late input of an earlier Run) gives none. The
+reader calls no Operator, pattern, gate, schema, binding, work, resource, source or
+clock callback and does not start, drain, repair, append, acknowledge, checkpoint
+or mutate anything; two reads of an unchanged history are equal. It is the
+committed history of a running engine, not an audit record, metric, trace export
+or cache, and it emits no telemetry. The payload of a host-supplied outcome is not
+an entry (`result/3` gives the completion payload, `event_waits/3` the wait
+receipts). The host must supply full retained history; a pruned history is
+refused, not summarized.
+
 ### Read-only Run result
 
 `result(engine, scope, limits)` uses the same 60,000 ms caller limit. A caller
@@ -995,3 +1061,36 @@ entry of an input that settles a slot is taken to be covered by the 4,096 bytes 
 that slot. A state at the exact byte of the control bound can still fail a step by
 a change of a few bytes. A Run recorded before this repair can fold to another state
 (Elzoo is not released).
+
+`test/elzoo/run_engine_transcript_test.exs` exercises the read-only Run transcript
+on disposable PostgreSQL (the bounds group on the in-memory Store): `nested_tree`
+(a completed Run whose root `nested_callable` child starts its own: each action's
+`path`, the nested starts and kept finishes, each settlement with its `by`, the
+child cost 7 reaching both parents, the root finish with actual 0 and the terminal
+entry, in commit order with the test clock's times), `ask_paused` (the `:ask`
+authorization with its policy identity and no settlement), `unknown_and_attempt_closed`
+(an Effect made unknown by a restart settles `unknown` with actual `:unknown`; a
+change of Attempt closes a sent tool call and a waiting person ask with
+`by: :run_view` and `reason: nil`), `outside_event_wait` (a native v2 wait: its
+action, the outside-event input and its settlement), `gate_denial` (a denied
+action has the deny verdict and its refusal reason and no action entry; an engine
+refusal committed after another slot's deadline settles both in one record, and
+only the refused slot has a reason), `earlier_run` (a Unit holding an earlier Run,
+with a late input of that Run committed after the new configure, gives only the
+new Run's entries), `scope_limits_reader` (wrong tenant, principal or Run, malformed
+limits and no reader fail with no Run-owner status call and no Store read),
+`later_actual` (a nested parent settled `expired` with no actual gets an `:actual`
+entry from the later `:nested_actual` record when its child's tool cost arrives),
+`expired_before_its_own_outcome` (local work whose timeout outcome is committed
+after its deadline settles `expired` by that record with no reason, not the
+late outcome's `local_lost`),
+`read_bounds` (exact limits succeed, one record or one byte less is `read_limit`,
+an unavailable Store is `unavailable`, pruned history is `history`) and `read_only`
+(Unit, Run-owner and evidence heads and every gate, clock, binding and pattern
+counter are unchanged across two reads, and the reads are equal). Temporary edits
+are negative controls: a `path` without the link to the enclosing parent
+(`nested_tree` fails), entries from sequence 1 regardless of the configured Run
+(`earlier_run` fails), the configure check kept but a protocol record of another
+Run not filtered (`earlier_run` fails), no `:actual` entry (`later_actual`
+fails) and the reason taken without the own-effect check
+(`expired_before_its_own_outcome` fails). Listed finite scenarios, not a proof.

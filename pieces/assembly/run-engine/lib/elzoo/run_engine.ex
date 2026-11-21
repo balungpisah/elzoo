@@ -33,6 +33,9 @@ defmodule Elzoo.RunEngine do
   def event_waits(engine, scope, limits),
     do: GenServer.call(engine, {:event_waits, scope, limits}, @call_limit)
 
+  def transcript(engine, scope, limits),
+    do: GenServer.call(engine, {:transcript, scope, limits}, @call_limit)
+
   @impl true
   def format_status(status), do: Map.merge(status, %{state: :redacted, message: :redacted})
 
@@ -1474,6 +1477,23 @@ defmodule Elzoo.RunEngine do
     end)
   end
 
+  # Whether the own effect of protocol `record` settles slot `key` of `state`: the
+  # slot is still open after the expiry pass of the same fold step and settled after
+  # the record's own protocol rule, before the end of a Run closes what is left.
+  # The steps of protocol_transition/2, pure; the transcript reader asks it so that
+  # it reads no reason from an outcome that came too late to apply.
+  @doc false
+  def own_settlement?(state, record, key) do
+    expired = expire_waits(state, record.input["at_ms"])
+
+    if expired.slots[key].phase == :settled do
+      false
+    else
+      {next, _accepted, _callable} = protocol(expired, record)
+      next.slots[key].phase == :settled
+    end
+  end
+
   defp lifecycle(state, ordinal) do
     life = state.control.lifecycle
 
@@ -1699,7 +1719,11 @@ defmodule Elzoo.RunEngine do
   end
 
   def handle_call({:event_waits, scope, limits}, _, s) do
-    {:reply, read_event_waits(s, scope, limits), s}
+    {:reply, read_retained(s, scope, limits, &Elzoo.RunEngine.ResultReader.event_waits/8), s}
+  end
+
+  def handle_call({:transcript, scope, limits}, _, s) do
+    {:reply, read_retained(s, scope, limits, &Elzoo.RunEngine.ResultReader.transcript/8), s}
   end
 
   def handle_call({:input, id, input, context}, _, s) do
@@ -4963,7 +4987,9 @@ defmodule Elzoo.RunEngine do
     _, _ -> {:error, :unavailable}
   end
 
-  defp read_event_waits(s, scope, limits) do
+  # event_waits/3 and transcript/3: the same scope, limits, owner and history checks;
+  # `reader` is the ResultReader projection of the retained Unit history.
+  defp read_retained(s, scope, limits, reader) do
     cond do
       not valid_result_scope?(s, scope) ->
         {:error, :scope}
@@ -4978,8 +5004,8 @@ defmodule Elzoo.RunEngine do
         case result_owner(s) do
           {:ok, owner} ->
             with true <- valid_event_wait_owner?(owner, s.opts.run_id),
-                 {:ok, waits} <-
-                   Elzoo.RunEngine.ResultReader.event_waits(
+                 {:ok, projection} <-
+                   reader.(
                      s.opts.store,
                      s.opts.identity,
                      owner,
@@ -4991,7 +5017,7 @@ defmodule Elzoo.RunEngine do
                    ),
                  {:ok, current} <- result_owner(s),
                  true <- owner_snapshot(owner) == owner_snapshot(current) do
-              {:ok, waits}
+              {:ok, projection}
             else
               false -> {:error, :unavailable}
               {:error, _} = error -> error
@@ -5285,11 +5311,59 @@ defmodule Elzoo.RunEngine.ResultReader do
   ]
 
   def event_waits(unit_store, unit_stream, owner, retention, limits, bindings, audit, operator) do
+    with {:ok, waits, nil} <-
+           read_retained(
+             unit_store,
+             unit_stream,
+             owner,
+             retention,
+             limits,
+             bindings,
+             audit,
+             operator,
+             nil
+           ) do
+      {:ok, %{run_id: owner.id, attempt_id: owner.current_attempt, waits: waits}}
+    end
+  end
+
+  def transcript(unit_store, unit_stream, owner, retention, limits, bindings, audit, operator) do
+    transcript = %{run_id: owner.id, entries: []}
+
+    with {:ok, _waits, transcript} <-
+           read_retained(
+             unit_store,
+             unit_stream,
+             owner,
+             retention,
+             limits,
+             bindings,
+             audit,
+             operator,
+             transcript
+           ) do
+      {:ok, %{run_id: owner.id, entries: Enum.reverse(transcript.entries)}}
+    end
+  end
+
+  # `transcript` is nil for event_waits; for transcript/8 it collects the entries
+  # of each committed record of the scoped Run during the same fold.
+  defp read_retained(
+         unit_store,
+         unit_stream,
+         owner,
+         retention,
+         limits,
+         bindings,
+         audit,
+         operator,
+         transcript
+       ) do
     fold = DurableUnit.fold(operator: operator, retention_count: retention)
     counters = %{records: 0, bytes: 0}
     version = elem(operator, 2).version
 
-    with {:ok, model, provenance, counters, unit_head} <-
+    with {:ok, model, provenance, counters, unit_head, transcript} <-
            read_unit_history(
              unit_store,
              unit_stream,
@@ -5302,7 +5376,8 @@ defmodule Elzoo.RunEngine.ResultReader do
              limits,
              counters,
              fold.initial,
-             %{}
+             %{},
+             transcript
            ),
          :ok <- if(is_nil(model.pending), do: :ok, else: {:error, :history}),
          :ok <-
@@ -5323,7 +5398,7 @@ defmodule Elzoo.RunEngine.ResultReader do
              limits,
              counters
            ) do
-      {:ok, %{run_id: owner.id, attempt_id: owner.current_attempt, waits: waits}}
+      {:ok, waits, transcript}
     else
       false -> {:error, :unavailable}
       {:error, _} = error -> error
@@ -5452,7 +5527,7 @@ defmodule Elzoo.RunEngine.ResultReader do
     counters = %{records: 0, bytes: 0}
     version = elem(operator, 2).version
 
-    with {:ok, model, candidates, counters, unit_head} <-
+    with {:ok, model, candidates, counters, unit_head, nil} <-
            read_unit_history(
              unit_store,
              unit_stream,
@@ -5465,7 +5540,8 @@ defmodule Elzoo.RunEngine.ResultReader do
              limits,
              counters,
              fold.initial,
-             %{}
+             %{},
+             nil
            ),
          :ok <- if(is_nil(model.pending), do: :ok, else: {:error, :history}),
          :ok <- if(valid_model_version?(model, version), do: :ok, else: {:error, :history}),
@@ -5525,7 +5601,8 @@ defmodule Elzoo.RunEngine.ResultReader do
          limits,
          counters,
          model,
-         candidates
+         candidates,
+         transcript
        ) do
     with {:ok, rows, current_head} <- read_page(store, stream, sequence),
          :ok <- unit_head(current_head),
@@ -5536,7 +5613,7 @@ defmodule Elzoo.RunEngine.ResultReader do
       cond do
         sequence > head.revision ->
           if rows == [],
-            do: {:ok, model, candidates, counters, head},
+            do: {:ok, model, candidates, counters, head, transcript},
             else: {:error, :history}
 
         length(rows) != 1 ->
@@ -5547,8 +5624,9 @@ defmodule Elzoo.RunEngine.ResultReader do
 
           with {:ok, counters} <- charge(row, counters, limits),
                :ok <- valid_row(row, stream, sequence, fold),
-               {:ok, model, candidates} <-
-                 reduce_row(row, model, candidates, fold, version, bindings, audit) do
+               {:ok, next, candidates} <-
+                 reduce_row(row, model, candidates, fold, version, bindings, audit),
+               {:ok, transcript} <- transcript_step(transcript, row, model, next) do
             read_unit_history(
               store,
               stream,
@@ -5560,8 +5638,9 @@ defmodule Elzoo.RunEngine.ResultReader do
               audit,
               limits,
               counters,
-              model,
-              candidates
+              next,
+              candidates,
+              transcript
             )
           end
       end
@@ -5622,6 +5701,208 @@ defmodule Elzoo.RunEngine.ResultReader do
   end
 
   defp reduce_row(_, _, _, _, _, _, _), do: {:error, :history}
+
+  # Transcript entries of one committed record: the change of the folded state that
+  # the record makes, read together with the record. Nothing is called or stepped.
+  # Only the scoped Run's records give entries: an earlier Run on the Unit is
+  # folded, and a protocol record of another Run (a late input) gives none.
+  defp transcript_step(nil, _row, _before, _next), do: {:ok, nil}
+  defp transcript_step(transcript, %{kind: "input"}, _before, _next), do: {:ok, transcript}
+
+  defp transcript_step(
+         transcript,
+         %{kind: "result", sequence: sequence},
+         %{pending: {input_id, record}, state: before},
+         %{state: after_state}
+       ) do
+    run_id = transcript.run_id
+
+    if get_in(after_state, [:control, :run_id]) == run_id and
+         (record.kind != :protocol or record.run_id == run_id) do
+      before = if get_in(before, [:control, :run_id]) == run_id, do: before, else: nil
+      entries = transcript_entries(sequence - 1, input_id, record, before, after_state)
+      {:ok, %{transcript | entries: Enum.reverse(entries, transcript.entries)}}
+    else
+      {:ok, transcript}
+    end
+  end
+
+  defp transcript_entries(sequence, input_id, record, before, after_state) do
+    base = %{sequence: sequence, at_ms: transcript_at(record)}
+    before_slots = if before, do: before.slots, else: %{}
+    before_callables = if before, do: before.control.callables, else: %{}
+    slots = Enum.sort(after_state.slots)
+    changed = fn key -> Map.get(before_slots, key) end
+    input = if record.kind == :protocol, do: transcript_input(record.input)
+
+    inputs =
+      if record.kind == :protocol,
+        do: [%{type: :input, input_id: input_id, kind: input["kind"]}],
+        else: []
+
+    gates =
+      for {key, slot} <- slots,
+          record.kind == :gate,
+          was = changed.(key),
+          is_map(was) and is_nil(was.verdict) and is_map(slot.verdict),
+          do: Map.merge(%{type: :gate, occurrence: key}, slot.verdict)
+
+    actions =
+      for {key, slot} <- slots,
+          record.kind == :admission and key == record.occurrence,
+          match?(%{phase: :allowed}, changed.(key)) and slot.phase == :authorizing do
+        action = record.facts.action
+
+        %{
+          type: :action,
+          occurrence: key,
+          path: transcript_path(after_state, slot.callable),
+          attempt_id: slot.attempt_id,
+          kind: slot.kind,
+          action_id: slot.action_id,
+          schema_id: action["schema_id"],
+          schema_version: action["schema_version"],
+          payload: action["payload"]
+        }
+      end
+
+    authorizations =
+      for {key, slot} <- slots,
+          record.kind == :authorization and key == record.occurrence,
+          match?(%{phase: :authorizing}, changed.(key)) and slot.phase != :authorizing do
+        {verdict, policy} =
+          case record.decision do
+            %{verdict: verdict, policy: policy} when verdict in [:allow, :ask, :deny] ->
+              {verdict, Map.take(policy, [:id, :version, :content_hash])}
+
+            _ ->
+              {:refused, nil}
+          end
+
+        %{type: :authorization, occurrence: key, verdict: verdict, policy: policy}
+      end
+
+    starts =
+      for {key, _slot} <- slots,
+          record.kind == :nested and key == record.occurrence,
+          callable = transcript_callable(key),
+          Map.has_key?(after_state.control.callables, callable),
+          not Map.has_key?(before_callables, callable),
+          do: %{
+            type: :nested_start,
+            occurrence: key,
+            schema_id: record.facts.schema_id,
+            schema_version: record.facts.schema_version,
+            payload: record.facts.payload
+          }
+
+    finishes =
+      after_state.control.callables
+      |> Enum.filter(fn {id, node} ->
+        is_map(node[:finish]) and is_nil(get_in(before_callables, [id, :finish]))
+      end)
+      |> Enum.map(fn {_id, node} ->
+        %{
+          type: :nested_finish,
+          occurrence: node.parent,
+          schema_id: node.finish.schema_id,
+          schema_version: node.finish.schema_version,
+          payload: node.finish.payload
+        }
+      end)
+      |> Enum.sort_by(& &1.occurrence)
+
+    settlements =
+      for {key, slot} <- slots,
+          slot.phase == :settled and not match?(%{phase: :settled}, changed.(key)),
+          do: %{
+            type: :settlement,
+            occurrence: key,
+            path: transcript_path(after_state, slot.callable),
+            action_id: slot.action_id,
+            outcome: slot[:outcome],
+            by: record.kind,
+            reason: transcript_reason(record, input, key, slot, before),
+            actual: transcript_actual(record, key, slot)
+          }
+
+    actuals =
+      for {key, slot} <- slots,
+          was = changed.(key),
+          match?(%{phase: :settled}, was) and not is_integer(was[:actual]),
+          slot.phase == :settled and is_integer(slot[:actual]),
+          do: %{type: :actual, occurrence: key, actual: slot.actual}
+
+    terminal =
+      if after_state.control.lifecycle.phase == :terminal and
+           get_in(before || %{}, [:control, :lifecycle, :phase]) != :terminal,
+         do: [%{type: :terminal, outcome: after_state.control.lifecycle.outcome}],
+         else: []
+
+    Enum.map(
+      inputs ++
+        gates ++
+        actions ++
+        authorizations ++ starts ++ finishes ++ settlements ++ actuals ++ terminal,
+      &Map.merge(base, &1)
+    )
+  end
+
+  defp transcript_input(input) do
+    {:ok, input} = decode_input(input)
+    input
+  end
+
+  defp transcript_at(%{kind: :protocol, input: input}), do: transcript_input(input)["at_ms"]
+  defp transcript_at(%{kind: :run_view, view: view}), do: view.at_ms
+  defp transcript_at(%{kind: :lifecycle, command: command}), do: command.at_ms
+
+  defp transcript_at(%{kind: kind, at_ms: at})
+       when kind in [
+              :gate,
+              :admission,
+              :authorization,
+              :nested,
+              :finish,
+              :nested_actual,
+              :resource_cursor,
+              :event_activation
+            ],
+       do: at
+
+  defp transcript_at(_), do: nil
+
+  # The occurrences of the enclosing nested_callable actions, from the root down:
+  # each child callable's parent is the slot of the action that started it.
+  defp transcript_path(_state, "root"), do: []
+
+  defp transcript_path(state, callable) do
+    parent = state.control.callables[callable].parent
+    transcript_path(state, state.slots[parent].callable) ++ [parent]
+  end
+
+  defp transcript_callable({request, index}), do: "#{request}:#{index}"
+
+  # Only a refusal outcome for this very slot gives its reason, and only when its own
+  # effect settled the slot: one record can also settle slots in its fold step by
+  # expiry or run_closed, the named slot included (it expired first, or its late
+  # outcome left it to the end of the Run), and those settlements get none.
+  defp transcript_reason(%{kind: :protocol} = record, input, key, slot, before) do
+    if input["schema_id"] == "elzoo.run-engine.refusal" and
+         record.correlation[:occurrence] == key and input["action_id"] == slot.action_id and
+         is_map(input["payload"]) and is_map(before) and
+         Elzoo.RunEngine.own_settlement?(before, %{record | input: input}, key),
+       do: input["payload"]["reason"],
+       else: nil
+  end
+
+  defp transcript_reason(_record, _input, _key, _slot, _before), do: nil
+
+  # A finish action settled by its :finish record settles its Budget entry at 0.
+  defp transcript_actual(%{kind: :finish, occurrence: key}, key, _slot), do: 0
+
+  defp transcript_actual(_record, _key, slot),
+    do: if(is_integer(slot[:actual]), do: slot.actual, else: :unknown)
 
   defp validate_event_wait_transition(
          %{pending: {_input_id, record}, state: before_state},
