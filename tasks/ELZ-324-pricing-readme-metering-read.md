@@ -72,8 +72,9 @@ changes, and `domain/pricing` still does not depend on metering code.
 
 1. `grep -n "has that read\|has a read for them"
    pieces/domain/pricing/README.md pieces/domain/pricing/piece.json` prints
-   nothing, and each changed sentence names the 1,000-group bound of
-   `model_totals/3`.
+   nothing, and the three sentences of requirements 1 to 3 (the README Usage
+   sentence, the README limit and the `piece.json` limit) each name the
+   1,000-group bound of `model_totals/3`.
 2. `contract` in `piece.json` is unchanged, and the release-plan entry has the
    new `manifest_sha256` of `piece.json` at the head and `note` equal to
    `contract`.
