@@ -28,23 +28,27 @@ and does not change. `domain/quota` takes no registry and does not change.
 
 1. `Elzoo.Money.Registry.valid?/1` is a pure function with no I/O. It
    returns `true` for `Elzoo.Money.Registry.default/0` and for every value
-   that `Elzoo.Money.Registry.build!/1` returns, and `false` for every other
-   term. At least these return `false`: a term that is not a map with exactly
+   that `Elzoo.Money.Registry.build!/1` returns, and `false` at least for
+   these terms: a term that is not a map with exactly
    the keys `versions`, `snapshots`, `active_numeric` and `sources`;
    `versions` that is not a non-empty list of distinct binaries in ascending
    (oldest-first) order; `snapshots`, `active_numeric` or `sources` that is
    not a map whose keys are exactly the versions; a snapshot that is not a
    map from alpha code to an entry map whose `alpha` equals its key and that
-   holds the `numeric`, `minor_unit` and `status` fields that `Elzoo.Money`
-   reads (`build!/1` writes plain entry maps, not `%Elzoo.Money.Currency{}`);
+   holds the `numeric`, `minor_unit` and `status` fields and the `rows` list
+   of maps with `numeric` that `Elzoo.Money` reads (`build!/1` writes plain entry maps, not `%Elzoo.Money.Currency{}`);
    and an `active_numeric` entry that names an alpha that is not active with
    that numeric code in the same version.
 2. Every public function of `Elzoo.Money` and `Elzoo.Money.Codec` that takes
-   a `registry:` option returns `{:error, :invalid_registry}` when `valid?/1`
-   is false for an explicit value, before any other check of the call.
+   a `registry:` option returns an error when `valid?/1`
+   is false for an explicit value, before any other check of the call, as
+   `{:error, {:invalid_registry, nil}}`: the money error shape of the README,
+   with a detail that never echoes the registry. `Elzoo.Money.Registry`
+   functions that take the registry as a positional argument (such as
+   `entry/3` and `held?/2`) are out of scope.
    A value identical to the compiled default (`Elzoo.Money.Registry.default/0`,
    compared first as a term, so the Pieces that pass the default on every
-   call pay nothing) is not walked again. `:invalid_registry` joins the
+   call pay nothing) is not walked again. `invalid_registry` joins the
    typed rejections in the README and the `contract` of `piece.json`. Another
    explicit registry is walked on every call; state that cost in the
    `limits`, with a figure measured for a registry the size of the default.
@@ -58,8 +62,8 @@ and does not change. `domain/quota` takes no registry and does not change.
 1. Money tests: `valid?/1` is true for the default and for a `build!/1` test
    registry, and false for one value per failure in requirement 1, the
    forged map above included. Every public `Elzoo.Money` and `Elzoo.Money.Codec`
-   function that takes `registry:` returns `:invalid_registry` for that forged
-   map.
+   function that takes `registry:` returns `{:error, {:invalid_registry, nil}}`
+   for that forged map.
 2. Pricing tests: `price/3` and `difference/3` with the forged map return
    `{:error, :invalid}`; the default and a built registry still price.
 3. Negative controls, one per change, each a temporary edit reverted and

@@ -4430,7 +4430,7 @@ Publication copy: [tasks/ELZ-316-money-registry-validator.md](../../tasks/ELZ-31
 
 **Product aims:** P09, P10.
 
-**Acceptance:** domain/money gains the pure Elzoo.Money.Registry.valid?/1 (true for the default and every build!/1 value, false for forged maps), every Elzoo.Money function with an explicit registry: returns {:error, :invalid_registry} when it is false, and domain/pricing uses the same check in place of its key-only one, refusing :invalid as before (owner decision: one shared check for money, pricing and journal before the first release); money Contract extended in place, pricing Contract unchanged, quota and docs/choices.md untouched. Forged-map tests in both Pieces, one negative control per change, local small gate.
+**Acceptance:** domain/money gains the pure Elzoo.Money.Registry.valid?/1 (true for the default and every build!/1 value, false for forged maps), every Elzoo.Money and Elzoo.Money.Codec function with an explicit registry: other than the compiled default returns {:error, {:invalid_registry, nil}} when it is false, and domain/pricing uses the same check in place of its key-only one, refusing :invalid as before (owner decision: one shared check for money, pricing and journal before the first release); money Contract extended in place, pricing Contract unchanged, quota and docs/choices.md untouched. Forged-map tests in both Pieces, one negative control per change, local small gate.
 
 ### ELZ-313
 

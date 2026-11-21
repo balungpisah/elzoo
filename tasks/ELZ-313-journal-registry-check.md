@@ -33,8 +33,8 @@ not change; only the `limits` may gain the sentence of requirement 2. Do not edi
    accepts `Elzoo.Money.Registry.default/0` and every value
    `Elzoo.Money.Registry.build!/1` returns.
 2. The journal's own deep check runs once, in `new/1`. Its per-call check
-   of the journal value (`journal/1`) stays cheap: it checks that the value
-   is a journal struct and does not walk the registry again. The
+   of the journal value (`journal/1`) keeps its repo, prefix-identifier and
+   key-shape registry checks and does not call `valid?/1`. The
    `Elzoo.Money` calls the journal makes still apply ELZ-316's check, which
    costs nothing for the default registry and walks any other registry on
    each call. When that applies, say so in the `limits` of `piece.json` and

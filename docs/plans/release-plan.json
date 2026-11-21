@@ -8191,14 +8191,14 @@
         "tasks/ELZ-316-money-registry-validator.md"
       ],
       "outputs": [],
-      "acceptance": "domain/money gains the pure Elzoo.Money.Registry.valid?/1 (true for the default and every build!/1 value, false for forged maps), every Elzoo.Money function with an explicit registry: returns {:error, :invalid_registry} when it is false, and domain/pricing uses the same check in place of its key-only one, refusing :invalid as before (owner decision: one shared check for money, pricing and journal before the first release); money Contract extended in place, pricing Contract unchanged, quota and docs/choices.md untouched. Forged-map tests in both Pieces, one negative control per change, local small gate.",
+      "acceptance": "domain/money gains the pure Elzoo.Money.Registry.valid?/1 (true for the default and every build!/1 value, false for forged maps), every Elzoo.Money and Elzoo.Money.Codec function with an explicit registry: other than the compiled default returns {:error, {:invalid_registry, nil}} when it is false, and domain/pricing uses the same check in place of its key-only one, refusing :invalid as before (owner decision: one shared check for money, pricing and journal before the first release); money Contract extended in place, pricing Contract unchanged, quota and docs/choices.md untouched. Forged-map tests in both Pieces, one negative control per change, local small gate.",
       "product_aims": [
         "P09",
         "P10"
       ],
       "issue": 731,
       "url": "https://github.com/balungpisah/elzoo/issues/731",
-      "issue_body_sha256": "2c4a5c0930b9ade60a27dd181799da0ee6f6fda9a7c1bf3890c7460a324c3c9a"
+      "issue_body_sha256": "40ad3a60b03bf47d78b1317d8374450f8e3d32d9c341f2ddc8a153ae63b497bf"
     },
     {
       "id": "ELZ-313",
@@ -8223,7 +8223,7 @@
       ],
       "issue": 726,
       "url": "https://github.com/balungpisah/elzoo/issues/726",
-      "issue_body_sha256": "eb1f7c7ac949f21211504f7ff1347628ed09e0ffdcae0f343c8e76030d55c8c2"
+      "issue_body_sha256": "0784f2894a8e3b3f4db204633a47efa6fcf3b63349cceac1298b64fe8d38d26e"
     },
     {
       "id": "ELZ-314",
