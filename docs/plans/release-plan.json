@@ -7824,6 +7824,29 @@
       "issue": 674,
       "url": "https://github.com/balungpisah/elzoo/issues/674",
       "issue_body_sha256": "f79c193c142179acf03c105626e14879eb8e8551651811d1bcb8a1d0e410af5a"
+    },
+    {
+      "id": "ELZ-293",
+      "title": "ELZ-293 — Record the Wave 5 closure and its open-defect handoff",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-286"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-293-wave5-closure-note.md"
+      ],
+      "outputs": [],
+      "acceptance": "bot-platform-wave5.md records the Wave 5 closure (every published Wave 5 task merged on a green main, repairs, recorded coordinator decisions, the ELZ-286 limits and the non-blocking open items) and bot-platform.md no longer calls Wave 5 planned; no Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 677,
+      "url": "https://github.com/balungpisah/elzoo/issues/677",
+      "issue_body_sha256": "7f3d7b7a3fd6532e20fa4ae2a2138a13b6866eedc8183f79a6270c0b5e847f6e"
     }
   ],
   "entries": [
