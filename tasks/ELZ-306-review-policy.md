@@ -42,13 +42,12 @@ Publication owns this task file, its no-output job row in
 2. The automated-reviewer bullet requires, before the coordinator starts
    the merge queue, that the automated reviewer's pass on the exact head
    has finished and that every one of its threads is answered and
-   resolved, and says that a head the queue makes by merging `main` needs
-   no new pass.
+   resolved, and says that a head the queue makes by merging `main` within
+   that run needs no new pass, while a head pushed for a repair does.
 3. The paragraph that marks a pull request ready says that the automated
    reviewer reviews only a pull request that is not a draft, so its pass
-   starts when the PR is marked ready, and that the coordinator merges only
-   starts the queue only after that pass has finished with its threads
-   resolved.
+   starts when the PR is marked ready, and that the coordinator starts the
+   queue only after that pass has finished with its threads resolved.
 4. A bullet records the one-time recheck of the three Pieces above by a
    reviewer of another model family once one is available, with each
    finding as its own task.
