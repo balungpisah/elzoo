@@ -373,6 +373,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-321](https://github.com/balungpisah/elzoo/issues/742) | V2 / pieces | ELZ-319 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
 | [ELZ-322](https://github.com/balungpisah/elzoo/issues/745) | V1B / pieces | ELZ-299, ELZ-312 | published 2026-11-21 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-323](https://github.com/balungpisah/elzoo/issues/746) | V2 / pieces | ELZ-055, ELZ-127, ELZ-249, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-281, ELZ-285, ELZ-297, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-304, ELZ-312, ELZ-313, ELZ-314, ELZ-316, ELZ-318, ELZ-322 | published 2026-11-21 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-324](https://github.com/balungpisah/elzoo/issues/752) | V2 / pieces | ELZ-321, ELZ-322 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
 
 ## Catalogue accounting
 
@@ -567,7 +568,7 @@ Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324.
 
 Prior release gate: V1-ACCEPT.
 
@@ -4571,3 +4572,13 @@ Publication copy: [tasks/ELZ-323-wave6-count-and-see-acceptance.md](../../tasks/
 **Product aims:** P09, P10.
 
 **Acceptance:** Real PostgreSQL as the non-owner application role: counted Runs with unknown kept apart and corrected, entitlement and quota reservation racing for the last allowance, pricing per provider and model with card versions, balanced journal posts with replay and correction difference, the Run transcript, dead-letter storage behind a Relay, Carbonite audit capture of the allowance-grant and credit checked commands, a retained denial included (the credit command first, then its journal post), the pay-as-you-go, quota-capped and prepaid groups, a once-only spend-alert notice and a dataset eval; four harness negative controls. Default money registry; ELZ-319 to ELZ-321 not required.
+
+### ELZ-324
+
+ELZ-324 — domain/pricing documents: the metering read for its rows and the checked registry's code lifetime
+
+Publication copy: [tasks/ELZ-324-pricing-readme-metering-read.md](../../tasks/ELZ-324-pricing-readme-metering-read.md).
+
+**Product aims:** P09.
+
+**Acceptance:** domain/pricing README (Usage section and limits paragraph) and the piece.json limit name Elzoo.Metering.model_totals/3 (ELZ-322, its {:ok, rows}) as the read of the per-provider and per-model rows of a period of at most 1,000 groups (read_limit above max_rows 1..1000; a larger period's rows, up to 4096, stay host-built), and the Needs line and piece.json assumption say the host supplies complete rows, read or built; the README opts paragraph adds that a checked registry is accepted only while the Elzoo.Money.Registry build that made it is loaded, so the host checks again after a code upgrade (domain/money limits), and a value check/1 refuses is invalid. No code, test, example or Contract change; new manifest_sha256, note equal to contract; Piece tests, local small gate, full review.
