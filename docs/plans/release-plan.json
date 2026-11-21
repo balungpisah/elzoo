@@ -8174,6 +8174,29 @@
       "issue": 717,
       "url": "https://github.com/balungpisah/elzoo/issues/717",
       "issue_body_sha256": "ce451611034ee8b0ef2cc46e5df8587f62edf3f7faa266b2b9a037341a2957ce"
+    },
+    {
+      "id": "ELZ-310",
+      "title": "ELZ-310 — List the automated-review skips of the 21 Nov quota outage",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-307"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path for a documents change; merge queue",
+      "paths": [
+        "tasks/ELZ-310-skip-list-quota-outage.md"
+      ],
+      "outputs": [],
+      "acceptance": "The Skipped automated reviews list in docs/development/13-coordinator.md has rows for #712 (682bd985..1d0e9bab) and #714 (26efb104..5620eec5) and names the 21 Nov quota outage (service back about 08:30 UTC on 22 Nov) as the reason, with the extra review as the gate; rows stay until the recheck, each finding its own task; no rule, Contract, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 718,
+      "url": "https://github.com/balungpisah/elzoo/issues/718",
+      "issue_body_sha256": "6201053883b94bf0f49e80c093b55dc64461f3c627e92a168e5cae29376957b8"
     }
   ],
   "entries": [
