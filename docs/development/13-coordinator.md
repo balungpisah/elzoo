@@ -147,7 +147,7 @@
   findings or an explicit no-findings result for the range, as a review on
   the recheck pull request or, for that reviewer, a five-line record on the
   skipped pull request that is posted after the row was added and whose
-  Reviewer line begins `recheck of a skipped automated review`. The record
+  Reviewer role begins `recheck of a skipped automated review`. The record
   that was the gate does not count. If neither posts
   a review result, including when the automated reviewer reports that it is
   unavailable or out of quota, the row stays.
