@@ -964,7 +964,7 @@ defmodule Elzoo.RunEngineV2ReaderProofTest do
                event_context(wait)
              )
 
-    assert wait_for(engine, &(&1.slots[wait.occurrence].phase == :settled))
+    assert wait_for(engine, &(&1.slots[wait.occurrence][:phase] == :settled))
     assert {:ok, :applied} = append_wake(engine, "first-settlement-retention-wake")
     later = result_row(c, length(rows(c)))
 

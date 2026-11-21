@@ -676,7 +676,7 @@ defmodule Elzoo.RunEngineV2Test do
 
     engine = start(c)
     assert {:ok, :applied} = RunEngine.input(engine, "start", start_input_v2(), verified())
-    wait_for(engine, &(&1.slots[{1, 0}].phase == :waiting))
+    wait_for(engine, &(&1.slots[{1, 0}][:phase] == :waiting))
 
     assert {:ok, :applied} =
              RunEngine.control(
@@ -785,7 +785,7 @@ defmodule Elzoo.RunEngineV2Test do
     engine = start(c, bindings: Map.put(c.opts[:bindings], "nested_callable", nested))
     assert {:ok, :applied} = RunEngine.input(engine, "start", start_input_v2(), verified())
 
-    assert wait_for(engine, &(&1.slots[{1, 0}].outcome == "completed")).slots[{1, 0}].outcome ==
+    assert wait_for(engine, &(&1.slots[{1, 0}][:outcome] == "completed")).slots[{1, 0}].outcome ==
              "completed"
 
     assert Enum.all?(protocol_records(c), &(&1.version == 2))
@@ -816,7 +816,7 @@ defmodule Elzoo.RunEngineV2Test do
     assert {:ok, :applied} = RunEngine.input(engine, "mapped-start", start_input_v2(), verified())
     assert_receive {:custom_binding, "mapped"}
 
-    assert wait_for(engine, &(&1.slots[{1, 0}].outcome == "completed")).slots[{1, 0}].outcome ==
+    assert wait_for(engine, &(&1.slots[{1, 0}][:outcome] == "completed")).slots[{1, 0}].outcome ==
              "completed"
 
     mapped_record = Enum.find(protocol_records(c), &(&1.input["action_id"] == "mapped"))
@@ -850,7 +850,7 @@ defmodule Elzoo.RunEngineV2Test do
                verified(%{occurrence: {1, 0}, actual: 1, dispatch: "dispatched"})
              )
 
-    assert wait_for(bad_engine, &(&1.slots[{1, 0}].outcome == "failed")).slots[{1, 0}].outcome ==
+    assert wait_for(bad_engine, &(&1.slots[{1, 0}][:outcome] == "failed")).slots[{1, 0}].outcome ==
              "failed"
 
     {_, bad_record} = Enum.find(durable_records(bad), fn {id, _} -> id == "wrong-result-schema" end)

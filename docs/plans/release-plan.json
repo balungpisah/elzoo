@@ -7707,6 +7707,29 @@
       "issue_body_sha256": "d3c32d9134d342a3e237500f8f3dad66f3c436c7124da95a81c87387670d5c5b"
     },
     {
+      "id": "ELZ-287",
+      "title": "ELZ-287 — Make the run-engine test wait predicates total over a running slot",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-127"
+      ],
+      "status": "published 2026-11-20",
+      "owner_role": "coordinator; one-PR path; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-287-run-engine-wait-predicates.md"
+      ],
+      "outputs": [],
+      "acceptance": "Every wait_for predicate in the run-engine tests returns a boolean over a missing, running or completed slot, so the KeyError of hosted run 44821383173 (#660) cannot recur; Contract, library, README, manifest, timeouts and poll budgets unchanged. Running-slot reproduction, wrong-outcome negative control, repeated Piece tests, small gate.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 661,
+      "url": "https://github.com/balungpisah/elzoo/issues/661",
+      "issue_body_sha256": "c7472c333b54e5a472847fb3abe9a1e7811a40a9f06963520a4c80f267a331cc"
+    },
+    {
       "id": "ELZ-288",
       "title": "ELZ-288 — Restore the found Logger level, and run empty-log tests synchronously",
       "kind": "published",
