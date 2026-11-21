@@ -8430,10 +8430,12 @@
     {
       "id": "domain/entitlement",
       "job": "ELZ-300",
-      "note": "Planned pure resolution of host plan versions and grants at an injected time to entitled, grace or not entitled, with features and a list of unit allowances and the contributing grants and plan identities; revocation wins over grace; v1 refuses overlapping grants (stacking stays addable in place). No I/O, billing, quota or authorization decision.",
+      "note": "Pure resolution of host plan versions and a tenant's grants of them at an injected time to entitled, grace or not entitled. A grant's status is revoked > expired > grace > active > not yet, with exclusive valid_to_ms and grace_until_ms; two grants of one tenant active or in grace at once are overlap in this version. A resolution {tenant, at_ms, grants, features, allowances} lists each contributing grant with its plan_id, version, content_hash and status, the sorted union of features, and a list of unit allowances {unit, amount, period_kind :utc_month, settle_only, grant_id} over the integration/ai-model unit set, settle_only true in grace. With no contributing grant the result is revoked, else expired, else no_grant. content_hash/1 is the SHA-256 of a documented canonical plan encoding. feature/2 allows a feature of an entitled or grace resolution. Fixed error atoms in the order now, tenant, facts, plans, grants, content_hash, unknown_plan, overlap, and invalid for feature/2; none echoes an ID. Unit, period_kind, status and error sets and the returned maps may gain members. No I/O, clock, storage, billing, quota or authorization decision.",
       "baseline_status": "deferred",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/entitlement/piece.json",
+      "manifest_sha256": "391d5b25f5fffcce928ab879128848bc81aedff3b8f3d66d8178d485060258db"
     },
     {
       "id": "domain/journal",

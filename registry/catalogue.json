@@ -350,8 +350,8 @@
       "summary": "Feature/access entitlement decisions",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-300: pure resolution of host plan grants with grace and revocation, separate from identity and quota; no billing implementation."
+      "status": "ready",
+      "manifest": "pieces/domain/entitlement/piece.json"
     },
     {
       "id": "domain/journal",
