@@ -8176,6 +8176,29 @@
       "issue_body_sha256": "ce451611034ee8b0ef2cc46e5df8587f62edf3f7faa266b2b9a037341a2957ce"
     },
     {
+      "id": "ELZ-311",
+      "title": "ELZ-311 — A reviewer of another model family replaces an unavailable automated reviewer",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-307"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-311-other-family-fallback-review.md"
+      ],
+      "outputs": [],
+      "acceptance": "AGENTS.md section 6 says the extra review that replaces an unavailable automated reviewer is done by a reviewer of another model family (GPT-6.1 Terra, high effort), with a same-model fresh session only when it cannot run and the reason recorded; that review reads AGENTS.md, the task file and the Contract and cites the rule lines it checked; the same reviewer and rule cover the one-time journal, metering and dead-letter-store recheck and the coordinator guide's skipped-review rechecks, each finding its own task; skip triggers and every other rule unchanged (owner decision). Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 722,
+      "url": "https://github.com/balungpisah/elzoo/issues/722",
+      "issue_body_sha256": "01c61d2091c01dbd02f67655742ed19b95c45da2a5eb66c85441a7207cad2757"
+    },
+    {
       "id": "ELZ-312",
       "title": "ELZ-312 — Test domain/metering correction order against a controlled commit order",
       "kind": "published",
