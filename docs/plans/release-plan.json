@@ -8364,6 +8364,55 @@
       "issue": 734,
       "url": "https://github.com/balungpisah/elzoo/issues/734",
       "issue_body_sha256": "ae5520380d9a2449fff57727466a12fcb68dbb7aec08bb4b339c38c9b9783a9a"
+    },
+    {
+      "id": "ELZ-319",
+      "title": "ELZ-319 — A checked money registry: validate a custom registry once, not on every call",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-316"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; local small gate, full review and merge queue",
+      "paths": [
+        "tasks/ELZ-319-money-registry-token.md"
+      ],
+      "outputs": [],
+      "acceptance": "Elzoo.Money.Registry.check/1 walks a registry once and returns an opaque checked value whose registry is held in a closure made by Elzoo.Money.Registry; every money, codec and registry function and domain/pricing accept it in constant time, a raw map is still walked in full, and pricing checks a raw map once per call instead of once per money call (owner decision, no global cache or process state); forged raw maps and forged checked values refused; money and pricing limits state each form's cost and the token's limits. Measured 1024-line card with default, checked and raw registries within 25 percent of the default; negative controls for the raw-map walk, the token test and the per-call pricing walk; local small gate.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 739,
+      "url": "https://github.com/balungpisah/elzoo/issues/739",
+      "issue_body_sha256": "f022039ddda9938e558aaba4ccec6ce66382c6ad010afbe1110c0db377dd68e9"
+    },
+    {
+      "id": "ELZ-320",
+      "title": "ELZ-320 — domain/journal checks its registry once and keeps the checked value",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-314",
+        "ELZ-319"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; local small gate, full review and merge queue",
+      "paths": [
+        "tasks/ELZ-320-journal-registry-token.md"
+      ],
+      "outputs": [],
+      "acceptance": "Elzoo.Journal.new/1 checks a raw registry once with Elzoo.Money.Registry.check/1 and keeps the default or the checked value, never a raw custom map, and passes it to every money call (owner decision: validate a custom registry once); forged raw and forged checked values raise the fixed ArgumentError; results, bounds and queries unchanged; limits state the new cost. Equal-results tests for default, raw and checked registries, kept-raw-map negative control, local small gate.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 740,
+      "url": "https://github.com/balungpisah/elzoo/issues/740",
+      "issue_body_sha256": "a05f5c0c8d02795d9d4e02a2614560fa5be524a3eae90418addfc0d33cf1af33"
     }
   ],
   "entries": [

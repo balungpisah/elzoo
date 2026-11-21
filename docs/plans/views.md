@@ -367,6 +367,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-312](https://github.com/balungpisah/elzoo/issues/724) | V1B / pieces | ELZ-299 | published 2026-11-21 | coordinator; one-PR path; independent review and merge queue |
 | [ELZ-310](https://github.com/balungpisah/elzoo/issues/718) | V1B / pieces | ELZ-307 | published 2026-11-21 | coordinator; one-PR path for a documents change; merge queue |
 | [ELZ-317](https://github.com/balungpisah/elzoo/issues/734) | V1B / pieces | ELZ-311 | published 2026-11-21 | coordinator; one-PR path for a documents change; merge queue |
+| [ELZ-319](https://github.com/balungpisah/elzoo/issues/739) | V2 / pieces | ELZ-316 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
+| [ELZ-320](https://github.com/balungpisah/elzoo/issues/740) | V2 / pieces | ELZ-314, ELZ-319 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
 
 ## Catalogue accounting
 
@@ -561,7 +563,7 @@ Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320.
 
 Prior release gate: V1-ACCEPT.
 
@@ -4505,3 +4507,23 @@ Publication copy: [tasks/ELZ-317-skip-list-rechecks.md](../../tasks/ELZ-317-skip
 **Product aims:** P13.
 
 **Acceptance:** The Skipped automated reviews list in docs/development/13-coordinator.md drops the rows for #703, #708, #709, #712 and #714, whose other-family recheck records are posted (the #703 finding merged as ELZ-315), adds rows for #719 (3d624ba1..ac2bc431), #723 (b1fa8b9d..cb1385b9), #725 (42910465..d7a0e54b) and #729 (d1316117..3390fc53) with the review posted on each PR as the gate, and drops the quota-outage paragraph that no row cites; recheck procedure, rules, Contracts, Pieces and catalogue unchanged. Documents-only classification, live roadmap, claims and diff checks.
+
+### ELZ-319
+
+ELZ-319 — A checked money registry: validate a custom registry once, not on every call
+
+Publication copy: [tasks/ELZ-319-money-registry-token.md](../../tasks/ELZ-319-money-registry-token.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** Elzoo.Money.Registry.check/1 walks a registry once and returns an opaque checked value whose registry is held in a closure made by Elzoo.Money.Registry; every money, codec and registry function and domain/pricing accept it in constant time, a raw map is still walked in full, and pricing checks a raw map once per call instead of once per money call (owner decision, no global cache or process state); forged raw maps and forged checked values refused; money and pricing limits state each form's cost and the token's limits. Measured 1024-line card with default, checked and raw registries within 25 percent of the default; negative controls for the raw-map walk, the token test and the per-call pricing walk; local small gate.
+
+### ELZ-320
+
+ELZ-320 — domain/journal checks its registry once and keeps the checked value
+
+Publication copy: [tasks/ELZ-320-journal-registry-token.md](../../tasks/ELZ-320-journal-registry-token.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** Elzoo.Journal.new/1 checks a raw registry once with Elzoo.Money.Registry.check/1 and keeps the default or the checked value, never a raw custom map, and passes it to every money call (owner decision: validate a custom registry once); forged raw and forged checked values raise the fixed ArgumentError; results, bounds and queries unchanged; limits state the new cost. Equal-results tests for default, raw and checked registries, kept-raw-map negative control, local small gate.
