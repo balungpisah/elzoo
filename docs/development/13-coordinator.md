@@ -136,9 +136,12 @@
   finding its own task.
 - **Skipped automated reviews.** When `AGENTS.md` section 6 lets the
   coordinator skip the automated reviewer, add a row here. When the
-  automated reviewer is available again, it rechecks each listed range once;
-  each finding becomes its own task, and the row is removed after the
-  recheck.
+  automated reviewer is available again, it rechecks each listed range once:
+  push a branch `recheck/<PR>-base` at the range's first SHA and a branch
+  `recheck/<PR>` at its last SHA, open a pull request from the second to the
+  first, mark it ready so the automated reviewer passes, then close it
+  unmerged and delete both branches. Each finding becomes its own task, and
+  the row is removed after the recheck.
 
   | Pull request | Skipped range | Why |
   | --- | --- | --- |

@@ -385,7 +385,8 @@ exact-head requirements, or hosted checks on a new head.
   reviewer's pass on the exact head has finished and every one of its
   threads is resolved (owner decision). A head that the queue makes by
   merging `main` into the branch within that run needs no new pass; a head
-  pushed for a repair needs a finished pass before the queue starts again.
+  pushed for a repair needs a finished pass, or the extra review below,
+  before the queue starts again.
 - Do not wait on an unavailable automated reviewer (owner decision). It posts
   nothing when it starts, and on a later head it may post nothing at all. So
   when it has posted nothing for the exact head 30 minutes after the later
