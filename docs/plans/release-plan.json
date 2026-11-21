@@ -8176,6 +8176,104 @@
       "issue_body_sha256": "ce451611034ee8b0ef2cc46e5df8587f62edf3f7faa266b2b9a037341a2957ce"
     },
     {
+      "id": "ELZ-316",
+      "title": "ELZ-316 — One money registry check, used by domain/money and domain/pricing",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-031",
+        "ELZ-304"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; local small gate, full review and merge queue",
+      "paths": [
+        "tasks/ELZ-316-money-registry-validator.md"
+      ],
+      "outputs": [],
+      "acceptance": "domain/money gains the pure Elzoo.Money.Registry.valid?/1 (true for the default and every build!/1 value, false for forged maps), every Elzoo.Money and Elzoo.Money.Codec function with an explicit registry: other than the compiled default returns {:error, {:invalid_registry, nil}} when it is false, and domain/pricing uses the same check in place of its key-only one, refusing :invalid as before (owner decision: one shared check for money, pricing and journal before the first release); money Contract extended in place, pricing Contract unchanged, quota and docs/choices.md untouched. Forged-map tests in both Pieces, one negative control per change, local small gate.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 731,
+      "url": "https://github.com/balungpisah/elzoo/issues/731",
+      "issue_body_sha256": "1f7a4014505cecfc4fc75cf171d411850926575c49173b0c1fdb1718d6e32ac6"
+    },
+    {
+      "id": "ELZ-313",
+      "title": "ELZ-313 — Elzoo.Journal.new/1 refuses a value that is not a money registry",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-297",
+        "ELZ-316"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; local small gate, full review and merge queue",
+      "paths": [
+        "tasks/ELZ-313-journal-registry-check.md"
+      ],
+      "outputs": [],
+      "acceptance": "Elzoo.Journal.new/1 raises its fixed ArgumentError when the shared Elzoo.Money.Registry.valid?/1 (ELZ-316) is false for its registry: value, and still accepts the default and every built registry; the deep check runs once in new/1 (other-family recheck finding, owner decision on one shared check); Contract, README and other behavior unchanged, no other Piece edited. Malformed and forged-registry regression, key-only negative control, Piece tests, local small gate.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 726,
+      "url": "https://github.com/balungpisah/elzoo/issues/726",
+      "issue_body_sha256": "136d869405e443d8c8e0d376da1c148ea4a06fdb78d979dbbeb623b60d9e2140"
+    },
+    {
+      "id": "ELZ-314",
+      "title": "ELZ-314 — Elzoo.Journal.history/3 reads the account and its page in one statement",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-297",
+        "ELZ-313"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; local small gate, full review and merge queue",
+      "paths": [
+        "tasks/ELZ-314-journal-history-one-read.md"
+      ],
+      "outputs": [],
+      "acceptance": "Elzoo.Journal.history/3 sends one SQL statement of its own under the tenant scope (transaction control and transact/3's set_config excluded) that returns the account's currency identity and the bounded page and tells an unknown account from an empty page, as the ELZ-297 single-read rule says (other-family recheck finding); results, bounds and row security unchanged. Statement-count test through Repo telemetry, two-statement negative control, Piece tests, local small gate.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 727,
+      "url": "https://github.com/balungpisah/elzoo/issues/727",
+      "issue_body_sha256": "8fde43812c5a3a9dd89c047ee6f664c5a235623cab069ae9b60ffcdb44abb7fe"
+    },
+    {
+      "id": "ELZ-315",
+      "title": "ELZ-315 — runtime/os-isolation README: the late result follows the killed-Owner residual",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-305"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; local small gate, full review and merge queue",
+      "paths": [
+        "tasks/ELZ-315-os-isolation-late-result-sentence.md"
+      ],
+      "outputs": [],
+      "acceptance": "The runtime/os-isolation README run/3 paragraph says the late result still arrives except in the declared killed-Owner residual, so it no longer contradicts the ELZ-305 residual (other-family recheck finding on #703); no code, test, piece.json or other README change; the weighted-Piece gates apply. Piece tests, local small gate, full review, exact-head check-piece, diff and index checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 728,
+      "url": "https://github.com/balungpisah/elzoo/issues/728",
+      "issue_body_sha256": "ceb88d40cd240b2b84eb4e2b41f9b25514b5a89e9458ad276a0b3e6cb7fd9dd0"
+    },
+    {
       "id": "ELZ-311",
       "title": "ELZ-311 — A reviewer of another model family replaces an unavailable automated reviewer",
       "kind": "published",

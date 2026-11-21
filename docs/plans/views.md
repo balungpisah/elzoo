@@ -359,6 +359,10 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-307](https://github.com/balungpisah/elzoo/issues/711) | V1B / pieces | ELZ-306 | published 2026-11-21 | coordinator; one-PR path for a documents change; independent review and merge queue |
 | [ELZ-308](https://github.com/balungpisah/elzoo/issues/713) | V1B / pieces | none | published 2026-11-21 | coordinator; one-PR path for a documents change; independent review and merge queue |
 | [ELZ-309](https://github.com/balungpisah/elzoo/issues/717) | V1B / pieces | ELZ-287 | published 2026-11-21 | coordinator; one-PR path; independent review and merge queue |
+| [ELZ-316](https://github.com/balungpisah/elzoo/issues/731) | V2 / pieces | ELZ-031, ELZ-304 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
+| [ELZ-313](https://github.com/balungpisah/elzoo/issues/726) | V2 / pieces | ELZ-297, ELZ-316 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
+| [ELZ-314](https://github.com/balungpisah/elzoo/issues/727) | V2 / pieces | ELZ-297, ELZ-313 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
+| [ELZ-315](https://github.com/balungpisah/elzoo/issues/728) | V1B / pieces | ELZ-305 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
 | [ELZ-311](https://github.com/balungpisah/elzoo/issues/722) | V1B / pieces | ELZ-307 | published 2026-11-21 | coordinator; one-PR path for a documents change; independent review and merge queue |
 | [ELZ-312](https://github.com/balungpisah/elzoo/issues/724) | V1B / pieces | ELZ-299 | published 2026-11-21 | coordinator; one-PR path; independent review and merge queue |
 | [ELZ-310](https://github.com/balungpisah/elzoo/issues/718) | V1B / pieces | ELZ-307 | published 2026-11-21 | coordinator; one-PR path for a documents change; merge queue |
@@ -550,13 +554,13 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-291, ELZ-305, ELZ-306, ELZ-307, ELZ-308, ELZ-309, ELZ-311, ELZ-312, ELZ-310.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-291, ELZ-305, ELZ-306, ELZ-307, ELZ-308, ELZ-309, ELZ-315, ELZ-311, ELZ-312, ELZ-310.
 
 ### V2-ACCEPT
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314.
 
 Prior release gate: V1-ACCEPT.
 
@@ -4420,6 +4424,46 @@ Publication copy: [tasks/ELZ-309-run-engine-await-local-outcome.md](../../tasks/
 **Product aims:** P13.
 
 **Acceptance:** Each run-engine test read of a terminal outcome whose slot completes by a later engine input (local work) waits for it with a total wait_for predicate before its strict assertion, so the KeyError of hosted run 44907924901 (#716) cannot recur; Contract, library, README, manifest, timeouts and poll budgets unchanged. Delayed-completion reproduction, wrong-outcome negative control, repeated Piece tests, small gate.
+
+### ELZ-316
+
+ELZ-316 — One money registry check, used by domain/money and domain/pricing
+
+Publication copy: [tasks/ELZ-316-money-registry-validator.md](../../tasks/ELZ-316-money-registry-validator.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** domain/money gains the pure Elzoo.Money.Registry.valid?/1 (true for the default and every build!/1 value, false for forged maps), every Elzoo.Money and Elzoo.Money.Codec function with an explicit registry: other than the compiled default returns {:error, {:invalid_registry, nil}} when it is false, and domain/pricing uses the same check in place of its key-only one, refusing :invalid as before (owner decision: one shared check for money, pricing and journal before the first release); money Contract extended in place, pricing Contract unchanged, quota and docs/choices.md untouched. Forged-map tests in both Pieces, one negative control per change, local small gate.
+
+### ELZ-313
+
+ELZ-313 — Elzoo.Journal.new/1 refuses a value that is not a money registry
+
+Publication copy: [tasks/ELZ-313-journal-registry-check.md](../../tasks/ELZ-313-journal-registry-check.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** Elzoo.Journal.new/1 raises its fixed ArgumentError when the shared Elzoo.Money.Registry.valid?/1 (ELZ-316) is false for its registry: value, and still accepts the default and every built registry; the deep check runs once in new/1 (other-family recheck finding, owner decision on one shared check); Contract, README and other behavior unchanged, no other Piece edited. Malformed and forged-registry regression, key-only negative control, Piece tests, local small gate.
+
+### ELZ-314
+
+ELZ-314 — Elzoo.Journal.history/3 reads the account and its page in one statement
+
+Publication copy: [tasks/ELZ-314-journal-history-one-read.md](../../tasks/ELZ-314-journal-history-one-read.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** Elzoo.Journal.history/3 sends one SQL statement of its own under the tenant scope (transaction control and transact/3's set_config excluded) that returns the account's currency identity and the bounded page and tells an unknown account from an empty page, as the ELZ-297 single-read rule says (other-family recheck finding); results, bounds and row security unchanged. Statement-count test through Repo telemetry, two-statement negative control, Piece tests, local small gate.
+
+### ELZ-315
+
+ELZ-315 — runtime/os-isolation README: the late result follows the killed-Owner residual
+
+Publication copy: [tasks/ELZ-315-os-isolation-late-result-sentence.md](../../tasks/ELZ-315-os-isolation-late-result-sentence.md).
+
+**Product aims:** P13.
+
+**Acceptance:** The runtime/os-isolation README run/3 paragraph says the late result still arrives except in the declared killed-Owner residual, so it no longer contradicts the ELZ-305 residual (other-family recheck finding on #703); no code, test, piece.json or other README change; the weighted-Piece gates apply. Piece tests, local small gate, full review, exact-head check-piece, diff and index checks.
 
 ### ELZ-311
 
