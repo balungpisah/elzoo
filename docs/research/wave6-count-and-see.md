@@ -180,7 +180,8 @@ The affected gate (`mix check --affected origin/main`), the roadmap and claims c
 ## Harness negative controls
 
 Each was a temporary edit, run, recorded and reverted with `git checkout`. Both files then
-matched the committed SHA-256 (test `8a6d81a7…`, helper `a2b12a28…`). Each run exited 2.
+matched the committed SHA-256 (test `238ca5c8…`, helper `9d7537bd…`), on a base that includes
+ELZ-319, ELZ-320 and ELZ-321. Each run exited 2. The script is a scratch file, not committed.
 
 1. The application Repo connected without `SET ROLE` (as the owner). With the guard on,
    `setup_all` failed and invalidated all 11 tests: `the application connection is not the
