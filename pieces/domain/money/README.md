@@ -51,7 +51,10 @@ never called. For one with only the struct's fields (`__struct__` and
 `held?/2` raises `KeyError`, and `member/2,3` raises `KeyError` for a
 `%Currency{}` it would look up, else returns `forged_currency` as for any
 registry. A forged value that also carries registry keys such as `versions`
-or `snapshots` is read through those keys, unchecked, like any raw map.
+or `snapshots` is read through those keys, unchecked, by `versions/1`,
+`latest/1` and `held?/2`; `entry/3`, and `member/2,3` when it reaches an
+entry lookup, still raise `UndefinedFunctionError`, because a value tagged
+with the struct has no Access.
 
 Options on every call: `registry:` (default the compiled registry) and
 `version:`. An explicit `registry:` is decided first, by one check: the
