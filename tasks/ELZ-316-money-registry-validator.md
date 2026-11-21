@@ -36,7 +36,10 @@ and does not change. `domain/quota` takes no registry and does not change.
    not a map whose keys are exactly the versions; a snapshot that is not a
    map from alpha code to an entry map whose `alpha` equals its key and that
    holds the `numeric`, `minor_unit` and `status` fields and the `rows` list
-   of maps with `numeric` that `Elzoo.Money` reads (`build!/1` writes plain entry maps, not `%Elzoo.Money.Currency{}`);
+   of maps with `numeric` that `Elzoo.Money` reads (`build!/1` writes plain entry maps, not `%Elzoo.Money.Currency{}`),
+   with `numeric` an integer or `nil`, `minor_unit` an integer, `nil` or an
+   atom, and `status` `:active` or a `{:retired, _}` tuple, so a float in
+   either number field is refused;
    and an `active_numeric` value for a version that is not exactly the map
    from the integer numeric code of each active entry of that snapshot to
    its alpha (`build!/1` builds it so; an entry missing from it would make
