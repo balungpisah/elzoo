@@ -218,6 +218,14 @@
       "manifest": "pieces/delivery/dead-letter/piece.json"
     },
     {
+      "id": "delivery/dead-letter-store",
+      "summary": "Retained dead-letter records with an open-to-resolved lifecycle",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-301: plain Ecto/Postgrex table under state/tenant-isolation; no payload storage or dispatch."
+    },
+    {
       "id": "delivery/debounce",
       "summary": "Pure trailing-edge latest-value debounce policy for one caller-owned partition.",
       "disposition": "own",
@@ -340,10 +348,10 @@
     {
       "id": "domain/entitlement",
       "summary": "Feature/access entitlement decisions",
-      "disposition": "defer",
-      "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Provider-backed subscription/feature availability for C2/C8; explicit grace/revocation policy, separate from identity and quota. No billing implementation."
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-300: pure resolution of host plan grants with grace and revocation, separate from identity and quota; no billing implementation."
     },
     {
       "id": "domain/journal",
@@ -365,10 +373,10 @@
     {
       "id": "domain/metering",
       "summary": "Unit-tagged observed usage with provenance",
-      "disposition": "defer",
-      "phase": "demand-led",
-      "status": "deferred",
-      "reason": "C9 separates estimates from reconciled usage, deduplicates usage records and preserves corrections; no billing/price/admission policy implied. ELZ-025 study: unreported provider usage is a distinct count, never zero; a budget that cannot be verified from observed usage stops admission."
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-299: plain Ecto/Postgrex tables under state/tenant-isolation (owner Q1 A); unknown usage is a distinct count, never zero; no pricing, quota or admission."
     },
     {
       "id": "domain/money",
@@ -968,6 +976,14 @@
       "phase": "demand-led",
       "status": "ready",
       "manifest": "pieces/workflow/dependency-graph/piece.json"
+    },
+    {
+      "id": "workflow/eval",
+      "summary": "Dataset-backed scripted evaluation of recipes",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-302: test-time datasets read through state/artifact, run through runtime/recipe-test; absorbs state/eval-dataset; no live model or judge."
     },
     {
       "id": "workflow/run",

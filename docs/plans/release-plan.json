@@ -2074,16 +2074,14 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "domain/entitlement"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "RC-06",
         "ELZ-024",
         "RC-10"
       ],
-      "status": "superseded for domain/membership by published ELZ-269; output moved. domain/entitlement stays with RC-07 (Wave 6 per the Wave 5 plan).",
+      "status": "superseded for domain/membership by published ELZ-269 and for domain/entitlement by published ELZ-300; outputs moved; no remaining output",
       "contract": "Two distinct Pieces: single-use tenant invitation/membership transition; versioned feature entitlement with explicit revocation/grace. Atomic storage owns membership changes; billing provider synchronization is outside V1.",
       "acceptance": "Concurrent invitation acceptance, cross-tenant token replay, revoked inviter, changed role and entitlement revoked while work is queued. No partial membership activation.",
       "reuse": "Ash resource/policy plus selected transactional storage; no new identity framework.",
@@ -2543,16 +2541,14 @@
       "kind": "proposal",
       "release": "V2",
       "stage": "pieces",
-      "outputs": [
-        "domain/metering"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "RC-16",
         "RC-10",
         "ELZ-009"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for domain/metering by published ELZ-299 (output moved; storage under owner Q1 A, Wave 6 plan); no remaining output",
       "contract": "Operation/Attempt identity, units, usage source and observation -> idempotent retained usage/correction records. Estimated, provider-reported and unknown stay distinct; customer charges are separate.",
       "acceptance": "Duplicate/out-of-order usage, interrupted stream cost, late correction, missing usage and mixed units. Unknown usage stops admission where the contract requires verified budget.",
       "reuse": "Provider usage data and transactional storage; no tokenizer or invoice engine.",
@@ -7928,7 +7924,7 @@
       "product_aims": ["P09", "P10"],
       "issue": 687,
       "url": "https://github.com/balungpisah/elzoo/issues/687",
-      "issue_body_sha256": "dc631babbd4a299b081040e1b47b80876c0001938b205701895f99ceb3b9563b"
+      "issue_body_sha256": "2ae51f52c410e8ddc951f2895a5627658bd11330622ae0441037865713de39e3"
     },
     {
       "id": "ELZ-298",
@@ -7946,6 +7942,74 @@
       "issue": 688,
       "url": "https://github.com/balungpisah/elzoo/issues/688",
       "issue_body_sha256": "0c3eb0d1d7d8ada16ea1311674e4970e12f53893c77c0c335560f2981ad8f610"
+    },
+    {
+      "id": "ELZ-299",
+      "title": "ELZ-299 — Retained usage observations whose unknown amounts never count as zero",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-079", "ELZ-270", "ELZ-285"],
+      "status": "published 2026-11-21",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-299-metering.md"],
+      "outputs": ["domain/metering"],
+      "acceptance": "Durable plain Ecto/Postgrex usage observations under the tenant-isolation floor (owner Q1 A): record idempotent by usage_id (equal digest duplicate, other conflict), attributable corrections that never delete with latest-by-commit effective amount, bounded totals per opaque period, unit and source with unknown counted apart and never as zero; ai-model unit set plus cache-write units, extendable; observed_at_ms kept; concurrent record, unknown-to-known correction, isolation as elzoo_app, caller-transaction and bound cases; negative controls on the unknown branch and the uniqueness.",
+      "product_aims": ["P09", "P13"],
+      "issue": 690,
+      "url": "https://github.com/balungpisah/elzoo/issues/690",
+      "issue_body_sha256": "b317ac00677c721ca7a8fa11217dc28ee26ff769fb655d80bb1a8f8715543613"
+    },
+    {
+      "id": "ELZ-300",
+      "title": "ELZ-300 — Plan grants that resolve to entitled, grace or not entitled at one time",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-079"],
+      "status": "published 2026-11-21",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-300-entitlement.md"],
+      "outputs": ["domain/entitlement"],
+      "acceptance": "Pure Cure/Elixir resolution of host plan versions and grants at an injected time to entitled, grace or not entitled (revoked > expired > grace > active, exclusive ends), with sorted features and a list of unit allowances (period_kind :utc_month, owner Q6 A; settle-only in grace) and the contributing grants and plan identities; v1 refuses overlapping grants; content-hash and unknown-plan refusals in a fixed order; Cure status-order law; negative control swaps grace and revocation.",
+      "product_aims": ["P09", "P13"],
+      "issue": 691,
+      "url": "https://github.com/balungpisah/elzoo/issues/691",
+      "issue_body_sha256": "b03e71addc3eef3e2092cfee3b8ec5b1883bc7a76a49b614fd69efae93c1aacd"
+    },
+    {
+      "id": "ELZ-301",
+      "title": "ELZ-301 — Retained dead-letter records with an open-to-resolved lifecycle",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-006", "ELZ-010", "ELZ-270", "ELZ-285"],
+      "status": "published 2026-11-21",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-301-dead-letter-store.md"],
+      "outputs": ["delivery/dead-letter-store"],
+      "acceptance": "Durable plain Ecto/Postgrex store of validated delivery/dead-letter records once per (tenant, source, message_id) under the tenant-isolation floor (owner Q1 A), open until resolved once as replayed or discarded, bounded oldest-first listing, counts and purge of resolved records; no payload or dispatch; Relay re-offer, concurrent resolve, isolation as elzoo_app and a full page of permanent failures that no longer blocks later items; negative control drops the uniqueness.",
+      "product_aims": ["P13"],
+      "issue": 692,
+      "url": "https://github.com/balungpisah/elzoo/issues/692",
+      "issue_body_sha256": "f847db5fe805ea4658247e392136e4ab705320273b7e6d885a7a7da6f8d5d773"
+    },
+    {
+      "id": "ELZ-302",
+      "title": "ELZ-302 — Versioned datasets of scripted recipe cases, scored into a deterministic report",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-096", "ELZ-115", "ELZ-181", "ELZ-183"],
+      "status": "published 2026-11-21",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-302-eval.md"],
+      "outputs": ["workflow/eval"],
+      "acceptance": "Test-time Piece (owner Q7 A): a version-1 JSON dataset (duplicate keys refused) of 1..256 cases with input, script and 1..16 checks from a closed, extendable set, read through state/artifact with its hash verified, run through runtime/recipe-test over a host base spec, and scored into an equal-on-repeat report with dataset and package identities; malformed dataset refused at its path, integrity mismatch, unscripted call as a case error, changed package flips a case. Hosted check-piece path.",
+      "product_aims": ["P13"],
+      "issue": 693,
+      "url": "https://github.com/balungpisah/elzoo/issues/693",
+      "issue_body_sha256": "d1b1d5250b271cbedcacdf16574944d872f842ffcd3e497e1f6fd16c70503eaa"
     }
   ],
   "entries": [
@@ -8204,6 +8268,22 @@
       "manifest_sha256": "91445388adffeaec5ff36b792718e3c0e3bbf3df1ca173ab3ff62e20e08a0632"
     },
     {
+      "id": "delivery/dead-letter-store",
+      "job": "ELZ-301",
+      "note": "Planned durable retention of validated delivery/dead-letter records once per (tenant, source, message_id) in a plain Ecto/Postgrex table under the state/tenant-isolation floor, open until resolved once as replayed or discarded, with bounded listing, counts and purge; no payload or dispatch.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/eval",
+      "job": "ELZ-302",
+      "note": "Planned test-time evaluation: versioned JSON datasets of scripted recipe cases with a closed, extendable check set, read through state/artifact, run through runtime/recipe-test and scored into a deterministic report. Absorbs state/eval-dataset; no live model or judge.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
       "id": "delivery/debounce",
       "job": "ELZ-246",
       "note": "Pure, bounded trailing-edge latest-binary-value policy for one caller-owned partition: host supplies a UTF-8 epoch, quiet interval, nondecreasing samples in a nonnegative monotonic origin and timer delivery. State starts with no last sample; accepted puts and timeouts, including ignored well-formed nonmatching tokens, record now. Clear preserves last time and generation. Generation maximum is reachable and usable; malformed tokens reject unchanged and well-formed nonmatching tokens are ignored. Matching due timeout emits the latest value once; early matching timeout reschedules at the same deadline. Accepted empty-state and post-emission duplicate timeouts emit and schedule nothing but still record now. No timer, registry, persistence, leading edge or maximum wait.",
@@ -8349,10 +8429,10 @@
     },
     {
       "id": "domain/entitlement",
-      "job": "RC-07",
-      "note": "Provider-backed subscription/feature availability for C2/C8; explicit grace/revocation policy, separate from identity and quota. No billing implementation.",
+      "job": "ELZ-300",
+      "note": "Planned pure resolution of host plan versions and grants at an injected time to entitled, grace or not entitled, with features and a list of unit allowances and the contributing grants and plan identities; revocation wins over grace; v1 refuses overlapping grants (stacking stays addable in place). No I/O, billing, quota or authorization decision.",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -8375,10 +8455,10 @@
     },
     {
       "id": "domain/metering",
-      "job": "RC-21",
-      "note": "C9 separates estimates from reconciled usage, deduplicates usage records and preserves corrections; no billing/price/admission policy implied. ELZ-025 study: unreported provider usage is a distinct count, never zero; a budget that cannot be verified from observed usage stops admission.",
+      "job": "ELZ-299",
+      "note": "Planned durable usage observations in plain Ecto/Postgrex tables under the state/tenant-isolation floor: idempotent record by usage_id, attributable corrections that never delete, and bounded totals per opaque host period, unit and source in which unknown is counted apart and never as zero; observed_at_ms kept for later time-range totals; unit set extendable. No pricing, quota or admission.",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

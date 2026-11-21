@@ -273,6 +273,125 @@ These are recorded on their issues
 - **To change.** Binding the credential into the runtime identity would be a
   new `integration/mcp-client` Contract task, under the ID rule.
 
+## Wave 6 owner choices (2026-11-21)
+
+Sources: the 2026-11-21 entries in
+[bot-platform.md](plans/bot-platform.md#owner-decisions-that-are-still-open)
+and the questions in
+[bot-platform-wave6.md](plans/bot-platform-wave6.md#provider-prerequisites-and-open-questions).
+
+### Usage, allowance and dead-letter records in Piece-owned tables (Q1 A)
+
+- **Chosen.** `domain/metering`, `domain/quota` and `delivery/dead-letter-store`
+  each install their own plain Ecto tables with `Migration.install/1`, protected
+  by `state/tenant-isolation`
+  ([ELZ-299](../tasks/ELZ-299-metering.md),
+  [ELZ-301](../tasks/ELZ-301-dead-letter-store.md)).
+- **Why.** The ready Store tables are not under row security and give no sum
+  query; a period total over a Store stream would read every record.
+- **For you.** Run each Piece's migration in your Repo, connect as a
+  non-owner, non-bypass role, and grant the minimum the Piece's README lists.
+- **To change.** Store-stream storage would change the Pieces' Needs: under the
+  ID rule.
+
+### Charge unit-tagged usage, no tiers yet (Q2 A)
+
+- **Chosen.** A price is charged on unit-tagged usage per provider and model in
+  the `integration/ai-model` unit set, a rate per line and an optional per-line
+  minimum. No flat per-Run fee and no volume tiers in Wave 6.
+- **Why.** It is what the providers report; tiers wait until a plan needs them.
+- **For you.** Write rate cards per unit; a flat fee is a host unit added
+  later (see "Deferred options").
+- **To change.** Tiers and a `runs` unit are additive (below).
+
+### Exact rates, one rounding per line with a declared mode (Q3 A)
+
+- **Chosen.** One currency per tenant billing account, any `domain/money`
+  registry currency, no exchange; rates are exact decimal strings; each rate
+  card carries a required `rounding` field (one of the `domain/money` rounding
+  modes), applied once per priced line per period. No platform currency.
+- **Why.** Rounding once per line does not over-charge many small records, and
+  a declared mode lets each consumer match its own accounting rule.
+- **For you.** Choose the rounding mode per card, for example `:half_even`.
+- **To change.** Rounding per record would change `domain/pricing`'s outputs:
+  under the ID rule.
+
+### Owner-authored rate cards (Q4 A)
+
+- **Chosen.** Rate cards are authored as decimal strings; `llm_db` prices are a
+  reference only.
+- **Why.** `llm_db` rates may be Floats and `domain/money` takes no Float.
+- **For you.** Copy a provider price into your card by hand and review it.
+- **To change.** A card derived from `llm_db` needs a declared Float-to-decimal
+  conversion: its own task.
+
+### Postpaid and prepaid, shown in the acceptance (Q5 C)
+
+- **Chosen.** Both billing models are shown in the Wave 6 root acceptance; no
+  Piece is configured for either.
+- **Why.** `domain/journal` supports both with the same postings; the model is a
+  composition (see "Composing plan types").
+- **For you.** Pick the model in your host code; nothing to configure.
+- **To change.** Nothing in a Piece; change your composition.
+
+### The UTC calendar month, no carry-over (Q6 A)
+
+- **Chosen.** An allowance's `period_kind` is `:utc_month` in version 1;
+  unused allowance does not carry over
+  ([ELZ-300](../tasks/ELZ-300-entitlement.md)). Metering and quota take the
+  period as an opaque host ID.
+- **Why.** It is the simplest period that every consumer can compute.
+- **For you.** Pass your period ID, for example `2026-11`.
+- **To change.** A tenant-local month or a rolling window is additive (below).
+
+### Deterministic scripted eval (Q7 A)
+
+- **Chosen.** `workflow/eval` runs scripted cases through
+  `runtime/recipe-test` with a closed check set
+  ([ELZ-302](../tasks/ELZ-302-eval.md)).
+- **Why.** Live models need credentials and are not repeatable in CI; a
+  model-graded judge would make a model's word the evidence.
+- **For you.** A passing report shows that a recipe handles the scripted
+  results, not what a provider would return.
+- **To change.** Live-model scoring is additive (below).
+
+### No Run or model metrics in Wave 6 (Q8 A)
+
+- **Chosen.** Counts are `domain/metering`; seeing is the Run transcript
+  ([ELZ-298](../tasks/ELZ-298-run-transcript.md)), which emits no telemetry.
+- **Why.** Metrics would touch four ready Pieces; no consumer asks yet.
+- **For you.** Build dashboards from metering totals, or add your own events.
+- **To change.** Additive (below).
+
+### `assembly/tenant-edge` stays a deferred example (Q9 A)
+
+- **Chosen.** The Wave 6 root acceptance composes the counted gate as harness
+  code over the public interfaces.
+- **Why.** No consumer asks for the gate as one interface yet.
+- **For you.** Compose the gate in your host, in the acceptance's order.
+- **To change.** Additive (below).
+
+### Plan types are compositions, not Pieces
+
+- **Chosen.** Pay-as-you-go, quota-capped and prepaid are built from blocks
+  (see "Composing plan types"); no Piece or Assembly knows a plan type.
+  Subscriptions wait for Wave 9 (`domain/plan`, `domain/invoice`).
+- **Why.** A consumer can mix the blocks into the plan it sells.
+- **For you.** Choose and compose the blocks; the guide below names them.
+- **To change.** A plan-type Assembly would be its own task.
+
+### No corner: every deferred option stays addable
+
+- **Chosen.** Every Wave 6 Contract leaves each deferred option addable in
+  place before the first release without breaking existing callers: closed
+  sets that can gain members, records and results that can gain keys, digests
+  that encode a later optional field only when present, no single currency and
+  no single plan shape.
+- **Why.** Elzoo may serve many kinds of consumer.
+- **For you.** Match on the members and keys you use; do not assert that a
+  result map has no other keys.
+- **To change.** Each option's path is listed in "Deferred options".
+
 ## Wave 6 coordinator decisions
 
 These are set in the published task texts
@@ -292,6 +411,79 @@ These are set in the published task texts
   `allow_negative: true` if a negative balance is acceptable.
 - **To change.** A reversal that may overdraw would change the failure
   guarantees of `domain/journal`: a published task, under the ID rule.
+
+### The journal needs READ COMMITTED
+
+- **Chosen.** `domain/journal` checks that its transaction runs at READ
+  COMMITTED and refuses `isolation` otherwise
+  ([ELZ-297](../tasks/ELZ-297-journal.md)).
+- **Why.** Its balance rule relies on ordered row locks at READ COMMITTED, and
+  `state/tenant-isolation` cannot set the level.
+- **For you.** Keep the PostgreSQL default isolation on the journal's Repo.
+- **To change.** Another level would change the journal's Needs: under the ID
+  rule.
+
+### Metering also counts cache writes
+
+- **Chosen.** The unit set of `domain/metering` and `domain/entitlement` is the
+  `integration/ai-model` counter set plus one cache-write unit per TTL
+  ([ELZ-299](../tasks/ELZ-299-metering.md)).
+- **Why.** Providers charge cache writes; an `integration/ai-model` usage holds
+  them apart from the counters.
+- **For you.** Record each cache write as its own observation.
+- **To change.** A new unit is additive.
+
+### An eval case holds only its own data
+
+- **Chosen.** A `workflow/eval` dataset case holds its input, script and
+  checks; the host supplies the rest of the recipe-test spec once per run
+  ([ELZ-302](../tasks/ELZ-302-eval.md)).
+- **Why.** The spec holds modules and functions, which JSON cannot carry, and
+  one dataset can then test a changed recipe.
+- **For you.** Keep your recipe package and bindings in test code.
+- **To change.** Additive members of a later format version.
+
+## Deferred options
+
+Each option below is open by design. "Additive" means an in-place change before
+the first release that leaves existing callers working; from the first release
+an addition that changes a ready Piece's accepted inputs, outputs, state,
+delivery, failure guarantees or Needs gets a new Piece ID, and the old ID stays
+usable (the ID rule above).
+
+| Option | Piece | How it is added | Additive |
+| --- | --- | --- | --- |
+| Volume tiers | `domain/pricing` (Level 2) | An optional `tiers` field on a rate-card line; each line stands alone, so a card without tiers prices as before | Yes |
+| Tenant-local month, rolling window | `domain/entitlement`, `domain/quota`, `domain/metering` | Entitlement gains a `period_kind` member; quota keys its allowance by a tagged window (`{:period, id}`) and gains a rolling window beside it; metering already takes an opaque period ID and keeps `observed_at_ms`, so a time-range total is a new read | Yes |
+| A reusable `assembly/tenant-edge` | new Assembly (RC-40) | Composes the public interfaces of verify, membership, authorization, kill-switch, entitlement, quota, Run, metering, pricing and journal; no Piece needs a private path for it | Yes (new ID) |
+| Run and model metrics | `runtime/telemetry`, `integration/observability`, `assembly/run-engine`, `integration/ai-text` | A new event family emitted in place; the transcript and metering stay as they are | Yes |
+| More than one active plan per tenant | `domain/entitlement` | Drop the version 1 `overlap` refusal for a declared stacking rule; a resolution already lists its grants and plans, and allowances are a list tagged by grant | Yes (accepted inputs widen) |
+| A host unit such as `runs` | `domain/metering`, `domain/entitlement` | A new member of the unit set | Yes |
+| Live-model eval | `workflow/eval` | An optional dataset `mode` member, default scripted | Yes |
+
+## Composing plan types
+
+Each plan type is a composition of Pieces in your host. The planned Wave 6 root
+acceptance has one named group for each; those groups come with the acceptance
+task and are not published yet
+([wave plan, Level 3](plans/bot-platform-wave6.md#level-3--mandatory-wave-6-root-consumer-acceptance-no-piece-output)).
+`domain/quota` and `domain/pricing` are Level 2 and not published yet either.
+
+- **Pay-as-you-go.** Record each Run's usage with `domain/metering`
+  (unknown kept apart), price the period's totals with a `domain/pricing` card,
+  and post each charge with `domain/journal` from a receivable account to
+  revenue. A correction posts a linked difference. Invoicing waits for Wave 9.
+- **Quota-capped.** Resolve the tenant's plan with `domain/entitlement`, reserve
+  before each Run with `domain/quota` by `run_id` and give the Run's Budget the
+  reserved share, settle with the Run's actual, and record usage with
+  `domain/metering`. A grace resolution settles but reserves nothing.
+- **Prepaid.** Open a wallet account in `domain/journal` with
+  `allow_negative: false`, post top-ups to it, and post each charge (priced as
+  for pay-as-you-go) from it; an overdraw is refused `insufficient_funds`.
+  A top-up may also grant allowance through `domain/quota`.
+
+You can combine them, for example a quota-capped plan whose overage is billed
+pay-as-you-go.
 
 ## Request charge and payload caps of `assembly/run-engine` (RC-50)
 
