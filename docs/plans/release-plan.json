@@ -8153,12 +8153,18 @@
       "issue_body_sha256": "d07220e5dc7577a1cc6653a9cbbedf28ffcc9c85a99f1f48e27e4ac38d69e6bd"
     },
     {
+<<<<<<< HEAD
       "id": "ELZ-310",
       "title": "ELZ-310 — List the automated-review skips of the 21 Nov quota outage",
+=======
+      "id": "ELZ-309",
+      "title": "ELZ-309 — Wait for a local_work outcome before the run-engine tests read it",
+>>>>>>> origin/main
       "kind": "published",
       "release": "V1B",
       "stage": "pieces",
       "dependencies": [
+<<<<<<< HEAD
         "ELZ-307"
       ],
       "status": "published 2026-11-21",
@@ -8174,6 +8180,23 @@
       "issue": 718,
       "url": "https://github.com/balungpisah/elzoo/issues/718",
       "issue_body_sha256": "6201053883b94bf0f49e80c093b55dc64461f3c627e92a168e5cae29376957b8"
+=======
+        "ELZ-287"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-309-run-engine-await-local-outcome.md"
+      ],
+      "outputs": [],
+      "acceptance": "Each run-engine test read of a terminal outcome whose slot completes by a later engine input (local work) waits for it with a total wait_for predicate before its strict assertion, so the KeyError of hosted run 44907924901 (#716) cannot recur; Contract, library, README, manifest, timeouts and poll budgets unchanged. Delayed-completion reproduction, wrong-outcome negative control, repeated Piece tests, small gate.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 717,
+      "url": "https://github.com/balungpisah/elzoo/issues/717",
+      "issue_body_sha256": "ce451611034ee8b0ef2cc46e5df8587f62edf3f7faa266b2b9a037341a2957ce"
+>>>>>>> origin/main
     }
   ],
   "entries": [
