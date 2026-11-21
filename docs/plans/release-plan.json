@@ -8151,6 +8151,29 @@
       "issue": 713,
       "url": "https://github.com/balungpisah/elzoo/issues/713",
       "issue_body_sha256": "d07220e5dc7577a1cc6653a9cbbedf28ffcc9c85a99f1f48e27e4ac38d69e6bd"
+    },
+    {
+      "id": "ELZ-309",
+      "title": "ELZ-309 — Wait for a local_work outcome before the run-engine tests read it",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-287"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-309-run-engine-await-local-outcome.md"
+      ],
+      "outputs": [],
+      "acceptance": "Each run-engine test read of a terminal outcome whose slot completes by a later engine input (local work) waits for it with a total wait_for predicate before its strict assertion, so the KeyError of hosted run 44907924901 (#716) cannot recur; Contract, library, README, manifest, timeouts and poll budgets unchanged. Delayed-completion reproduction, wrong-outcome negative control, repeated Piece tests, small gate.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 717,
+      "url": "https://github.com/balungpisah/elzoo/issues/717",
+      "issue_body_sha256": "ce451611034ee8b0ef2cc46e5df8587f62edf3f7faa266b2b9a037341a2957ce"
     }
   ],
   "entries": [

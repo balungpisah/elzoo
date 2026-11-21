@@ -1014,8 +1014,11 @@ defmodule Elzoo.RunEngineV2Test do
     assert {:ok, :applied} =
              RunEngine.input(explicit_engine, "same-start", start_input(), verified())
 
-    assert view(omitted_engine).slots[{1, 0}].outcome == "completed"
-    assert view(explicit_engine).slots[{1, 0}].outcome == "completed"
+    # The local work completes by a later engine input, after `input/4` returns.
+    for engine <- [omitted_engine, explicit_engine] do
+      settled = wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
+      assert settled.slots[{1, 0}].outcome == "completed"
+    end
 
     assert Enum.map(protocol_records(omitted), & &1.input) ==
              Enum.map(protocol_records(explicit), & &1.input)
