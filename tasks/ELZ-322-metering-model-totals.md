@@ -36,14 +36,16 @@ Add one read to `Elzoo.Metering`, next to `totals/3`, which stays unchanged:
 - One grouped query, bounded as `totals/3` is (at most `max_rows + 1` groups
   read).
 
-The README, `piece.json` (claims, limits) and the Piece's index rows follow:
+The README, `piece.json` (`contract`, claims, limits) and the Piece's index
+rows follow:
 the README states that these rows are the `rows` of a `domain/pricing` usage
 value, and the limits keep the `totals/3` scan note for the new read. No
 other function, table, index, migration or Contract term changes.
 
-The sentence in `domain/pricing`'s README that calls these rows host-built is
-in another Piece's directory and is not edited here; the coordinator files
-that one-line docs fix after this merges.
+`domain/pricing` calls these rows host-built in its README and in a
+`piece.json` limit. That is another Piece's directory and is not edited here;
+the coordinator files it after this merges as its own Piece-only task (the
+`piece.json` edit changes pricing's manifest hash).
 
 ## Acceptance and evidence
 
@@ -77,7 +79,8 @@ that one-line docs fix after this merges.
 ## Owned paths
 
 `pieces/domain/metering/**`, this task's catalogue and release-plan entry rows
-(`manifest_sha256`), and the generated `LEDGER.md`, `docs/plans/views.md` and
+(`manifest_sha256`, and the entry `note`, which equals the new
+`contract`), and the generated `LEDGER.md`, `docs/plans/views.md` and
 `docs/plans/dependencies.mmd`.
 
 ## Limits
