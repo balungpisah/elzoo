@@ -54,8 +54,8 @@ Publication owns this task file, its no-output job row in
    its own task, and the row is removed after the recheck. The list starts
    with the two pull requests merged today after a silent automated pass on
    their final heads: #703 (`b2805e09..ce123ab5`) and #708
-   (`37949c54..7c864110`), and #709 (`08037e02..26e66a06`), the first pull
-   request gated by the extra review.
+   (`37949c54..7c864110`). It also lists #709 (`08037e02..26e66a06`), the
+   first pull request gated by the extra review.
 
 No other rule changes. The merge queue script is not changed.
 
