@@ -8275,7 +8275,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/dead-letter-store/piece.json",
-      "manifest_sha256": "4d3118c97c0e47369decba8015e44bd8d607706e83abbb13a54a323debe459e6"
+      "manifest_sha256": "fd7e87b40abfaa85077f2327765ed13cb8fe924e9a04afa71db6e6fbe2b49d2b"
     },
     {
       "id": "workflow/eval",
