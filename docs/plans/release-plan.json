@@ -8646,7 +8646,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/pricing/piece.json",
-      "manifest_sha256": "2b0ff46934aa154dc43c0682d3e72f1a01ef9a26252fc1850808805fc56d7911"
+      "manifest_sha256": "f0381c402f1f9789f7c90b7036f2fc76b89000d940d9b202afafb0e0e8aa6fdf"
     },
     {
       "id": "domain/principal",
