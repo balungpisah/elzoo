@@ -1,9 +1,10 @@
 # domain/metering
 
 Retained usage observations with attributable corrections, and bounded totals per period, unit
-and source in which an unknown amount is counted apart and never added as zero. One durable
-Piece in plain Elixir, Ecto and Postgrex over a consumer-owned Ecto Repo on PostgreSQL 16; its
-two tables are protected by the `state/tenant-isolation` floor.
+and source, or per period, provider, model, unit and source, in which an unknown amount is
+counted apart and never added as zero. One durable Piece in plain Elixir, Ecto and Postgrex
+over a consumer-owned Ecto Repo on PostgreSQL 16; its two tables are protected by the
+`state/tenant-isolation` floor.
 
 Usage comes from `integration/ai-model` usage values that the host splits into observations,
 one per unit; the host owns that split. No pricing, cost, quota, admission or provider call.
@@ -92,6 +93,14 @@ Elzoo.Metering.record(meter, "tenant-1", %{
   `unknown_count` the number of observations whose effective amount is `:unknown`, `count`
   all observations. More groups than `max_rows` is `{:error, :read_limit}`, never a
   truncated list.
+- `model_totals(meter, tenant, %{period, max_rows})`, `max_rows` in 1..1000: `{:ok, rows}`,
+  one `%{provider_id, model_id, unit, source, known, unknown_count, count}` per `{provider_id,
+  model_id, unit, source}` with an observation in the period, sorted by those four in Erlang
+  term order (IDs by their bytes). `known`, `unknown_count` and `count` mean what they mean in
+  `totals/3`, so over the same observations each `totals/3` row is the sum of its provider and
+  model rows. More groups
+  than `max_rows` is `{:error, :read_limit}`, never a truncated list. These rows are the
+  `rows` of a `domain/pricing` usage value `%{tenant, period, rows}`.
 - `observation(meter, tenant, usage_id)`: `{:ok, %{usage_id, run_id, ..., observed_at_ms,
   effective, corrections}}` with the corrections (each the five correction fields) in commit
   order, at most 1,024, or `{:error, :unknown_usage}` for an absent or another tenant's
@@ -159,8 +168,8 @@ and the duplicates they decide, stay equal.
   check that a split is complete or that a period matches `observed_at_ms`.
 - No price, cost or allowance. Totals over a time range and other period kinds are later
   in-place additions.
-- `totals/3` reads every observation of the period for the tenant (served by the index); the
-  bound is on returned groups, not on rows scanned.
+- `totals/3` and `model_totals/3` read every observation of the period for the tenant (served
+  by the index); the bound is on returned groups, not on rows scanned.
 - The `UPDATE` grant on observations lets code that runs its own SQL as the application role
   overwrite an observation's columns (including `amount`, `effective` and `digest`) without a
   correction; only calls through this Piece keep the correction record.

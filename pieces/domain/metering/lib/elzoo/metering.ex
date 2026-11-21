@@ -8,7 +8,8 @@ defmodule Elzoo.Metering do
   `record/3` stores one observation per `{tenant, usage_id}`; `correct/3` appends a
   correction and makes its amount the effective amount; `totals/3` sums the known effective
   amounts of one period per unit and source and counts the unknown ones apart, never as zero;
-  `observation/3` reads one observation with its corrections in commit order.
+  `model_totals/3` does the same per provider, model, unit and source; `observation/3` reads
+  one observation with its corrections in commit order.
 
   Every ID and the period are opaque host values. Errors are `{:error, reason}` with a fixed
   atom that never echoes an ID or amount. The Piece emits no telemetry and no log; its queries
@@ -93,17 +94,29 @@ defmodule Elzoo.Metering do
   sorted by unit then source in Erlang term order, or `{:error, :read_limit}` when there are
   more groups than `max_rows`.
   """
-  def totals(meter, tenant, query) do
+  def totals(meter, tenant, query), do: grouped(meter, tenant, query, [:unit, :source])
+
+  @doc """
+  Totals of one period per provider and model, `%{period, max_rows}` as for `totals/3`:
+  `{:ok, rows}`, one `%{provider_id, model_id, unit, source, known, unknown_count, count}` per
+  `{provider_id, model_id, unit, source}` with an observation, sorted by those four in Erlang
+  term order, or `{:error, :read_limit}` when there are more groups than `max_rows`. The rows
+  are the `rows` of a `domain/pricing` usage value.
+  """
+  def model_totals(meter, tenant, query),
+    do: grouped(meter, tenant, query, [:provider_id, :model_id, :unit, :source])
+
+  defp grouped(meter, tenant, query, keys) do
     valid? =
       is_map(query) and map_size(query) == 2 and Map.has_key?(query, :period) and
         Map.has_key?(query, :max_rows) and text?(query.period, 128) and
         is_integer(query.max_rows) and query.max_rows in 1..@max_rows
 
     with :ok <- admit(meter, tenant, valid?),
-         {:ok, rows} <- scoped(meter, tenant, &group_rows(&1, &2, tenant, query)) do
+         {:ok, rows} <- scoped(meter, tenant, &group_rows(&1, &2, tenant, query, keys)) do
       if length(rows) > query.max_rows,
         do: {:error, :read_limit},
-        else: {:ok, Enum.sort_by(rows, &{&1.unit, &1.source})}
+        else: {:ok, Enum.sort_by(rows, fn row -> Enum.map(keys, &Map.fetch!(row, &1)) end)}
     end
   end
 
@@ -273,12 +286,15 @@ defmodule Elzoo.Metering do
   end
 
   # max_rows + 1 groups at most: one more than max_rows is the read limit, never a truncation.
-  defp group_rows(repo, t, tenant, %{period: period, max_rows: max_rows}) do
+  # The group keys are fixed column names of the observations table, never caller input.
+  defp group_rows(repo, t, tenant, %{period: period, max_rows: max_rows}, keys) do
+    columns = Enum.map_join(keys, ", ", &Atom.to_string/1)
+
     sql = """
-    SELECT unit, source, COALESCE(sum(effective), 0)::text,
+    SELECT #{columns}, COALESCE(sum(effective), 0)::text,
            count(*) FILTER (WHERE effective IS NULL), count(*)
     FROM #{t.obs} WHERE tenant = $1 AND period = $2
-    GROUP BY unit, source LIMIT $3
+    GROUP BY #{columns} LIMIT $3
     """
 
     case query(repo, sql, [tenant, period, max_rows + 1]) do
@@ -286,14 +302,21 @@ defmodule Elzoo.Metering do
         units = unit_terms()
 
         {:ok,
-         Enum.map(rows, fn [unit, source, known, unknown_count, count] ->
-           %{
-             unit: Map.fetch!(units, unit),
-             source: source_term(source),
+         Enum.map(rows, fn row ->
+           {group, [known, unknown_count, count]} = Enum.split(row, length(keys))
+
+           keys
+           |> Enum.zip(group)
+           |> Map.new(fn
+             {:unit, unit} -> {:unit, Map.fetch!(units, unit)}
+             {:source, source} -> {:source, source_term(source)}
+             {key, id} -> {key, id}
+           end)
+           |> Map.merge(%{
              known: String.to_integer(known),
              unknown_count: unknown_count,
              count: count
-           }
+           })
          end)}
 
       {:error, _} ->
