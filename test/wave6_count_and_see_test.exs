@@ -395,21 +395,24 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
     end
 
     # The re-priced complete charge is the period's first posted charge: 6,000 input is 1.8
-    # cents, 2; 30,000 output is 45. The first post's reply is lost; the host's retry derives the
-    # same operation ID from the same charge record and replays.
+    # cents, 2; 30,000 output is 45. The first post's reply is lost.
     first = %{operation_id: "charge/T1/2026-11/retail/1", reason: "charge T1 2026-11"}
     assert {:lost, lost} = H.bill(fx, "T1", cards, crash: :after_post)
     assert Map.take(lost, [:operation_id, :reason]) == first
     assert lost.amount.minor_units == 47
-    assert {:posted, ^lost, {:ok, :duplicate}} = H.bill(fx, "T1", cards)
-    assert H.balance(fx, "T1", "receivable") == -47
-    assert H.balance(fx, "T1", "revenue") == 47
 
-    # Card version 2, published later, prices the period differently, but the host re-prices
-    # under the posted charge's own card version: the charge stays equal and posts nothing.
+    # Card version 2 is published before the retry and would price the period at 62. The retry
+    # replays the retained pending post unchanged: one operation, 47 in total.
     v2 = H.card(2, "4", "20")
     cards = Map.merge(cards, %{:current => v2, {"retail", 2} => v2})
     assert {:ok, %{total: %{minor_units: 62}}} = Pricing.price(v2, H.usage_value(fx, "T1"))
+    assert {:posted, ^lost, {:ok, :duplicate}} = H.bill(fx, "T1", cards)
+    assert H.operations(fx, "T1") == [["T1", "charge/T1/2026-11/retail/1", "charge T1 2026-11"]]
+    assert H.balance(fx, "T1", "receivable") == -47
+    assert H.balance(fx, "T1", "revenue") == 47
+
+    # With version 2 current, the host re-prices under the posted charge's own card version:
+    # the charge stays equal and posts nothing.
     assert {:unchanged, same} = H.bill(fx, "T1", cards)
     assert {same.card.version, same.total.minor_units} == {1, 47}
 
@@ -969,7 +972,11 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
     bytes = H.eval_dataset()
     assert {:ok, _} = Elzoo.Artifact.put(art, caller, id, Elzoo.Artifact.TestHelper.input(bytes))
     # Runs before the fixture's schema cleanup: the object leaves MinIO too.
-    on_exit(fn -> {:ok, _} = Elzoo.Artifact.delete(art, caller, id, 1) end)
+    on_exit(fn ->
+      assert {:ok, %{object: object}} = Elzoo.Artifact.delete(art, caller, id, 1)
+      assert object in [:deleted, :absent]
+    end)
+
     assert {:ok, dataset} = Eval.load(art, caller, id, :head)
 
     sha = Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)

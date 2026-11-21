@@ -771,9 +771,19 @@ defmodule Elzoo.Wave6.CountHelper do
   total from receivable to revenue under `charge_id/1`. A later re-price posts its nonzero
   `difference/3` against the baseline under an ID and reason from the `:correction` that caused
   it; a zero difference posts nothing. The baseline is the latest re-priced charge whose
-  difference posted. `crash: :after_post` loses the reply of the post: nothing is recorded.
+  difference posted. Before each post the host retains the exact pending post and its charge;
+  while one is pending, the decision replays it unchanged and prices nothing, until the post is
+  confirmed `:applied` or `:duplicate`. `crash: :after_post` loses the reply of the post: the
+  pending post stays.
   """
   def bill(fx, tenant, cards, opts \\ []) do
+    case Agent.get(fx.billing, &Map.get(&1, {tenant, @period, :pending})) do
+      nil -> decide(fx, tenant, cards, opts)
+      {charge, op} -> post_billing(fx, tenant, charge, opts, op)
+    end
+  end
+
+  defp decide(fx, tenant, cards, opts) do
     posted = Agent.get(fx.billing, &Map.get(&1, {tenant, @period}))
 
     card =
@@ -815,6 +825,7 @@ defmodule Elzoo.Wave6.CountHelper do
   end
 
   defp post_billing(fx, tenant, charge, opts, op) do
+    Agent.update(fx.billing, &Map.put(&1, {tenant, @period, :pending}, {charge, op}))
     result = transfer(fx, tenant, op.operation_id, op.reason, "revenue", "receivable", op.amount)
 
     cond do
@@ -822,7 +833,10 @@ defmodule Elzoo.Wave6.CountHelper do
         {:lost, op}
 
       result in [{:ok, :applied}, {:ok, :duplicate}] ->
-        Agent.update(fx.billing, &Map.put(&1, {tenant, @period}, charge))
+        Agent.update(fx.billing, fn billing ->
+          billing |> Map.delete({tenant, @period, :pending}) |> Map.put({tenant, @period}, charge)
+        end)
+
         {:posted, op, result}
 
       true ->
