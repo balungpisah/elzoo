@@ -27,7 +27,9 @@ foreign ref gets `{:error, :unknown_run}`". A run whose result has been sent
 to its submitter is finished. So a cancel that the Adapter handles after the
 result was sent answers `{:error, :unknown_run}`, with one exception the
 Contract names: a ref among the last 1024 queued runs settled by
-cancellation answers `{:ok, :already_requested}`.
+cancellation answers `{:ok, :already_requested}`. In this task the window
+starts when the run's registry row is retired as finished, and the result
+is sent immediately after that step.
 
 Owned paths: `pieces/runtime/os-isolation/lib/**` and
 `pieces/runtime/os-isolation/test/**`. Conditionally, if a new test file or
@@ -38,17 +40,20 @@ then, in the last commit, its `docs/plans/release-plan.json` entry
 
 ## Required behavior
 
-1. Once the result of a run has been sent, every cancel of that ref that
-   the Adapter handles answers `{:error, :unknown_run}`, except the
-   1024-ref cancellation exception above. Today four replies occur in that
-   window, and each becomes `unknown_run`:
+1. From the moment a run's row is retired as finished (immediately
+   before its result is sent), every cancel of that ref that the Adapter
+   handles answers `{:error, :unknown_run}`, except the 1024-ref
+   cancellation exception above. Replies that occur in that window today
+   include, and each becomes `unknown_run`:
    - `{:error, :already_exited}` after a normal completion;
    - `{:ok, :already_requested}` for a run that already had a cancel
      requested (T17);
    - `{:error, :exit_unconfirmed}` for a run whose provider closed or did
      not report an exit;
-   - `{:ok, :requested}` or `{:error, :exit_unconfirmed}` for a run that
-     ended `rejected{spawn_failed}` or `expired` before dispatch.
+   - `{:ok, :requested}` or `{:error, :exit_unconfirmed}` for a run whose
+     Owner ended it `rejected{spawn_failed}` before the provider returned
+     an OS pid. (A run past its deadline at dispatch gets `expired` without
+     an Owner or a running entry, so it is outside this race.)
 2. Order the steps so the invariant holds without a sleep, retry, wait in
    the test or second accepted reply. One way that keeps the current
    process design: the Owner retires its registry row before it sends the
@@ -56,11 +61,12 @@ then, in the last commit, its `docs/plans/release-plan.json` entry
    before it looks at `state.running` or `cancel_requested`. Moving result
    delivery into the Adapter is not required and must keep result delivery
    across an Adapter restart (README, about lines 159-161) if chosen.
-3. An Owner killed between retiring its row and sending the result must
-   still give the submitter exactly one result: not none, and not a second
-   one from the observer path (README: "does not notify twice"). State how
-   the change guarantees it and test it.
-4. Every reply outside that window keeps its current behavior.
+3. An Owner killed at any point around the send, before retiring its
+   row, between retiring it and sending, or after sending, must give the
+   submitter exactly one result: not none, and not a second one from the
+   Adapter's observer path, which decides from the registry row (README:
+   "does not notify twice"). State how the change guarantees it.
+4. Every reply before the row is retired keeps its current behavior.
 5. Stop and comment on the issue, with the path and the reason, only if
    the invariant cannot be met with the Contract as written after trying
    the ordering above. Do not change the test to pass.
@@ -72,8 +78,9 @@ then, in the last commit, its `docs/plans/release-plan.json` entry
    through a hook in `config.test_hooks` that blocks the Owner right after
    the send. It passes on the fix and fails on the unfixed code. Record that
    failure as a negative control (temporary edit, reverted).
-2. A test for behavior 3 (Owner killed between the two steps: exactly one
-   result).
+2. Tests for behavior 3: the Owner killed between retiring its row and
+   the send, and killed right after the send; each gives exactly one
+   result.
 3. T7 and T17 unchanged.
    `mix test pieces/runtime/os-isolation/test/elzoo/os_process_test.exs:366
    --repeat-until-failure 500` passes in one launch on the fix. Record the
