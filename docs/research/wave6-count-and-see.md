@@ -253,13 +253,15 @@ These validate the harness; they do not replace the Pieces' own controls.
   scripted models through `runtime/recipe-test`.
 - No invoice, payment or settlement (Wave 9). A balanced journal does not prove external
   settlement.
-- The ready Store tables are not under row security, as in ELZ-286. The RunEngine Runs, their
-  Run owner and Unit stores are on the owner connection (the RunEngine test fixture); only the
-  Wave 6 Piece tables, the checked commands, the jobs outbox and the artifact run as the
-  application role. The fixture (`pieces/assembly/run-engine/test/support/`) creates its schema,
-  runs its migration and then makes its Run, Unit, evidence and transcript Store calls on one
-  Repo, so running those calls as the application role needs a change in that Piece's test
-  support or database-wide default privileges for the owner; neither is in this task's paths.
+- The ready Store tables are not under row security, as in ELZ-286.
+- The RunEngine Run, Unit, evidence and transcript stores run on the RunEngine fixture's owner
+  connection, not as the application role, as in ELZ-286. The fixture
+  (`pieces/assembly/run-engine/test/support/`) creates its schema, runs its migration and then
+  makes those Store calls on one Repo; changing that is outside this task's paths, and granting
+  the application role more would weaken the role this test pins. The coordinator accepted this
+  as a stated limit (review finding B1). The role requirement covers the application connection
+  of the Wave 6 tables: the Wave 6 Piece tables, the checked commands, the jobs outbox and the
+  artifact run as the application role.
 - Run and model metrics are not shown (Q8 A). The counted gate, the admission and settlement,
   the metering split, the committed actual, the billing decision, the credit apply and the spend
   check are this harness's host code (Q9 A), not Pieces.
