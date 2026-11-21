@@ -28,6 +28,8 @@ defmodule Elzoo.Wave5.TenancyTest do
 
   setup_all do
     {role, repos} = H.start_repos!()
+    # Registered before the guard, so a failed guard still stops both pools.
+    on_exit(fn -> for pid <- repos, Process.alive?(pid), do: Supervisor.stop(pid) end)
     # Fails, never skips: the application connection must be the application role.
     H.role_guard!(role)
     engine_repo = TestHelper.database()
@@ -37,9 +39,7 @@ defmodule Elzoo.Wave5.TenancyTest do
     Process.unlink(units)
 
     on_exit(fn ->
-      for pid <- [registry, units, engine_repo | repos],
-          Process.alive?(pid),
-          do: Supervisor.stop(pid)
+      for pid <- [registry, units, engine_repo], Process.alive?(pid), do: Supervisor.stop(pid)
     end)
 
     %{role: role}
@@ -916,6 +916,9 @@ defmodule Elzoo.Wave5.TenancyTest do
            ) == {:conflict, {:domain, "not_erased"}}
 
     assert TenantLifecycle.status(H.read(store, "T1")) == {:ok, "closing"}
+    # The close and the refused erase appended records; the tenant erasure must keep them too.
+    before_tenant_erase = H.log_rows(p)
+    assert length(before_tenant_erase) > length(rows)
     assert :ok = RetentionErasure.erase(fx.vault, "tenant:T1")
     assert erased?.()
 
@@ -930,8 +933,12 @@ defmodule Elzoo.Wave5.TenancyTest do
 
     assert TenantLifecycle.status(H.read(store, "T1")) == {:ok, "erased"}
 
-    # No log row was deleted or changed by any erasure; later commands only appended.
+    # No log row was deleted or changed by either erasure; later commands only appended.
     after_rows = Map.new(H.log_rows(p))
-    assert Enum.all?(rows, fn {key, hash} -> Map.get(after_rows, key) == hash end)
+
+    for snapshot <- [rows, before_tenant_erase],
+        do: assert(Enum.all?(snapshot, fn {key, hash} -> Map.get(after_rows, key) == hash end))
+
+    assert map_size(after_rows) > length(before_tenant_erase)
   end
 end

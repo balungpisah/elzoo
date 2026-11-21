@@ -78,7 +78,9 @@ Files: [test/wave5_tenancy_test.exs](../../test/wave5_tenancy_test.exs) and the 
    a public answer reaches the credential Need (count 1), which raises, giving
    `{:error, :credentials_unavailable}`, still with no client. `admit/1` starts no client on any
    path by its Contract, so the unchanged client count is a guard against a later change, not
-   a detected absence; no case here shows the count rising.
+   a detected absence; no case here shows the count rising, and a client that started and
+   exited between the two samples would leave it unchanged. The decisive evidence is the
+   credential Need count of zero.
 7. **Kill switch on live work.** T1 and T2 are activated through lifecycle commands; a live
    RunEngine Run of each dispatches its first local work. A T1 tenant switch commits through
    CheckedCommand on the PostgreSQL Store (the kill-switch descriptor's gate allows; it never
@@ -123,8 +125,10 @@ Files: [test/wave5_tenancy_test.exs](../../test/wave5_tenancy_test.exs) and the 
    the T1 stream head has `low_water == 0` and a revision equal to its record count; the
    record count and per-row SHA-256 are unchanged. Lifecycle `close` commits; `erase` with
    `vault_erased` computed from `RetentionErasure.status/2` is `not_erased` while the tenant
-   subject is active, and commits only after both subjects are `erased`. The earlier record
-   hashes are still present at the end.
+   subject is active, and commits only after both subjects are `erased`. At the end, the record
+   hashes taken before the subject erasure and those taken just before the tenant-subject
+   erasure (which include the close and the refused erase) are all still present, and the
+   final erase only appended.
 
 ## Environment and checks
 
