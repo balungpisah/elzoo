@@ -375,7 +375,8 @@
       "summary": "Unit-tagged observed usage with provenance",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/metering/piece.json",
       "reason": "ELZ-299: plain Ecto/Postgrex tables under state/tenant-isolation (owner Q1 A); unknown usage is a distinct count, never zero; no pricing, quota or admission."
     },
     {
