@@ -1074,10 +1074,14 @@ only the refused slot has a reason), `earlier_run` (a Unit holding an earlier Ru
 with a late input of that Run committed after the new configure, gives only the
 new Run's entries), `scope_limits_reader` (wrong tenant, principal or Run, malformed
 limits and no reader fail with no Run-owner status call and no Store read),
+`later_actual` (a nested parent settled `expired` with no actual gets an `:actual`
+entry from the later `:nested_actual` record when its child's tool cost arrives),
 `read_bounds` (exact limits succeed, one record or one byte less is `read_limit`,
 an unavailable Store is `unavailable`, pruned history is `history`) and `read_only`
 (Unit, Run-owner and evidence heads and every gate, clock, binding and pattern
-counter are unchanged across two reads, and the reads are equal). Two temporary
-edits are negative controls: a `path` without the link to the enclosing parent
-(`nested_tree` fails) and entries from sequence 1 regardless of the configured Run
-(`earlier_run` fails). Listed finite scenarios, not a proof.
+counter are unchanged across two reads, and the reads are equal). Temporary edits
+are negative controls: a `path` without the link to the enclosing parent
+(`nested_tree` fails), entries from sequence 1 regardless of the configured Run
+(`earlier_run` fails), the configure check kept but a protocol record of another
+Run not filtered (`earlier_run` fails) and no `:actual` entry (`later_actual`
+fails). Listed finite scenarios, not a proof.
