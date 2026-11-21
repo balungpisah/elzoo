@@ -263,8 +263,10 @@ defmodule Elzoo.DeadLetterStore do
     entries =
       rows
       |> Enum.take(limit)
+      # OTP's :json decoder keeps integers of any length; Jason 1.4.5 refuses integers of more
+      # than 1,024 digits, which a valid record may hold within 16,384 bytes.
       |> Enum.map(fn [id, record, work_ref, at] ->
-        %{message_id: id, record: Jason.decode!(record), work_ref: work_ref, put_at_ms: at}
+        %{message_id: id, record: :json.decode(record), work_ref: work_ref, put_at_ms: at}
       end)
 
     next =

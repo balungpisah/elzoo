@@ -22,7 +22,6 @@ defmodule Elzoo.DeadLetterStoreTest do
   setup_all do
     ctx = Harness.start_repos!()
     p = Harness.install!(ctx.role)
-    on_exit(fn -> Harness.drop!(p) end)
     Map.merge(ctx, %{prefix: p})
   end
 
@@ -471,6 +470,17 @@ defmodule Elzoo.DeadLetterStoreTest do
       # A purged key may be put again; it is a new open record.
       assert {:ok, :applied} = put(s, "T1", "src", record("a"))
     end
+
+    test "stated limit: a resolve retried after purge and key reuse resolves the new record",
+         %{store: s} do
+      assert {:ok, :applied} = put(s, "T1", "src", record("m1"))
+      assert {:ok, :applied} = resolve(s, "T1", "src", "m1", :discarded, "op", 10)
+      assert {:ok, 1} = DLS.purge(s, "T1", %{before_ms: 11, limit: 10})
+      assert {:ok, :applied} = put(s, "T1", "src", record("m1", %{"attempts" => 9}))
+      # The retry of the first resolve cannot tell the new record from the purged one.
+      assert {:ok, :applied} = resolve(s, "T1", "src", "m1", :discarded, "op", 10)
+      assert {:ok, %{entries: [], next: nil}} = list(s, "T1", "src", nil, 10)
+    end
   end
 
   describe "9: Relay over a stream whose first full page fails permanently" do
@@ -613,6 +623,18 @@ defmodule Elzoo.DeadLetterStoreTest do
       assert {:error, :record} = put(s, "T1", "src", record("m", %{"correlation_id" => "c\0"}))
       assert {:error, :record} = put(s, "T1", "src", record("m", %{"last_attempt_id" => "a\0"}))
       assert {:error, :invalid} = resolve(s, "T1", "src", "nul\0id", :replayed)
+    end
+
+    test "integers longer than 1,024 digits are listed back unchanged", %{store: s} do
+      long = record("long", %{"attempts" => Integer.pow(10, 1024), "deadline_unix_ms" => 7})
+      longer = record("longer", %{"attempts" => 1, "deadline_unix_ms" => Integer.pow(10, 9_999)})
+      assert {:ok, _} = Elzoo.DeadLetter.validate(long)
+      assert {:ok, :applied} = put(s, "T1", "long", long, nil, 1)
+      assert {:ok, :applied} = put(s, "T1", "long", longer, nil, 2)
+      assert {:ok, :duplicate} = put(s, "T1", "long", long, nil, 3)
+
+      assert {:ok, %{entries: [%{record: ^long}, %{record: ^longer}], next: nil}} =
+               list(s, "T1", "long", nil, 10)
     end
   end
 

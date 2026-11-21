@@ -135,6 +135,8 @@ defmodule Elzoo.DeadLetterStore.Harness do
   def install!(role) do
     p = "elz301_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
     q!(OwnerRepo, ~s(CREATE SCHEMA "#{p}"))
+    # Registered before the migration and grants, so a failure there still drops the schema.
+    ExUnit.Callbacks.on_exit(fn -> drop!(p) end)
     :persistent_term.put({TestMigration, :prefix}, p)
     :ok = Ecto.Migrator.up(OwnerRepo, 1, TestMigration, prefix: p, log: false)
     q!(OwnerRepo, ~s(GRANT USAGE ON SCHEMA "#{p}" TO "#{role}"))

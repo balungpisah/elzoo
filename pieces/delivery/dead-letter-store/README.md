@@ -18,8 +18,9 @@ application. See [consuming](../../../docs/consuming.md). Piece dependencies:
 `delivery/dead-letter` and `state/tenant-isolation`. `integration/jobs` and its closure
 (`state/outbox`, `state/event-log`, with Oban among its providers) are declared only so that
 the copied consumer can run the tests. The library code does not call them. Providers:
-`ecto_sql` 3.14.0 and `postgrex` 0.22.4 (the Repo, transactions and migrations) and `jason`
-(the canonical record bytes), plus `elixir` and `otp`. The tests also use `telemetry`. Exact
+`ecto_sql` 3.14.0 and `postgrex` 0.22.4 (the Repo, transactions and migrations), `jason`
+(it encodes the canonical record bytes) and `otp` (its `:json` decoder reads them back, with
+integers of any length), plus `elixir`. The tests also use `telemetry`. Exact
 versions and claim-level grounding are in [piece.json](piece.json).
 
 ## Migration
@@ -90,7 +91,8 @@ but does not set.
   `:already_resolved`.
 - A database or Repo failure is `{:error, :unavailable}`. It says nothing about whether the
   write committed. A retry with the same request is safe: a committed put is then
-  `:duplicate`, a committed resolve `:duplicate`.
+  `:duplicate`, a committed resolve `:duplicate`. Retry an unconfirmed resolve before purging
+  that record (see Limits).
 - Queries run with `log: false`.
 
 ## Limits
@@ -101,7 +103,10 @@ but does not set.
   host chooses when to purge and supplies every time.
 - `list/3` pages by position. A record put later with an earlier `put_at_ms` than the cursor
   is not returned by the remaining pages of that walk.
-- A key purged and put again is a new open record.
+- A key purged and put again is a new open record. A resolve identifies its record only by
+  `(tenant, source, message_id)`: a retried unconfirmed resolve after that record was purged
+  and its key put again resolves the new record. Retry an unconfirmed resolve before purging
+  that record.
 
 ## Evidence
 
