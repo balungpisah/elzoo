@@ -46,9 +46,11 @@ defmodule Elzoo.Quota.Migration do
     )
     """)
 
-    # One row per reserved unit, written once with its reservation row, so the reservation key
-    # decides its uniqueness. actual is NULL while the unit is open or held; settled_unknown
-    # marks a settlement of :unknown, kept after the reconciliation that sets actual and basis.
+    # One row per reserved unit, written once with its reservation row: the reservation key keeps
+    # the unit rows unique, and UNIQUE (tenant, run_id, unit) is a second layer in the database,
+    # whose index is the table's only index. actual is NULL while the unit is open or held;
+    # settled_unknown marks a settlement of :unknown, kept after the reconciliation that sets
+    # actual and basis.
     execute("""
     CREATE TABLE #{p}.elzoo_quota_units (
       tenant text NOT NULL,
@@ -60,11 +62,10 @@ defmodule Elzoo.Quota.Migration do
       basis text CHECK (basis IN ('metering', 'write_off')),
       actor_ref text,
       reason text,
-      FOREIGN KEY (tenant, run_id) REFERENCES #{p}.elzoo_quota_reservations (tenant, run_id)
+      FOREIGN KEY (tenant, run_id) REFERENCES #{p}.elzoo_quota_reservations (tenant, run_id),
+      UNIQUE (tenant, run_id, unit)
     )
     """)
-
-    execute("CREATE INDEX elzoo_quota_units_run ON #{p}.elzoo_quota_units (tenant, run_id, unit)")
 
     for table <- @tables,
         do:
