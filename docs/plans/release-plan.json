@@ -8278,10 +8278,12 @@
     {
       "id": "workflow/eval",
       "job": "ELZ-302",
-      "note": "Planned test-time evaluation: versioned JSON datasets of scripted recipe cases with a closed, extendable check set, read through state/artifact, run through runtime/recipe-test and scored into a deterministic report. Absorbs state/eval-dataset; no live model or judge.",
+      "note": "An ExUnit helper that decodes a versioned JSON dataset of scripted recipe cases (format version 1: a dataset id, an author version and 1..256 cases of input, script, restart_after and 1..16 checks of a closed, extendable set of seven kinds), refusing a malformed one at the path of its first fault with a fixed reason, reads its bytes through state/artifact with the hash verified, runs each case once through runtime/recipe-test with scripted models only over a recipe spec that the host gives, and scores each record into a report that is a plain value with the dataset and package identities and a fixed reason for each failed check; a harness error is a case error, not a crash.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/eval/piece.json",
+      "manifest_sha256": "d3bd3d29546e272f5310f4d022adde2bd0eb03a0fb4d5bd8e496b64f9a361717"
     },
     {
       "id": "delivery/debounce",

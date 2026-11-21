@@ -982,8 +982,9 @@
       "summary": "Dataset-backed scripted evaluation of recipes",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-302: test-time datasets read through state/artifact, run through runtime/recipe-test; absorbs state/eval-dataset; no live model or judge."
+      "status": "ready",
+      "reason": "ELZ-302: test-time datasets read through state/artifact, run through runtime/recipe-test; absorbs state/eval-dataset; no live model or judge.",
+      "manifest": "pieces/workflow/eval/piece.json"
     },
     {
       "id": "workflow/run",
