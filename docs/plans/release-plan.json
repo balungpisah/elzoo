@@ -8174,6 +8174,75 @@
       "issue": 717,
       "url": "https://github.com/balungpisah/elzoo/issues/717",
       "issue_body_sha256": "ce451611034ee8b0ef2cc46e5df8587f62edf3f7faa266b2b9a037341a2957ce"
+    },
+    {
+      "id": "ELZ-313",
+      "title": "ELZ-313 — Elzoo.Journal.new/1 refuses a value that is not a money registry",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-297"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; local small gate, full review and merge queue",
+      "paths": [
+        "tasks/ELZ-313-journal-registry-check.md"
+      ],
+      "outputs": [],
+      "acceptance": "Elzoo.Journal.new/1 raises its fixed ArgumentError for a registry: value that Elzoo.Money.Registry.build!/1 could not have built (versions, snapshot keys, entries), and still accepts the default and every built registry (other-family recheck finding); Contract, README and other behavior unchanged, no other Piece edited. Malformed-registry regression, key-only negative control, Piece tests, local small gate.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 726,
+      "url": "https://github.com/balungpisah/elzoo/issues/726",
+      "issue_body_sha256": "d7a06969544ef5c5a58a19567a253fe1e888ee73592a82e3527cbd6fa7ecef66"
+    },
+    {
+      "id": "ELZ-314",
+      "title": "ELZ-314 — Elzoo.Journal.history/3 reads the account and its page in one statement",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-297"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; local small gate, full review and merge queue",
+      "paths": [
+        "tasks/ELZ-314-journal-history-one-read.md"
+      ],
+      "outputs": [],
+      "acceptance": "Elzoo.Journal.history/3 sends one SQL statement after the tenant scope setup that returns the account's currency identity and the bounded page and tells an unknown account from an empty page, as the ELZ-297 single-read rule says (other-family recheck finding); results, bounds and row security unchanged. Statement-count test through Repo telemetry, two-statement negative control, Piece tests, local small gate.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 727,
+      "url": "https://github.com/balungpisah/elzoo/issues/727",
+      "issue_body_sha256": "88498de5ac4fb22c81672899d0b1f9b83d5501784713d6362e1b41c0cd3c551c"
+    },
+    {
+      "id": "ELZ-315",
+      "title": "ELZ-315 — runtime/os-isolation README: the late result follows the killed-Owner residual",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-305"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; hosted check-piece, light review and merge queue",
+      "paths": [
+        "tasks/ELZ-315-os-isolation-late-result-sentence.md"
+      ],
+      "outputs": [],
+      "acceptance": "The runtime/os-isolation README run/3 paragraph says the late result still arrives except in the declared killed-Owner residual, so it no longer contradicts the ELZ-305 residual (other-family recheck finding on #703); no code, test, piece.json or other README change. Piece tests, exact-head check-piece, diff and index checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 728,
+      "url": "https://github.com/balungpisah/elzoo/issues/728",
+      "issue_body_sha256": "bc0c98901ce82c36ccb22e344333c51979ec72fa66b5e93bccfcf98ae69f113f"
     }
   ],
   "entries": [
