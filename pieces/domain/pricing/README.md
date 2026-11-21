@@ -94,9 +94,12 @@ hash differs.
 `check/1`, and that checked value is passed to every `Elzoo.Money` call the
 call makes, so it is walked once per call, not once per line; a checked value
 is passed on as it is. A host that prices many cards under one custom
-registry can check it once itself and pass the checked value. A registry that
-`check/1` refuses, a forged checked value included, and any other `opts` are
-`:invalid`.
+registry can check it once itself and pass the checked value. That checked
+value is accepted only while the `Elzoo.Money.Registry` build that made it is
+loaded, so the host checks again after a code upgrade (see the `domain/money`
+limits); a checked value that `check/1` refuses, for example after a purge of
+that build, is `:invalid`. A registry that `check/1` refuses, a forged
+checked value included, and any other `opts` are `:invalid`.
 
 ### Usage
 
@@ -108,9 +111,12 @@ unique on `{provider_id, model_id, unit, source}`. `source` is `:estimated`,
 `unknown_count` an integer `0..count`; `known` an integer `0..10^38-1`, and 0
 when `unknown_count == count`.
 
-`totals/3` of `domain/metering` groups by unit and source only, so these
-per-provider and per-model rows are host-built until metering has that read.
-This Piece does not depend on metering code.
+`totals/3` of `domain/metering` groups by unit and source only.
+`Elzoo.Metering.model_totals/3` of `domain/metering` returns `{:ok, rows}`
+with these per-provider and per-model rows for a period of at most 1,000
+groups (`max_rows` 1..1000, `{:error, :read_limit}` above it); the host builds
+the rows of a larger period, up to the 4096 rows this Piece takes. This Piece
+does not depend on metering code.
 
 ### Charge
 
@@ -249,8 +255,9 @@ takes the difference the host would post.
 ## Needs and limits
 
 Needs: a host that stores each card version unchanged with its content hash,
-stores the card identity with each charge, builds the per-provider and
-per-model rows of a complete period, and chooses the card.
+stores the card identity with each charge, supplies the complete
+per-provider and per-model rows of the period, read with `model_totals/3` of
+`domain/metering` or built, and chooses the card.
 
 Limits: no tiers, exchange rate, tax, discount, invoice, payment or journal
 post. One currency per card; a tenant billed in two currencies uses two
@@ -259,8 +266,10 @@ each subset with its own card. Rates are owner-authored; `llm_db` prices are
 a reference only. The charge of an incomplete line covers its known amounts
 only. An exact line value must fit 38 significant digits (with an
 18-fractional-digit rate per unit, a quantity below about 10^20); a larger one
-is `:amount_range`, never truncated. The per-provider and per-model rows are
-host-built until `domain/metering` has a read for them. The Piece does not
+is `:amount_range`, never truncated. The per-provider and per-model rows come
+from `Elzoo.Metering.model_totals/3` of `domain/metering` for a period of at
+most 1,000 groups (`max_rows` 1..1000, `{:error, :read_limit}` above it); the
+host builds the rows of a larger period, up to 4096 rows. The Piece does not
 check that the rows are a complete period; the host owns the period and the
 card choice. Telemetry, Config and Control are not applicable.
 
