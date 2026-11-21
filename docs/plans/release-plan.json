@@ -8664,7 +8664,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/quota/piece.json",
-      "manifest_sha256": "057da2f08979aa2fb22843464427efeb355ac2d1f84644bbfe6f6a8f4eac782c"
+      "manifest_sha256": "547d2e5f024e6e9fd63b1a32f2520729450c88f2795d77b5fc150ad67567dc04"
     },
     {
       "id": "domain/saas-controls",
