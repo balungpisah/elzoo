@@ -926,6 +926,35 @@ defmodule Elzoo.MeteringTest do
       assert M.model_totals(m, "T1", query.(1)) == {:error, :read_limit}
       # The same observations are one totals/3 group.
       assert {:ok, [%{count: 4}]} = M.totals(m, "T1", query.(1))
+
+      # One grouped query per call, and the database returns at most max_rows + 1 groups.
+      id = {__MODULE__, make_ref()}
+      event = [:elzoo, :metering, :app_repo, :query]
+      :telemetry.attach(id, event, &__MODULE__.forward_result/4, self())
+
+      try do
+        assert M.model_totals(m, "T1", query.(1)) == {:error, :read_limit}
+      after
+        :telemetry.detach(id)
+      end
+
+      grouped =
+        for {:result, {:ok, %Postgrex.Result{columns: columns} = result}} <- drain([]),
+            is_list(columns) and "provider_id" in columns,
+            do: result
+
+      assert [%{num_rows: 2}] = grouped
+    end
+
+    def forward_result(_event, _measurements, meta, parent),
+      do: send(parent, {:result, meta.result})
+
+    defp drain(acc) do
+      receive do
+        {:result, _} = message -> drain([message | acc])
+      after
+        0 -> Enum.reverse(acc)
+      end
     end
 
     test "malformed queries are refused before any query; another tenant gives no row",
