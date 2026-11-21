@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "id": "domain/journal",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": ["cure", "ecto_sql", "postgrex", "telemetry", "elixir", "otp"],
+  "dependencies": ["domain/money", "state/tenant-isolation"],
+  "applications": ["crypto"],
+  "contract": "Durable money journal in plain Ecto/Postgrex tables on PostgreSQL 16 under the state/tenant-isolation floor: accounts with a stored balance in their own domain/money registry currency (identity alpha, numeric, minor unit; no default currency) and a no-negative flag (a wallet); operations of 2..64 same-currency zero-sum postings committed all or none under one operation ID (equal request digest duplicate, other digest conflict) with account rows locked one at a time in account_id byte order at a checked READ COMMITTED Need, in the journal's own transaction (caller transaction refused); immutable linked reversals at most once and never reversible; retired currencies refused for new accounts and posts and accepted for replays and reversals; bounded balance and history reads; fixed error atoms that echo no ID or amount; a database failure is unavailable and safe to retry. No Ash, Float, exchange rate, payment or settlement claim.",
+  "limits": [
+    "The state/tenant-isolation limits apply: the table owner can turn forcing off, disable row security or drop the policies, and a superuser or BYPASSRLS role ignores them, so production connects as a non-owner, non-bypass application role with the README grants. The consumer Repo's query telemetry still receives the scope parameters (the tenant).",
+    "READ COMMITTED is a consumer Need that the Piece checks (current_setting('transaction_isolation') before any table query) but cannot set: transact/3 takes no isolation option and runs set_config first.",
+    "One currency identity per operation and no exchange; a cross-currency transfer is two operations through accounts the host chooses. A balanced journal does not prove external settlement; no payment, invoice or settlement claim.",
+    "History and balances are bounded reads (history 1..1000 entries per call), not reports. The journal tables are Piece-owned and are not captured by state/audit-log.",
+    "A database failure, including a lost connection, is {:error, :unavailable} and says nothing about whether the operation committed; the outcome is left to a retry with the same operation_id and request.",
+    "Concurrency, lock order, replay, killed-connection and row-security evidence are finite scenarios on one local PostgreSQL 16 with repeated runs, not proofs; the Cure laws cover only the decision-split postings and balance verdicts, and the sum of minor units, the range comparison and every SQL step are test-grounded."
+  ],
+  "files": [
+    "cure/elzoo/journal.cure",
+    "lib/elzoo/journal.ex",
+    "lib/elzoo/journal/migration.ex",
+    "test/elzoo/journal_test.exs",
+    "test/support/journal_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/journal.cure",
+      "symbol": "mismatch_before_sum",
+      "claim": "J1: for every zero-sum decision, postings in more than one currency identity give JournalCurrencyMismatch (decision-split form)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/journal.cure",
+      "symbol": "nonzero_sum_unbalanced",
+      "claim": "J2: one currency identity with a nonzero-sum decision gives JournalUnbalanced."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/journal.cure",
+      "symbol": "zero_sum_balanced",
+      "claim": "J3: one currency identity with a zero-sum decision gives JournalBalanced."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/journal.cure",
+      "symbol": "out_of_range_refused",
+      "claim": "J4: for every no-negative flag and sign, a balance outside the money range gives JournalAmountRange first."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/journal.cure",
+      "symbol": "wallet_below_zero_refused",
+      "claim": "J5: an in-range balance below zero on an account that may not go negative gives JournalInsufficientFunds."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/journal.cure",
+      "symbol": "wallet_not_below_zero_ok",
+      "claim": "J6: an in-range balance not below zero on an account that may not go negative gives JournalBalanceOk."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/journal.cure",
+      "symbol": "negative_allowed_ok",
+      "claim": "J7: for every sign, an in-range balance on an account that may go negative gives JournalBalanceOk."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/journal.cure",
+      "claim": "Pinned Cure checks the JournalPostings and JournalBalance verdicts and the production postings/2 and balance/3 decisions (every function @total) with a clean audit: no axioms, holes, unresolved, unaudited, opaque or unproven-total items."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/journal_test.exs",
+      "claim": "Listed scenarios on the worker's own disposable PostgreSQL 16 database with DBConnection.ConnectionPool Repos (not the Sandbox) connected as the ELZ-285 application role with only the README grants, in random schemas dropped afterwards; after every case each stored balance equals the sum of its account's postings, versions run 1..n with running balances, wallets never go negative and every operation's 2..64 postings sum to zero in one identity (a reversal negates its original): a balanced receivable/revenue/wallet post with exact balances and history and a JPY pair; refusals with nothing committed for 1 and 65 postings, a repeated account, a zero amount, forged and unheld currencies, mixed currencies, a nonzero sum, an account in another currency, an unknown account, each text at 0, 128 and 129 bytes, invalid UTF-8, C0 and C1, reason at 256 and 257 bytes, a balance one minor unit past the money range on each side; open_account duplicate, conflict and unit-less, unrecorded or forged currencies; journal options and prefix refusals; two concurrent wallet debits held behind another connection's row lock until both wait (pg_stat_activity), one commits and one is insufficient_funds; lock order A,B and B,A both waiting on A then both committing with byte-order account IDs; replay applied then duplicate (also in reversed posting order), conflict on amount, actor, reason and kind, concurrent replay committing once; reversal restore, link, replay, conflict, already_reversed (also two racing), not_reversible, unknown_operation and insufficient_funds after spending; a registry with a newer version retiring EUR (built by Registry.build!/1): open and post retired_currency, replay duplicate with original and re-parsed amounts, open of an existing account duplicate, reversal accepted, amounts under the newest version; a connection terminated by pg_terminate_backend while waiting after its operation insert gives unavailable with nothing left and the retry applies once; a caller transaction gives in_transaction for every function with no query on the Repo; a repeatable read Repo gets isolation from post, reverse and open_account with nothing committed; TenantIsolation.verify/3 for each table, no T2 row visible under T1, balance, history and a post naming a T2 account unknown_account, direct T2 inserts and posting/operation UPDATE and DELETE refused with 42501; a registry lacking the stored identity gives registry; history limit 0, 1, 1000, 1001 and paging by after. Negative controls by temporary edit: locking in posting order fails the lock-order case with a deadlock, and dropping the zero-sum check commits a nonzero sum and fails the refusal case. Finite scenarios, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/16/explicit-locking.html",
+      "claim": "PostgreSQL 16 row locks (SELECT ... FOR UPDATE), deadlock detection, READ COMMITTED re-reads after a lock wait, unique-index waits on a concurrent uncommitted insert, INSERT ... ON CONFLICT DO NOTHING, transaction rollback on a terminated backend and numeric(38,0) are upstream server contracts reached through Postgrex 0.22.4."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "Ecto SQL 3.14.0 Repo.transact/2 results and rollback, in_transaction?/0 and Ecto.Migration.execute/1 are upstream behavior, reached through Elzoo.TenantIsolation.transact/3."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Relies on the pinned Cure compiler, kernel and audit for the selected laws and the compiled decisions."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir binary ordering (byte order, equal to COLLATE \"C\"), String.valid?/1, the utf8 binary pattern and integer arithmetic for the lock order, text rule and balances."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html",
+      "claim": "OTP 29.1.2 :crypto.hash(:sha256, iodata) computes the request digest."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The consumer runs the migration as the table owner, connects the application as a non-owner, non-bypass role with only the README grants at READ COMMITTED, calls TenantIsolation.verify/3 for each journal table at startup, keeps code that holds the connection from calling set_config itself, and retries an unavailable result with the same operation_id and request."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "The Piece emits no event and no log; its queries pass log: false. The consumer Repo's query telemetry still receives the scope parameters, the tenant-isolation limit."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "The journal value from new/1 (repo:, prefix: under the identifier rule, optional registry: an Elzoo.Money.Registry value, default the compiled registry), fixed per value; fixed Contract bounds: 2..64 postings, 1..128-byte texts, 1..256-byte reason, history limit 1..1000, balances within the domain/money range. No ambient or hot configuration.",
+      "evidence": ["test/elzoo/journal_test.exs"]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle; the consumer owns the Repo, the migrations and the database roles."
+    }
+  }
+}

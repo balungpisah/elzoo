@@ -1,0 +1,120 @@
+# SPDX-License-Identifier: Apache-2.0
+# domain/journal (ELZ-297): the pure posting decisions of the balanced journal.
+# Pure: no I/O and no registry data. The Elixir boundary (Elzoo.Journal)
+# validates the request, compares currency identities, reads the locked
+# balances and passes the minor units and flags; these functions decide.
+mod Elzoo.Journal
+  # The verdict on the postings of one request, before any query.
+  type JournalPostings = JournalBalanced | JournalCurrencyMismatch | JournalUnbalanced
+
+  # The verdict on one account's new balance, under its row lock.
+  type JournalBalance = JournalBalanceOk | JournalAmountRange | JournalInsufficientFunds
+
+  # ── postings ────────────────────────────────────────────────────────────
+
+  @total true
+  @reducible
+  fn units_sum(units: List(Int)) -> Int =
+    match units
+      [] -> 0
+      [u | rest] -> u + units_sum(rest)
+
+  @total true
+  @reducible
+  fn is_zero(n: Int) -> Bool =
+    pickup
+      n < 0 -> False()
+      n > 0 -> False()
+      else -> True()
+
+  # One currency identity comes first, then the zero sum.
+  @total true
+  @reducible
+  fn postings_with(one_currency: Bool, zero_sum: Bool) -> JournalPostings =
+    match one_currency
+      False() -> JournalCurrencyMismatch()
+      True() ->
+        match zero_sum
+          True() -> JournalBalanced()
+          False() -> JournalUnbalanced()
+
+  @total true
+  @reducible
+  fn postings(units: List(Int), one_currency: Bool) -> JournalPostings =
+    postings_with(one_currency, is_zero(units_sum(units)))
+
+  # ── balances ────────────────────────────────────────────────────────────
+
+  # The domain/money range: -bound < balance < bound.
+  @total true
+  @reducible
+  fn in_range(balance: Int, bound: Int) -> Bool =
+    pickup
+      balance >= bound -> False()
+      balance <= 0 - bound -> False()
+      else -> True()
+
+  @total true
+  @reducible
+  fn is_negative(n: Int) -> Bool =
+    pickup
+      n < 0 -> True()
+      else -> False()
+
+  # The range comes first; only an account that may not go negative (a wallet)
+  # refuses a balance below zero.
+  @total true
+  @reducible
+  fn balance_with(range_ok: Bool, allow_negative: Bool, negative: Bool) -> JournalBalance =
+    match range_ok
+      False() -> JournalAmountRange()
+      True() ->
+        match allow_negative
+          True() -> JournalBalanceOk()
+          False() ->
+            match negative
+              True() -> JournalInsufficientFunds()
+              False() -> JournalBalanceOk()
+
+  @total true
+  @reducible
+  fn balance(new_balance: Int, allow_negative: Bool, bound: Int) -> JournalBalance =
+    balance_with(in_range(new_balance, bound), allow_negative, is_negative(new_balance))
+
+  # ── laws (decision-split form) ──────────────────────────────────────────
+
+  # J1: for every zero-sum decision, postings in more than one currency identity are a mismatch.
+  @total true
+  fn mismatch_before_sum(zero_sum: Bool) -> Equivalent(JournalPostings, postings_with(False(), zero_sum), JournalCurrencyMismatch()) =
+    reflexive(JournalCurrencyMismatch())
+
+  # J2: one currency identity with a nonzero sum is unbalanced.
+  @total true
+  fn nonzero_sum_unbalanced() -> Equivalent(JournalPostings, postings_with(True(), False()), JournalUnbalanced()) =
+    reflexive(JournalUnbalanced())
+
+  # J3: one currency identity with a zero sum is balanced.
+  @total true
+  fn zero_sum_balanced() -> Equivalent(JournalPostings, postings_with(True(), True()), JournalBalanced()) =
+    reflexive(JournalBalanced())
+
+  # J4: for every flag and sign, a balance outside the money range is refused first.
+  @total true
+  fn out_of_range_refused(allow_negative: Bool, negative: Bool) -> Equivalent(JournalBalance, balance_with(False(), allow_negative, negative), JournalAmountRange()) =
+    reflexive(JournalAmountRange())
+
+  # J5: a wallet whose new balance is below zero is refused.
+  @total true
+  fn wallet_below_zero_refused() -> Equivalent(JournalBalance, balance_with(True(), False(), True()), JournalInsufficientFunds()) =
+    reflexive(JournalInsufficientFunds())
+
+  # J6: a wallet whose new balance is not below zero is accepted.
+  @total true
+  fn wallet_not_below_zero_ok() -> Equivalent(JournalBalance, balance_with(True(), False(), False()), JournalBalanceOk()) =
+    reflexive(JournalBalanceOk())
+
+  # J7: for every sign, an account that may go negative accepts an in-range balance.
+  @total true
+  fn negative_allowed_ok(negative: Bool) -> Equivalent(JournalBalance, balance_with(True(), True(), negative), JournalBalanceOk()) =
+    reflexive(JournalBalanceOk())
+end
