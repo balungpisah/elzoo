@@ -360,8 +360,9 @@ exact-head requirements, or hosted checks on a new head.
 
 - The reviewer is a different agent session, and a different model where one
   is available. Give it the issue body and the diff, not your summary. The
-  review comment names the model of the reviewer. When no different model is
-  available, a different session is accepted, and the comment says so.
+  review comment names the model of the reviewer. When no other model
+  family is available, a different session of the same model is accepted
+  (owner decision), and the comment says so.
 - The reviewer reports all findings in one pass. Each finding is a `BLOCKER`
   (wrong behavior, a broken Contract, a claim with no evidence) or a `NOTE`.
 - Correct all blockers in one batch. The second pass reads only the commits
@@ -380,13 +381,19 @@ exact-head requirements, or hosted checks on a new head.
       Tests: <commands that the reviewer ran, and exit codes> | reviewer could not run tests; worker ran <command>: exit <code>
       Verdict: <no blocker open | blockers open>
 - Answer each finding of the automated reviewer in its thread, and resolve
-  the thread.
+  the thread. Before each merge, the automated reviewer's pass on the exact
+  head has finished and every one of its threads is resolved (owner
+  decision).
+- When a reviewer of another model family becomes available, it rechecks
+  `domain/journal`, `domain/metering` and `delivery/dead-letter-store`
+  once. Each finding becomes its own task (owner decision).
 
 A local command can be impossible on your host, for example when a service is
 missing. Then record the command and the reason in `Local gate:`. The hosted
 check is the evidence for that command.
 
-When the required local checks (or recorded hosted substitution), the hosted check and the review are green, mark the pull
+When the required local checks (or recorded hosted substitution), the hosted check and the review are green, and the
+automated reviewer's pass on the head has finished with its threads resolved, mark the pull
 request ready for review. That is the request to merge. From then the
 coordinator owns the branch: do not push to it unless the coordinator gives it
 back. You can claim the next task.
