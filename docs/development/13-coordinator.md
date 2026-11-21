@@ -154,11 +154,11 @@
   | #712 | `682bd985..1d0e9bab` | nothing posted for the final head (quota outage); the extra review was the gate |
   | #714 | `26efb104..5620eec5` | nothing posted for the final head (quota outage); the extra review was the gate |
 
-  Quota outage: the owner confirmed on 21 November 2026 that the automated
-  reviewer's quota ran out, with service expected back at about 08:30 UTC on
-  22 November. Until then the extra review is the gate at once, with no
-  30-minute wait. Each skip gets a row here, every row stays until its
-  recheck, and each recheck finding becomes its own task.
+  Quota outage: on 21 November 2026 the owner reported that the automated
+  reviewer's quota had run out, with service expected back at about 08:30
+  UTC on 22 November. That is the reason for the rows marked "quota outage".
+  Each such row stays until its recheck, and each recheck finding becomes its
+  own task. The triggers for skipping stay those of `AGENTS.md` section 6.
 
 - **Repair of a red `main`.** The full check on `main` is the evidence of the
   small-gate merges. When it is red:
