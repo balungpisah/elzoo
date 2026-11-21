@@ -134,6 +134,17 @@
   hold the merge: record on the hand-over issue of the wave that a second
   review is owed, do it when the stronger model is available, and make each
   finding its own task.
+- **Skipped automated reviews.** When `AGENTS.md` section 6 lets the
+  coordinator skip the automated reviewer, add a row here. When the
+  automated reviewer is available again, it rechecks each listed range once;
+  each finding becomes its own task, and the row is removed after the
+  recheck.
+
+  | Pull request | Skipped range | Why |
+  | --- | --- | --- |
+  | #703 | `b2805e09..ce123ab5` | silent on the final head; merged before this rule |
+  | #708 | `37949c54..7c864110` | silent on the final heads; merged before this rule |
+
 - **Repair of a red `main`.** The full check on `main` is the evidence of the
   small-gate merges. When it is red:
   1. Classify the red run on issue #98, as the
