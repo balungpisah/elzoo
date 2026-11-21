@@ -59,8 +59,9 @@ neither changes here. `domain/quota` takes no registry.
    index, which the test builds by editing the index of a genuine token's
    closure in its external term format (its module, type and arity come
    from the bytes, and its name is not that of the sealing function); an
-   external capture such as `&Elzoo.Money.Registry.default/0`; and a plain map with a `__struct__` key
-   and a closure that is not genuine. The test does not walk the registry.
+   external capture such as `&Elzoo.Money.Registry.default/0`; and a plain
+   map with a `__struct__` key and a closure that is not genuine. The test
+   does not walk the registry.
 3. Functions that take the registry as a positional argument (such as
    `Elzoo.Money.member/2`, `Elzoo.Money.Registry.latest/1`, `entry/3` and
    `held?/2`) do not validate today and do not start to: a checked value that
