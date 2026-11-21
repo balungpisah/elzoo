@@ -1,0 +1,71 @@
+# ELZ-324 — domain/pricing documents: the metering read for its rows and the checked registry's code lifetime
+
+- Dependencies: ELZ-321, ELZ-322
+
+## Outcome and scope
+
+Two documentation faults in `domain/pricing`, both found after their changes
+merged:
+
+- ELZ-322 (PR #751) added `Elzoo.Metering.model_totals/3`: per tenant and
+  period, one row `%{provider_id, model_id, unit, source, known,
+  unknown_count, count}` per `{provider_id, model_id, unit, source}`, the rows
+  of a `domain/pricing` usage value. The pricing README (the "Usage" section
+  and the limits paragraph) and the `piece.json` limit still say that these
+  per-provider and per-model rows are host-built until `domain/metering` has
+  a read for them.
+- ELZ-321 (PR #749) says in the README `opts` paragraph that a host that
+  prices many cards under one custom registry can check it once itself and
+  pass the checked value. It does not say how long that checked value is
+  accepted. The `domain/money` limits state it: a checked value works only
+  with the `Elzoo.Money.Registry` code that made it, and the host checks
+  again after a code upgrade. Once that build is purged or replaced,
+  `price/3` and `difference/3` refuse the value with `{:error, :invalid}`,
+  because they pass every `registry:` to `Elzoo.Money.Registry.check/1`.
+
+This is a documentation repair of a ready Piece. No code, test, example or
+Contract change: `contract` in `piece.json` stays byte for byte the same.
+Owned paths: `pieces/domain/pricing/README.md` and
+`pieces/domain/pricing/piece.json`; then, in the last commit, the Piece's
+`docs/plans/release-plan.json` entry (`manifest_sha256`; `note` stays equal to
+`contract`) and the generated views (`AGENTS.md` section 3). No other Piece
+changes, and `domain/pricing` still does not depend on metering code.
+
+## Required behavior
+
+1. README "Usage" section: the sentence that the rows are host-built until
+   metering has that read says instead that `Elzoo.Metering.model_totals/3`
+   of `domain/metering` returns these rows. Keep that `totals/3` groups by
+   unit and source only, and that this Piece does not depend on metering
+   code.
+2. README limits paragraph: the same change to "The per-provider and
+   per-model rows are host-built until `domain/metering` has a read for
+   them." The rest of the paragraph (the host owns the period and the card
+   choice; the Piece does not check that the rows are a complete period) is
+   unchanged.
+3. `piece.json` `limits`: the same change to the entry that begins "The
+   per-provider and per-model rows are host-built". Its other clauses are
+   unchanged.
+4. README `opts` paragraph, after "can check it once itself and pass the
+   checked value": the checked value is accepted only while the
+   `Elzoo.Money.Registry` build that made it is loaded, so the host checks
+   again after a code upgrade (see the `domain/money` limits); a checked value
+   that build no longer accepts is `:invalid`.
+5. The example comment "Host-built rows" in `examples/pricing.exs` stays: the
+   example builds its rows inline.
+
+## Acceptance and evidence
+
+1. `grep -n "host-built" pieces/domain/pricing/README.md
+   pieces/domain/pricing/piece.json` prints nothing.
+2. `contract` in `piece.json` is unchanged, and the release-plan entry has the
+   new `manifest_sha256` of `piece.json` at the head and `note` equal to
+   `contract`.
+3. `mix test pieces/domain/pricing/test` and `git diff --check` locally. No
+   code changes, so the low-risk hosted substitution of `AGENTS.md` section 5
+   applies: `Local gate: hosted check-piece <run ID>`. Then the index step 3
+   checks (`mix elzoo.ledger`, `python3 scripts/check-roadmap.py --write`,
+   `python3 scripts/check-roadmap.py`).
+4. One light independent review (`AGENTS.md` section 6), a green exact-head
+   hosted `check-piece`, the PR marked ready, and the automated reviewer's
+   gate of `AGENTS.md` section 6.

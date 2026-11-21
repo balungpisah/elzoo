@@ -8532,6 +8532,30 @@
       "issue": 746,
       "url": "https://github.com/balungpisah/elzoo/issues/746",
       "issue_body_sha256": "fff7b94a449b0b40a5b5cdbace4e8ccff6380c778e8ed2499dbdf5257686372d"
+    },
+    {
+      "id": "ELZ-324",
+      "title": "ELZ-324 — domain/pricing documents: the metering read for its rows and the checked registry's code lifetime",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-321",
+        "ELZ-322"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; hosted check-piece, light review and merge queue",
+      "paths": [
+        "tasks/ELZ-324-pricing-readme-metering-read.md"
+      ],
+      "outputs": [],
+      "acceptance": "domain/pricing README (Usage section and limits paragraph) and the piece.json limit name Elzoo.Metering.model_totals/3 (ELZ-322) as the read of the per-provider and per-model rows instead of host-built rows; the README opts paragraph adds that a checked registry is accepted only while the Elzoo.Money.Registry build that made it is loaded, so the host checks again after a code upgrade (domain/money limits), and such a value is invalid. No code, test, example or Contract change; new manifest_sha256, note equal to contract; Piece tests, hosted check-piece, light review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 752,
+      "url": "https://github.com/balungpisah/elzoo/issues/752",
+      "issue_body_sha256": "4eb53bf174539f6027c8199592fc6f236185f8fd1bbe4dd8fe2971d12bc40f89"
     }
   ],
   "entries": [
