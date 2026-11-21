@@ -60,9 +60,12 @@ creates new tables.
      returns `{:error, :unavailable}`, and afterwards there is one
      reservation row, one unit row per unit and counters equal to the first
      reserve alone. The probe asserts this through the test file's existing
-     `refused/3` helper (state unchanged), and the PR records the SQLSTATE
-     (`23505`) and the constraint name of the refusal, so that another
-     database error in the temporary DDL cannot pass for it. This replaces the first negative control of case 14 in
+     `refused/3` helper (state unchanged). `run/3` discards the
+     `Postgrex.Error`, so in the same temporary state the probe also runs
+     the second reservation's unit insert directly through the test Repo,
+     and the PR records the SQLSTATE (`23505`) and the constraint name it
+     raises, so that another database error in the temporary DDL cannot pass
+     for the refusal. This replaces the first negative control of case 14 in
      #704 (ELZ-303), whose expected result ("must store a second
      reservation") the new rule now prevents.
    - Both layers removed (the reservation key as above, and the new unique
