@@ -8971,7 +8971,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/journal/piece.json",
-      "manifest_sha256": "84b34f316b55468964c86512f32191c2217cd3dfadecf7e14c32a89ccc9837a9"
+      "manifest_sha256": "2f3a1ce9c6acaf50e31b8b593c656fe268ad0b0d2b2ef1e0eecd42f40600a0ba"
     },
     {
       "id": "domain/membership",

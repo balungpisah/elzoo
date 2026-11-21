@@ -49,22 +49,28 @@ defmodule Elzoo.Journal do
   defstruct @enforce_keys
 
   @doc """
-  A journal value: exactly `repo:` and `prefix:`, and optionally `registry:` (an
-  `Elzoo.Money.Registry` value that `Elzoo.Money.Registry.valid?/1` accepts; default
-  `Elzoo.Money.Registry.default/0`). Raises
-  `ArgumentError` with one fixed message otherwise.
+  A journal value: exactly `repo:` and `prefix:`, and optionally `registry:` (the compiled
+  `Elzoo.Money.Registry.default/0`, the default, or a registry or checked value that
+  `Elzoo.Money.Registry.check/1` accepts). Any other registry is checked once here and the
+  journal keeps its checked value. Raises `ArgumentError` with one fixed message otherwise.
   """
   def new(opts) do
     with true <- Keyword.keyword?(opts),
          true <- Enum.sort(Keyword.keys(opts)) in [[:prefix, :repo], [:prefix, :registry, :repo]],
          repo when is_atom(repo) and repo not in [nil, true, false] <- opts[:repo],
-         registry = Keyword.get(opts, :registry, Money.Registry.default()),
-         true <- Money.Registry.valid?(registry) do
+         {:ok, registry} <- kept(Keyword.get(opts, :registry, Money.Registry.default())) do
       prefix!(opts[:prefix])
       %__MODULE__{repo: repo, prefix: opts[:prefix], registry: registry}
     else
       _ -> raise ArgumentError, @message
     end
+  end
+
+  # The default as the compiled value (one === per Money call); any other registry checked once.
+  defp kept(registry) do
+    if registry === Money.Registry.default(),
+      do: {:ok, Money.Registry.default()},
+      else: Money.Registry.check(registry)
   end
 
   @doc false
@@ -75,9 +81,10 @@ defmodule Elzoo.Journal do
 
   defp identifier?(name), do: is_binary(name) and name =~ ~r/\A[a-z_][a-z0-9_]{0,62}\z/
 
-  # The per-call key-shape check of journal/1; new/1 ran the deep check once.
-  defp registry?(registry),
-    do: match?(%{versions: [_ | _], snapshots: %{}}, registry)
+  # The per-call registry check of journal/1; new/1 ran the deep check once. A checked value by
+  # Registry.valid?/1 (constant time for it), any other value by its key shape.
+  defp registry?(%Money.Registry.Checked{} = registry), do: Money.Registry.valid?(registry)
+  defp registry?(registry), do: match?(%{versions: [_ | _], snapshots: %{}}, registry)
 
   # ── accounts ────────────────────────────────────────────────────────────
 
@@ -537,7 +544,8 @@ defmodule Elzoo.Journal do
 
   # The member of the newest held version whose entry has the stored identity.
   defp currency(j, {alpha, numeric, minor}) do
-    j.registry.versions
+    j.registry
+    |> Money.Registry.versions()
     |> Enum.reverse()
     |> Enum.find_value({:error, :registry}, fn version ->
       case Money.parse(alpha, registry: j.registry, version: version) do
