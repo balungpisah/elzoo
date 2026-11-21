@@ -513,8 +513,10 @@ defmodule Elzoo.MeteringTest do
                M.correct(m, "T1", corr("c1", "u1", 1)),
                M.totals(m, "T1", %{period: "2026-11", max_rows: 10}),
                M.observation(m, "T1", "u1"),
+               M.model_totals(m, "T1", %{period: "2026-11", max_rows: 10}),
                # The shape check comes first.
-               M.record(m, "T1", Map.delete(obs("u3"), :amount))
+               M.record(m, "T1", Map.delete(obs("u3"), :amount)),
+               M.model_totals(m, "T1", %{period: "2026-11", max_rows: 0})
              ]}
             |> tap(fn _ -> SQL.query!(AppRepo, "SELECT 'probe'", [], log: false) end)
           after
@@ -522,7 +524,9 @@ defmodule Elzoo.MeteringTest do
           end
         end)
 
-      assert results == List.duplicate({:error, :in_transaction}, 4) ++ [{:error, :invalid}]
+      assert results ==
+               List.duplicate({:error, :in_transaction}, 5) ++ List.duplicate({:error, :invalid}, 2)
+
       # The handler is live: the probe is the only query it saw.
       assert_received {:query, "SELECT 'probe'"}
       refute_received {:query, _}
@@ -548,6 +552,10 @@ defmodule Elzoo.MeteringTest do
       assert M.record(missing, "T1", obs("u1")) == {:error, :unavailable}
       assert M.correct(missing, "T1", corr("c1", "u1", 1)) == {:error, :unavailable}
       assert M.totals(missing, "T1", %{period: "2026-11", max_rows: 1}) == {:error, :unavailable}
+
+      assert M.model_totals(missing, "T1", %{period: "2026-11", max_rows: 1}) ==
+               {:error, :unavailable}
+
       assert M.observation(missing, "T1", "u1") == {:error, :unavailable}
 
       capture_log(fn ->
@@ -750,6 +758,225 @@ defmodule Elzoo.MeteringTest do
       # Outside a migration runner any queued DDL would fail differently: the raise comes first.
       for bad <- ["Bad", "x;y", "", nil, :p],
           do: assert_raise(ArgumentError, @message, fn -> Migration.install(bad) end)
+    end
+  end
+
+  describe "9 model totals" do
+    defp record_all!(m, tenant, entries) do
+      for {id, provider, model, unit, source, amount} <- entries do
+        changes = %{provider_id: provider, model_id: model, unit: unit, source: source}
+        {:ok, :applied} = M.record(m, tenant, obs(id, Map.put(changes, :amount, amount)))
+      end
+    end
+
+    defp model_totals!(m, tenant, period, max_rows \\ 1000) do
+      {:ok, rows} = M.model_totals(m, tenant, %{period: period, max_rows: max_rows})
+      rows
+    end
+
+    defp mrow(provider, model, unit, source, known, unknown_count, count) do
+      %{
+        provider_id: provider,
+        model_id: model,
+        unit: unit,
+        source: source,
+        known: known,
+        unknown_count: unknown_count,
+        count: count
+      }
+    end
+
+    defp row(unit, source, known, unknown_count, count),
+      do: %{unit: unit, source: source, known: known, unknown_count: unknown_count, count: count}
+
+    # Each {unit, source} row of totals/3 is the sum of its provider and model rows.
+    defp sums(rows) do
+      rows
+      |> Enum.group_by(&{&1.unit, &1.source})
+      |> Enum.map(fn {{unit, source}, group} ->
+        %{
+          unit: unit,
+          source: source,
+          known: Enum.sum_by(group, & &1.known),
+          unknown_count: Enum.sum_by(group, & &1.unknown_count),
+          count: Enum.sum_by(group, & &1.count)
+        }
+      end)
+      |> Enum.sort_by(&{&1.unit, &1.source})
+    end
+
+    test "rows per provider, model, unit and source, with effective amounts, sum to totals/3",
+         %{m: m} do
+      cw = {:cache_write_tokens, "5m"}
+
+      record_all!(m, "T1", [
+        {"a1", "anthropic", "model-a", :output_tokens, :provider_reported, 5},
+        {"a2", "anthropic", "model-a", :output_tokens, :provider_reported, 7},
+        {"a3", "anthropic", "model-b", :output_tokens, :provider_reported, 100},
+        {"a4", "anthropic", "model-b", :output_tokens, :provider_reported, :unknown},
+        {"a5", "anthropic", "model-a", :input_uncached_tokens, :estimated, 3},
+        {"a6", "anthropic", "model-a", :output_tokens, :unknown, :unknown},
+        {"a7", "anthropic", "model-b", :output_tokens, :unknown, 2},
+        {"o1", "openai", "model-a", :output_tokens, :provider_reported, 1000},
+        {"o2", "openai", "model-a", cw, :estimated, @max},
+        {"o3", "openai", "model-a", cw, :estimated, @max}
+      ])
+
+      # Another period and another tenant add no row.
+      {:ok, :applied} = M.record(m, "T1", obs("x1", %{amount: 9999, period: "2026-12"}))
+      {:ok, :applied} = M.record(m, "T2", obs("a1", %{amount: 50_000}))
+
+      before = [
+        mrow("anthropic", "model-a", :input_uncached_tokens, :estimated, 3, 0, 1),
+        mrow("anthropic", "model-a", :output_tokens, :provider_reported, 12, 0, 2),
+        mrow("anthropic", "model-a", :output_tokens, :unknown, 0, 1, 1),
+        mrow("anthropic", "model-b", :output_tokens, :provider_reported, 100, 1, 2),
+        mrow("anthropic", "model-b", :output_tokens, :unknown, 2, 0, 1),
+        mrow("openai", "model-a", :output_tokens, :provider_reported, 1000, 0, 1),
+        mrow("openai", "model-a", cw, :estimated, 2 * @max, 0, 2)
+      ]
+
+      assert model_totals!(m, "T1", "2026-11") == before
+      assert sums(before) == totals!(m, "T1", "2026-11")
+
+      {:ok, :applied} = M.correct(m, "T1", corr("c1", "a6", 40))
+
+      after_correction =
+        List.replace_at(before, 2, mrow("anthropic", "model-a", :output_tokens, :unknown, 40, 0, 1))
+
+      assert model_totals!(m, "T1", "2026-11") == after_correction
+      assert sums(after_correction) == totals!(m, "T1", "2026-11")
+
+      assert totals!(m, "T1", "2026-11") == [
+               row(:input_uncached_tokens, :estimated, 3, 0, 1),
+               row(:output_tokens, :provider_reported, 1112, 1, 5),
+               row(:output_tokens, :unknown, 42, 0, 2),
+               row(cw, :estimated, 2 * @max, 0, 2)
+             ]
+
+      assert model_totals!(m, "T1", "2026-12") == [
+               mrow("anthropic", "model-a", :output_tokens, :provider_reported, 9999, 0, 1)
+             ]
+    end
+
+    test "a correction from unknown to known moves into known of its own provider and model row only",
+         %{m: m} do
+      record_all!(m, "T1", [
+        {"b1", "anthropic", "model-a", :output_tokens, :provider_reported, :unknown},
+        {"b2", "anthropic", "model-b", :output_tokens, :provider_reported, :unknown},
+        {"b3", "openai", "model-b", :output_tokens, :provider_reported, :unknown},
+        {"b4", "anthropic", "model-b", :output_tokens, :provider_reported, 4}
+      ])
+
+      unchanged = fn model_b ->
+        [
+          mrow("anthropic", "model-a", :output_tokens, :provider_reported, 0, 1, 1),
+          model_b,
+          mrow("openai", "model-b", :output_tokens, :provider_reported, 0, 1, 1)
+        ]
+      end
+
+      model_b = &mrow("anthropic", "model-b", :output_tokens, :provider_reported, &1, &2, 2)
+      assert model_totals!(m, "T1", "2026-11") == unchanged.(model_b.(4, 1))
+
+      {:ok, :applied} = M.correct(m, "T1", corr("c1", "b2", 25))
+      assert model_totals!(m, "T1", "2026-11") == unchanged.(model_b.(29, 0))
+      assert totals!(m, "T1", "2026-11") == [row(:output_tokens, :provider_reported, 29, 2, 4)]
+
+      # The latest correction is the effective amount.
+      {:ok, :applied} = M.correct(m, "T1", corr("c2", "b2", 6))
+      assert model_totals!(m, "T1", "2026-11") == unchanged.(model_b.(10, 0))
+    end
+
+    test "rows sort by provider_id, model_id, unit, source in Erlang term order (bytes)",
+         %{m: m} do
+      # "xB" sorts before "xa" by bytes; a case-insensitive or locale order puts "xa" first.
+      assert "xB" < "xa" and String.downcase("xa") < String.downcase("xB")
+
+      record_all!(m, "T1", [
+        {"s1", "xa", "m", :input_uncached_tokens, :estimated, 1},
+        {"s2", "xB", "m", :output_tokens, :provider_reported, 2},
+        {"s3", "xB", "m", :output_tokens, :estimated, 3},
+        {"s4", "xB", "m", {:cache_write_tokens, "1h"}, :estimated, 4},
+        {"s5", "xB", "M", :output_tokens, :unknown, 5}
+      ])
+
+      assert model_totals!(m, "T1", "2026-11") == [
+               mrow("xB", "M", :output_tokens, :unknown, 5, 0, 1),
+               mrow("xB", "m", :output_tokens, :estimated, 3, 0, 1),
+               mrow("xB", "m", :output_tokens, :provider_reported, 2, 0, 1),
+               mrow("xB", "m", {:cache_write_tokens, "1h"}, :estimated, 4, 0, 1),
+               mrow("xa", "m", :input_uncached_tokens, :estimated, 1, 0, 1)
+             ]
+    end
+
+    test "exactly max_rows groups pass, one more is :read_limit", %{m: m} do
+      record_all!(m, "T1", [
+        {"g1", "anthropic", "model-a", :output_tokens, :provider_reported, 1},
+        {"g2", "anthropic", "model-b", :output_tokens, :provider_reported, 1},
+        {"g3", "openai", "model-a", :output_tokens, :provider_reported, 1},
+        # A second observation of an existing group adds no group.
+        {"g4", "openai", "model-a", :output_tokens, :provider_reported, 1}
+      ])
+
+      query = &%{period: "2026-11", max_rows: &1}
+      assert {:ok, [_, _, _]} = M.model_totals(m, "T1", query.(3))
+      assert {:ok, [_, _, _]} = M.model_totals(m, "T1", query.(1000))
+      assert M.model_totals(m, "T1", query.(2)) == {:error, :read_limit}
+      assert M.model_totals(m, "T1", query.(1)) == {:error, :read_limit}
+      # The same observations are one totals/3 group.
+      assert {:ok, [%{count: 4}]} = M.totals(m, "T1", query.(1))
+    end
+
+    test "malformed queries are refused before any query; another tenant gives no row",
+         %{m: m, p: p} do
+      for {value, ok?} <- texts(128),
+          do: expect(ok?, M.model_totals(m, "T1", %{period: value, max_rows: 1}))
+
+      for {max_rows, ok?} <- [{0, false}, {1, true}, {1000, true}, {1001, false}, {:all, false}],
+          do: expect(ok?, M.model_totals(m, "T1", %{period: "2026-11", max_rows: max_rows}))
+
+      id = {__MODULE__, make_ref()}
+      event = [:elzoo, :metering, :app_repo, :query]
+      :telemetry.attach(id, event, &__MODULE__.forward_query/4, self())
+
+      try do
+        q = %{period: "2026-11", max_rows: 1}
+
+        for {meter, tenant, query} <- [
+              {m, "T1", %{period: "2026-11"}},
+              {m, "T1", %{max_rows: 1}},
+              {m, "T1", Map.put(q, :x, 1)},
+              {m, "T1", %{q | max_rows: 0}},
+              {m, "T1", %{q | max_rows: 1001}},
+              {m, "T1", %{q | max_rows: 1.0}},
+              {m, "T1", %{q | period: ""}},
+              {m, "T1", %{q | period: String.duplicate("a", 129)}},
+              {m, "T1", %{q | period: "a\u0000"}},
+              {m, "T1", %{q | period: <<0xFF>>}},
+              {m, "T1", Map.to_list(q)},
+              {m, "T1", nil},
+              {m, "", q},
+              {m, String.duplicate("t", 129), q},
+              {%{repo: AppRepo, prefix: p}, "T1", q}
+            ],
+            do: assert(M.model_totals(meter, tenant, query) == {:error, :invalid})
+
+        SQL.query!(AppRepo, "SELECT 'probe'", [], log: false)
+      after
+        :telemetry.detach(id)
+      end
+
+      assert_received {:query, "SELECT 'probe'"}
+      refute_received {:query, _}
+
+      {:ok, :applied} = M.record(m, "T2", obs("u1", %{amount: 8}))
+
+      assert model_totals!(m, "T2", "2026-11") == [
+               mrow("anthropic", "model-a", :output_tokens, :provider_reported, 8, 0, 1)
+             ]
+
+      assert model_totals!(m, "T1", "2026-11") == []
     end
   end
 end
