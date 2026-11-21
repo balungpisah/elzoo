@@ -1,0 +1,170 @@
+# SPDX-License-Identifier: Apache-2.0
+# domain/quota (ELZ-303): the per-unit counter decisions of a durable allowance.
+# Pure: no I/O, no clock and no resolution. The Elixir boundary (Elzoo.Quota)
+# validates the request, derives the amount and the settle_only flag from the
+# resolution, reads one locked counter row and passes its values; these
+# functions decide and return the counters to write.
+mod Elzoo.Quota
+  # One counter row of (tenant, window, unit).
+  rec Counters
+    committed: Int
+    held: Int
+    reserved: Int
+
+  type Verdict = QuotaAdmitted | QuotaSettleOnly | QuotaInsufficient
+
+  rec Admission
+    counters: Counters
+    verdict: Verdict
+
+  # A settlement outcome of one unit: a known actual or unknown usage.
+  type Outcome = Known(Int) | Unknown
+
+  # ── reserve ─────────────────────────────────────────────────────────────
+
+  @total true
+  @reducible
+  fn fits(c: Counters, amount: Int, estimate: Int) -> Bool =
+    c.committed + (c.held + (c.reserved + estimate)) <= amount
+
+  @total true
+  @reducible
+  fn reserve_into(c: Counters, estimate: Int) -> Counters =
+    Counters{committed: c.committed, held: c.held, reserved: c.reserved + estimate}
+
+  @total true
+  @reducible
+  fn admit_with(c: Counters, estimate: Int, ok: Bool) -> Admission =
+    match ok
+      True() -> Admission{counters: reserve_into(c, estimate), verdict: QuotaAdmitted()}
+      False() -> Admission{counters: c, verdict: QuotaInsufficient()}
+
+  # A grace (settle_only) unit reserves nothing new; otherwise admit only when
+  # the post-state stays within the amount.
+  @total true
+  @reducible
+  fn admit(c: Counters, amount: Int, settle_only: Bool, estimate: Int) -> Admission =
+    match settle_only
+      True() -> Admission{counters: c, verdict: QuotaSettleOnly()}
+      False() -> admit_with(c, estimate, fits(c, amount, estimate))
+
+  # ── settle, reconcile, release ──────────────────────────────────────────
+
+  # The estimate leaves reserved unless release/3 already took it out.
+  @total true
+  @reducible
+  fn freed(c: Counters, estimate: Int, released: Bool) -> Int =
+    match released
+      True() -> c.reserved
+      False() -> c.reserved - estimate
+
+  # A known actual is committed in full; unknown usage holds the estimate.
+  @total true
+  @reducible
+  fn settle(c: Counters, estimate: Int, outcome: Outcome, released: Bool) -> Counters =
+    match outcome
+      Known(actual) -> counters(c.committed + actual, c.held, freed(c, estimate, released))
+      Unknown() -> counters(c.committed, c.held + estimate, freed(c, estimate, released))
+
+  # A held estimate leaves held and the reconciled actual is committed.
+  @total true
+  @reducible
+  fn reconcile(c: Counters, estimate: Int, actual: Int) -> Counters =
+    Counters{committed: c.committed + actual, held: c.held - estimate, reserved: c.reserved}
+
+  # An open reservation released before its expiry frees its estimate.
+  @total true
+  @reducible
+  fn release(c: Counters, estimate: Int) -> Counters =
+    Counters{committed: c.committed, held: c.held, reserved: c.reserved - estimate}
+
+  # ── selectors for the laws ──────────────────────────────────────────────
+
+  @total true
+  @reducible
+  fn cap_holds(st: Admission, amount: Int) -> Bool =
+    match st.verdict
+      QuotaAdmitted() -> st.counters.committed + (st.counters.held + st.counters.reserved) <= amount
+      QuotaSettleOnly() -> True()
+      QuotaInsufficient() -> True()
+
+  @total true
+  @reducible
+  fn is_admitted(st: Admission) -> Bool =
+    match st.verdict
+      QuotaAdmitted() -> True()
+      QuotaSettleOnly() -> False()
+      QuotaInsufficient() -> False()
+
+  # The counters of a refusal; the original counters for an admission.
+  @total true
+  @reducible
+  fn kept(st: Admission, c: Counters) -> Counters =
+    match st.verdict
+      QuotaAdmitted() -> c
+      QuotaSettleOnly() -> st.counters
+      QuotaInsufficient() -> st.counters
+
+  @total true
+  @reducible
+  fn held_of(c: Counters) -> Int = c.held
+
+  @total true
+  @reducible
+  fn committed_of(c: Counters) -> Int = c.committed
+
+  @total true
+  @reducible
+  fn plus(left: Int, right: Int) -> Int = left + right
+
+  @total true
+  @reducible
+  fn counters(committed: Int, held: Int, reserved: Int) -> Counters =
+    Counters{committed: committed, held: held, reserved: reserved}
+
+  # ── selected laws ───────────────────────────────────────────────────────
+
+  @total true
+  fn admit_with_cap(c: Counters, amount: Int, estimate: Int, ok: Bool, evidence: Equivalent(Bool, fits(c, amount, estimate), ok)) -> Equivalent(Bool, cap_holds(admit_with(c, estimate, ok), amount), True()) =
+    match ok
+      True() -> evidence
+      False() -> reflexive(True())
+
+  # admission_cap: when the decision admits, committed + held + reserved <= amount after it.
+  @total true
+  fn admission_cap(c: Counters, amount: Int, settle_only: Bool, estimate: Int) -> Equivalent(Bool, cap_holds(admit(c, amount, settle_only, estimate), amount), True()) =
+    match settle_only
+      True() -> reflexive(True())
+      False() -> admit_with_cap(c, amount, estimate, fits(c, amount, estimate), reflexive(fits(c, amount, estimate)))
+
+  # settle_only_admits_nothing: a grace unit is never admitted.
+  @total true
+  fn settle_only_admits_nothing(c: Counters, amount: Int, estimate: Int) -> Equivalent(Bool, is_admitted(admit(c, amount, True(), estimate)), False()) =
+    reflexive(False())
+
+  @total true
+  fn admit_with_kept(c: Counters, estimate: Int, ok: Bool) -> Equivalent(Counters, kept(admit_with(c, estimate, ok), c), c) =
+    match ok
+      True() -> reflexive(c)
+      False() -> reflexive(c)
+
+  # rejection_keeps_counters: a refusal returns the counters it was given,
+  # also counters already over the amount after an overage.
+  @total true
+  fn rejection_keeps_counters(c: Counters, amount: Int, settle_only: Bool, estimate: Int) -> Equivalent(Counters, kept(admit(c, amount, settle_only, estimate), c), c) =
+    match settle_only
+      True() -> reflexive(c)
+      False() -> admit_with_kept(c, estimate, fits(c, amount, estimate))
+
+  # unknown_is_held: for every release flag, settling Unknown adds exactly the
+  # estimate to held and leaves committed unchanged.
+  @total true
+  fn unknown_is_held(c: Counters, estimate: Int, released: Bool) -> Equivalent(Counters, settle(c, estimate, Unknown(), released), counters(committed_of(c), plus(held_of(c), estimate), freed(c, estimate, released))) =
+    reflexive(counters(committed_of(c), plus(held_of(c), estimate), freed(c, estimate, released)))
+
+  # settle_known_commits_actual: for every release flag, a known actual is
+  # added to committed in full and held is unchanged.
+  @total true
+  fn settle_known_commits_actual(c: Counters, estimate: Int, actual: Int, released: Bool) -> Equivalent(Counters, settle(c, estimate, Known(actual), released), counters(plus(committed_of(c), actual), held_of(c), freed(c, estimate, released))) =
+    reflexive(counters(plus(committed_of(c), actual), held_of(c), freed(c, estimate, released)))
+end

@@ -281,6 +281,73 @@ defmodule Elzoo.MeteringTest do
 
       assert truth(p, "SELECT revision FROM #{table}") == [[3]]
     end
+
+    test "of two concurrent corrections the one that commits last is effective, listed last and totalled",
+         %{m: m, p: p} do
+      # The owner's pending row keys on another observation, so its foreign key never locks
+      # the raced row.
+      {:ok, :applied} = M.record(m, "T1", obs("u-hold", %{period: "2026-10"}))
+
+      # pg_stat_activity keeps one snapshot per transaction unless it is cleared.
+      blocked_by = fn pid ->
+        q!(AdminRepo, "SELECT pg_stat_clear_snapshot()")
+
+        q!(
+          AdminRepo,
+          "SELECT pid, query FROM pg_stat_activity WHERE pg_blocking_pids(pid) = ARRAY[$1::integer]",
+          [pid]
+        )
+      end
+
+      # The first correction takes the row lock, then waits on the key of the owner's
+      # uncommitted correction of the same correction_id; the second waits on the row behind
+      # the first. The owner rolls back, so the first commits, and only then the second.
+      race = fn first, second ->
+        {:ok, :applied} = M.record(m, "T1", obs(first.usage_id))
+
+        {:error, {:held, tasks}} =
+          TI.transact(AdminRepo, %{tenant: "T1"}, fn ->
+            q!(
+              AdminRepo,
+              "INSERT INTO #{p}.#{@corr} (tenant, correction_id, usage_id, revision, reason, actor_ref, digest) VALUES ('T1', $1, 'u-hold', 1, 'hold', 'owner', $2)",
+              [first.correction_id, <<0>>]
+            )
+
+            [[owner]] = q!(AdminRepo, "SELECT pg_backend_pid()")
+            t1 = Task.async(fn -> M.correct(m, "T1", first) end)
+            wait_until(fn -> blocked_by.(owner) != [] end)
+            assert [[pid1, "INSERT INTO" <> _]] = blocked_by.(owner)
+            t2 = Task.async(fn -> M.correct(m, "T1", second) end)
+            wait_until(fn -> blocked_by.(pid1) != [] end)
+            assert [[_, "SELECT revision " <> lock]] = blocked_by.(pid1)
+            assert lock =~ "FOR UPDATE"
+            {:error, {:held, [t1, t2]}}
+          end)
+
+        assert Task.await_many(tasks, 10_000) == [{:ok, :applied}, {:ok, :applied}]
+        {:ok, %{effective: effective, corrections: cs}} = M.observation(m, "T1", first.usage_id)
+        assert cs == [first, second]
+        assert effective == second.amount
+      end
+
+      # Commit order against correction_id and amount order, then along it: the reverse order
+      # of either pair lists, keeps and totals something else.
+      race.(corr("c-a2", "u-a", 50), corr("c-a1", "u-a", 30))
+      race.(corr("c-b1", "u-b", 7), corr("c-b2", "u-b", 900))
+
+      assert totals!(m, "T1", "2026-11") == [
+               %{
+                 unit: :output_tokens,
+                 source: :provider_reported,
+                 known: 930,
+                 unknown_count: 0,
+                 count: 2
+               }
+             ]
+
+      assert truth(p, "SELECT usage_id, correction_id, revision FROM #{p}.#{@corr} ORDER BY 1, 3") ==
+               [["u-a", "c-a2", 1], ["u-a", "c-a1", 2], ["u-b", "c-b1", 1], ["u-b", "c-b2", 2]]
+    end
   end
 
   describe "3 unknown amounts" do

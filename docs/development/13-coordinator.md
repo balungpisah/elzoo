@@ -140,17 +140,31 @@
   push a branch `recheck/<PR>-base` at the range's first SHA and a branch
   `recheck/<PR>` at its last SHA, open a pull request from the second to the
   first, mark it ready so the automated reviewer passes, then close it
-  unmerged and delete both branches. Each finding becomes its own task, and
-  the row is removed only after the automated reviewer posts findings or an
-  explicit no-findings result for the recheck head. If it posts no review
-  result, including when it reports that it is unavailable or out of quota,
-  the row stays.
+  unmerged and delete both branches. The reviewer of another model family in
+  `AGENTS.md` section 6 may recheck a listed range instead, under that
+  section's reading and citation rule. Each finding becomes its own task, and
+  the row is removed only after the automated reviewer or that reviewer posts
+  findings or an explicit no-findings result for the range, as a review on
+  the recheck pull request or, for that reviewer, a five-line record on the
+  skipped pull request that is posted after the row was added and whose
+  Reviewer role begins `recheck of a skipped automated review`. The record
+  that was the gate does not count. If neither posts
+  a review result, including when the automated reviewer reports that it is
+  unavailable or out of quota, the row stays.
 
   | Pull request | Skipped range | Why |
   | --- | --- | --- |
   | #703 | `b2805e09..ce123ab5` | silent on the final head; merged before this rule |
   | #708 | `37949c54..7c864110` | silent on the final heads; merged before this rule |
   | #709 | `08037e02..26e66a06` | nothing posted for the head 30 minutes after the ready mark; the extra review was the gate |
+  | #712 | `682bd985..1d0e9bab` | nothing posted for the final head (quota outage); the extra review was the gate |
+  | #714 | `26efb104..5620eec5` | nothing posted for the final head (quota outage); the extra review was the gate |
+
+  Quota outage: on 21 November 2026 the owner reported that the automated
+  reviewer's quota had run out, with service expected back at about 08:30
+  UTC on 22 November. That is the reason for the rows marked "quota outage".
+  Each such row stays until its recheck, and each recheck finding becomes its
+  own task. The triggers for skipping stay those of `AGENTS.md` section 6.
 
 - **Repair of a red `main`.** The full check on `main` is the evidence of the
   small-gate merges. When it is red:
