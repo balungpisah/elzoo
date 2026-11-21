@@ -96,6 +96,7 @@ setup only; they are not a new process that every piece must reproduce.
 - [Dependencies](docs/dependencies.md): upstream contracts and adoption status.
 - [Cure notes](docs/cure-notes.md): tested compiler behavior and authoring guidance.
 - [Decisions](docs/adr/): the few architectural choices worth preserving.
+- [Choices and limits](docs/choices.md): owner choices and deliberate limits, and how to change them.
 - [Bootstrap validation](docs/development/07-bootstrap-validation.md): actual checks and limits.
 
 The checked-in bootstrap demonstrates the development path. It does not claim

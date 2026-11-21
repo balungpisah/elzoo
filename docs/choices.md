@@ -1,0 +1,405 @@
+# Choices and limits
+
+This page lists the owner choices and the deliberate limits that shape what
+the Elzoo Pieces do. Each entry says what was chosen, why, what it means for
+you when you use the Pieces, and how to change it. Each entry links its
+source; when this page and a source differ, the source wins. Later waves add
+their choices to this page.
+
+## How a change works
+
+- You own the source that you copied ([consuming](consuming.md)). You can
+  change your copy without an Elzoo task.
+- To change a Piece in Elzoo, open an issue; the coordinator publishes tasks
+  ([AGENTS.md section 9](../AGENTS.md#9-coordinator)).
+- The ID rule ([AGENTS.md section 4](../AGENTS.md#4-build)): Elzoo is not
+  released yet, and before the first release a ready Piece is changed in place
+  under its ID. From the first release, a change of a ready Piece's accepted
+  inputs, outputs, state, delivery, failure guarantees or Needs gets a new
+  Piece ID, and the old ID stays usable. A fix that restores the Contract
+  keeps the ID. "Under the ID rule" below means this rule.
+- A new dependency or a changed pin is always its own task, and it merges
+  first ([AGENTS.md section 3](../AGENTS.md#3-lanes-how-many-workers-stay-safe)).
+
+## Wave 5 owner choices (2026-11-20)
+
+Sources: the 2026-11-20 entries in
+[bot-platform.md](plans/bot-platform.md#owner-decisions-that-are-still-open)
+and the postures in
+[bot-platform-wave5.md](plans/bot-platform-wave5.md#wave-5-green-flag-readiness-and-locked-design-posture).
+
+### No identity provider in core
+
+- **Chosen.** No core Piece runs a login. `integration/token-verify` checks a
+  bearer JWT or an API key offline against pinned configuration and returns a
+  `domain/principal`. OIDC or passkey login is a consumer recipe
+  ([ELZ-268](../tasks/ELZ-268-token-verify.md)).
+- **Why.** Login ceremonies stay with your web stack, for example an `oidcc`
+  recipe, which feeds verified facts into `integration/token-verify` and
+  `domain/principal`; no core Piece wraps AshAuthentication
+  ([wave plan](plans/bot-platform-wave5.md#all-28-candidate-handles)).
+- **For you.** Your application runs the login and supplies the pinned keys.
+  `integration/token-verify` has no JWKS fetch or rotation, no single-use
+  `jti`, no ES256, no JWE and no OIDC ceremony.
+- **To change.** Add the login to your application; no Piece changes. An
+  Elzoo-owned OIDC Adapter would be its own provider-prerequisite task, only
+  if a consumer needs one
+  ([wave plan](plans/bot-platform-wave5.md#provider-prerequisites-and-open-notes)).
+  Key fetch or another algorithm in `integration/token-verify` changes its
+  accepted inputs: under the ID rule.
+
+### DENY when a policy result is unavailable or unknown
+
+- **Chosen.** A missing, timed-out or unresolvable policy or context check is
+  `DENY`. A typed abstention from an external standing or trust provider goes
+  to `ASK` (dual control through `workflow/approval`) only where a rule
+  declares that routing, and it is never read as `0` or distrust; otherwise it
+  is `DENY`.
+- **Why.** It fails closed, matching the `unavailable_context` and default-deny
+  Contract of `domain/authorization` (posture 4).
+- **For you.** An outage of a policy source refuses work instead of allowing
+  it. In `domain/kill-switch`, a missing, unreadable or malformed read is a
+  refusal ([ELZ-281](../tasks/ELZ-281-kill-switch.md)). To get `ASK` for an
+  abstention, declare it in the rule.
+- **To change.** Allowing on an unknown result would change the failure
+  guarantees of the Pieces that follow this choice: under the ID rule.
+
+### Erasure by per-subject keys, logs never rewritten
+
+- **Chosen.** Statutory erasure uses a PII vault with per-subject (or
+  per-tenant) keys and crypto-shredding. Command, event and audit logs carry
+  opaque IDs and are never deleted or rewritten.
+- **Why.** `assembly/checked-command` recovers only from contiguous history
+  (`low_water == 0`) and has no deletion or compaction API, and Carbonite
+  `state/audit-log` captures mutations immutably (posture 3).
+- **For you.** Keep personal data in `state/retention-erasure`, with only refs
+  in logs (`integration/pii-redaction` makes them). Erasing a subject destroys
+  its key and its entries in one transaction. Dead tuples, WAL and backups keep
+  wrapped keys until the database reclaims them; destroying an old KEK version
+  after the backup retention period finishes the erasure, and that is your
+  duty. No artifact or object tombstones and no retention schedule
+  ([ELZ-279](../tasks/ELZ-279-retention-erasure.md)).
+- **To change.** There is no API that deletes or rewrites log rows. Another
+  vault shape goes in your copy, or in an Elzoo task under the ID rule.
+
+### Only an agent's permissions are capped by its allowed scopes and spaces
+
+- **Chosen.** `domain/membership` intersects an agent's permissions with its
+  `allowed_scopes`, and a space outside its `allowed_spaces` gives none. For a
+  human or service principal the memberships alone are its authority; its
+  allowed scopes and spaces bound only what it can delegate
+  ([ELZ-269](../tasks/ELZ-269-membership.md)).
+- **Why.** An agent acts for its parent and never exceeds the parent's
+  authority; a delegation that asks for more is refused whole
+  ([ELZ-267](../tasks/ELZ-267-principal.md)).
+- **For you.** An agent resolves its parent's memberships; a membership naming
+  the agent's own ID grants nothing, and revoking the parent's membership
+  removes the agent's permission. An agent's `allowed_spaces` match exactly,
+  not through the tree, so an agent acts in at most 256 named spaces.
+- **To change.** Capping humans or services the same way changes the output of
+  `domain/membership`: under the ID rule.
+
+### AES-256-GCM only, one layer
+
+- **Chosen.** `integration/encryption` seals with one AES-256-GCM layer under
+  the caller-held per-subject key: no ChaCha20-Poly1305 and no wrapped data
+  keys ([ELZ-273](../tasks/ELZ-273-encryption.md)).
+- **Why.** It is a narrow Adapter over OTP `:crypto` with no custom primitive.
+  One key per subject means that destroying the key makes every envelope under
+  it unreadable.
+- **For you.** You hold the keys: the Piece has no key store, key generation
+  policy, destruction, KMS or HSM. Random 96-bit nonces bound one key version
+  to at most 2^32 seals; the Piece does not count seals, so you rotate.
+- **To change.** Another cipher or wrapped data keys change its accepted
+  inputs and outputs: under the ID rule.
+
+### No fetch helper in `integration/egress-policy`
+
+- **Chosen.** `integration/egress-policy` admits an outbound URL and returns
+  its checked public addresses. It ships no HTTP client: redirects and
+  response bounds are transport duties
+  ([ELZ-271](../tasks/ELZ-271-egress-policy.md)).
+- **Why.** A Req-based guard would start one Finch instance per distinct
+  hostname and never stop it, so it would grow without bound on
+  tenant-supplied hosts.
+- **For you.** Your transport connects only to a returned address, with SNI
+  and `Host` set to the host, treats a redirect as a new URL through
+  `resolve/3`, and bounds the body. For `integration/mcp-runtime`, redirect
+  refusal and the response cap are duties of ex_mcp and
+  `integration/mcp-client` ([ELZ-283](../tasks/ELZ-283-mcp-runtime.md)).
+- **To change.** Write the fetch in your application. A fetch helper in Elzoo
+  is a task under the ID rule.
+
+### One-use invitations in `workflow/tenant-lifecycle`
+
+- **Chosen.** One-use invitations are durable checked commands in
+  `workflow/tenant-lifecycle`, not part of `domain/membership`
+  ([ELZ-284](../tasks/ELZ-284-tenant-lifecycle.md)).
+- **Why.** Single use needs a durable compare-and-set, which a pure membership
+  Piece cannot hold; `assembly/checked-command` has one.
+- **For you.** Your host makes a random code, sends it out of band and passes
+  only its SHA-256, so the code never enters command history. An accept
+  returns the membership record, and your host stores it. At most 32
+  invitations are pending; there is no reminder, resend or expiry sweep. An
+  accept answered `ASK` and released after its expiry commits, so use `ASK`
+  for lifecycle operations ([#648](https://github.com/balungpisah/elzoo/issues/648)).
+- **To change.** Under the ID rule.
+
+### The kill-switch reason prefix `lifecycle` is reserved
+
+- **Chosen.** `domain/kill-switch` refuses a reason that starts with the bytes
+  `lifecycle` (so `lifecyclex` too); only `workflow/tenant-lifecycle` uses it
+  ([ELZ-281](../tasks/ELZ-281-kill-switch.md)).
+- **Why.** A lifecycle transition writes the status and its own `lifecycle`
+  switch in one append, and an operator's switch stays
+  independent: `activate` does not release it.
+- **For you.** Give your switches other reasons. A lifecycle operation that
+  must engage its switch while 64 other switches are engaged is refused
+  `too_many` ([#648](https://github.com/balungpisah/elzoo/issues/648)).
+- **To change.** It touches both Pieces: under the ID rule.
+
+### The fixed `elzoo_app` test role
+
+- **Chosen.** The test databases get one fixed role `elzoo_app` (`NOLOGIN
+  NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`), granted to `elzoo_test` for
+  `SET ROLE` only; `elzoo_test` gains no attribute
+  ([ELZ-285](../tasks/ELZ-285-test-app-role.md)).
+- **Why.** The hosted `elzoo_test` owns its database, so the non-owner
+  row-security boundary printed `NOT EXERCISED` in every hosted run, and
+  giving it `CREATEROLE` would widen the test role for every test.
+- **For you.** The tests show the production posture: an application role
+  that neither owns the protected tables nor bypasses row security. For a
+  local run, export `ELZOO_TEST_APP_ROLE=elzoo_app` beside
+  `ELZOO_TEST_DATABASE_URL`.
+- **To change.** It is CI and shared setup: its own task with the full gate,
+  never a documents change. No Piece ID is involved.
+
+## Limits of the Wave 5 acceptance (ELZ-286)
+
+[ELZ-286](../tasks/ELZ-286-wave5-tenancy-acceptance.md) runs the Wave 5 Pieces
+together on PostgreSQL. It shows only its finite tested composition; its
+[report's Limits](research/wave5-tenancy.md#limits) are the full list, and the
+[wave closure](plans/bot-platform-wave5.md#wave-5-closure-and-open-defect-handoff)
+restates them. An acceptance has no Piece output, so none of these needs a
+Piece ID; a later acceptance task can add what is missing.
+
+### No production identity provider
+
+- **Chosen.** The identity keys are pinned test keys: no JWT issuer and no
+  production key store.
+- **Why.** Core has no identity provider (above), and
+  `integration/token-verify` checks against pinned keys.
+- **For you.** Your issuer and key store are not exercised by Elzoo.
+- **To change.** Test your own issuer in your application.
+
+### No live public MCP endpoint
+
+- **Chosen.** Only the egress refusal path is shown; a successful connect to a
+  public endpoint is not.
+- **Why.** `integration/egress-policy` refuses loopback and private addresses
+  by design, so a test server cannot be reached through it
+  ([ELZ-283](../tasks/ELZ-283-mcp-runtime.md)).
+- **For you.** The `integration/mcp-client` loopback tests are the transport
+  evidence; a successful public connect is not exercised in Elzoo.
+- **To change.** Exercise your own public server.
+
+### No Carbonite `state/audit-log` capture
+
+- **Chosen.** The acceptance does not compose `state/audit-log`, so audit
+  capture of its commands is not shown (owner decision, Wave 5 Level 3).
+- **Why.** `state/audit-log` needs its own audit-owner role.
+- **For you.** If you need audit capture of these commands, compose and test
+  it yourself.
+- **To change.** Add `state/audit-log` with its audit-owner role in your test.
+
+### RunEngine Runs on the owner connection
+
+- **Chosen.** The RunEngine Runs, their Run owner and Unit stores use the owner
+  connection; only CheckedCommand, the vault and the consumer tables run as the
+  application role. The ready Store tables are not protected by
+  `state/tenant-isolation`.
+- **Why.** The acceptance reuses the RunEngine test fixture.
+- **For you.** In this composition, row security does not protect the Store
+  tables.
+- **To change.** Composing the Store tables with `state/tenant-isolation` would
+  be a task of its own.
+
+## Wave 5 coordinator decisions
+
+These are recorded on their issues
+([wave closure](plans/bot-platform-wave5.md#wave-5-closure-and-open-defect-handoff)).
+
+### A runtime MCP context is bound to its admission
+
+- **Chosen.** For a runtime MCP server, the client context carries the intent
+  key of its admission, and the Adapter refuses (`adapter_error`, nothing sent)
+  a context whose key differs
+  ([#646](https://github.com/balungpisah/elzoo/issues/646)).
+- **Why.** Without it a session of another config could send to another
+  endpoint with another credential: it failed open, against the `DENY` rule.
+- **For you.** Build a runtime context with the admission-bound form, not
+  `context/2`.
+- **To change.** Under the ID rule.
+
+### One tenant credential per MCP server
+
+- **Chosen.** `integration/mcp-runtime` keeps one tenant credential per server;
+  two configs for one `{tenant, server}` that differ only in credential are
+  outside its Contract, and that is a host duty
+  ([#647](https://github.com/balungpisah/elzoo/issues/647)).
+- **Why.** RC-59 fixes one tenant credential per server (below).
+- **For you.** Do not configure two credentials for one tenant's server.
+- **To change.** Binding the credential into the runtime identity would be a
+  new `integration/mcp-client` Contract task, under the ID rule.
+
+## Request charge and payload caps of `assembly/run-engine` (RC-50)
+
+Sources: the [piece.json](../pieces/assembly/run-engine/piece.json) contract
+and limits, and the
+[README](../pieces/assembly/run-engine/README.md#recorded-cycle-and-obligations).
+
+### The shared sealed request charge
+
+- **Chosen.** The host gives each Run a `request_cap`, a sealed integer from 1
+  to 256. Every actual pattern output is charged before it is checked
+  (`:none` charges nothing). Root and nested callables share one count, and
+  no Attempt, pause and continue, or restart replenishes it. The first excess
+  stops generation: it creates no action, verdict, outcome, join or pattern
+  input, and work admitted within the cap is kept. Separately, one Unit has 64
+  active and 256 lifetime actions, and a new room period does not reset them.
+- **Why.** No restart, continue or nested callable can give a Run more
+  requests than the host sealed at its start.
+- **For you.** Choose `request_cap` per Run. A long-lived host such as a room
+  reaches 256 lifetime actions; the recommended default is to start a new host
+  identity before then and carry bounded summary state over, which waits for
+  owner confirmation before Wave 8
+  ([room decision](plans/bot-platform.md#a-decision-that-wave-8-waits-for-the-life-of-a-room)).
+- **To change.** `request_cap` is a host option within 1 to 256. A larger cap
+  or a reset changes the Contract: under the ID rule.
+
+### Payload and record caps
+
+- **Chosen.** Payload and outcome JSON at most 65,536 bytes and depth 32;
+  ingress at most 262,144 bytes; a record or output at most 16,777,216 bytes;
+  control at most 2,097,152 bytes; the state of a callable within its bound
+  (65,536 bytes for the root; a nested child's `state_bytes`, 1 to 65,536);
+  an active slot at most 131,072 bytes; the request map at most 4,456,448
+  bytes; a checkpoint at most 33,554,432 bytes. The read-only `result/3` and
+  `event_waits` read at most 65,536 rows and 536,870,912 canonical bytes.
+- **Why.** Each bound is a complete encoded size, so records, control and
+  checkpoints stay finite; the record and checkpoint caps match the Store
+  limits ([README](../pieces/assembly/run-engine/README.md#host-construction)).
+- **For you.** An oversized outcome becomes a bounded failure or loss, never a
+  truncation, and an oversized checkpoint is refused without stopping the
+  engine. Byte caps are not a sandbox
+  ([README](../pieces/assembly/run-engine/README.md#failure-size-and-audit-limits)).
+- **To change.** `request_cap`, a nested child's `state_bytes` and the read
+  limits of `result/3` and `event_waits` are host options within these caps.
+  Raising a cap changes the Contract: under the ID rule.
+
+## Earlier owner decisions still in force
+
+Source: the
+[owner decisions](plans/bot-platform.md#owner-decisions-that-are-still-open)
+of `bot-platform.md`, unless an entry names another.
+
+### Plain Elixir, no Ash wrapper in core (2026-11-20)
+
+- **Chosen.** Core Pieces are plain Elixir, Cure, Ecto and Postgrex, with the
+  already locked `jose 1.11.13`; no Ash wrapper.
+- **Why.** The ready Pieces of Waves 1 to 4 use no Ash at runtime, and
+  [ADR-0005](adr/0005-ash-foundation-and-upstream-first.md) requires
+  AshPostgres and AshOban durability proof before production adoption
+  (posture 1 of the
+  [Wave 5 plan](plans/bot-platform-wave5.md#wave-5-green-flag-readiness-and-locked-design-posture)).
+- **For you.** Ash stays an optional choice of your application.
+- **To change.** Use Ash in your application around the copied Pieces. Ash in
+  a core Piece is a new dependency, so its own task first.
+
+### Adopt a maintained library, do not write a reader (2026-11-14)
+
+- **Chosen.** Where a maintained library does the work, a Piece adopts it as a
+  dependency; a reader is not written by hand. First use: `yaml_elixir` with
+  `yamerl` reads skill frontmatter (ELZ-176).
+- **Why.** Elzoo uses upstream releases first and writes only the policy that
+  is missing ([AGENTS.md section 4](../AGENTS.md#4-build)).
+- **For you.** A Piece names its provider, and you merge the pinned dependency
+  into your own project ([consuming](consuming.md)).
+- **To change.** Swap the library in your copy. In Elzoo a new dependency or
+  pin is its own task.
+
+### In-place change before the first release (2026-11-14)
+
+- **Chosen.** A ready Piece that lacks something which clearly belongs to it is
+  extended, refactored or cut clean in place, with the same Piece ID.
+- **Why.** Elzoo is not released yet, so no second ID is made for the same job.
+- **For you.** Until the first release, a ready Piece's Contract can change
+  under its ID; check its `piece.json` when you copy it again.
+- **To change.** It ends at the first release, when the new-ID rule of
+  [How a change works](#how-a-change-works) applies.
+
+### Version-1 action kinds, RC-68 (2026-11-12)
+
+- **Chosen.** Version 1 has nine action kinds: model call, tool call, local
+  work, ask a person, run a nested callable, open, use and close a run
+  resource, and finish. Asking for an approval and filling a secret are never
+  action kinds: the engine does them.
+- **Why.** The three resource actions stay distinct because the engine checks
+  and performs them differently. Starting a child Run, waiting for an outside
+  event, a part of an answer to a channel, a message to another member, making
+  or removing a binding, giving an inside event and giving a run resource to a
+  person enter only in later versions, with the wave that performs them.
+- **For you.** New versions only add members, never change or remove them, and
+  records written under older versions stay readable. A person's answer names
+  exactly one ask-a-person action and carries the verified person's identity.
+- **To change.** A new kind comes in a new version that adds it, with its
+  wave.
+
+### Runtime MCP servers bearer first, OAuth in Wave 9, RC-59 (2026-11-12)
+
+- **Chosen.** `integration/mcp-multi` keeps its server bindings fixed at build
+  time. A server that a tenant adds goes through one-server runtime Pieces
+  under `integration/egress-policy`, with a bearer token first
+  ([ELZ-282](../tasks/ELZ-282-mcp-client-runtime-endpoint.md),
+  [ELZ-283](../tasks/ELZ-283-mcp-runtime.md)). OAuth with
+  `integration/oauth-client` waits for Wave 9.
+- **Why.** Tool lists belong to a server and a credential; the MCP tools
+  specification says lists may vary by authorization.
+- **For you.** One tenant credential per server, with lists keyed by tenant
+  and server; per-person credentials would need separate lists. No OAuth and
+  no stdio.
+- **To change.** OAuth comes with Wave 9; per-person credentials need a new
+  Contract, under the ID rule.
+
+The same record holds the 2026-11-12 decisions on time limits and pause
+(RC-48), run resources (RC-49), the source set of a Run (RC-65 and RC-56) and
+skills (RC-67); they are part of those jobs' Contracts.
+
+## Workflow decisions
+
+### A flaky ELZ-176 `bounded_time` test stays unchanged (2026-11-21)
+
+- **Chosen.** The ELZ-176 test that parses a 1,048,576-byte YAML document
+  within a 5-second limit stays unchanged. A failure gets the flake rule, and
+  the test is revisited only if it fails again
+  ([#670](https://github.com/balungpisah/elzoo/issues/670)).
+- **Why.** The 5-second bound is the test's claim in ELZ-176's acceptance;
+  measuring something else or raising the limit would change that
+  acceptance.
+- **For you.** If it fails on a slow runner, rerun all jobs once; a second
+  failure of the same test is a real failure
+  ([AGENTS.md section 5](../AGENTS.md#5-local-gate-then-pull-request)).
+- **To change.** A new bound changes ELZ-176's acceptance and needs its own
+  task. No Piece ID is involved.
+
+### The `Amp-Thread-ID` commit trailer is allowed
+
+- **Chosen.** The `Amp-Thread-ID` trailer that Amp adds to its commits is
+  allowed metadata; it needs no approval, and published history is not
+  rewritten to remove it
+  ([ELZ-292](../tasks/ELZ-292-amp-thread-id-trailer.md)).
+- **Why.** The rules allowed automatic authorship metadata but forbade session
+  identifiers, so the status of the trailer was unclear.
+- **For you.** Commits may carry it. Authored content, commit-message prose
+  and issue or pull request prose stay roles-only, without session links.
+- **To change.** It is a workflow rule in `AGENTS.md`: its own documents task.
