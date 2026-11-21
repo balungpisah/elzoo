@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "id": "domain/quota",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": ["cure", "ecto_sql", "postgrex", "telemetry", "elixir", "otp"],
+  "dependencies": ["state/tenant-isolation", "integration/ai-model", "domain/entitlement"],
+  "applications": ["crypto"],
+  "contract": "Durable tenant allowance in plain Ecto/Postgrex tables on PostgreSQL 16 under the state/tenant-isolation floor: numeric(38,0) counters committed, held and reserved per (tenant, window, unit), the window exactly {:period, id} with an opaque host ID, the amount of a unit derived at each reserve/3 from a domain/entitlement resolution (the sum of its non-settle_only allowances of a period_kind mapped to the window tag, every allowance's grant_id among the listed grants, settle_only exactly for a grace grant, unmapped units and kinds ignored); Run reservations of 1..16 sorted unique units all or none, idempotent by run_id (equal request digest duplicate, other digest conflict), counter rows locked one at a time in unit order at a checked READ COMMITTED Need, in the Piece's own transaction (caller transaction refused); grace reserves nothing (settle_only); settle/3 commits a known actual in full or holds the estimate for :unknown, also after expiry, release or revocation; reconcile/3 moves a held estimate out and commits an attributable actual with basis :metering or :write_off; release/3 frees an open reservation only before its expiry; status/3 reads counters and the derived amount and remaining, also with resolution nil. Own Cure laws for the per-unit decisions; fixed error atoms that echo no ID or amount; a database failure is unavailable and safe to retry. No clock, timer, carry-over, pricing, posting, metering read or Run control.",
+  "limits": [
+    "The state/tenant-isolation limits apply: the table owner can turn forcing off or drop the policies, and a superuser or BYPASSRLS role ignores them, so production connects as a non-owner, non-bypass application role with the README grants. The consumer Repo's query telemetry still receives the scope parameters (the tenant).",
+    "READ COMMITTED is a consumer Need that the Piece checks (current_setting('transaction_isolation') before any table query) but cannot set.",
+    "The host chooses the window and supplies a current resolution: a resolution resolved before a revocation still admits until the host resolves again. A duplicate reserve reports the first result, so the host must not start a Run whose reservation it has released or settled.",
+    "Allowance is permission to spend, not the total charge: an actual can exceed its estimate, and committed may pass the amount.",
+    "Held and expired amounts stay counted until settled or reconciled; there is no timer. No rolling window, local month, carry-over, per-principal allowance, pricing or posting. The quota tables are not captured by state/audit-log.",
+    "domain/entitlement is a test-only dependency (the tests build resolutions with it); the library code does not call it, nor workflow/budget.",
+    "A database failure, including a lost connection, is {:error, :unavailable} and says nothing about whether the write committed; the outcome is left to a retry with the same request.",
+    "Concurrency, lock order, restart and row-security evidence are finite scenarios on one local PostgreSQL 16 with repeated runs, not proofs; the Cure laws cover only the per-unit decisions over the counter values Elixir supplies, and the row locks, the input computation and every SQL step are test-grounded."
+  ],
+  "files": [
+    "cure/elzoo/quota.cure",
+    "lib/elzoo/quota.ex",
+    "lib/elzoo/quota/migration.ex",
+    "test/elzoo/quota_test.exs",
+    "test/support/quota_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/quota.cure",
+      "symbol": "admission_cap",
+      "claim": "For all counters, amounts, settle_only flags and estimates, when admit/4 admits, committed + held + reserved <= amount after it."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/quota.cure",
+      "symbol": "settle_only_admits_nothing",
+      "claim": "For all counters, amounts and estimates, admit/4 with settle_only true admits nothing."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/quota.cure",
+      "symbol": "rejection_keeps_counters",
+      "claim": "For all inputs, a refusal of admit/4 (settle_only or insufficient) returns the counters it was given, also counters already over the amount after an overage."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/quota.cure",
+      "symbol": "unknown_is_held",
+      "claim": "For all counters, estimates and release flags, settling Unknown adds exactly the estimate to held and leaves committed unchanged."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/quota.cure",
+      "symbol": "settle_known_commits_actual",
+      "claim": "For all counters, estimates, actuals and release flags, settling Known(actual) adds the actual to committed in full and leaves held unchanged."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/quota.cure",
+      "claim": "Pinned Cure checks the Counters, Admission and Outcome types and the production admit/4, settle/4, reconcile/3 and release/2 decisions (every function @total) with a clean audit: no axioms, holes, unresolved, unaudited, opaque or unproven-total items. Breaking unknown_is_held or the settle_only branch makes the module fail to compile (negative controls run by temporary edit)."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/quota_test.exs",
+      "claim": "Listed scenarios on the worker's own disposable PostgreSQL 16 database with DBConnection.ConnectionPool Repos (not the Sandbox) connected as the ELZ-285 application role with only the README grants (fails when ELZOO_TEST_APP_ROLE is unset), in random schemas dropped afterwards; after every case each counter equals the sum over its unit rows (reserved the open estimates, held the estimates settled :unknown and not reconciled, committed the known and reconciled actuals). 1 two reservations of 6 against 10, held behind another connection's counter row lock until both wait in pg_locks, one applied and one insufficient, reserved 6; 2 a reserve, a settle and a release of units A and B all wait on A (pg_locks), each of the three started last in turn, still waiting after deadlock_timeout, all commit; 3 reserve duplicate also with a later now_ms and a grace resolution, conflict on estimate, window, expiry and unit set, stored digest equal to the SHA-256 of the README encoding built in the test, duplicate after release reserving nothing, settle, reconcile and release duplicates and conflicts, not_held and unknown_reservation; 4 unknown held, remaining not growing, a reservation that fits only without held insufficient, metering reconcile frees it; 5 open and held reservations survive stopping and restarting the Repo and then settle and write off with actor_ref and reason kept; 6 grace settle_only and settlement, settlement after revocation, resolution refusals (absent grant_id, another tenant, inconsistent settle_only, duplicate or empty grants, bad status and amount, missing key), other keys ignored, no_allowance, a hand-built two-grant resolution summing only the entitled allowance (10, settle_only false, 10 admitted, 1 more insufficient), a third grant_id refused, a grace-only unit settle_only, an unmapped local_month allowance ignored but refused under an unknown grant_id, an unmapped unit ignored, status with resolution nil; 7 November and December reservations concurrent and separate, a late November settlement leaving December unchanged; 8 expiry equal to now refused, release one before expiry, expired at expiry and kept, settlement after expiry and after release, already_settled; 9 overage committed in full, remaining 0, next reservation insufficient; 10 TenantIsolation.verify/3 for each table, no T2 row visible under T1, a T2 settle unknown_reservation, a direct T2 insert and DELETE on each table 42501; 11 a caller transaction gives in_transaction for every function with no query on the Repo, a repeatable read Repo gets isolation from every write with nothing committed; 12 inner and outer bounds of every text, run_id, reason, estimate count (1, 15, 16 with a repeat, 17), unsorted and duplicate units, amounts and actuals, unknown unit, ttl and window tag, new/1 and migration prefix refusals; 13 Cure laws, audit and decisions. Negative controls by temporary edit: dropping the reservation primary key fails case 3 (a second reservation is stored), reading the counter without FOR UPDATE fails case 1 (both admitted), settling :unknown as zero fails case 4, and locking settle/3's counters in reverse unit order fails case 2 with a deadlock that returns unavailable. Finite scenarios, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/16/explicit-locking.html",
+      "claim": "PostgreSQL 16 row locks (SELECT ... FOR UPDATE), deadlock detection after deadlock_timeout, READ COMMITTED re-reads after a lock wait, INSERT ... ON CONFLICT DO NOTHING waiting on a concurrent uncommitted insert, row-level security and numeric(38,0) are upstream server contracts reached through Postgrex 0.22.4."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "Ecto SQL 3.14.0 Repo.transact/2 results and rollback, in_transaction?/0 and Ecto.Migration.execute/1 are upstream behavior, reached through Elzoo.TenantIsolation.transact/3."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Relies on the pinned Cure compiler, kernel and audit for the selected laws and the compiled decisions."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir Erlang term order of atoms and tuples for the unit order, String.valid?/1, the utf8 binary pattern and integer arithmetic for the text rule and counters."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html",
+      "claim": "OTP 29.1.2 :crypto.hash(:sha256, iodata) computes the request digest."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The consumer runs the migration as the table owner, connects the application as a non-owner, non-bypass role with only the README grants at READ COMMITTED, calls TenantIsolation.verify/3 for each quota table at startup, keeps code that holds the connection from calling set_config itself, supplies a current resolution and the window for each reservation, does not start a Run whose reservation it released or settled, and retries an unavailable result with the same request."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "The Piece emits no event and no log; its queries pass log: false. The consumer Repo's query telemetry still receives the scope parameters, the tenant-isolation limit."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "The quota value from new/1 (exactly repo: and prefix: under the identifier rule) is a construction-time operand; fixed Contract bounds: 1..16 estimates, amounts and times 0..2^63-1 (estimates from 1), 1..128-byte texts, 1..200-byte run_id, 1..256-byte reason. No ambient or hot configuration."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle; release/3 and reconcile/3 are data operations, and the consumer owns the Repo, the migrations and the database roles."
+    }
+  }
+}
