@@ -358,10 +358,11 @@ When the reviewed delta is unchanged, avoid repeated main chasing and local
 gate runs; this does not waive section 5's required local gates, base and
 exact-head requirements, or hosted checks on a new head.
 
-- The reviewer is a different agent session, and a different model where one
-  is available. Give it the issue body and the diff, not your summary. The
-  review comment names the model of the reviewer. When no different model is
-  available, a different session is accepted, and the comment says so.
+- The reviewer is a different agent session, and a model of another family
+  where one is available. Give it the issue body and the diff, not your summary. The
+  review comment names the model of the reviewer. When no other model
+  family is available, a different session of the same model is accepted
+  (owner decision), and the comment says so.
 - The reviewer reports all findings in one pass. Each finding is a `BLOCKER`
   (wrong behavior, a broken Contract, a claim with no evidence) or a `NOTE`.
 - Correct all blockers in one batch. The second pass reads only the commits
@@ -374,21 +375,31 @@ exact-head requirements, or hosted checks on a new head.
 - The record is one pull request comment for each pass. Write no review file.
   Use these five lines:
 
-      Reviewer: <role>; <model> | same model, different session (no other model available)
+      Reviewer: <role>; <model> | same model, different session (no other model family available)
       Reviewed: <SHA> | second pass <first reviewed SHA>..<head>
       Findings: <BLOCKER or NOTE, each with file and line> | none
       Tests: <commands that the reviewer ran, and exit codes> | reviewer could not run tests; worker ran <command>: exit <code>
       Verdict: <no blocker open | blockers open>
 - Answer each finding of the automated reviewer in its thread, and resolve
-  the thread.
+  the thread. Before the coordinator starts the merge queue, the automated
+  reviewer's pass on the exact head has finished and every one of its
+  threads is resolved (owner decision). A head that the queue makes by
+  merging `main` into the branch within that run needs no new pass; a head
+  pushed for a repair needs a finished pass before the queue starts again.
+- When a reviewer of another model family becomes available, it rechecks
+  `domain/journal`, `domain/metering` and `delivery/dead-letter-store`
+  once. Each finding becomes its own task (owner decision).
 
 A local command can be impossible on your host, for example when a service is
 missing. Then record the command and the reason in `Local gate:`. The hosted
 check is the evidence for that command.
 
 When the required local checks (or recorded hosted substitution), the hosted check and the review are green, mark the pull
-request ready for review. That is the request to merge. From then the
-coordinator owns the branch: do not push to it unless the coordinator gives it
+request ready for review. That is the request to merge. The automated reviewer
+reviews only a pull request that is not a draft, so its pass starts then; the
+coordinator starts the queue only after that pass on the exact head has
+finished with its threads resolved, and gives the branch back for any fix. From the ready
+mark the coordinator owns the branch: do not push to it unless the coordinator gives it
 back. You can claim the next task.
 
 ## 7. Merge and cleanup
