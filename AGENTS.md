@@ -394,11 +394,11 @@ exact-head requirements, or hosted checks on a new head.
   unavailable, one extra independent review in a fresh session replaces its
   pass. A reviewer of another model family does it: GPT-6.1 Terra
   (`openai/gpt-6.1-terra`) at high effort (owner decision). A fresh session
-  of the same model does it only when that reviewer cannot run, and the
-  Reviewer line of the record gives the reason in its parenthesis. This
+  of the same model does it only when that reviewer cannot run; its Reviewer
+  line then reads `same model, different session (<why the other-family
+  reviewer could not run>)` instead of the template's parenthesis. This
   choice covers only this extra review and the recheck below; the reviewer of
-  the main review is chosen as before. That review
-  reads the commits since the automated reviewer's last posted pass (the
+  the main review is chosen as before. That review reads the commits since the automated reviewer's last posted pass (the
   whole diff when it posted none), looks for edge cases, races, bounds and
   error paths, and records the five lines; with no blocker open it is the
   gate. Before its verdict it reads this file, the change's task file and its
