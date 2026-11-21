@@ -351,8 +351,8 @@
       "summary": "Feature/access entitlement decisions",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-300: pure resolution of host plan grants with grace and revocation, separate from identity and quota; no billing implementation."
+      "status": "ready",
+      "manifest": "pieces/domain/entitlement/piece.json"
     },
     {
       "id": "domain/journal",
@@ -376,7 +376,8 @@
       "summary": "Unit-tagged observed usage with provenance",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/metering/piece.json",
       "reason": "ELZ-299: plain Ecto/Postgrex tables under state/tenant-isolation (owner Q1 A); unknown usage is a distinct count, never zero; no pricing, quota or admission."
     },
     {
@@ -983,8 +984,9 @@
       "summary": "Dataset-backed scripted evaluation of recipes",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-302: test-time datasets read through state/artifact, run through runtime/recipe-test; absorbs state/eval-dataset; no live model or judge."
+      "status": "ready",
+      "reason": "ELZ-302: test-time datasets read through state/artifact, run through runtime/recipe-test; absorbs state/eval-dataset; no live model or judge.",
+      "manifest": "pieces/workflow/eval/piece.json"
     },
     {
       "id": "workflow/run",
