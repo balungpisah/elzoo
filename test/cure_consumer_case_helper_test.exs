@@ -15,9 +15,11 @@ defmodule Elzoo.CureConsumerCaseHelperTest do
   # merge; below Linux's default limit of 65,530 per process) and takes tens of milliseconds, so a stop
   # signal often arrives while a fork is in flight. Each child appends its PID to the file named by argv[1],
   # then becomes `sleep 60`. Only the two newest children are kept, so the cleanup walk is short and often
-  # ends before a fork in flight has returned.
+  # ends before a fork in flight has returned. An alarm (not inherited by a fork) ends the forker after
+  # 120 s if the run that owns it is interrupted.
   @forker ~S"""
   import mmap, os, shutil, signal, sys
+  signal.alarm(120)
   log = os.open(sys.argv[1], os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
   sleep = shutil.which("sleep")
   maps = [mmap.mmap(-1, 4096, prot=mmap.PROT_READ | (i % 2) * mmap.PROT_WRITE) for i in range(60000)]
