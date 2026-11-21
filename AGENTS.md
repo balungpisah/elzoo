@@ -186,7 +186,9 @@ agent writes in a worktree at a time.
   in a Piece task.
 - The repository is public. Standard Git author, committer and co-author
   metadata, and platform authorship attribution, are allowed; automatic
-  authorship metadata alone needs no rewrite or approval. Authored repository
+  authorship metadata alone needs no rewrite or approval. The `Amp-Thread-ID`
+  trailer that Amp adds to its commits is such metadata: it is allowed, and
+  published history is not rewritten to remove it. Authored repository
   content, examples, commit-message prose, and issue/PR prose remain roles-only:
   include no person's name or private environment details. Do not include
   session links or publish hostnames, addresses, local paths, database names,
