@@ -40,7 +40,9 @@ and does not change. `domain/quota` takes no registry and does not change.
    and an `active_numeric` value for a version that is not exactly the map
    from the integer numeric code of each active entry of that snapshot to
    its alpha (`build!/1` builds it so; an entry missing from it would make
-   `parse_numeric/2` call an active currency unknown).
+   `parse_numeric/2` call an active currency unknown); and a snapshot in
+   which two active entries share one integer numeric code (`build!/1`
+   refuses that; a map rebuilt from such entries would hide it).
 2. Every public function of `Elzoo.Money` and `Elzoo.Money.Codec` that takes
    a `registry:` option returns an error when `valid?/1`
    is false for an explicit value, before any other check of the call, as
