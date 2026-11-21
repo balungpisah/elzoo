@@ -15,7 +15,8 @@
     "One currency identity per operation and no exchange; a cross-currency transfer is two operations through accounts the host chooses. A balanced journal does not prove external settlement; no payment, invoice or settlement claim.",
     "History and balances are bounded reads (history 1..1000 entries per call), not reports. The journal tables are Piece-owned and are not captured by state/audit-log.",
     "A database failure, including a lost connection, is {:error, :unavailable} and says nothing about whether the operation committed; the outcome is left to a retry with the same operation_id and request.",
-    "Concurrency, lock order, replay, killed-connection and row-security evidence are finite scenarios on one local PostgreSQL 16 with repeated runs, not proofs; the Cure laws cover only the decision-split postings and balance verdicts, and the sum of minor units, the range comparison and every SQL step are test-grounded."
+    "Concurrency, lock order, replay, killed-connection and row-security evidence are finite scenarios on one local PostgreSQL 16 with repeated runs, not proofs; the Cure laws cover only the decision-split postings and balance verdicts, and the sum of minor units, the range comparison and every SQL step are test-grounded.",
+    "new/1 runs Elzoo.Money.Registry.valid?/1 on its registry: once; the per-call check of a journal value keeps the repo, prefix-identifier and registry key-shape checks and does not call valid?/1. Of the Elzoo.Money calls the journal makes, parse/2, current_status/2 and from_minor_units/3 still apply that check (one === comparison for the default registry, a walk of any other registry on each call); member/2 checks currency membership only. For a registry other than the default, history/3 walks it at most 2 × limit + held versions times, balance/3 at most held versions + 1 times, and each write (open_account/3, post/3, reverse/3) at most once."
   ],
   "files": [
     "cure/elzoo/journal.cure",

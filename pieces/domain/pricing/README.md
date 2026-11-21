@@ -88,7 +88,8 @@ hash differs.
 | `content_hash(card)` | `{:ok, hash}` or `{:error, :card}` |
 
 `opts` is `[]` or `[registry: registry]`, an `Elzoo.Money.Registry` value
-(default `Elzoo.Money.Registry.default/0`); anything else is `:invalid`.
+that `Elzoo.Money.Registry.valid?/1` accepts (default
+`Elzoo.Money.Registry.default/0`); anything else is `:invalid`.
 
 ### Usage
 

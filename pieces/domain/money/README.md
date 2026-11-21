@@ -32,7 +32,9 @@ version, alpha, numeric, exponent, minor units. `Elzoo.Money.Registry` holds
 the compiled registry and `build!/1` for other extract sets.
 
 Options on every call: `registry:` (default the compiled registry) and
-`version:`. For `parse` and `parse_numeric`, `version:` selects the version to
+`version:`. An explicit `registry:` is checked first by
+`Elzoo.Money.Registry.valid?/1`, a pure check of the shape `build!/1` writes;
+a refused value is `{:error, {:invalid_registry, nil}}`. For `parse` and `parse_numeric`, `version:` selects the version to
 resolve under (default the newest held version); for `numeric_candidates` it
 limits the enumeration to that version; for every function that takes a
 currency, an amount or codec bytes it is a check: each value must belong to that
@@ -45,6 +47,7 @@ version, else `forged_currency`. A `version:` the registry does not hold is
 | --- | --- |
 | `malformed_code` | `parse`, `parse_numeric`, `numeric_candidates`: input is not three ASCII letters or three digits. |
 | `unknown_currency` | `parse`, `parse_numeric`; `Codec.decode` for an alpha held in no version. |
+| `invalid_registry` | any call with an explicit `registry:` that `Elzoo.Money.Registry.valid?/1` refuses, before any other check; the detail is `nil` and never echoes the registry. |
 | `unknown_registry_version` | any call naming a version the registry does not hold, including in bytes. |
 | `forged_currency` | any call whose currency is not the member in effect at its own version (identity and status), or is not a `%Currency{}`; `Codec.decode` for an identity of another version. |
 | `no_minor_unit` | construction for an ISO `N.A.` code (XAU, XXX, XTS and others). |
@@ -144,6 +147,11 @@ Dataset disposition (G5, disposed by recorded decision, not verified):
   Whether a posting context accepts a retired currency is `domain/journal`'s
   decision.
 - Calling `Cure.Elzoo.Money` directly bypasses the membership check.
+- An explicit `registry:` other than the compiled default (compared with
+  `===` and then not walked) is walked on every call: about 65–80 µs for a
+  registry the size of the default (307 entries), measured locally.
+  `valid?/1` checks shape, field types and ranges, not that the data came
+  from a held extract.
 - The registry is only as faithful as the extract: `mix check` compares the
   registry with the committed extract, not with the publisher's files.
 

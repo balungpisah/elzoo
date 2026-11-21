@@ -50,7 +50,8 @@ defmodule Elzoo.Journal do
 
   @doc """
   A journal value: exactly `repo:` and `prefix:`, and optionally `registry:` (an
-  `Elzoo.Money.Registry` value; default `Elzoo.Money.Registry.default/0`). Raises
+  `Elzoo.Money.Registry` value that `Elzoo.Money.Registry.valid?/1` accepts; default
+  `Elzoo.Money.Registry.default/0`). Raises
   `ArgumentError` with one fixed message otherwise.
   """
   def new(opts) do
@@ -58,7 +59,7 @@ defmodule Elzoo.Journal do
          true <- Enum.sort(Keyword.keys(opts)) in [[:prefix, :repo], [:prefix, :registry, :repo]],
          repo when is_atom(repo) and repo not in [nil, true, false] <- opts[:repo],
          registry = Keyword.get(opts, :registry, Money.Registry.default()),
-         true <- registry?(registry) do
+         true <- Money.Registry.valid?(registry) do
       prefix!(opts[:prefix])
       %__MODULE__{repo: repo, prefix: opts[:prefix], registry: registry}
     else
@@ -74,6 +75,7 @@ defmodule Elzoo.Journal do
 
   defp identifier?(name), do: is_binary(name) and name =~ ~r/\A[a-z_][a-z0-9_]{0,62}\z/
 
+  # The per-call key-shape check of journal/1; new/1 ran the deep check once.
   defp registry?(registry),
     do: match?(%{versions: [_ | _], snapshots: %{}}, registry)
 
