@@ -114,9 +114,9 @@ when `unknown_count == count`.
 `totals/3` of `domain/metering` groups by unit and source only.
 `Elzoo.Metering.model_totals/3` of `domain/metering` returns `{:ok, rows}`
 with these per-provider and per-model rows for a period of at most 1,000
-groups (`max_rows` 1..1000, `{:error, :read_limit}` above it); the host builds
-the rows of a larger period, up to the 4096 rows this Piece takes. This Piece
-does not depend on metering code.
+groups (`max_rows` 1..1000; more groups than `max_rows` is
+`{:error, :read_limit}`); the host builds the rows of a larger period, up to
+the 4096 rows this Piece takes. This Piece does not depend on metering code.
 
 ### Charge
 
@@ -268,10 +268,11 @@ only. An exact line value must fit 38 significant digits (with an
 18-fractional-digit rate per unit, a quantity below about 10^20); a larger one
 is `:amount_range`, never truncated. The per-provider and per-model rows come
 from `Elzoo.Metering.model_totals/3` of `domain/metering` for a period of at
-most 1,000 groups (`max_rows` 1..1000, `{:error, :read_limit}` above it); the
-host builds the rows of a larger period, up to 4096 rows. The Piece does not
-check that the rows are a complete period; the host owns the period and the
-card choice. Telemetry, Config and Control are not applicable.
+most 1,000 groups (`max_rows` 1..1000; more groups than `max_rows` is
+`{:error, :read_limit}`); the host builds the rows of a larger period, up to
+4096 rows. The Piece does not check that the rows are a complete period; the
+host owns the period and the card choice. Telemetry, Config and Control are
+not applicable.
 
 Registry cost per call, `price/3` of one unchanged 1024-line card and usage
 with a row and a minimum on every line, accepted by all three forms with equal
