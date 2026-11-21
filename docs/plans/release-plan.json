@@ -7803,6 +7803,27 @@
       "issue": 672,
       "url": "https://github.com/balungpisah/elzoo/issues/672",
       "issue_body_sha256": "d12397dc84ae7114f921854811d8400efd14efeecb11d5186eaa49d51f0b2aa6"
+    },
+    {
+      "id": "ELZ-292",
+      "title": "ELZ-292 — State that the automatic Amp-Thread-ID commit trailer is allowed metadata",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-292-amp-thread-id-trailer.md"
+      ],
+      "outputs": [],
+      "acceptance": "AGENTS.md section 4 and the matching change-class-flow bullet state that the Amp-Thread-ID trailer Amp adds automatically is allowed metadata, needs no approval and is not rewritten out of history (owner decision); authored content stays roles-only and every other rule is unchanged. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 674,
+      "url": "https://github.com/balungpisah/elzoo/issues/674",
+      "issue_body_sha256": "f79c193c142179acf03c105626e14879eb8e8551651811d1bcb8a1d0e410af5a"
     }
   ],
   "entries": [
