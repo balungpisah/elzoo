@@ -75,9 +75,13 @@ journal = Elzoo.Journal.new(repo: MyApp.Repo, prefix: "ledger")
 {:ok, %Elzoo.Money.Amount{minor_units: 500}} = Elzoo.Journal.balance(journal, "t1", "wallet:alice")
 ```
 
-- `new(opts)`: exactly `repo:` and `prefix:`, optionally `registry:` (an
-  `Elzoo.Money.Registry` value; default `Elzoo.Money.Registry.default/0`). Else the fixed
-  `ArgumentError`.
+- `new(opts)`: exactly `repo:` and `prefix:`, optionally `registry:` (default
+  `Elzoo.Money.Registry.default/0`): the default, a raw registry or a checked value of
+  `Elzoo.Money.Registry.check/1`. A registry other than the default is checked once with
+  `check/1` (one walk of a raw registry) and the journal keeps its checked value, never the raw
+  map, so no later call walks a custom registry (see Limits for a copy of the default and code
+  upgrades). Else, including a checked value forged in Elixir code,
+  the fixed `ArgumentError`.
 - `open_account(journal, tenant, %{account_id, currency, allow_negative})`: `currency` is a
   registry member with an integer numeric code and minor unit. The account stores the identity
   `{alpha, numeric, minor_unit}`, not its registry version or status. Order: shape
@@ -188,5 +192,20 @@ only when present, so existing digests, and the duplicates they decide, stay equ
 - History and balances are bounded reads, not reports.
 - The journal tables are Piece-owned and are not captured by `state/audit-log`.
 - A database failure leaves the outcome to a retry with the same ID.
+- Each registry resolution, by `Elzoo.Money.parse/2`, `current_status/2` or
+  `from_minor_units/3` (in `open_account/3`, `post/3`, `balance/3` and `history/3`), takes
+  constant time while the journal value holds the compiled default itself or a checked value. A
+  copy of the default (for example one read back from ETS) is compared in full on each such
+  resolution (about 30–45 µs in one local session). The unit is the resolution, not the call: for
+  example, `history/3` resolves twice per returned entry (its amount and balance), and `balance/3` and
+  `history/3` resolve at most once per held version to find the account's currency.
+- After a code upgrade of `Elzoo.Money.Registry`, a journal value built earlier holds the old
+  registry. A default one that no longer equals the new default is walked on each such
+  resolution. A custom one holds a checked value and has its `domain/money` limits: it works only
+  with the code that made it (after a purge of that code every call refuses it with `:invalid`).
+  So the host builds every journal value again with `new/1` after such an upgrade, and does not
+  send one between nodes. Like any checked value, one decoded from untrusted bytes with
+  `:erlang.binary_to_term/2`, `:safe` included, can be accepted, so the host never decodes a
+  registry from untrusted bytes.
 - The Piece emits no telemetry event and has no process; the consumer owns the Repo, the
   migrations and the roles.
