@@ -126,13 +126,14 @@ defmodule Elzoo.Wave6.CountHelper do
 
   @doc """
   The role facts of the application connection: its role, the session (owner) role, superuser,
-  BYPASSRLS, and whether it holds the owner's privileges through inheritance.
+  BYPASSRLS, LOGIN, INHERIT, CREATEROLE, CREATEDB, and whether it holds the owner's privileges
+  through inheritance.
   """
   def role_facts(repo) do
-    [[current, session, super, bypass, inherits_owner]] =
+    [[current, session, super, bypass, login, inherit, createrole, createdb, inherits_owner]] =
       q!(
         repo,
-        "SELECT current_user::text, session_user::text, r.rolsuper, r.rolbypassrls, pg_has_role(current_user, session_user, 'USAGE') FROM pg_roles r WHERE r.rolname = current_user"
+        "SELECT current_user::text, session_user::text, r.rolsuper, r.rolbypassrls, r.rolcanlogin, r.rolinherit, r.rolcreaterole, r.rolcreatedb, pg_has_role(current_user, session_user, 'USAGE') FROM pg_roles r WHERE r.rolname = current_user"
       )
 
     %{
@@ -140,16 +141,25 @@ defmodule Elzoo.Wave6.CountHelper do
       session: session,
       super: super,
       bypass: bypass,
+      login: login,
+      inherit: inherit,
+      createrole: createrole,
+      createdb: createdb,
       inherits_owner: inherits_owner
     }
   end
 
-  @doc "Fails, never skips: the application connection must be the non-owner application role."
+  @doc """
+  Fails, never skips: the application connection must be the fixed ELZ-285 role `elzoo_app`,
+  NOSUPERUSER, NOBYPASSRLS, NOLOGIN, NOINHERIT, NOCREATEROLE, NOCREATEDB, not the session role
+  and without the owner's privileges.
+  """
   def role_guard!(role) do
     facts = role_facts(AppRepo)
 
-    if facts.current != role or facts.current == facts.session or facts.super or facts.bypass or
-         facts.inherits_owner,
+    if role != "elzoo_app" or facts.current != role or facts.current == facts.session or
+         facts.super or facts.bypass or facts.login or facts.inherit or facts.createrole or
+         facts.createdb or facts.inherits_owner,
        do:
          flunk(
            "the application connection is not the non-owner application role: #{inspect(facts)}"
@@ -261,12 +271,31 @@ defmodule Elzoo.Wave6.CountHelper do
       quota: Quota.new(repo: AppRepo, prefix: p),
       journal: Journal.new(repo: AppRepo, prefix: p),
       dls: DeadLetterStore.new(repo: AppRepo, prefix: p),
-      provider: provider!()
+      provider: provider!(),
+      billing: agent!(),
+      resolutions: Map.new(~w(T1 T2), &{&1, resolution!(&1)})
     }
   end
 
+  defp agent! do
+    {:ok, pid} = Agent.start_link(fn -> %{} end)
+    Process.unlink(pid)
+    pid
+  end
+
+  # Each tenant's default plan: every feature of the counted gate, a large allowance.
+  defp resolution!(tenant) do
+    facts = %{
+      plans: [plan(["agents.nested", "model.chat"], 1_000_000)],
+      grants: [grant("g-" <> tenant, tenant)]
+    }
+
+    {:entitled, resolution} = Entitlement.resolve(facts, tenant, @now)
+    resolution
+  end
+
   def cleanup!(fx) do
-    Agent.stop(fx.provider.usage)
+    for agent <- [fx.provider.usage, fx.billing], do: Agent.stop(agent)
     for s <- [fx.prefix, fx.aux, fx.audit], do: owner!("DROP SCHEMA IF EXISTS #{s} CASCADE")
   end
 
@@ -300,29 +329,35 @@ defmodule Elzoo.Wave6.CountHelper do
 
   # ------------------------------------------------------------ the counting provider
 
-  defp provider! do
-    {:ok, usage} = Agent.start_link(fn -> %{} end)
-    Process.unlink(usage)
-    %{usage: usage, calls: :counters.new(1, [])}
-  end
+  defp provider!, do: %{usage: agent!(), calls: :counters.new(1, [])}
 
   def calls(fx), do: :counters.get(fx.provider.calls, 1)
 
-  @doc "Usage of one completed call, as `integration/ai-model` validates it."
-  def usage(input, output) do
-    {:ok, usage} =
-      Usage.validate(%{
-        counters: [
-          %{unit: :input_uncached_tokens, amount: input},
-          %{unit: :output_tokens, amount: output}
-        ],
-        cache_writes: [],
-        convention: %{input_includes_cached: false},
-        source: :provider_reported
-      })
+  @doc "The scripted provider's report of one call: its raw counters, as the result value carries them."
+  def usage(input, output), do: %{"input" => input, "cache_read" => 0, "output" => output}
 
-    usage
+  @doc """
+  The counting scripted provider answers one dispatched request: it counts the call and returns
+  the report as the call's result value.
+  """
+  def provide(fx, _request, report) do
+    :counters.add(fx.provider.calls, 1, 1)
+    %{"usage" => report}
   end
+
+  @doc """
+  The host reads the provider's result value as `integration/ai-model` usage, built and validated
+  from the raw counters. A result without a usage report is refused.
+  """
+  def returned_usage(%{"usage" => %{"input" => i, "cache_read" => r, "output" => o}}),
+    do:
+      Usage.from_provider(
+        %{input: i, cache_read: r, output: o},
+        %{input_includes_cached: false},
+        :provider_reported
+      )
+
+  def returned_usage(_), do: {:error, :no_usage}
 
   # ------------------------------------------------------------ Runs
 
@@ -413,6 +448,24 @@ defmodule Elzoo.Wave6.CountHelper do
     end)
   end
 
+  @doc """
+  The host's admission (Q9 A): it reserves the Run's Budget cap as its estimate under the Run's
+  key before the Run starts, and starts the Run only when the reservation applied.
+  """
+  def admit(fx, run, resolution, now \\ @now),
+    do: start_admitted(run, reserve_run(fx, run, resolution, now))
+
+  def reserve_run(fx, run, resolution, now \\ @now) do
+    assert run.c.opts[:budget].cap == run.cap
+    reserve(fx, run.tenant, run.key, run.cap, resolution, now)
+  end
+
+  def start_admitted(run, {:ok, :applied}), do: {:started, start_run(run)}
+  def start_admitted(_run, refused), do: {:refused, refused}
+
+  @doc "The host settles a Run's reservation with the Run's committed actual."
+  def settle_run(fx, run), do: settle(fx, run.tenant, run.key, committed_actual(run))
+
   def start_run(run) do
     engine = TestHelper.start(run.c, bindings: run.bindings, result_reader: reader(run.c))
     assert {:ok, :applied} = TestHelper.send_input(engine)
@@ -437,21 +490,26 @@ defmodule Elzoo.Wave6.CountHelper do
     occurrence
   end
 
-  @doc "The provider takes the next dispatched call and returns no answer: the provider task."
+  @doc "The next dispatched call: the adapter task waiting for the provider, and its request."
   def take_call! do
-    assert_receive {:effect_started, task, _request}, 10_000
-    task
+    assert_receive {:effect_started, task, request}, 10_000
+    {task, request}
   end
 
   @doc """
-  The counting scripted provider completes the next dispatched call of `run` with `usage`;
-  the host routes the outcome with its output tokens as the actual and keeps the usage value.
+  The counting scripted provider answers the next dispatched call of `run` with `report`. The
+  host reads the usage from the value the provider returned, keeps it for the call's occurrence
+  and routes the outcome with its output tokens as the actual.
   """
-  def serve!(fx, run, action_id, usage) do
-    task = take_call!()
-    :counters.add(fx.provider.calls, 1, 1)
-    Agent.update(fx.provider.usage, &Map.put(&1, {run.key, action_id}, usage))
-    output = Usage.amount(usage, :output_tokens)
+  def serve!(fx, run, action_id, report) do
+    {task, request} = take_call!()
+    # The dispatched request is this call: its arguments are the model call's prompt.
+    assert Jason.decode!(request.arguments) == %{"prompt" => action_id}
+    occurrence = occurrence(run, action_id)
+    value = provide(fx, request, report)
+    send(task, {:result, value})
+    assert {:ok, usage} = returned_usage(value)
+    Agent.update(fx.provider.usage, &Map.put(&1, {run.key, occurrence}, usage))
 
     assert {:ok, :applied} =
              RunEngine.input(
@@ -459,13 +517,12 @@ defmodule Elzoo.Wave6.CountHelper do
                "result-" <> action_id,
                TestHelper.result(action_id),
                TestHelper.verified(%{
-                 occurrence: occurrence(run, action_id),
-                 actual: output,
+                 occurrence: occurrence,
+                 actual: Usage.amount(usage, :output_tokens),
                  dispatch: "dispatched"
                })
              )
 
-    send(task, {:result, %{}})
     :ok
   end
 
@@ -499,7 +556,7 @@ defmodule Elzoo.Wave6.CountHelper do
       {amount, source} =
         case outcome do
           "completed" ->
-            usage = Map.fetch!(usages, {run.key, s.action_id})
+            usage = Map.fetch!(usages, {run.key, s.occurrence})
             {Usage.amount(usage, unit), usage.source}
 
           "unknown" ->
@@ -605,7 +662,8 @@ defmodule Elzoo.Wave6.CountHelper do
                 [tenant, @period]
               )
 
-            send(parent, {:holding, self()})
+            [[backend]] = q!(OwnerRepo, "SELECT pg_backend_pid()")
+            send(parent, {:holding, self(), backend})
             receive do: (:release -> {:ok, :released})
           end)
 
@@ -613,13 +671,13 @@ defmodule Elzoo.Wave6.CountHelper do
       end)
 
     receive do
-      {:holding, ^pid} -> pid
+      {:holding, ^pid, backend} -> {pid, backend}
     after
       10_000 -> flunk("the lock holder did not take the row lock")
     end
   end
 
-  def release!(pid) do
+  def release!({pid, _backend}) do
     send(pid, :release)
 
     receive do
@@ -629,12 +687,24 @@ defmodule Elzoo.Wave6.CountHelper do
     end
   end
 
-  @doc "Wait until exactly `n` application backends wait for a lock."
-  def await_waiting!(n, tries \\ 1_000) do
+  @doc """
+  Wait until exactly `n` application backends of this database wait in the holder's blocking
+  chain: blocked by the holder's backend, or by an application backend that it blocks. The holder
+  is linked to the test process, so a failure releases its lock.
+  """
+  def await_waiting!({_pid, backend} = holder, n, tries \\ 1_000) do
     [[count]] =
       owner!(
-        "SELECT count(DISTINCT l.pid) FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE NOT l.granted AND a.application_name = $1",
-        [@app_name]
+        """
+        WITH w AS (
+          SELECT pid, pg_blocking_pids(pid) AS blockers FROM pg_stat_activity
+          WHERE datname = current_database() AND application_name = $1
+        )
+        SELECT count(*) FROM w
+        WHERE $2 = ANY(w.blockers)
+           OR EXISTS (SELECT 1 FROM w v WHERE v.pid = ANY(w.blockers) AND $2 = ANY(v.blockers))
+        """,
+        [@app_name, backend]
       )
 
     cond do
@@ -646,7 +716,7 @@ defmodule Elzoo.Wave6.CountHelper do
 
       true ->
         Process.sleep(10)
-        await_waiting!(n, tries - 1)
+        await_waiting!(holder, n, tries - 1)
     end
   end
 
@@ -687,6 +757,91 @@ defmodule Elzoo.Wave6.CountHelper do
   def usage_value(fx, tenant) do
     {:ok, rows} = Metering.model_totals(fx.meter, tenant, %{period: @period, max_rows: 100})
     %{tenant: tenant, period: @period, rows: rows}
+  end
+
+  @doc "The operation ID of a first posted charge, from its charge record."
+  def charge_id(charge),
+    do: "charge/#{charge.tenant}/#{charge.period}/#{charge.card.card_id}/#{charge.card.version}"
+
+  @doc """
+  The host's billing decision for one tenant's period (harness code, Q9 A). `cards` holds the
+  current card under `:current` and each published version under `{card_id, version}`. Before a
+  charge posted it prices under the current card; after, under the posted charge's own card
+  version. An incomplete charge is held and posts nothing. The first complete charge posts its
+  total from receivable to revenue under `charge_id/1`. A later re-price posts its nonzero
+  `difference/3` against the baseline under an ID and reason from the `:correction` that caused
+  it; a zero difference posts nothing. The baseline is the latest re-priced charge whose
+  difference posted. `crash: :after_post` loses the reply of the post: nothing is recorded.
+  """
+  def bill(fx, tenant, cards, opts \\ []) do
+    posted = Agent.get(fx.billing, &Map.get(&1, {tenant, @period}))
+
+    card =
+      if posted,
+        do: Map.fetch!(cards, {posted.card.card_id, posted.card.version}),
+        else: cards.current
+
+    {:ok, charge} = Pricing.price(card, usage_value(fx, tenant))
+
+    cond do
+      charge.incomplete ->
+        {:held, charge}
+
+      posted == nil ->
+        post_billing(fx, tenant, charge, opts, %{
+          operation_id: charge_id(charge),
+          reason: "charge #{tenant} #{@period}",
+          amount: charge.total
+        })
+
+      true ->
+        {:ok, difference} = Pricing.difference(posted, charge)
+
+        case {difference.minor_units, opts[:correction]} do
+          {0, _} ->
+            {:unchanged, charge}
+
+          {_, nil} ->
+            {:error, :no_correction}
+
+          {_, c} ->
+            post_billing(fx, tenant, charge, opts, %{
+              operation_id: "charge-correction/#{tenant}/#{@period}/#{c.correction_id}",
+              reason: "correction #{c.correction_id}: #{c.reason}",
+              amount: difference
+            })
+        end
+    end
+  end
+
+  defp post_billing(fx, tenant, charge, opts, op) do
+    result = transfer(fx, tenant, op.operation_id, op.reason, "revenue", "receivable", op.amount)
+
+    cond do
+      opts[:crash] == :after_post ->
+        {:lost, op}
+
+      result in [{:ok, :applied}, {:ok, :duplicate}] ->
+        Agent.update(fx.billing, &Map.put(&1, {tenant, @period}, charge))
+        {:posted, op, result}
+
+      true ->
+        {:not_posted, op, result}
+    end
+  end
+
+  @doc "The journal operations visible under the tenant's scope, as the application role."
+  def operations(fx, tenant) do
+    {:ok, rows} =
+      as(%{tenant: tenant}, fn ->
+        {:ok,
+         q!(
+           AppRepo,
+           "SELECT tenant, operation_id, reason FROM #{fx.prefix}.elzoo_journal_operations ORDER BY operation_id"
+         )}
+      end)
+
+    rows
   end
 
   def open_accounts!(fx, tenant, accounts) do
@@ -908,6 +1063,10 @@ defmodule Elzoo.Wave6.CountHelper do
         "journal-credits"
       )
 
+  # One resource per credit operation, written once: the apply reads exactly the command's data.
+  def credit_prepare(%{revision: revision}, _request, _facts) when revision > 0,
+    do: {:refused, "immutable"}
+
   def credit_prepare(snapshot, %{payload: p}, _facts) do
     {:ok,
      [
@@ -1026,29 +1185,41 @@ defmodule Elzoo.Wave6.CountHelper do
   end
 
   @doc """
-  The host's apply of committed credits: each pending credit item posts once with
-  `Elzoo.Journal.post/3`, reusing the command's `operation_id` as the journal operation ID,
-  then is acknowledged. `crash: :after_post` stops before the acknowledgement.
+  The host's apply of committed credits: each pending credit item reads the command's resource at
+  the item's revision and posts it once with `Elzoo.Journal.post/3`, reusing the command's
+  `operation_id` as the journal operation ID. Only an applied or duplicate post is acknowledged;
+  any other result leaves the item pending. `crash: :after_post` stops before the
+  acknowledgement.
   """
   def apply_credits(fx, tenant, opts \\ []) do
     for item <- pending(fx, tenant, "journal-credits") do
-      %{"operation_id" => op, "resource" => id, "actor" => actor} = Jason.decode!(item.payload)
-      %{fields: f} = resource(fx, credit_descriptor(), tenant, actor, id)
-      {:text, account} = f["account_id"]
+      %{"operation_id" => op, "resource" => id, "actor" => actor, "revision" => revision} =
+        Jason.decode!(item.payload)
 
       result =
-        transfer(
-          fx,
-          tenant,
-          op,
-          "manual credit",
-          account,
-          "credits-granted",
-          money(f["minor_units"])
-        )
+        case resource(fx, credit_descriptor(), tenant, actor, id) do
+          %{revision: ^revision, fields: f} ->
+            {:text, account} = f["account_id"]
+
+            transfer(
+              fx,
+              tenant,
+              op,
+              "manual credit",
+              account,
+              "credits-granted",
+              money(f["minor_units"])
+            )
+
+          _ ->
+            {:error, :revision}
+        end
 
       if Keyword.get(opts, :crash) == :after_post, do: raise("crash between post and ack")
-      assert {:committed, _} = Elzoo.Outbox.ack(fx.store, item.idempotency_key, item.nonce)
+
+      if result in [{:ok, :applied}, {:ok, :duplicate}],
+        do: assert({:committed, _} = Elzoo.Outbox.ack(fx.store, item.idempotency_key, item.nonce))
+
       {op, result}
     end
   end

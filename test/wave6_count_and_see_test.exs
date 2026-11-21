@@ -10,7 +10,6 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
     DeadLetterStore,
     Entitlement,
     Eval,
-    Journal,
     Metering,
     Pricing,
     Quota,
@@ -60,12 +59,24 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
       TestHelper.request([H.finish("call-1")])
     ]
 
-  # A completed T1 or T2 Run: one model call, then a finish.
+  # The counted gate of the tenant's resolution.
+  defp gate(fx, tenant), do: H.feature_gate(fx.resolutions[tenant])
+
+  # The host admits a prepared Run under the resolution: reserved by its key, then started.
+  defp admitted!(fx, run, resolution) do
+    assert {:started, run} = H.admit(fx, run, resolution)
+    run
+  end
+
+  # A completed T1 or T2 Run: admitted, one model call, then a finish; settled with its actual.
   defp completed_run(fx, tenant, usage) do
-    run = H.prepare_run(tenant, completed_requests()) |> H.start_run()
+    run =
+      H.prepare_run(tenant, completed_requests(), gate: gate(fx, tenant))
+      |> then(&admitted!(fx, &1, fx.resolutions[&1.tenant]))
 
     :ok = H.serve!(fx, run, "call-1", usage)
     completed!(run)
+    assert H.settle_run(fx, run) == {:ok, :applied}
     run
   end
 
@@ -75,24 +86,34 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
       TestHelper.request([H.model_call("call-2")])
     ]
 
-  # A Run whose first call completes and whose second call is cut off by an engine restart.
-  # Returns the started Run and a function that restarts it.
-  defp cut_run(fx, %{c: _} = run, usage) do
-    run = H.start_run(run)
+  # An admitted Run whose first call completes and whose second call is cut off by an engine
+  # restart. Returns the started Run and a function that restarts it and settles it with its
+  # committed actual, which is unknown.
+  defp cut_run(fx, %{c: _} = run, usage, resolution) do
+    run = admitted!(fx, run, resolution)
     :ok = H.serve!(fx, run, "call-1", usage)
-    task = H.take_call!()
+    {task, _request} = H.take_call!()
 
     restart = fn ->
       restarted = H.restart(run)
-      # The cut provider answers after the restart; the engine already settled the call.
+      # The cut call's adapter is released after the restart with no usage report: the provider
+      # never answered it, so it is not counted and the host routes nothing for it.
       send(task, {:result, %{}})
+      assert H.settle_run(fx, restarted) == {:ok, :applied}
       restarted
     end
 
     {run, restart}
   end
 
-  defp cut_run(fx, tenant, usage), do: cut_run(fx, H.prepare_run(tenant, cut_requests()), usage)
+  defp cut_run(fx, tenant, usage),
+    do:
+      cut_run(
+        fx,
+        H.prepare_run(tenant, cut_requests(), gate: gate(fx, tenant)),
+        usage,
+        fx.resolutions[tenant]
+      )
 
   defp results(meterings), do: Enum.map(meterings, &elem(&1, 2))
 
@@ -214,60 +235,46 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
     assert Entitlement.feature(r1, "tools.web") == {:deny, :feature_absent}
     gate = H.feature_gate(r1)
 
-    # Each Run is reserved by its run_id before it starts; the reserved estimate is its cap.
-    reserve_and_start = fn tenant, requests, estimate, resolution ->
-      run = H.prepare_run(tenant, requests, cap: estimate, gate: gate)
-      assert {:ok, :applied} = H.reserve(fx, tenant, run.key, estimate, resolution)
-      assert run.c.opts[:budget].cap == estimate
-      {run, H.start_run(run)}
-    end
+    # Each Run is admitted by the host: reserved by its run_id before it starts, the reserved
+    # estimate its Budget cap.
+    prepare = fn tenant, requests, cap -> H.prepare_run(tenant, requests, cap: cap, gate: gate) end
 
     # G: a tool call needs tools.web, which the plan lacks: the host gate denies it on a live Run.
-    {g, g_started} =
-      reserve_and_start.(
-        "T1",
-        [TestHelper.request([TestHelper.action("search", "tool_call")])],
-        30_000,
+    g =
+      admitted!(
+        fx,
+        prepare.("T1", [TestHelper.request([TestHelper.action("search", "tool_call")])], 30_000),
         r1
       )
 
     # A retried reserve of one Run is :duplicate and holds its estimate once.
-    assert H.reserve(fx, "T1", g.key, 30_000, r1) == {:ok, :duplicate}
+    assert H.reserve_run(fx, g, r1) == {:ok, :duplicate}
     assert %{reserved: 30_000, committed: 0} = H.status(fx, "T1", r1)
 
-    TestHelper.wait_for(g_started.engine, &(&1.slots[{1, 0}].phase == :settled))
+    TestHelper.wait_for(g.engine, &(&1.slots[{1, 0}].phase == :settled))
 
     assert %{
              outcome: "refused",
              verdict: %{verdict: :deny, reason: "feature_absent", gate_id: "entitlement-gate"}
-           } = TestHelper.view(g_started.engine).slots[{1, 0}]
+           } = TestHelper.view(g.engine).slots[{1, 0}]
 
     refute_receive {:effect_started, _, _}, 200
-    assert H.committed_actual(g_started) == 0
-    assert H.settle(fx, "T1", g.key, 0) == {:ok, :applied}
+    assert H.committed_actual(g) == 0
+    assert H.settle_run(fx, g) == {:ok, :applied}
 
     # A: settled with the Run's committed actual.
-    {_a, a} =
-      reserve_and_start.(
-        "T1",
-        completed_requests(),
-        30_000,
-        r1
-      )
-
+    a = admitted!(fx, prepare.("T1", completed_requests(), 30_000), r1)
     :ok = H.serve!(fx, a, "call-1", H.usage(3_000, 12_000))
     completed!(a)
     assert H.committed_actual(a) == 12_000
-    assert H.settle(fx, "T1", a.key, 12_000) == {:ok, :applied}
+    assert H.settle_run(fx, a) == {:ok, :applied}
+    assert %{committed: 12_000, reserved: 0} = H.status(fx, "T1", r1)
 
     # B: its second call is cut off by a restart; its actual is unknown and stays held.
-    b = H.prepare_run("T1", cut_requests(), cap: 30_000, gate: gate)
-    assert {:ok, :applied} = H.reserve(fx, "T1", b.key, 30_000, r1)
-    {_, restart} = cut_run(fx, b, H.usage(2_000, 8_000))
+    {_, restart} = cut_run(fx, prepare.("T1", cut_requests(), 30_000), H.usage(2_000, 8_000), r1)
     b = restart.()
     H.meter_run!(fx, b)
     assert H.committed_actual(b) == :unknown
-    assert H.settle(fx, "T1", b.key, :unknown) == {:ok, :applied}
 
     held = %{committed: 12_000, held: 30_000, reserved: 0, remaining: 58_000}
     assert Map.take(H.status(fx, "T1", r1), Map.keys(held)) == held
@@ -318,55 +325,42 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
     assert %{committed: 30_000, held: 0, remaining: 70_000} = H.status(fx, "T1", r1)
 
     # Two Runs race behind a held counter lock for the last allowance: exactly one starts.
-    racers =
-      for _ <- 1..2, do: H.prepare_run("T1", completed_requests(), cap: 40_000, gate: gate)
-
+    racers = for _ <- 1..2, do: prepare.("T1", completed_requests(), 40_000)
     holder = H.hold!(fx, "T1")
-
-    tasks =
-      for run <- racers, do: Task.async(fn -> {run, H.reserve(fx, "T1", run.key, 40_000, r1)} end)
-
-    H.await_waiting!(2)
+    tasks = for run <- racers, do: Task.async(fn -> {run, H.reserve_run(fx, run, r1)} end)
+    H.await_waiting!(holder, 2)
     H.release!(holder)
-    raced = Task.await_many(tasks, 30_000)
 
-    started =
-      for {run, result} <- raced, result == {:ok, :applied} do
-        run = H.start_run(run)
-        :ok = H.serve!(fx, run, "call-1", H.usage(1_000, 5_000))
-        completed!(run)
-      end
+    admitted =
+      for {run, reserved} <- Task.await_many(tasks, 30_000), do: H.start_admitted(run, reserved)
 
-    assert length(started) == 1
-    assert Enum.sort(Enum.map(raced, &elem(&1, 1))) == [{:error, :insufficient}, {:ok, :applied}]
+    assert [{:started, winner}] = Enum.filter(admitted, &match?({:started, _}, &1))
+    assert [{:refused, {:error, :insufficient}}] = admitted -- [{:started, winner}]
     assert %{reserved: 40_000, remaining: 30_000} = H.status(fx, "T1", r1)
+    :ok = H.serve!(fx, winner, "call-1", H.usage(1_000, 5_000))
+    completed!(winner)
+    # The refused Run never started: no second call was dispatched.
+    refute_receive {:effect_started, _, _}, 200
+    assert H.settle_run(fx, winner) == {:ok, :applied}
+    assert %{committed: 35_000, reserved: 0, remaining: 65_000} = H.status(fx, "T1", r1)
 
     # Grace refuses a new reservation and accepts a settlement.
     assert {:entitled, e2} = Entitlement.resolve(facts, "T2", @now)
 
-    t2 =
-      H.prepare_run("T2", completed_requests(), cap: 30_000, gate: H.feature_gate(e2))
-
-    assert {:ok, :applied} = H.reserve(fx, "T2", t2.key, 30_000, e2)
-    t2 = H.start_run(t2)
+    t2_gate = H.feature_gate(e2)
+    t2 = admitted!(fx, H.prepare_run("T2", completed_requests(), cap: 30_000, gate: t2_gate), e2)
     :ok = H.serve!(fx, t2, "call-1", H.usage(1_000, 4_000))
     completed!(t2)
 
     later = @now + 90_000
     assert {:grace, g2} = Entitlement.resolve(facts, "T2", later)
-    assert H.reserve(fx, "T2", "t2-next-run", 30_000, g2, later) == {:error, :settle_only}
-    assert H.settle(fx, "T2", t2.key, H.committed_actual(t2)) == {:ok, :applied}
+    next = H.prepare_run("T2", completed_requests(), cap: 30_000, gate: t2_gate)
+    assert H.admit(fx, next, g2, later) == {:refused, {:error, :settle_only}}
+    assert H.settle_run(fx, t2) == {:ok, :applied}
     assert %{settle_only: true, committed: 4_000, reserved: 0} = H.status(fx, "T2", g2)
   end
 
   # ------------------------------------------------------------ 3
-
-  # The host posts a complete charge once; its operation ID derives from the charge record.
-  defp charge_id(charge),
-    do: "charge/#{charge.tenant}/#{charge.period}/#{charge.card.card_id}/#{charge.card.version}"
-
-  defp post_charge(fx, operation_id, reason, %Elzoo.Money.Amount{} = amount, from \\ "receivable"),
-    do: H.transfer(fx, "T1", operation_id, reason, "revenue", from, amount)
 
   test "3 price and post: an incomplete charge is held, the corrected complete charge posts once, card v2 leaves it equal, a correction posts its difference, an equal re-price posts nothing",
        %{fx: fx} do
@@ -377,13 +371,14 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
     H.meter_run!(fx, a)
     H.meter_run!(fx, b)
     v1 = H.card(1, "3", "15")
+    cards = %{:current => v1, {"retail", 1} => v1}
 
     # While an observation of the period is unknown the charge is incomplete: the host holds it.
-    assert {:ok, held} = Pricing.price(v1, H.usage_value(fx, "T1"))
+    assert {:held, held} = H.bill(fx, "T1", cards)
     assert held.incomplete and held.unknown_count == 2
     # 5,000 input tokens at 3/M is 1.5 cents, half-even 2; 20,000 output tokens at 15/M is 30.
     assert held.total.minor_units == 32
-    assert H.history(fx, "T1", "receivable") == []
+    assert H.operations(fx, "T1") == []
 
     # The provider reports the cut call late; correct/3 makes it known.
     for {unit, amount} <- [input_uncached_tokens: 1_000, output_tokens: 10_000] do
@@ -400,53 +395,67 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
     end
 
     # The re-priced complete charge is the period's first posted charge: 6,000 input is 1.8
-    # cents, 2; 30,000 output is 45.
-    assert {:ok, charge} = Pricing.price(v1, H.usage_value(fx, "T1"))
-    refute charge.incomplete
-    assert charge.total.minor_units == 47
-    assert charge.card.version == 1
-
-    assert post_charge(fx, charge_id(charge), "charge", charge.total) == {:ok, :applied}
-    assert post_charge(fx, charge_id(charge), "charge", charge.total) == {:ok, :duplicate}
+    # cents, 2; 30,000 output is 45. The first post's reply is lost; the host's retry derives the
+    # same operation ID from the same charge record and replays.
+    first = %{operation_id: "charge/T1/2026-11/retail/1", reason: "charge T1 2026-11"}
+    assert {:lost, lost} = H.bill(fx, "T1", cards, crash: :after_post)
+    assert Map.take(lost, [:operation_id, :reason]) == first
+    assert lost.amount.minor_units == 47
+    assert {:posted, ^lost, {:ok, :duplicate}} = H.bill(fx, "T1", cards)
     assert H.balance(fx, "T1", "receivable") == -47
     assert H.balance(fx, "T1", "revenue") == 47
 
-    # Card version 2, published later, leaves that charge equal: the host re-prices the period
-    # only under the charge's own card version.
+    # Card version 2, published later, prices the period differently, but the host re-prices
+    # under the posted charge's own card version: the charge stays equal and posts nothing.
     v2 = H.card(2, "4", "20")
+    cards = Map.merge(cards, %{:current => v2, {"retail", 2} => v2})
     assert {:ok, %{total: %{minor_units: 62}}} = Pricing.price(v2, H.usage_value(fx, "T1"))
-    assert Pricing.price(v1, H.usage_value(fx, "T1")) == {:ok, charge}
+    assert {:unchanged, same} = H.bill(fx, "T1", cards)
+    assert {same.card.version, same.total.minor_units} == {1, 47}
 
     # A correction of a known observation of the posted period: re-priced under version 1, its
     # difference after rounding is nonzero and posts as a new operation from the correction.
-    correct = fn run, occurrence, id, amount ->
-      Metering.correct(fx.meter, "T1", %{
+    correction = fn run, occurrence, id, amount ->
+      c = %{
         correction_id: id,
         usage_id: H.usage_id(run, occurrence, "attempt", :output_tokens),
         amount: amount,
         reason: "usage dispute",
         actor_ref: "operator:billing"
-      })
+      }
+
+      assert Metering.correct(fx.meter, "T1", c) == {:ok, :applied}
+      c
     end
 
-    assert correct.(a, {1, 0}, "dispute-1", 14_000) == {:ok, :applied}
-    assert {:ok, repriced} = Pricing.price(v1, H.usage_value(fx, "T1"))
-    assert {:ok, %{minor_units: 3} = diff} = Pricing.difference(charge, repriced)
+    dispute1 = correction.(a, {1, 0}, "dispute-1", 14_000)
+    assert {:posted, posted, {:ok, :applied}} = H.bill(fx, "T1", cards, correction: dispute1)
 
-    assert post_charge(fx, "charge-correction/dispute-1", "correction dispute-1", diff) ==
-             {:ok, :applied}
+    assert Map.take(posted, [:operation_id, :reason]) == %{
+             operation_id: "charge-correction/T1/2026-11/dispute-1",
+             reason: "correction dispute-1: usage dispute"
+           }
 
-    baseline = repriced
-    assert baseline.total.minor_units == charge.total.minor_units + 3
+    assert posted.amount.minor_units == 3
     assert H.balance(fx, "T1", "receivable") == -50
 
-    # A second correction that leaves the rounded charge equal to the baseline posts nothing:
-    # 32,100 output tokens is 48.15 cents, 48, as before.
-    assert correct.(b, H.occurrence(b, "call-1"), "dispute-2", 8_100) == {:ok, :applied}
-    assert {:ok, again} = Pricing.price(v1, H.usage_value(fx, "T1"))
-    assert {:ok, %{minor_units: 0}} = Pricing.difference(baseline, again)
-    assert length(H.history(fx, "T1", "receivable")) == 2
+    # A second correction that leaves the rounded charge equal to the baseline (47 + 3) posts
+    # nothing: 32,100 output tokens is 48.15 cents, 48, as before.
+    dispute2 = correction.(b, H.occurrence(b, "call-1"), "dispute-2", 8_100)
+    assert {:unchanged, again} = H.bill(fx, "T1", cards, correction: dispute2)
+    assert {again.card.version, again.total.minor_units} == {1, 50}
+
+    assert H.operations(fx, "T1") == [
+             [
+               "T1",
+               "charge-correction/T1/2026-11/dispute-1",
+               "correction dispute-1: usage dispute"
+             ],
+             ["T1", "charge/T1/2026-11/retail/1", "charge T1 2026-11"]
+           ]
+
     assert H.balance(fx, "T1", "receivable") == -50
+    assert H.balance(fx, "T1", "revenue") == 50
   end
 
   # ------------------------------------------------------------ 4
@@ -465,12 +474,15 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
             TestHelper.request([H.model_call("inner-call")]),
             {:finish_with_seen, "child-done"}
           ]
-        }
+        },
+        gate: gate(fx, "T1")
       )
-      |> H.start_run()
+      |> then(&admitted!(fx, &1, fx.resolutions["T1"]))
 
     :ok = H.serve!(fx, run, "inner-call", H.usage(1_000, 9_000))
     completed!(run)
+    assert H.committed_actual(run) == 9_000
+    assert H.settle_run(fx, run) == {:ok, :applied}
     assert {:ok, %{run_id: "run", entries: entries}} = H.transcript(run)
 
     tree =
@@ -690,23 +702,73 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
     assert length(H.pending(fx, "T1", "journal-credits")) == 1
     assert H.apply_credits(fx, "T1") == [{"credit-1", {:ok, :duplicate}}]
 
-    # A crash between the commit and the apply leaves the item pending; the next apply posts once.
+    # The credit's resource is written once: a second command on it is refused, so the apply
+    # reads exactly the data of the command that queued the item.
+    assert {:conflict, {:domain, "immutable"}} =
+             H.command(
+               fx,
+               credit,
+               "T1",
+               "t1-admin",
+               "credit-1-edit",
+               "credit-1",
+               %{"account_id" => "wallet", "minor_units" => 9_000},
+               verdict: verdict.("t1-admin", "billing.credit")
+             )
+
+    # A crash between the commit and the apply: the worker that committed the command is killed
+    # before its apply. A fresh worker finds the item pending and the balance unchanged, and
+    # posts it once.
+    parent = self()
+
+    worker =
+      spawn(fn ->
+        result =
+          H.command(
+            fx,
+            credit,
+            "T1",
+            "t1-finance",
+            "credit-2",
+            "credit-2",
+            %{"account_id" => "wallet", "minor_units" => 300},
+            verdict: verdict.("t1-finance", "billing.credit")
+          )
+
+        send(parent, {:committed, self(), result})
+        receive do: (:apply -> H.apply_credits(fx, "T1"))
+      end)
+
+    assert_receive {:committed, ^worker, {:completed, _}}, 10_000
+    ref = Process.monitor(worker)
+    Process.exit(worker, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^worker, :killed}
+    assert H.balance(fx, "T1", "wallet") == 500
+    assert length(H.pending(fx, "T1", "journal-credits")) == 1
+    fresh = Task.async(fn -> H.apply_credits(fx, "T1") end)
+    assert Task.await(fresh, 30_000) == [{"credit-2", {:ok, :applied}}]
+    assert H.apply_credits(fx, "T1") == []
+    assert H.balance(fx, "T1", "wallet") == 800
+
+    # An apply whose post is not applied leaves the item pending: no acknowledgement.
     assert {:completed, _} =
              H.command(
                fx,
                credit,
                "T1",
-               "t1-finance",
-               "credit-2",
-               "credit-2",
-               %{"account_id" => "wallet", "minor_units" => 300},
-               verdict: verdict.("t1-finance", "billing.credit")
+               "t1-admin",
+               "credit-3",
+               "credit-3",
+               %{"account_id" => "bonus", "minor_units" => 200},
+               verdict: verdict.("t1-admin", "billing.credit")
              )
 
+    assert H.apply_credits(fx, "T1") == [{"credit-3", {:error, :unknown_account}}]
     assert length(H.pending(fx, "T1", "journal-credits")) == 1
-    assert H.apply_credits(fx, "T1") == [{"credit-2", {:ok, :applied}}]
-    assert H.apply_credits(fx, "T1") == []
-    assert H.balance(fx, "T1", "wallet") == 800
+    H.open_accounts!(fx, "T1", [{"bonus", false}])
+    assert H.apply_credits(fx, "T1") == [{"credit-3", {:ok, :applied}}]
+    assert H.pending(fx, "T1", "journal-credits") == []
+    assert H.balance(fx, "T1", "bonus") == 200
 
     assert [%{operation_id: "credit-1"}, %{operation_id: "credit-2"}] =
              H.history(fx, "T1", "wallet")
@@ -718,21 +780,27 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
              {"t1-support", "allowance/grant"},
              {"t1-admin", "allowance/grant"},
              {"t1-admin", "journal/credit"},
-             {"t1-finance", "journal/credit"}
+             {"t1-admin", "journal/credit"},
+             {"t1-finance", "journal/credit"},
+             {"t1-admin", "journal/credit"}
            ]
 
-    assert H.log_records(fx, "T1") == 4
+    assert H.log_records(fx, "T1") == 6
 
     for {transaction, sequence} <- Enum.with_index(audited, 1) do
       assert [%{op: "insert", table: {^p, "elzoo_log_records"}, sequence: ^sequence}] =
                transaction.changes
     end
 
-    # The denial's record has no outbox item; each credit record has one.
+    # The denial's and the refused edit's records have no outbox item; each credit record has one.
     assert H.owner!(
              "SELECT sequence, destination, state FROM #{p}.elzoo_outbox WHERE stream = $1 ORDER BY sequence",
              [H.stream("T1")]
-           ) == [[3, "journal-credits", "acked"], [4, "journal-credits", "acked"]]
+           ) == [
+             [3, "journal-credits", "acked"],
+             [5, "journal-credits", "acked"],
+             [6, "journal-credits", "acked"]
+           ]
 
     # The application role cannot read the audit log, and the journal, quota and metering tables
     # carry no capture trigger (a stated limit).
@@ -777,36 +845,36 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
          %{fx: fx} do
       H.open_accounts!(fx, "T2", [{"receivable", true}, {"revenue", true}])
       t2_observations(fx, "t2-run-1", 10_000, 50_000)
-      charge = t2_charge(fx)
       # 10,000 input at 3/M is 3 cents; 50,000 output at 15/M is 75.
-      assert charge.total.minor_units == 78
-
-      assert H.transfer(
-               fx,
-               "T2",
-               charge_id(charge),
-               "charge",
-               "revenue",
-               "receivable",
-               charge.total
-             ) ==
-               {:ok, :applied}
-
+      assert {:posted, op, {:ok, :applied}} = H.bill(fx, "T2", %{current: H.card(1, "3", "15")})
+      assert op.amount.minor_units == 78
       assert {H.balance(fx, "T2", "receivable"), H.balance(fx, "T2", "revenue")} == {-78, 78}
+      assert H.operations(fx, "T2") == [["T2", "charge/T2/2026-11/retail/1", "charge T2 2026-11"]]
     end
 
     test "quota-capped: entitlement, quota and metering, with no charge", %{fx: fx} do
       facts = %{plans: [H.plan(["model.chat"], 100_000)], grants: [H.grant("g-t2", "T2")]}
       assert {:entitled, resolution} = Entitlement.resolve(facts, "T2", @now)
-      assert {:ok, :applied} = H.reserve(fx, "T2", "t2-run-1", 30_000, resolution)
-      t2_observations(fx, "t2-run-1", 3_000, 12_000)
 
-      assert {:ok, %{effective: actual}} =
-               Metering.observation(fx.meter, "T2", "t2-run-1/1.0/attempt/output_tokens")
+      run =
+        H.prepare_run("T2", completed_requests(), cap: 30_000, gate: H.feature_gate(resolution))
 
-      assert H.settle(fx, "T2", "t2-run-1", actual) == {:ok, :applied}
+      run = admitted!(fx, run, resolution)
+      :ok = H.serve!(fx, run, "call-1", H.usage(3_000, 12_000))
+      completed!(run)
+      assert results(H.meter_run!(fx, run)) == [{:ok, :applied}, {:ok, :applied}]
+      assert H.settle_run(fx, run) == {:ok, :applied}
       assert %{committed: 12_000, remaining: 88_000} = H.status(fx, "T2", resolution)
-      assert Journal.balance(fx.journal, "T2", "receivable") == {:error, :unknown_account}
+
+      assert {:ok, %{effective: 12_000}} =
+               Metering.observation(
+                 fx.meter,
+                 "T2",
+                 H.usage_id(run, H.occurrence(run, "call-1"), "attempt", :output_tokens)
+               )
+
+      # No charge: no journal operation at all under T2's scope.
+      assert H.operations(fx, "T2") == []
     end
 
     test "prepaid: a top-up to a no-negative wallet and charges against it; an overdraw is insufficient_funds and leaves the balance",
@@ -819,7 +887,7 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
       t2_observations(fx, "t2-run-1", 10_000, 50_000)
       charge = t2_charge(fx)
 
-      assert H.transfer(fx, "T2", charge_id(charge), "charge", "revenue", "wallet", charge.total) ==
+      assert H.transfer(fx, "T2", H.charge_id(charge), "charge", "revenue", "wallet", charge.total) ==
                {:ok, :applied}
 
       assert H.balance(fx, "T2", "wallet") == 22
@@ -827,7 +895,7 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
       assert H.transfer(
                fx,
                "T2",
-               charge_id(charge) <> "/again",
+               H.charge_id(charge) <> "/again",
                "charge",
                "revenue",
                "wallet",
@@ -873,8 +941,11 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
     assert spend_check(fx, resolution, 80) == :below
     assert H.log_records(fx, "T1") == 0
 
-    assert {:ok, :applied} = H.reserve(fx, "T1", "run-2", 40_000, resolution)
-    assert H.settle(fx, "T1", "run-2", 35_000) == {:ok, :applied}
+    # run-2 settles unknown: its 30,000 stay held. Committed and held use is 80,000, exactly the
+    # threshold; committed use alone (50,000) would not cross it.
+    assert {:ok, :applied} = H.reserve(fx, "T1", "run-2", 30_000, resolution)
+    assert H.settle(fx, "T1", "run-2", :unknown) == {:ok, :applied}
+    assert %{committed: 50_000, held: 30_000} = H.status(fx, "T1", resolution)
     assert {:completed, _} = first = spend_check(fx, resolution, 80)
     assert H.log_records(fx, "T1") == 1
 
@@ -897,6 +968,8 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
     id = "wave6-eval-" <> Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
     bytes = H.eval_dataset()
     assert {:ok, _} = Elzoo.Artifact.put(art, caller, id, Elzoo.Artifact.TestHelper.input(bytes))
+    # Runs before the fixture's schema cleanup: the object leaves MinIO too.
+    on_exit(fn -> {:ok, _} = Elzoo.Artifact.delete(art, caller, id, 1) end)
     assert {:ok, dataset} = Eval.load(art, caller, id, :head)
 
     sha = Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
