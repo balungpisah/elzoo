@@ -8010,6 +8010,29 @@
       "issue": 693,
       "url": "https://github.com/balungpisah/elzoo/issues/693",
       "issue_body_sha256": "ca5f8046564e34b36babebf92b4eccbf697db1749c8b5aa955887812c2942778"
+    },
+    {
+      "id": "ELZ-291",
+      "title": "ELZ-291 — Confirm each stop before listing children in copied-consumer cleanup",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-289"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-291-consumer-tree-stop-confirmation.md"
+      ],
+      "outputs": [],
+      "acceptance": "Copied-consumer cleanup confirms each signalled process has stopped or exited, within a bound that fails loudly, before listing its children, so a descendant forking during cleanup cannot escape (#671); consumer timeouts, selection and isolation assertions unchanged. Repeated forking-descendant race case, stop-confirmation negative control, ELZ-289 cases and controls, full/affected gate.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 673,
+      "url": "https://github.com/balungpisah/elzoo/issues/673",
+      "issue_body_sha256": "edd28f3b95fcadfa8314609d742aaa0476bf1844c8f8c336653adb8d35891538"
     }
   ],
   "entries": [
@@ -8432,10 +8455,12 @@
     {
       "id": "domain/entitlement",
       "job": "ELZ-300",
-      "note": "Planned pure resolution of host plan versions and grants at an injected time to entitled, grace or not entitled, with features and a list of unit allowances and the contributing grants and plan identities; revocation wins over grace; v1 refuses overlapping grants (stacking stays addable in place). No I/O, billing, quota or authorization decision.",
+      "note": "Pure resolution of host plan versions and a tenant's grants of them at an injected time to entitled, grace or not entitled. A grant's status is revoked > expired > grace > active > not yet, with exclusive valid_to_ms and grace_until_ms; two grants of one tenant active or in grace at once are overlap in this version. A resolution {tenant, at_ms, grants, features, allowances} lists each contributing grant with its plan_id, version, content_hash and status, the sorted union of features, and a list of unit allowances {unit, amount, period_kind :utc_month, settle_only, grant_id} over the integration/ai-model unit set, settle_only true in grace. With no contributing grant the result is revoked, else expired, else no_grant. content_hash/1 is the SHA-256 of a documented canonical plan encoding. feature/2 allows a feature of an entitled or grace resolution. Fixed error atoms in the order now, tenant, facts, plans, grants, content_hash, unknown_plan, overlap, and invalid for feature/2; none echoes an ID. Unit, period_kind, status and error sets and the returned maps may gain members. No I/O, clock, storage, billing, quota or authorization decision.",
       "baseline_status": "deferred",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/entitlement/piece.json",
+      "manifest_sha256": "391d5b25f5fffcce928ab879128848bc81aedff3b8f3d66d8178d485060258db"
     },
     {
       "id": "domain/journal",
@@ -8458,9 +8483,11 @@
     {
       "id": "domain/metering",
       "job": "ELZ-299",
-      "note": "Planned durable usage observations in plain Ecto/Postgrex tables under the state/tenant-isolation floor: idempotent record by usage_id, attributable corrections that never delete, and bounded totals per opaque host period, unit and source in which unknown is counted apart and never as zero; observed_at_ms kept for later time-range totals; unit set extendable. No pricing, quota or admission.",
+      "note": "Retained usage observations over a consumer-owned Ecto Repo on PostgreSQL 16 in two Piece-owned tables that Migration.install/1 creates and protects with the state/tenant-isolation floor: record/3 stores one observation per (tenant, usage_id) with INSERT ... ON CONFLICT DO NOTHING and a SHA-256 request digest (equal is duplicate, else conflict); correct/3 locks the observation FOR UPDATE, decides its correction_id by digest, refuses a 1,025th correction and appends the correction with the next revision as the effective amount (latest by commit order, never a delete); totals/3 returns at most max_rows (1..1000) groups per opaque host period, unit and source with known (numeric sum of known effective amounts), unknown_count and count, an unknown amount never added as zero, or read_limit; observation/3 returns one observation with its corrections in commit order. Shape, then the caller's open transaction, before any query; writes refuse a transaction isolation other than READ COMMITTED; fixed error atoms, log: false, no telemetry.",
       "baseline_status": "deferred",
-      "disposition": "planned-contract",
+      "disposition": "ready-contract",
+      "manifest": "pieces/domain/metering/piece.json",
+      "manifest_sha256": "55e678b9bdc93e0665d3cc20f3417661f43fb8e1510bd1384825f7424f4d7ca7",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
