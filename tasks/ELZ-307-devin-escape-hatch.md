@@ -35,9 +35,10 @@ Publication owns this task file, its no-output job row in
 ## Required behavior
 
 1. Section 6 says: when the automated reviewer has posted nothing for the
-   exact head 30 minutes after the ready mark or after that head was
-   pushed, or says that it is out of quota or unavailable, the coordinator
-   does not wait (owner decision).
+   exact head 30 minutes after the later of the ready mark and that head's
+   push, or says that it is out of quota or unavailable, the coordinator
+   does not wait (owner decision). The ready paragraph names the extra
+   review as the other way to start the queue.
 2. Instead, one extra independent review in a fresh session reads the
    commits since the automated reviewer's last posted pass (the whole diff
    when it posted none), looking for edge cases, races, bounds and error
@@ -53,7 +54,8 @@ Publication owns this task file, its no-output job row in
    its own task, and the row is removed after the recheck. The list starts
    with the two pull requests merged today after a silent automated pass on
    their final heads: #703 (`b2805e09..ce123ab5`) and #708
-   (`37949c54..7c864110`).
+   (`37949c54..7c864110`), and #709 (`08037e02..26e66a06`), the first pull
+   request gated by the extra review.
 
 No other rule changes. The merge queue script is not changed.
 

@@ -388,8 +388,8 @@ exact-head requirements, or hosted checks on a new head.
   pushed for a repair needs a finished pass before the queue starts again.
 - Do not wait on an unavailable automated reviewer (owner decision). It posts
   nothing when it starts, and on a later head it may post nothing at all. So
-  when it has posted nothing for the exact head 30 minutes after the ready
-  mark or after that head was pushed, or says that it is out of quota or
+  when it has posted nothing for the exact head 30 minutes after the later
+  of the ready mark and that head's push, or says that it is out of quota or
   unavailable, one extra independent review in a fresh session replaces its
   pass. That review reads the commits since the automated reviewer's last
   posted pass (the whole diff when it posted none), looks for edge cases,
@@ -412,7 +412,8 @@ When the required local checks (or recorded hosted substitution), the hosted che
 request ready for review. That is the request to merge. The automated reviewer
 reviews only a pull request that is not a draft, so its pass starts then; the
 coordinator starts the queue only after that pass on the exact head has
-finished with its threads resolved, and gives the branch back for any fix. From the ready
+finished with its threads resolved, or after the extra review that replaces
+it (above), and gives the branch back for any fix. From the ready
 mark the coordinator owns the branch: do not push to it unless the coordinator gives it
 back. You can claim the next task.
 

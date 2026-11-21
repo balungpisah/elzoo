@@ -8093,13 +8093,13 @@
         "tasks/ELZ-307-devin-escape-hatch.md"
       ],
       "outputs": [],
-      "acceptance": "AGENTS.md section 6 lets the coordinator skip the automated reviewer when it has posted nothing for the exact head 30 minutes after the ready mark or head push, or reports no quota or no service: one extra fresh-session review of the commits since its last posted pass, aimed at edge cases, races, bounds and error paths, is the gate instead; the skip is recorded on the PR and in a list in the coordinator guide that the automated reviewer rechecks when back, each finding its own task; weighted Pieces keep the full review. The list starts with #703 and #708. Documents-only classification, live roadmap, claims and diff checks.",
+      "acceptance": "AGENTS.md section 6 lets the coordinator skip the automated reviewer when it has posted nothing for the exact head 30 minutes after the later of the ready mark and the head push, or reports no quota or no service: one extra fresh-session review of the commits since its last posted pass, aimed at edge cases, races, bounds and error paths, is the gate instead; the skip is recorded on the PR and in a list in the coordinator guide that the automated reviewer rechecks when back, each finding its own task; weighted Pieces keep the full review. The list starts with #703, #708 and #709. Documents-only classification, live roadmap, claims and diff checks.",
       "product_aims": [
         "P13"
       ],
       "issue": 711,
       "url": "https://github.com/balungpisah/elzoo/issues/711",
-      "issue_body_sha256": "defb888c07a642724601bedd66c39102cfe4ee5bae3d6925a9250a57aa7732db"
+      "issue_body_sha256": "88e096053c7d7f2940bbb1941c23ffd100b2148aca76b4b38f181c93128a8d62"
     }
   ],
   "entries": [

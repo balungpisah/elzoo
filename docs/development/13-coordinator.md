@@ -144,6 +144,7 @@
   | --- | --- | --- |
   | #703 | `b2805e09..ce123ab5` | silent on the final head; merged before this rule |
   | #708 | `37949c54..7c864110` | silent on the final heads; merged before this rule |
+  | #709 | `08037e02..26e66a06` | nothing posted for the head 30 minutes after the ready mark; the extra review was the gate |
 
 - **Repair of a red `main`.** The full check on `main` is the evidence of the
   small-gate merges. When it is red:
