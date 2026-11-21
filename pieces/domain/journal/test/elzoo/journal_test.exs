@@ -90,6 +90,37 @@ defmodule Elzoo.JournalTest do
     assert Harness.truth(p) == before
   end
 
+  # `fun`'s result and the statements it sent to AppRepo, read from the Repo's query telemetry,
+  # without transaction control and the set_config pair of TenantIsolation.transact/3.
+  defp statements(fun) do
+    :ok =
+      :telemetry.attach("elz314-statements", [:elz297, :app, :query], &Harness.forward/4, self())
+
+    try do
+      result = fun.()
+      {result, own(sent([]))}
+    after
+      :telemetry.detach("elz314-statements")
+    end
+  end
+
+  defp sent(acc) do
+    receive do
+      {:app_query, sql} -> sent([sql | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  # Only in their places: begin and transact/3's set first, then its clear and commit last, or a
+  # rollback alone after a refusal. Every statement between them is the function's own.
+  defp own(["begin", "SELECT set_config('elzoo.tenant_id', $1::text, true)" <> _ | rest]) do
+    case Enum.reverse(rest) do
+      ["commit", "SELECT set_config('elzoo.tenant_id', '', true)" <> _ | own] -> Enum.reverse(own)
+      ["rollback" | own] -> Enum.reverse(own)
+    end
+  end
+
   # ------------------------------------------------------------ 1
 
   describe "1 balanced post and refusals" do
@@ -859,6 +890,31 @@ defmodule Elzoo.JournalTest do
 
     assert history(j, "wallet", 7, 3) == {:ok, %{entries: [], next: nil}}
     assert history(j, "nobody") == {:error, :unknown_account}
+  end
+
+  # ------------------------------------------------------------ 12
+
+  test "12 history sends one statement under the tenant scope", %{j: j} do
+    open!(j, "revenue", eur(), true)
+    open!(j, "wallet", eur(), false)
+    open!(j, "empty", eur(), false)
+
+    for n <- 1..3,
+        do: assert({:ok, :applied} = post(j, "op-#{n}", eur(), [{"revenue", -n}, {"wallet", n}]))
+
+    # A known account with entries (a full page with next, and the last page), a known account
+    # with an empty page past its last version, one with no postings, and an unknown account.
+    assert {{:ok, %{entries: [%{version: 1}, %{version: 2}], next: 2}}, [_]} =
+             statements(fn -> history(j, "wallet", nil, 2) end)
+
+    assert {{:ok, %{entries: [%{version: 3, balance: %Amount{minor_units: 6}}], next: nil}}, [_]} =
+             statements(fn -> history(j, "wallet", 2, 2) end)
+
+    assert {{:ok, %{entries: [], next: nil}}, [_]} =
+             statements(fn -> history(j, "wallet", 3, 10) end)
+
+    assert {{:ok, %{entries: [], next: nil}}, [_]} = statements(fn -> history(j, "empty") end)
+    assert {{:error, :unknown_account}, [_]} = statements(fn -> history(j, "nobody") end)
   end
 
   # ------------------------------------------------------------ Cure
