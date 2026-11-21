@@ -304,9 +304,10 @@ defmodule Elzoo.OsProcess.Owner do
   defp deadline_due?(state),
     do: System.monotonic_time(:millisecond) >= state.dispatched_at + state.timeout_ms
 
+  # The row is retired as finished before the result is sent. From then on the Adapter answers a
+  # cancel with unknown_run and does not report this run again if the owner dies, so a submitter
+  # that cancels at once after its result cannot reach a live-run reply, and gets at most one result.
   defp finish(state, result) do
-    unless state.dropped, do: send(state.submitter, {Elzoo.OsProcess, state.ref, result})
-
     status =
       case registry_status(state.terminal) do
         :exited -> :finished
@@ -314,6 +315,9 @@ defmodule Elzoo.OsProcess.Owner do
       end
 
     :ets.insert(state.tid, {state.ref, self(), state.submitter, state.os_pid, status})
+    run_hook(state, :after_retire)
+    unless state.dropped, do: send(state.submitter, {Elzoo.OsProcess, state.ref, result})
+    run_hook(state, :after_result)
     {:stop, :normal, state}
   end
 
