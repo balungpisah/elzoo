@@ -11,6 +11,7 @@
   "limits": [
     "Not security isolation: no sandbox, container, seccomp, path confinement or network isolation; no shell parsing; stdin is /dev/null.",
     "The provider reports the leader's ending signal but not who sent it: a SIGTERM or SIGKILL reported at or after the deadline instant is unknown{signal_after_deadline} (terminated is never produced with this provider); terminations the provider performs on request (cancel, caller or owner death) report no ending signal and are unknown; a member that ignores SIGTERM after the leader exits, a descendant that leaves the group, and the provider port program's own death are declared residuals.",
+    "An owner killed between retiring its run's registry row as finished and sending the result (adjacent steps) gives no result, so the caller's run/3 wait ends with {:error, {:no_result, ref}}: a declared residual.",
     "An exec failure after pre-dispatch validation is reported by the provider as exit 1 and appears as completed; cwd nil inherits the VM's working directory; when the VM runs as root the port program and children run as provider_user (default nobody); group observation with pgrep reports what the process table shows, not a proof of cleanup; one OS at a time."
   ],
   "files": [

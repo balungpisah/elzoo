@@ -94,10 +94,16 @@ defmodule Elzoo.OsProcess.Adapter do
       Map.has_key?(state.running, ref) ->
         # Asynchronous: the owner may be inside exec:run; the Adapter never blocks on it.
         case {state.running[ref], :ets.lookup(state.tid, ref)} do
+          {_, [{^ref, _owner, _submitter, _os_pid, status}]}
+          when status in [:finished, {:finished, :exit_unconfirmed}] ->
+            # The owner retired the row immediately before it sends the result: the run is
+            # finished, whatever its live state says until the owner's exit is handled.
+            {:reply, {:error, :unknown_run}, state}
+
           {%{cancel_requested: true}, _} ->
             {:reply, {:ok, :already_requested}, state}
 
-          {_, [{^ref, _owner, _submitter, _os_pid, status}]} when status in [:exited, :finished] ->
+          {_, [{^ref, _owner, _submitter, _os_pid, :exited}]} ->
             # The leader has exited; the provider cannot stop the group any more. The run's
             # result reports what remains (completed or unknown{group_alive}).
             {:reply, {:error, :already_exited}, state}
@@ -105,9 +111,6 @@ defmodule Elzoo.OsProcess.Adapter do
           {_, [{^ref, _owner, _submitter, _os_pid, {:exit_unconfirmed, _reason}}]} ->
             # The provider closed or did not report an exit. The leader may still be alive and
             # the provider cannot be relied on to stop it, so do not claim it already exited.
-            {:reply, {:error, :exit_unconfirmed}, state}
-
-          {_, [{^ref, _owner, _submitter, _os_pid, {:finished, :exit_unconfirmed}}]} ->
             {:reply, {:error, :exit_unconfirmed}, state}
 
           {entry, _} ->
