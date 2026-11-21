@@ -373,7 +373,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-321](https://github.com/balungpisah/elzoo/issues/742) | V2 / pieces | ELZ-319 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
 | [ELZ-322](https://github.com/balungpisah/elzoo/issues/745) | V1B / pieces | ELZ-299, ELZ-312 | published 2026-11-21 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-323](https://github.com/balungpisah/elzoo/issues/746) | V2 / pieces | ELZ-055, ELZ-127, ELZ-249, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-281, ELZ-285, ELZ-297, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-304, ELZ-312, ELZ-313, ELZ-314, ELZ-316, ELZ-318, ELZ-322 | published 2026-11-21 | one claimed task worker; coordinator owns independent review and merge queue |
-| [ELZ-324](https://github.com/balungpisah/elzoo/issues/752) | V2 / pieces | ELZ-321, ELZ-322 | published 2026-11-21 | worker; published Piece task; hosted check-piece, light review and merge queue |
+| [ELZ-324](https://github.com/balungpisah/elzoo/issues/752) | V2 / pieces | ELZ-321, ELZ-322 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
 
 ## Catalogue accounting
 
@@ -4581,4 +4581,4 @@ Publication copy: [tasks/ELZ-324-pricing-readme-metering-read.md](../../tasks/EL
 
 **Product aims:** P09.
 
-**Acceptance:** domain/pricing README (Usage section and limits paragraph) and the piece.json limit name Elzoo.Metering.model_totals/3 (ELZ-322) as the read of the per-provider and per-model rows instead of host-built rows; the README opts paragraph adds that a checked registry is accepted only while the Elzoo.Money.Registry build that made it is loaded, so the host checks again after a code upgrade (domain/money limits), and such a value is invalid. No code, test, example or Contract change; new manifest_sha256, note equal to contract; Piece tests, hosted check-piece, light review.
+**Acceptance:** domain/pricing README (Usage section and limits paragraph) and the piece.json limit name Elzoo.Metering.model_totals/3 (ELZ-322, its {:ok, rows}) as the read of the per-provider and per-model rows instead of host-built rows, and the Needs line and piece.json assumption say the host supplies complete rows, read or built; the README opts paragraph adds that a checked registry is accepted only while the Elzoo.Money.Registry build that made it is loaded, so the host checks again after a code upgrade (domain/money limits), and a value check/1 refuses is invalid. No code, test, example or Contract change; new manifest_sha256, note equal to contract; Piece tests, local small gate, full review.
