@@ -10,8 +10,8 @@ their choices to this page.
 
 - You own the source that you copied ([consuming](consuming.md)). You can
   change your copy without an Elzoo task.
-- To change a Piece in Elzoo, open an issue; the coordinator publishes tasks
-  ([AGENTS.md section 9](../AGENTS.md#9-coordinator)).
+- A change of a Piece in Elzoo is a published task; the coordinator sizes and
+  publishes tasks ([AGENTS.md section 9](../AGENTS.md#9-coordinator)).
 - The ID rule ([AGENTS.md section 4](../AGENTS.md#4-build)): Elzoo is not
   released yet, and before the first release a ready Piece is changed in place
   under its ID. From the first release, a change of a ready Piece's accepted
@@ -73,7 +73,7 @@ and the postures in
   (`low_water == 0`) and has no deletion or compaction API, and Carbonite
   `state/audit-log` captures mutations immutably (posture 3).
 - **For you.** Keep personal data in `state/retention-erasure`, with only refs
-  in logs (`integration/pii-redaction` makes them). Erasing a subject destroys
+  in logs (`integration/pii-redaction` puts them in place of the data). Erasing a subject destroys
   its key and its entries in one transaction. Dead tuples, WAL and backups keep
   wrapped keys until the database reclaims them; destroying an old KEK version
   after the backup retention period finishes the erasure, and that is your
@@ -91,7 +91,9 @@ and the postures in
   ([ELZ-269](../tasks/ELZ-269-membership.md)).
 - **Why.** An agent acts for its parent and never exceeds the parent's
   authority; a delegation that asks for more is refused whole
-  ([ELZ-267](../tasks/ELZ-267-principal.md)).
+  ([ELZ-267](../tasks/ELZ-267-principal.md)). For a human or service, the
+  allowed scopes and spaces bound what it delegates; the record gives no
+  further reason.
 - **For you.** An agent resolves its parent's memberships; a membership naming
   the agent's own ID grants nothing, and revoking the parent's membership
   removes the agent's permission. An agent's `allowed_spaces` match exactly,
@@ -104,9 +106,10 @@ and the postures in
 - **Chosen.** `integration/encryption` seals with one AES-256-GCM layer under
   the caller-held per-subject key: no ChaCha20-Poly1305 and no wrapped data
   keys ([ELZ-273](../tasks/ELZ-273-encryption.md)).
-- **Why.** It is a narrow Adapter over OTP `:crypto` with no custom primitive.
-  One key per subject means that destroying the key makes every envelope under
-  it unreadable.
+- **Why.** The owner fixed this scope at Wave 5 Level 2; the record gives no
+  further reason. The Piece is a narrow Adapter over OTP `:crypto` with no
+  custom primitive, and one key per subject means that destroying the key
+  makes every envelope under it unreadable.
 - **For you.** You hold the keys: the Piece has no key store, key generation
   policy, destruction, KMS or HSM. Random 96-bit nonces bound one key version
   to at most 2^32 seals; the Piece does not count seals, so you rotate.
@@ -141,9 +144,11 @@ and the postures in
   only its SHA-256, so the code never enters command history. An accept
   returns the membership record, and your host stores it. At most 32
   invitations are pending; there is no reminder, resend or expiry sweep. An
-  accept answered `ASK` and released after its expiry commits, so use `ASK`
-  for lifecycle operations ([#648](https://github.com/balungpisah/elzoo/issues/648)).
-- **To change.** Under the ID rule.
+  accept answered `ASK` and released after its expiry commits, so `ASK` is
+  meant for the lifecycle operations, not for `accept`
+  ([#648](https://github.com/balungpisah/elzoo/issues/648)).
+- **To change.** Change the invitation rules in your copy, or in an Elzoo task
+  on `workflow/tenant-lifecycle`, under the ID rule.
 
 ### The kill-switch reason prefix `lifecycle` is reserved
 
@@ -165,11 +170,13 @@ and the postures in
   `SET ROLE` only; `elzoo_test` gains no attribute
   ([ELZ-285](../tasks/ELZ-285-test-app-role.md)).
 - **Why.** The hosted `elzoo_test` owns its database, so the non-owner
-  row-security boundary printed `NOT EXERCISED` in every hosted run, and
+  row-security boundary prints `NOT EXERCISED` in every hosted run, and
   giving it `CREATEROLE` would widen the test role for every test.
-- **For you.** The tests show the production posture: an application role
-  that neither owns the protected tables nor bypasses row security. For a
-  local run, export `ELZOO_TEST_APP_ROLE=elzoo_app` beside
+- **For you.** The Wave 5 root acceptance (ELZ-286) runs as this role, so it
+  shows the production posture: an application role that neither owns the
+  protected tables nor bypasses row security. The `state/tenant-isolation` and
+  `state/audit-log` tests still print `NOT EXERCISED`; switching them to this
+  role is its own later task if wanted. For a local run, export `ELZOO_TEST_APP_ROLE=elzoo_app` beside
   `ELZOO_TEST_DATABASE_URL`.
 - **To change.** It is CI and shared setup: its own task with the full gate,
   never a documents change. No Piece ID is involved.
@@ -180,8 +187,9 @@ and the postures in
 together on PostgreSQL. It shows only its finite tested composition; its
 [report's Limits](research/wave5-tenancy.md#limits) are the full list, and the
 [wave closure](plans/bot-platform-wave5.md#wave-5-closure-and-open-defect-handoff)
-restates them. An acceptance has no Piece output, so none of these needs a
-Piece ID; a later acceptance task can add what is missing.
+restates them. An acceptance has no Piece output, so a later acceptance task
+that adds what is missing needs no Piece ID; only a change of a Piece follows
+the ID rule.
 
 ### No production identity provider
 
@@ -191,6 +199,17 @@ Piece ID; a later acceptance task can add what is missing.
   `integration/token-verify` checks against pinned keys.
 - **For you.** Your issuer and key store are not exercised by Elzoo.
 - **To change.** Test your own issuer in your application.
+
+### Live Runs stop through the host's Run control
+
+- **Chosen.** A RunEngine gate cannot see a kill switch engaged during its
+  Run; live Runs stop through the host's Run control (`control/4`).
+- **Why.** A RunEngine gate sees only the read taken before `start_link/1`
+  ([ELZ-281](../tasks/ELZ-281-kill-switch.md)).
+- **For you.** When you engage a switch, pause the live Runs yourself with
+  `control/4`.
+- **To change.** A gate that sees a switch during a Run would change
+  `assembly/run-engine`: under the ID rule.
 
 ### No live public MCP endpoint
 
@@ -239,7 +258,9 @@ These are recorded on their issues
   endpoint with another credential: it failed open, against the `DENY` rule.
 - **For you.** Build a runtime context with the admission-bound form, not
   `context/2`.
-- **To change.** Under the ID rule.
+- **To change.** Pair contexts yourself in your copy; an unbound runtime
+  context in Elzoo would change the failure guarantees of
+  `integration/mcp-client`, under the ID rule.
 
 ### One tenant credential per MCP server
 
@@ -266,7 +287,8 @@ and limits, and the
   no Attempt, pause and continue, or restart replenishes it. The first excess
   stops generation: it creates no action, verdict, outcome, join or pattern
   input, and work admitted within the cap is kept. Separately, one Unit has 64
-  active and 256 lifetime actions, and a new room period does not reset them.
+  active and 256 lifetime actions, and a new room period does not reset the
+  256 lifetime actions.
 - **Why.** No restart, continue or nested callable can give a Run more
   requests than the host sealed at its start.
 - **For you.** Choose `request_cap` per Run. A long-lived host such as a room
@@ -314,7 +336,8 @@ of `bot-platform.md`, unless an entry names another.
   [Wave 5 plan](plans/bot-platform-wave5.md#wave-5-green-flag-readiness-and-locked-design-posture)).
 - **For you.** Ash stays an optional choice of your application.
 - **To change.** Use Ash in your application around the copied Pieces. Ash in
-  a core Piece is a new dependency, so its own task first.
+  a core Piece is a new dependency, so its own task merges first, and the
+  change of that Piece is under the ID rule.
 
 ### Adopt a maintained library, do not write a reader (2026-11-14)
 
@@ -326,7 +349,8 @@ of `bot-platform.md`, unless an entry names another.
 - **For you.** A Piece names its provider, and you merge the pinned dependency
   into your own project ([consuming](consuming.md)).
 - **To change.** Swap the library in your copy. In Elzoo a new dependency or
-  pin is its own task.
+  pin is its own task, and a ready Piece that changes its provider is under
+  the ID rule.
 
 ### In-place change before the first release (2026-11-14)
 
@@ -343,17 +367,18 @@ of `bot-platform.md`, unless an entry names another.
 - **Chosen.** Version 1 has nine action kinds: model call, tool call, local
   work, ask a person, run a nested callable, open, use and close a run
   resource, and finish. Asking for an approval and filling a secret are never
-  action kinds: the engine does them.
+  action kinds: the engine does them. Starting a child Run, waiting for an
+  outside event, a part of an answer to a channel, a message to another
+  member, making or removing a binding, giving an inside event and giving a
+  run resource to a person enter only in later versions, with the wave that
+  performs them.
 - **Why.** The three resource actions stay distinct because the engine checks
-  and performs them differently. Starting a child Run, waiting for an outside
-  event, a part of an answer to a channel, a message to another member, making
-  or removing a binding, giving an inside event and giving a run resource to a
-  person enter only in later versions, with the wave that performs them.
+  and performs them differently.
 - **For you.** New versions only add members, never change or remove them, and
   records written under older versions stay readable. A person's answer names
   exactly one ask-a-person action and carries the verified person's identity.
 - **To change.** A new kind comes in a new version that adds it, with its
-  wave.
+  wave; the change of each ready Piece that takes it is under the ID rule.
 
 ### Runtime MCP servers bearer first, OAuth in Wave 9, RC-59 (2026-11-12)
 
@@ -373,7 +398,10 @@ of `bot-platform.md`, unless an entry names another.
 
 The same record holds the 2026-11-12 decisions on time limits and pause
 (RC-48), run resources (RC-49), the source set of a Run (RC-65 and RC-56) and
-skills (RC-67); they are part of those jobs' Contracts.
+skills (RC-67), the 2026-11-14 decision that puts the safe Lua helpers in
+`runtime/lua-sandbox` as policy version 2 (RC-60), and the 2026-11-20
+coordinator choices that the owner kept; they are part of those jobs'
+Contracts.
 
 ## Workflow decisions
 
@@ -386,11 +414,11 @@ skills (RC-67); they are part of those jobs' Contracts.
 - **Why.** The 5-second bound is the test's claim in ELZ-176's acceptance;
   measuring something else or raising the limit would change that
   acceptance.
-- **For you.** If it fails on a slow runner, rerun all jobs once; a second
+- **For you.** If it fails, rerun all jobs once; a second
   failure of the same test is a real failure
   ([AGENTS.md section 5](../AGENTS.md#5-local-gate-then-pull-request)).
-- **To change.** A new bound changes ELZ-176's acceptance and needs its own
-  task. No Piece ID is involved.
+- **To change.** A new bound changes ELZ-176's acceptance, so it needs an
+  owner decision and its own task. No Piece ID is involved.
 
 ### The `Amp-Thread-ID` commit trailer is allowed
 
@@ -403,3 +431,4 @@ skills (RC-67); they are part of those jobs' Contracts.
 - **For you.** Commits may carry it. Authored content, commit-message prose
   and issue or pull request prose stay roles-only, without session links.
 - **To change.** It is a workflow rule in `AGENTS.md`: its own documents task.
+  No Piece ID is involved.
