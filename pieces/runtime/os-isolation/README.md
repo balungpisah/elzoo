@@ -160,10 +160,9 @@ observation, unless the owner had already retired its registry row as finished,
 the step immediately before it sends the result: an owner killed after the send
 gives only that result, and one killed between the two steps gives none, so the
 caller's `run/3` wait ends with `{:error, {:no_result, ref}}` (a declared
-residual; a run never gives two results); if the Adapter dies, running owners
-finish and reply, queued callers' calls exit, and the restarted Adapter
-rebuilds its slots from the registry. If the VM exits, the port program's
-`finalize` stops every child.
+residual); if the Adapter dies, running owners finish and reply, queued
+callers' calls exit, and the restarted Adapter rebuilds its slots from the
+registry. If the VM exits, the port program's `finalize` stops every child.
 
 ## Transition table and tests
 
