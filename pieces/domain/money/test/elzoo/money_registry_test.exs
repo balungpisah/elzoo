@@ -521,6 +521,72 @@ defmodule Elzoo.MoneyRegistryTest do
 
   defp put_entry(r, alpha, fun), do: update_in(r, [:snapshots, @v1, alpha], fun)
 
+  # Values of the checked struct's shape that check/1 did not return. The
+  # closures of this test module would return a valid registry and report a
+  # call, so a refusal is not a walk of what they return.
+  defp forged_checked do
+    test = self()
+
+    reads = fn ->
+      send(test, :forged_closure_called)
+      Registry.default()
+    end
+
+    {:ok, genuine} = Registry.check(folded())
+
+    [
+      test_module_closure: %Registry.Checked{read: reads},
+      other_index: %Registry.Checked{read: other_index(genuine.read)},
+      external_capture: %Registry.Checked{read: &Registry.default/0},
+      plain_map:
+        Map.new(__struct__: Registry.Checked, read: fn _ -> send(test, :forged_closure_called) end)
+    ]
+  end
+
+  # The genuine closure with its index edited in the external term format
+  # (NEW_FUN_EXT): module, type and arity come from the bytes, the name not.
+  defp other_index(read) do
+    <<131, 112, size::32, arity, uniq::binary-16, index::32, rest::binary>> =
+      :erlang.term_to_binary(read)
+
+    :erlang.binary_to_term(
+      <<131, 112, size::32, arity, uniq::binary-16, index + 1::32, rest::binary>>
+    )
+  end
+
+  # Every function taking registry:, called with `opts` (inputs resolved under
+  # the default at #{@v1}, which every registry of these tests holds).
+  defp registry_calls(opts) do
+    {:ok, eur} = M.parse("EUR", version: @v1)
+    {:ok, a} = M.from_minor_units(eur, 1234)
+    {:ok, b} = M.from_minor_units(eur, -5)
+    {:ok, bytes} = Codec.encode(a)
+
+    [
+      M.parse("EUR", opts),
+      M.parse("ISK", opts),
+      M.parse("bad!", opts),
+      M.parse_numeric("978", opts),
+      M.parse_numeric("191", opts),
+      M.numeric_candidates("191", opts),
+      M.current_status(eur, opts),
+      M.from_minor_units(eur, 100, opts),
+      M.from_decimal_string(eur, "1.25", opts),
+      M.from_decimal(eur, Decimal.new(1, 1255, -3), :half_even, opts),
+      M.add(a, b, opts),
+      M.subtract(a, b, opts),
+      M.compare(a, b, opts),
+      M.negate(a, opts),
+      M.allocate(a, [1, 2], :spread, opts),
+      M.round(a, 1, :half_up, opts),
+      M.to_decimal(a, opts),
+      M.to_decimal_string(a, opts),
+      Codec.encode(a, opts),
+      Codec.decode(bytes, opts),
+      Codec.decode("bad", opts)
+    ]
+  end
+
   describe "registry check" do
     test "valid?/1 accepts the default and values build!/1 returns" do
       assert Registry.valid?(Registry.default())
@@ -639,7 +705,7 @@ defmodule Elzoo.MoneyRegistryTest do
       {:ok, bytes} = Codec.encode(amount)
       expected = {:error, {:invalid_registry, nil}}
 
-      for registry <- [@forged, float_copy()],
+      for registry <- [@forged, float_copy() | Keyword.values(forged_checked())],
           extra <- [[], [version: "2030-01-01"], [version: @v1]] do
         opts = [registry: registry] ++ extra
         assert M.parse("EUR", opts) == expected
@@ -663,10 +729,108 @@ defmodule Elzoo.MoneyRegistryTest do
         assert Codec.decode("bad", opts) == expected
       end
 
+      refute_received :forged_closure_called
+
       # A valid explicit registry, equal to the default but built again, still works.
       rebuilt = Registry.build!([@extract])
       assert Codec.decode(bytes, registry: rebuilt) == {:ok, amount}
       assert M.add(amount, amount, registry: folded()) == M.add(amount, amount)
+    end
+  end
+
+  describe "checked registry" do
+    test "check/1 seals a valid registry once and refuses the forged map" do
+      raw = folded()
+      assert {:ok, %Registry.Checked{read: read} = checked} = Registry.check(raw)
+      # No field holds the registry as data.
+      assert Map.keys(checked) |> Enum.sort() == [:__struct__, :read]
+      assert read.() === raw
+
+      # The literal the constant-time test compares is the compiler's name.
+      assert :erlang.fun_info(read, :module) == {:module, Registry}
+      assert :erlang.fun_info(read, :type) == {:type, :local}
+      assert :erlang.fun_info(read, :arity) == {:arity, 0}
+      assert :erlang.fun_info(read, :name) == {:name, :"-seal/1-fun-0-"}
+
+      assert Registry.check(@forged) == {:error, {:invalid_registry, nil}}
+      assert Registry.check(float_copy()) == {:error, {:invalid_registry, nil}}
+      # Either form to either function.
+      assert Registry.valid?(checked)
+      assert Registry.check(checked) == {:ok, checked}
+      # The compiled default gives a checked value too.
+      assert {:ok, %Registry.Checked{read: default_read}} = Registry.check(Registry.default())
+      assert default_read.() === Registry.default()
+    end
+
+    test "every function gives the same results with a checked value as with the raw registry" do
+      raw = folded()
+      {:ok, checked} = Registry.check(raw)
+      {:ok, checked_default} = Registry.check(Registry.default())
+
+      for extra <- [[], [version: @v1], [version: @v2], [version: "2030-01-01"]] do
+        assert registry_calls([registry: checked] ++ extra) ==
+                 registry_calls([registry: raw] ++ extra),
+               inspect(extra)
+
+        assert registry_calls([registry: checked_default] ++ extra) == registry_calls(extra)
+      end
+
+      # The checked registry is the one used, not the default: ISK has exponent 2 at #{@v2}.
+      assert {:ok, %Currency{minor_unit: 2, version: @v2}} = M.parse("ISK", registry: checked)
+      assert {:ok, %Currency{minor_unit: 0, version: @v1}} = M.parse("ISK")
+
+      {:ok, eur1} = M.parse("EUR", version: @v1)
+      {:ok, isk2} = M.parse("ISK", registry: raw)
+
+      for {r, c} <- [{raw, checked}, {Registry.default(), checked_default}] do
+        assert Registry.versions(c) == r.versions
+        assert Registry.versions(c) == Registry.versions(r)
+        assert Registry.latest(c) == Registry.latest(r)
+
+        for v <- [@v1, @v2, "2030-01-01"], alpha <- ["EUR", "ISK", "ZZZ"] do
+          assert Registry.entry(c, v, alpha) == Registry.entry(r, v, alpha)
+          assert Registry.held?(c, v) == Registry.held?(r, v)
+        end
+
+        for currency <- [eur1, isk2, :not_a_currency], requested <- [nil, @v1, @v2] do
+          assert M.member(c, currency, requested) == M.member(r, currency, requested)
+        end
+
+        assert M.member(c, eur1) == M.member(r, eur1)
+        assert Registry.valid?(c) and Registry.valid?(r)
+      end
+
+      assert Registry.versions(raw) == [@v1, @v2]
+      assert M.member(checked, isk2) == :ok
+      assert M.member(checked_default, isk2) == {:error, {:unknown_registry_version, @v2}}
+    end
+
+    test "a forged checked value is refused, and positional functions read it as any other value" do
+      {:ok, genuine} = Registry.check(folded())
+      edited = forged_checked()[:other_index].read
+      # Only the name tells the edited closure from the genuine one.
+      for key <- [:module, :type, :arity],
+          do: assert(:erlang.fun_info(edited, key) == :erlang.fun_info(genuine.read, key))
+
+      refute :erlang.fun_info(edited, :name) == :erlang.fun_info(genuine.read, :name)
+
+      {:ok, eur1} = M.parse("EUR", version: @v1)
+
+      for {name, forged} <- forged_checked() do
+        refute Registry.valid?(forged), inspect(name)
+        assert Registry.check(forged) == {:error, {:invalid_registry, nil}}, inspect(name)
+
+        # Unchecked, as any map without the registry keys (README, Interface).
+        assert_raise FunctionClauseError, fn -> Registry.versions(forged) end
+        assert_raise FunctionClauseError, fn -> Registry.latest(forged) end
+        assert_raise UndefinedFunctionError, fn -> Registry.entry(forged, @v1, "EUR") end
+        assert_raise KeyError, fn -> Registry.held?(forged, @v1) end
+        assert_raise KeyError, fn -> M.member(forged, eur1) end
+        assert M.member(forged, eur1, @v2) == {:error, {:forged_currency, eur1}}
+        assert M.member(forged, :other) == {:error, {:forged_currency, :other}}
+      end
+
+      refute_received :forged_closure_called
     end
   end
 

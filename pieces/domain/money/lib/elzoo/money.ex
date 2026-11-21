@@ -429,16 +429,10 @@ defmodule Elzoo.Money do
     end
   end
 
-  # An explicit registry: is checked before anything else of the call; the
-  # detail never echoes it.
+  # The one check of a registry: option (Registry.resolve/1), before anything
+  # else of the call. The detail never echoes the registry.
   @doc false
-  def registry(opts) do
-    registry = Keyword.get(opts, :registry, Registry.default())
-
-    if Registry.valid?(registry),
-      do: {:ok, registry},
-      else: {:error, {:invalid_registry, nil}}
-  end
+  def registry(opts), do: Registry.resolve(Keyword.get(opts, :registry, Registry.default()))
 
   @doc false
   def currency(entry, version),

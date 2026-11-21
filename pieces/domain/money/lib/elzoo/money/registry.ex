@@ -8,13 +8,28 @@ defmodule Elzoo.Money.Registry do
   A registry value has `versions` (oldest first), one `snapshots` map per
   version (`alpha => entry`), the version's active numeric index and the source
   headers. Pass another value built by `build!/1` through the `registry:`
-  option of `Elzoo.Money` functions.
+  option of `Elzoo.Money` functions, either raw (walked by `valid?/1` on
+  every call) or as the checked value `check/1` returns (a constant-time test).
   """
   alias Elzoo.Money.Registry.Source
+
+  defmodule Checked do
+    @moduledoc """
+    An opaque registry that `Elzoo.Money.Registry.check/1` walked once. It
+    holds the registry only inside a closure that `Elzoo.Money.Registry` made;
+    a value of this shape with any other closure is refused.
+    """
+    @enforce_keys [:read]
+    defstruct @enforce_keys
+  end
 
   @extracts Path.wildcard(Path.join([__DIR__, "iso4217", "*.tsv"])) |> Enum.sort()
   for path <- @extracts, do: @external_resource(path)
   @default Source.build!(Enum.map(@extracts, &File.read!/1))
+
+  # The compiler's name of the closure in seal/1. A test compares it with the
+  # name of a genuine checked value.
+  @sealed :"-seal/1-fun-0-"
 
   @doc "The registry compiled from the held extracts."
   def default, do: @default
@@ -23,8 +38,54 @@ defmodule Elzoo.Money.Registry do
   defdelegate build!(texts), to: Source
 
   @doc """
+  Walk `registry` once with `valid?/1`: `{:ok, checked}` with an opaque
+  `Elzoo.Money.Registry.Checked`, else `{:error, {:invalid_registry, nil}}`.
+  Pure. Pass `checked` as `registry:` to skip the walk on each call. The
+  compiled default also gives a checked value; a genuine checked value gives
+  `{:ok, same}` in constant time.
+  """
+  def check(registry) do
+    cond do
+      sealed?(registry) -> {:ok, registry}
+      valid?(registry) -> {:ok, seal(registry)}
+      true -> {:error, {:invalid_registry, nil}}
+    end
+  end
+
+  defp seal(registry), do: %Checked{read: fn -> registry end}
+
+  # Constant time: the struct check/1 returns, holding the closure of seal/1
+  # (module, local type, arity 0 and its compiler name). Never calls the closure.
+  defp sealed?(%Checked{read: read}) when is_function(read) do
+    :erlang.fun_info(read, :module) == {:module, __MODULE__} and
+      :erlang.fun_info(read, :type) == {:type, :local} and
+      :erlang.fun_info(read, :arity) == {:arity, 0} and
+      :erlang.fun_info(read, :name) == {:name, @sealed}
+  end
+
+  defp sealed?(_), do: false
+
+  @doc false
+  # The registry of a genuine checked value; any other term unchanged and
+  # unchecked. Every positional function reads its registry through this.
+  def unwrap(registry), do: if(sealed?(registry), do: registry.read.(), else: registry)
+
+  @doc false
+  # The one check of a registry: option, deciding once: the default by ===, a
+  # checked value by sealed?/1 (then its registry), any other term by the walk.
+  def resolve(registry) do
+    cond do
+      registry === default() -> {:ok, registry}
+      sealed?(registry) -> {:ok, registry.read.()}
+      walk?(registry) -> {:ok, registry}
+      true -> {:error, {:invalid_registry, nil}}
+    end
+  end
+
+  @doc """
   Whether `registry` has the shape `build!/1` writes, for every field that
-  `Elzoo.Money` reads. Pure. A value `===` `default/0` is not walked; any
+  `Elzoo.Money` reads. Pure. A value `===` `default/0` and a genuine checked
+  value of `check/1` are not walked; any
   other value is walked in full: exactly the keys `versions`, `snapshots`,
   `active_numeric` and `sources`; `versions` a non-empty list of distinct
   `YYYY-MM-DD` binaries, oldest first; the other three maps keyed by exactly
@@ -37,7 +98,7 @@ defmodule Elzoo.Money.Registry do
   active entry to its alpha; and every alpha of a version is held by each
   later version (append-only).
   """
-  def valid?(registry), do: registry === default() or walk?(registry)
+  def valid?(registry), do: match?({:ok, _}, resolve(registry))
 
   defp walk?(%{versions: [_ | _] = versions, snapshots: s, active_numeric: a, sources: src} = r)
        when map_size(r) == 4 and is_map(s) and is_map(a) and is_map(src) do
@@ -101,12 +162,20 @@ defmodule Elzoo.Money.Registry do
   defp rows?([%{numeric: n} | rest]), do: numeric?(n) and rows?(rest)
   defp rows?(_), do: false
 
+  # Positional functions do not validate: a genuine checked value is unwrapped,
+  # any other value is read as given.
+
+  @doc "The held version ids, oldest first."
+  def versions(registry), do: held_versions(unwrap(registry))
+
+  defp held_versions(%{versions: versions}), do: versions
+
   @doc "The newest held version id."
-  def latest(%{versions: versions}), do: List.last(versions)
+  def latest(registry), do: List.last(versions(registry))
 
   @doc "The entry for `alpha` in `version`, or nil."
-  def entry(registry, version, alpha), do: get_in(registry, [:snapshots, version, alpha])
+  def entry(registry, version, alpha), do: get_in(unwrap(registry), [:snapshots, version, alpha])
 
   @doc "Whether `version` is held."
-  def held?(registry, version), do: Map.has_key?(registry.snapshots, version)
+  def held?(registry, version), do: Map.has_key?(unwrap(registry).snapshots, version)
 end

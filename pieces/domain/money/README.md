@@ -28,13 +28,42 @@ Repo and no `Elzoo.Application`.
 
 `Elzoo.Money.Codec.encode/2` and `decode/2` write and read canonical bytes,
 for example `elzoo-money/1 2026-09-17 BHD 048 3 1234`: format tag, registry
-version, alpha, numeric, exponent, minor units. `Elzoo.Money.Registry` holds
-the compiled registry and `build!/1` for other extract sets.
+version, alpha, numeric, exponent, minor units.
+
+`Elzoo.Money.Registry` (all pure):
+
+| Function | Purpose |
+| --- | --- |
+| `default/0`, `build!/1` | The compiled registry; a registry from other extract texts. |
+| `valid?/1` | Whether a value has the shape `build!/1` writes. The default (`===`) and a genuine checked value are not walked; any other value is walked in full. |
+| `check/1` | Walk once: `{:ok, checked}`, an opaque `Elzoo.Money.Registry.Checked`, else `{:error, {:invalid_registry, nil}}`. The compiled default also gives a checked value; a genuine checked value gives `{:ok, same}`. |
+| `versions/1`, `latest/1` | The held versions, oldest first; the newest. |
+| `entry/3`, `held?/2` | The entry of an alpha in a version, or nil; whether a version is held. |
+
+The positional functions `versions/1`, `latest/1`, `entry/3`, `held?/2` and
+`Elzoo.Money.member/2,3` take the default, a raw registry or a checked value
+and do not validate: a genuine checked value is unwrapped, any other value is
+read as given. A forged checked value (a value of the checked struct's shape
+that `check/1` did not return) is such an other value and its closure is
+never called. For one with only the struct's fields (`__struct__` and
+`read`): `versions/1` and `latest/1` raise `FunctionClauseError`,
+`entry/3` raises `UndefinedFunctionError` (the struct has no Access),
+`held?/2` raises `KeyError`, and `member/2,3` raises `KeyError` for a
+`%Currency{}` it would look up, else returns `forged_currency` as for any
+registry. A forged value that also carries registry keys such as `versions`
+or `snapshots` is read through those keys, unchecked, by `versions/1`,
+`latest/1` and `held?/2`; `entry/3`, and `member/2,3` when it reaches an
+entry lookup, still raise `UndefinedFunctionError`, because a value tagged
+with the struct has no Access.
 
 Options on every call: `registry:` (default the compiled registry) and
-`version:`. An explicit `registry:` is checked first by
-`Elzoo.Money.Registry.valid?/1`, a pure check of the shape `build!/1` writes;
-a refused value is `{:error, {:invalid_registry, nil}}`. For `parse` and `parse_numeric`, `version:` selects the version to
+`version:`. An explicit `registry:` is decided first, by one check: the
+compiled default by `===`; a checked value by a constant-time test that it is
+the struct `check/1` returns and that its closure is the sealing closure of
+`Elzoo.Money.Registry` (module, `local` type, arity 0 and the compiler's name,
+read with `:erlang.fun_info/2`); any other value by
+`Elzoo.Money.Registry.valid?/1`. A refused value, including a forged checked
+value, is `{:error, {:invalid_registry, nil}}`. For `parse` and `parse_numeric`, `version:` selects the version to
 resolve under (default the newest held version); for `numeric_candidates` it
 limits the enumeration to that version; for every function that takes a
 currency, an amount or codec bytes it is a check: each value must belong to that
@@ -47,7 +76,7 @@ version, else `forged_currency`. A `version:` the registry does not hold is
 | --- | --- |
 | `malformed_code` | `parse`, `parse_numeric`, `numeric_candidates`: input is not three ASCII letters or three digits. |
 | `unknown_currency` | `parse`, `parse_numeric`; `Codec.decode` for an alpha held in no version. |
-| `invalid_registry` | any call with an explicit `registry:` that `Elzoo.Money.Registry.valid?/1` refuses, before any other check; the detail is `nil` and never echoes the registry. |
+| `invalid_registry` | any call with an explicit `registry:` that is not the default, not a genuine checked value and refused by `Elzoo.Money.Registry.valid?/1`, before any other check; `Registry.check/1` of such a value; the detail is `nil` and never echoes the registry. |
 | `unknown_registry_version` | any call naming a version the registry does not hold, including in bytes. |
 | `forged_currency` | any call whose currency is not the member in effect at its own version (identity and status), or is not a `%Currency{}`; `Codec.decode` for an identity of another version. |
 | `no_minor_unit` | construction for an ISO `N.A.` code (XAU, XXX, XTS and others). |
@@ -132,7 +161,8 @@ Dataset disposition (G5, disposed by recorded decision, not verified):
   codec round trip through `integration/sql`; it is not part of this bundle.
 - **Upstream contract:** Decimal 3.2.0 struct fields, `Decimal.new/3` and mode
   names; pinned Cure; Elixir 1.20.4 integer arithmetic.
-- **Monitored behavior:** none.
+- **Monitored behavior:** none. The timings under Limits are a one-session
+  local benchmark, not an ongoing monitor.
 
 ## Limits
 
@@ -147,11 +177,28 @@ Dataset disposition (G5, disposed by recorded decision, not verified):
   Whether a posting context accepts a retired currency is `domain/journal`'s
   decision.
 - Calling `Cure.Elzoo.Money` directly bypasses the membership check.
-- An explicit `registry:` other than the compiled default (compared with
-  `===` and then not walked) is walked on every call: about 65–80 µs for a
-  registry the size of the default (307 entries), measured locally.
-  `valid?/1` checks shape, field types and ranges, not that the data came
-  from a held extract.
+- The cost of each form of an explicit `registry:`: the compiled default, one
+  `===` comparison; a checked value, the constant-time test; a raw map, one
+  walk on every call, about 65–80 µs for a registry the size of the default
+  (one version, 307 entries; ELZ-316). Measured in one local session on the
+  pinned toolchain (ELZ-319), three runs each: `valid?/1` of such a raw
+  registry 64.64, 61.18 and 60.29 µs; of its checked value 0.139, 0.140 and
+  0.130 µs. `valid?/1` checks shape, field types and ranges, not that the
+  data came from a held extract.
+- A checked value resists ordinary Elixir code, not the external term format:
+  code that edits those bytes can build one, and decoding untrusted bytes with
+  `:erlang.binary_to_term/2`, `:safe` included, can produce one that is
+  accepted. A host never decodes a registry from untrusted bytes (a raw map
+  decoded that way is still walked).
+- A checked value works only with the `Elzoo.Money.Registry` code that made
+  it. After a purge of that code, or decoded where that exact build is not
+  loaded, `:erlang.fun_info/2` gives `[]` as its name, so a `registry:` call
+  refuses it with `invalid_registry` and a positional function takes it as any
+  other value; so does a value from an older build whose sealing closure has
+  another compiler name than the literal of the current build. The
+  constant-time test alone decides acceptance; this limit claims only these
+  refusals. A host checks again after a code upgrade and does not send
+  checked values between nodes.
 - The registry is only as faithful as the extract: `mix check` compares the
   registry with the committed extract, not with the publisher's files.
 
