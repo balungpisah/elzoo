@@ -391,19 +391,27 @@ exact-head requirements, or hosted checks on a new head.
   nothing when it starts, and on a later head it may post nothing at all. So
   when it has posted nothing for the exact head 30 minutes after the later
   of the ready mark and that head's push, or says that it is out of quota or
-  unavailable, one extra independent review in a fresh session replaces its
-  pass. That review reads the commits since the automated reviewer's last
-  posted pass (the whole diff when it posted none), looks for edge cases,
-  races, bounds and error paths, and records the five lines; with no blocker
-  open it is the gate. The coordinator records on the pull request that the
+  unavailable, one extra independent review replaces its pass. A reviewer of
+  another model family does it: GPT-6.1 Terra (`openai/gpt-6.1-terra`) at
+  high effort (owner decision). A fresh session of the same model does it
+  only when that reviewer cannot run, and the record says why. That review
+  reads the commits since the automated reviewer's last posted pass (the
+  whole diff when it posted none), looks for edge cases, races, bounds and
+  error paths, and records the five lines; with no blocker open it is the
+  gate. Before its verdict it reads this file, the change's task file and its
+  Contract (the issue body, and for a Piece its `piece.json` and README), and
+  its findings cite the rule lines it checked: this file's section and line
+  numbers, and the task-file or Contract lines that each finding, or its
+  "none", rests on. The coordinator records on the pull request that the
   automated reviewer was skipped and why, and adds the pull request and the
   skipped range to "Skipped automated reviews" in the
   [coordinator guide](docs/development/13-coordinator.md). A Piece with any
   weight listed in section 5 keeps its full review; the extra review does
   not replace it.
-- When a reviewer of another model family becomes available, it rechecks
-  `domain/journal`, `domain/metering` and `delivery/dead-letter-store`
-  once. Each finding becomes its own task (owner decision).
+- The same reviewer of another model family rechecks `domain/journal`,
+  `domain/metering` and `delivery/dead-letter-store` once, under the same
+  reading and citation rule. Each finding becomes its own task (owner
+  decision).
 
 A local command can be impossible on your host, for example when a service is
 missing. Then record the command and the reason in `Local gate:`. The hosted

@@ -140,11 +140,13 @@
   push a branch `recheck/<PR>-base` at the range's first SHA and a branch
   `recheck/<PR>` at its last SHA, open a pull request from the second to the
   first, mark it ready so the automated reviewer passes, then close it
-  unmerged and delete both branches. Each finding becomes its own task, and
-  the row is removed only after the automated reviewer posts findings or an
-  explicit no-findings result for the recheck head. If it posts no review
-  result, including when it reports that it is unavailable or out of quota,
-  the row stays.
+  unmerged and delete both branches. The reviewer of another model family in
+  `AGENTS.md` section 6 may recheck a listed range instead, under that
+  section's reading and citation rule. Each finding becomes its own task, and
+  the row is removed only after the automated reviewer or that reviewer posts
+  findings or an explicit no-findings result for the range. If neither posts
+  a review result, including when the automated reviewer reports that it is
+  unavailable or out of quota, the row stays.
 
   | Pull request | Skipped range | Why |
   | --- | --- | --- |
