@@ -407,11 +407,11 @@
     },
     {
       "id": "domain/pricing",
-      "summary": "Versioned usage-to-price rules and templates",
-      "disposition": "defer",
-      "phase": "demand-led",
-      "status": "deferred",
-      "reason": "C9 requires currency/precision/rounding and immutable rate/template versions; choose libraries before authoring policy. No pricing DSL or settlement implementation."
+      "summary": "Usage charges under immutable rate-card versions",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-304: pure charges under immutable rate-card versions with domain/money rounding once per line; unknown never priced as zero; no pricing DSL, tiers or settlement."
     },
     {
       "id": "domain/principal",
@@ -424,11 +424,11 @@
     },
     {
       "id": "domain/quota",
-      "summary": "Scoped usage allocation and metering",
-      "disposition": "defer",
-      "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Allocation/reset/admission contract for C2/C9; distinct from observed metering, pricing and financial posting. Provider/storage evaluation required; no implementation."
+      "summary": "Durable tenant allowance with Run reservations",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-303: plain Ecto/Postgrex tables under state/tenant-isolation (owner Q1 A), allowance from a domain/entitlement resolution; distinct from metering, pricing and financial posting."
     },
     {
       "id": "domain/saas-controls",
