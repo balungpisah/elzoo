@@ -22,9 +22,9 @@ declared dependency of the journal, so a copied consumer has the check.
 
 Owned paths: `pieces/domain/journal/lib/**` and `pieces/domain/journal/test/**`;
 then, in the last commit, the Piece's `docs/plans/release-plan.json` entry
-(`manifest_sha256` only if `piece.json` changes) and the generated views
+(`manifest_sha256` when `piece.json` changes) and the generated views
 (`AGENTS.md` section 3). The README and the `contract` of `piece.json` do
-not change. Do not edit another Piece.
+not change; only the `limits` may gain the sentence of requirement 2. Do not edit another Piece.
 
 ## Required behavior
 
@@ -32,9 +32,13 @@ not change. Do not edit another Piece.
    `Elzoo.Money.Registry.valid?/1` is false for the `registry:` value. It
    accepts `Elzoo.Money.Registry.default/0` and every value
    `Elzoo.Money.Registry.build!/1` returns.
-2. The deep check runs once, in `new/1`. The per-call check of the journal
-   value (`journal/1`) stays cheap: it checks that the value is a journal
-   struct and does not walk the registry again.
+2. The journal's own deep check runs once, in `new/1`. Its per-call check
+   of the journal value (`journal/1`) stays cheap: it checks that the value
+   is a journal struct and does not walk the registry again. The
+   `Elzoo.Money` calls the journal makes still apply ELZ-316's check, which
+   costs nothing for the default registry and walks any other registry on
+   each call. When that applies, say so in the `limits` of `piece.json` and
+   refresh its `manifest_sha256`.
 3. Every other behavior of `new/1` and of the Piece is unchanged.
 
 ## Acceptance and evidence

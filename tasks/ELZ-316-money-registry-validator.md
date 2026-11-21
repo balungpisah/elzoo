@@ -39,12 +39,15 @@ and does not change. `domain/quota` takes no registry and does not change.
    reads (`build!/1` writes plain entry maps, not `%Elzoo.Money.Currency{}`);
    and an `active_numeric` entry that names an alpha that is not active with
    that numeric code in the same version.
-2. Every `Elzoo.Money` function given an explicit `registry:` option returns
-   `{:error, :invalid_registry}` when `valid?/1` is false, before any other
-   check of the call. The compiled default is not checked again on each
-   call. `:invalid_registry` joins the typed rejections in the README and the
-   `contract` of `piece.json`. State the cost of the check (it reads the
-   whole registry on each call with an explicit registry) in the `limits`.
+2. Every public function of `Elzoo.Money` and `Elzoo.Money.Codec` that takes
+   a `registry:` option returns `{:error, :invalid_registry}` when `valid?/1`
+   is false for an explicit value, before any other check of the call.
+   A value identical to the compiled default (`Elzoo.Money.Registry.default/0`,
+   compared first as a term, so the Pieces that pass the default on every
+   call pay nothing) is not walked again. `:invalid_registry` joins the
+   typed rejections in the README and the `contract` of `piece.json`. Another
+   explicit registry is walked on every call; state that cost in the
+   `limits`, with a figure measured for a registry the size of the default.
 3. `domain/pricing` replaces its key-only check in `registry/1` with
    `Elzoo.Money.Registry.valid?/1`. Its refusal stays `{:error, :invalid}`,
    and its Contract does not change.
@@ -54,8 +57,9 @@ and does not change. `domain/quota` takes no registry and does not change.
 
 1. Money tests: `valid?/1` is true for the default and for a `build!/1` test
    registry, and false for one value per failure in requirement 1, the
-   forged map above included. Every public `Elzoo.Money` function given that
-   forged map returns `:invalid_registry`.
+   forged map above included. Every public `Elzoo.Money` and `Elzoo.Money.Codec`
+   function that takes `registry:` returns `:invalid_registry` for that forged
+   map.
 2. Pricing tests: `price/3` and `difference/3` with the forged map return
    `{:error, :invalid}`; the default and a built registry still price.
 3. Negative controls, one per change, each a temporary edit reverted and
