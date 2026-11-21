@@ -42,7 +42,7 @@ Tests run on the worker's disposable PostgreSQL 16 (`ELZOO_TEST_DATABASE_URL`) w
 7. A malformed record (for example a payload key, or a last-result triple with one member missing) is `:record`, refused through `Elzoo.DeadLetter.validate/1`.
 8. `purge/3` deletes only resolved records older than the cutoff, at most `limit`, and leaves open ones.
 9. An `integration/jobs` Relay over a stream whose first full page (`limit` items) fails permanently: its `handle` stores each failure and returns `:done`, so a later pass delivers the later items. Without the store (a `handle` that returns `{:skip, :permanent}`) the later items stay undelivered, the stated limit of `integration/jobs`.
-10. Bounds: texts at 0, 1, 128 and 129 bytes and a C1 character; `work_ref` 0, 1, 256 and 257 bytes; `limit` 0, 1, 1000 and 1001; `message_id` at 256 and 257 bytes, an encoded record at 16,384 and 16,385 bytes, and a `message_id` and a `reason` that hold a NUL byte, each `:record`.
+10. Bounds: texts at 0, 1, 128 and 129 bytes and a C1 character; `work_ref` 0, 1, 256 and 257 bytes; `limit` 0, 1, 1000 and 1001; `message_id` at 256 and 257 bytes, an encoded record at 16,384 and 16,385 bytes, and a `message_id` and a `correlation_id` that hold a NUL byte, each `:record`.
 11. Negative control, restored before the final gates: drop the primary key (case 1 must store two rows and fail).
 
 Run the Piece tests and the new-Piece small gate locally (durable state with concurrency), the roadmap and claims checks and the diff check. The full review of the coordinator guide ("Reviewer by risk"), the exact-head hosted check and the merge queue are required.
