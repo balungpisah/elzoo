@@ -354,18 +354,27 @@ defmodule Elzoo.JournalTest do
       assert Journal.balance(%{j | prefix: "Bad"}, "T1", "a") == {:error, :invalid}
     end
 
-    test "new/1 takes only a registry that Registry.valid?/1 accepts", %{p: p} do
+    test "new/1 takes only a registry that Registry.check/1 accepts and keeps it checked",
+         %{j: j, p: p} do
       default = Registry.default()
       v = Registry.latest(default)
 
-      # Each has the versions list and snapshots map that journal/1 checks per call.
-      for registry <- [
-            %{versions: ["bogus"], snapshots: %{}},
-            %{versions: ["bogus"], snapshots: %{}, active_numeric: %{}, sources: %{}},
-            put_in(default, [:snapshots, v, "EUR", :numeric], 1000),
-            Map.delete(default, :active_numeric),
-            Map.delete(default, :sources)
-          ] do
+      # Forged checked values: the struct with a closure that Registry did not make, alone and
+      # with the registry keys that journal/1's key-shape check reads.
+      forged = [
+        %Registry.Checked{read: fn -> default end},
+        Map.merge(default, %{__struct__: Registry.Checked, read: fn -> default end})
+      ]
+
+      # Each raw map has the versions list and snapshots map that journal/1 checks per call.
+      for registry <-
+            [
+              %{versions: ["bogus"], snapshots: %{}},
+              %{versions: ["bogus"], snapshots: %{}, active_numeric: %{}, sources: %{}},
+              put_in(default, [:snapshots, v, "EUR", :numeric], 1000),
+              Map.delete(default, :active_numeric),
+              Map.delete(default, :sources)
+            ] ++ forged do
         refute Registry.valid?(registry)
 
         assert_raise ArgumentError, @message, fn ->
@@ -373,12 +382,67 @@ defmodule Elzoo.JournalTest do
         end
       end
 
-      newer = Registry.build!([Harness.extract(), Harness.derived("2027-01-01", [], [])])
-
-      for registry <- [default, newer] do
-        assert %Journal{registry: ^registry} =
-                 Journal.new(repo: AppRepo, prefix: p, registry: registry)
+      # A journal value that holds a forged checked value is refused on each call.
+      for registry <- forged do
+        assert Journal.balance(%{j | registry: registry}, "T1", "a") == {:error, :invalid}
       end
+
+      newer = Registry.build!([Harness.extract(), Harness.derived("2027-01-01", [], [])])
+      {:ok, checked} = Registry.check(newer)
+
+      # The default stays the default; a raw custom registry is kept as its checked value, never
+      # as the raw map; a checked value is kept as given.
+      assert %Journal{registry: ^default} = Journal.new(repo: AppRepo, prefix: p, registry: default)
+      assert %Journal{registry: ^default} = Journal.new(repo: AppRepo, prefix: p)
+
+      assert %Journal{registry: %Registry.Checked{} = kept} =
+               Journal.new(repo: AppRepo, prefix: p, registry: newer)
+
+      refute kept === newer
+      assert Registry.versions(kept) == newer.versions
+      assert %Journal{registry: ^checked} = Journal.new(repo: AppRepo, prefix: p, registry: checked)
+    end
+
+    test "the default, a raw custom registry and its checked value give the same results",
+         %{p: p} do
+      default = Registry.default()
+      v = Registry.latest(default)
+
+      # The default's version and EUR entry with another ISK exponent: a custom registry.
+      raw =
+        Registry.build!([
+          Harness.derived(v, [], [{"current\tISK\t352\t0\t", "current\tISK\t352\t2\t"}])
+        ])
+
+      refute raw === default
+      {:ok, checked} = Registry.check(raw)
+
+      results =
+        for {tenant, registry} <- [{"T1", default}, {"T2", raw}, {"T3", checked}] do
+          j = Journal.new(repo: AppRepo, prefix: p, registry: registry)
+          open!(j, tenant, "a", eur(), true)
+          open!(j, tenant, "b", eur(), false)
+          posts = for n <- 1..3, do: post(j, tenant, "op-#{n}", eur(), [{"a", -n}, {"b", n}])
+          page = &Journal.history(j, tenant, %{account_id: "b", after: &1, limit: 2})
+          {posts, Journal.balance(j, tenant, "b"), page.(nil), page.(2)}
+        end
+
+      entry = fn version, units, balance ->
+        %{
+          version: version,
+          operation_id: "op-#{version}",
+          reverses: nil,
+          amount: amount(eur(), units),
+          balance: amount(eur(), balance)
+        }
+      end
+
+      expected =
+        {[{:ok, :applied}, {:ok, :applied}, {:ok, :applied}], {:ok, amount(eur(), 6)},
+         {:ok, %{entries: [entry.(1, 1, 1), entry.(2, 2, 3)], next: 2}},
+         {:ok, %{entries: [entry.(3, 3, 6)], next: nil}}}
+
+      assert results == [expected, expected, expected]
     end
   end
 
