@@ -396,8 +396,8 @@ When the required local checks (or recorded hosted substitution), the hosted che
 request ready for review. That is the request to merge. The automated reviewer
 reviews only a pull request that is not a draft, so its pass starts then; the
 coordinator merges only after that pass on the exact head has finished with
-its threads resolved, and gives the branch back for any fix. From then the
-coordinator owns the branch: do not push to it unless the coordinator gives it
+its threads resolved, and gives the branch back for any fix. From the ready
+mark the coordinator owns the branch: do not push to it unless the coordinator gives it
 back. You can claim the next task.
 
 ## 7. Merge and cleanup
