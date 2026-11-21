@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: Apache-2.0
+# domain/entitlement: a grant's status at one injected time, over flags that
+# Elixir computes from a validated grant and `now`:
+#   revoked  revoked_at is set and revoked_at <= now
+#   expired  valid_to is set, valid_to <= now, and no grace or grace_until <= now
+#   grace    valid_to <= now < grace_until
+#   active   valid_from <= now, and valid_to is unset or now < valid_to
+# The order is revoked > expired > grace > active; no flag gives not yet.
+mod Elzoo.Entitlement
+  type GrantStatus =
+    StatusRevoked
+    | StatusExpired
+    | StatusGrace
+    | StatusActive
+    | StatusNotYet
+
+  @total true
+  @reducible
+  fn status(revoked: Bool, expired: Bool, grace: Bool, active: Bool) -> GrantStatus =
+    match revoked
+      True() -> StatusRevoked()
+      False() ->
+        match expired
+          True() -> StatusExpired()
+          False() ->
+            match grace
+              True() -> StatusGrace()
+              False() ->
+                match active
+                  True() -> StatusActive()
+                  False() -> StatusNotYet()
+
+  # ---------------------------------------------------------------- laws
+
+  # For all other flags: a revocation wins, also over grace.
+  @total true
+  fn revoked_wins(e: Bool, g: Bool, a: Bool) -> Equivalent(GrantStatus, status(True(), e, g, a), StatusRevoked()) =
+    reflexive(StatusRevoked())
+
+  # For all grace and active flags: without a revocation, expiry wins.
+  @total true
+  fn expired_before_grace(g: Bool, a: Bool) -> Equivalent(GrantStatus, status(False(), True(), g, a), StatusExpired()) =
+    reflexive(StatusExpired())
+
+  # For every active flag: without a revocation or expiry, grace wins.
+  @total true
+  fn grace_before_active(a: Bool) -> Equivalent(GrantStatus, status(False(), False(), True(), a), StatusGrace()) =
+    reflexive(StatusGrace())
+
+  # Active needs no revocation, expiry or grace.
+  @total true
+  fn active_alone() -> Equivalent(GrantStatus, status(False(), False(), False(), True()), StatusActive()) =
+    reflexive(StatusActive())
+
+  # No flag is not yet valid.
+  @total true
+  fn none_not_yet() -> Equivalent(GrantStatus, status(False(), False(), False(), False()), StatusNotYet()) =
+    reflexive(StatusNotYet())
+end
