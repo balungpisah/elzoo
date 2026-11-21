@@ -478,12 +478,10 @@ defmodule Elzoo.MeteringTest do
       missing = M.new(repo: AppRepo, prefix: p <> "_absent")
       {:ok, :applied} = M.record(M.new(repo: AppRepo, prefix: p), "T1", obs("u1"))
 
-      for meter <- [missing] do
-        assert M.record(meter, "T1", obs("u1")) == {:error, :unavailable}
-        assert M.correct(meter, "T1", corr("c1", "u1", 1)) == {:error, :unavailable}
-        assert M.totals(meter, "T1", %{period: "2026-11", max_rows: 1}) == {:error, :unavailable}
-        assert M.observation(meter, "T1", "u1") == {:error, :unavailable}
-      end
+      assert M.record(missing, "T1", obs("u1")) == {:error, :unavailable}
+      assert M.correct(missing, "T1", corr("c1", "u1", 1)) == {:error, :unavailable}
+      assert M.totals(missing, "T1", %{period: "2026-11", max_rows: 1}) == {:error, :unavailable}
+      assert M.observation(missing, "T1", "u1") == {:error, :unavailable}
 
       capture_log(fn ->
         {:ok, pid} =

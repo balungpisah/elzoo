@@ -100,7 +100,7 @@ defmodule Elzoo.Metering do
         is_integer(query.max_rows) and query.max_rows in 1..@max_rows
 
     with :ok <- admit(meter, tenant, valid?),
-         {:ok, rows} <- read(meter, tenant, &group_rows(&1, &2, tenant, query)) do
+         {:ok, rows} <- scoped(meter, tenant, &group_rows(&1, &2, tenant, query)) do
       if length(rows) > query.max_rows,
         do: {:error, :read_limit},
         else: {:ok, Enum.sort_by(rows, &{&1.unit, &1.source})}
@@ -113,7 +113,7 @@ defmodule Elzoo.Metering do
   """
   def observation(meter, tenant, usage_id) do
     with :ok <- admit(meter, tenant, text?(usage_id, 128)),
-         {:ok, rows} <- read(meter, tenant, &observation_rows(&1, &2, tenant, usage_id)) do
+         {:ok, rows} <- scoped(meter, tenant, &observation_rows(&1, &2, tenant, usage_id)) do
       case rows do
         [] -> {:error, :unknown_usage}
         [first | _] -> {:ok, observation_value(usage_id, first, rows)}
@@ -146,8 +146,6 @@ defmodule Elzoo.Metering do
     end)
   end
 
-  defp read(meter, tenant, fun), do: scoped(meter, tenant, fun)
-
   defp scoped(%{repo: repo, prefix: prefix}, tenant, fun) do
     p = Migration.prefix!(prefix)
     t = %{obs: "#{p}.elzoo_metering_observations", corr: "#{p}.elzoo_metering_corrections"}
@@ -163,14 +161,13 @@ defmodule Elzoo.Metering do
     :exit, _ -> {:error, :unavailable}
   end
 
-  # ON CONFLICT without a target: the primary key (tenant, usage_id) is the only unique
-  # constraint, and a concurrent insert of the same key waits, then does nothing.
+  # A concurrent insert of the same key waits for the other transaction, then does nothing.
   defp insert(repo, t, tenant, o, digest) do
     sql = """
     INSERT INTO #{t.obs} (tenant, usage_id, run_id, operation_id, attempt_id, provider_id,
       model_id, unit, amount, source, period, observed_at_ms, digest, effective, revision)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $9, 0)
-    ON CONFLICT DO NOTHING
+    ON CONFLICT (tenant, usage_id) DO NOTHING
     """
 
     params = [
@@ -237,7 +234,7 @@ defmodule Elzoo.Metering do
     insert_sql = """
     INSERT INTO #{t.corr} (tenant, correction_id, usage_id, revision, amount, reason, actor_ref, digest)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    ON CONFLICT DO NOTHING
+    ON CONFLICT (tenant, correction_id) DO NOTHING
     """
 
     update_sql =
@@ -414,7 +411,7 @@ defmodule Elzoo.Metering do
   defp unit_text({:cache_write_tokens, ttl}), do: "cache_write_tokens:" <> ttl
   defp unit_text(unit), do: Atom.to_string(unit)
 
-  defp source_term(text), do: Enum.find(@sources, &(Atom.to_string(&1) == text))
+  defp source_term(text), do: Map.fetch!(Map.new(@sources, &{Atom.to_string(&1), &1}), text)
 
   defp amount?(amount), do: amount == :unknown or int?(amount)
   defp int?(n), do: is_integer(n) and n >= 0 and n <= @max_int

@@ -125,8 +125,8 @@ Each write checks, in order: shape and bounds (`:invalid`), then `repo.in_transa
 `current_setting('transaction_isolation')` and refuses anything but `read committed` as
 `:isolation`: READ COMMITTED is a consumer Need that the Piece checks but cannot set.
 
-- `record/3` inserts with `ON CONFLICT DO NOTHING` (the primary key is the observations'
-  only unique constraint) and on a conflict compares digests, so two concurrent records of
+- `record/3` inserts with `ON CONFLICT (tenant, usage_id) DO NOTHING` and on a conflict
+  compares digests, so two concurrent records of
   one `usage_id` store one: the second waits for the first, then is `:duplicate` or
   `:conflict`.
 - `correct/3` locks the observation row (`FOR UPDATE`; none is `:unknown_usage`), looks up
@@ -144,8 +144,9 @@ they do not check the isolation level.
 
 The digest is SHA-256 over `"elzoo.metering." <> kind <> <<0>>` followed by each request field,
 sorted by its name, as `<<byte_size(name)::32, name::binary, byte_size(value)::32,
-value::binary>>`. `kind` is `observation` or `correction`. Values: text as its bytes; integers
-in decimal; `:unknown` as `unknown`; a unit as its atom name, or `cache_write_tokens:` and the
+value::binary>>`: each length is a 32-bit unsigned big-endian integer, and the name is the
+field's map key as text (for example `usage_id`). `kind` is `observation` or `correction`.
+Values: text as its bytes; integers as ASCII decimal without sign or leading zeros; `:unknown` as `unknown`; a unit as its atom name, or `cache_write_tokens:` and the
 TTL; a source as its atom name. The tenant is not encoded: it is part of every key. A field that
 a later in-place version adds as optional is encoded only when present, so existing digests,
 and the duplicates they decide, stay equal.
@@ -160,6 +161,13 @@ and the duplicates they decide, stay equal.
   in-place additions.
 - `totals/3` reads every observation of the period for the tenant (served by the index); the
   bound is on returned groups, not on rows scanned.
+- The `UPDATE` grant on observations lets code that runs its own SQL as the application role
+  overwrite an observation's columns (including `amount`, `effective` and `digest`) without a
+  correction; only calls through this Piece keep the correction record.
+- The Repo must be a started Ecto Repo: an unstarted Repo or another module raises from
+  `in_transaction?/0` instead of returning an error atom.
+- A stored `unit` or `source` the running copy does not know (a row written outside the
+  Piece, or a copy whose set lost a member) raises at read; the sets only gain members in place.
 - The Piece emits no telemetry and no log, and its queries pass `log: false`; the consumer
   Repo's query telemetry still receives their parameters (tenant and IDs).
 
