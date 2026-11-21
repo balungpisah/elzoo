@@ -221,6 +221,10 @@ decide, stay equal.
 - The host chooses the window and supplies a current resolution: a resolution resolved before
   a revocation still admits until the host resolves again.
 - Allowance is permission to spend, not the total charge: an actual can exceed its estimate.
+- A Repo that is not running (never started, or stopped as during a restart) is not a
+  database failure: `repo.in_transaction?()` raises Ecto's `RuntimeError` before any query, as
+  in `domain/journal` and `domain/metering`. Call the Piece only while the Repo runs; a failed
+  query or a lost connection on a running Repo is `{:error, :unavailable}`.
 - Held and expired amounts stay counted until settled or reconciled; there is no timer.
 - No rolling window, local month, carry-over, per-principal allowance, pricing or posting.
 - No audit capture of the quota tables (`state/audit-log` does not capture them).
