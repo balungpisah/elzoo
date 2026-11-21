@@ -1,0 +1,207 @@
+# Wave 6 — Count and see
+
+## Status and scope
+
+This document is planning input for Wave 6 (`Count and see`) of the P13 track in [bot-platform.md](bot-platform.md). It publishes no task, admits no Piece and promotes nothing to ready. [release-plan.json](release-plan.json) remains the one canonical planning source; handles are provisional until publication, and the coordinator assigns the ELZ IDs then.
+
+Wave 5 is accepted: its root consumer acceptance [ELZ-286](../../tasks/ELZ-286-wave5-tenancy-acceptance.md) is merged, so the serial rule of [bot-platform.md](bot-platform.md) lets Wave 6 be registered. The coordinator reports that the owner approved Wave 6 for planning (2026-11-21). This plan starts from the pruned Wave 6 core in [bot-platform.md](bot-platform.md) ("Subsequent waves (Waves 6–9)"). It checks each handle against the ready manifests and keeps a new Piece only for missing policy.
+
+Wave 6 means two things. A tenant's use is **counted**: usage is observed, allowances are reserved and settled per Run, usage is priced and posted as balanced money. And an operator or tenant can **see** what a bot did and what failed: a Run transcript, retained failures and dataset evaluation of a recipe.
+
+The plan proposes **7 new Pieces and 1 in-place extension across 3 dependency levels**, from 26 candidate handles. Three departures from the pruned baseline, each argued in "All candidate handles":
+
+1. `domain/entitlement` is its own small pure Piece and is not folded into `domain/quota`. Two callers need it: a gate needs the feature decision without a durable quota Piece, and quota needs the allowance. The RC-07 Contract also names entitlement as a distinct Piece.
+2. `state/run-transcript` is not a new Piece. It is a read-only transcript reader added in place to `assembly/run-engine`, which owns the record format (rule of 2026-11-14: extend a ready Piece in place before the first release).
+3. `workflow/spend-alert` is a threshold on the durable tenant allowance of `domain/quota`, not on `workflow/budget`. That Budget is the volatile per-Run Budget and loses its state on restart.
+
+The plan also composes Carbonite `state/audit-log`, which the baseline lists as reuse, in the Wave 6 root acceptance. Wave 6 adds money and allowance admin commands on the Store table that `state/audit-log` audits, which is the job that needs audit capture.
+
+The recorded ELZ-286 limits stay recorded limits for Wave 5. For Wave 6:
+
+- **Identity provider: not needed.** Every Wave 6 Piece takes opaque tenant, principal and Run IDs that `integration/token-verify` and `domain/principal` already supply. No Wave 6 job authenticates a person. Core keeps no identity provider (owner, 2026-11-20).
+- **Live public MCP endpoint: not needed.** No Wave 6 job calls an MCP server. The root acceptance uses scripted providers, so `integration/mcp-runtime`'s success path over a public endpoint stays unshown.
+- **Audit capture: needed, admitted.** The Level 3 root acceptance composes `state/audit-log` over the Wave 6 admin commands. A conditional Level 1 test-role task comes first if the ELZ-285 roles cannot meet its role Needs (see "Dependency levels").
+
+## Source boundaries checked (at `main` `bd1fffb8`)
+
+These facts were read from the ready manifests and READMEs at `main` `bd1fffb8`. No file under `pieces/` changed between `e6380e17` and `bd1fffb8`. They are facts, not claims that a Wave 6 composition has been exercised.
+
+- [runtime/telemetry](../../pieces/runtime/telemetry/piece.json) is one fixed event family `[:elzoo, :job | :effect, :start | :stop | :exception]` with a metadata allowlist; its limits say it is "not an audit record, usage meter, billing input or control receipt; an event may be missing", with no exporter, tracing or persistence. [state/artifact](../../pieces/state/artifact/piece.json) records that this schema "is closed to the two assembly adapters", so artifact declares its own family.
+- [integration/observability](../../pieces/integration/observability/piece.json) is opt-in Prometheus text-format pull of six fixed job/effect events with at most 15 count and 10 duration series. It has no server, tracing, alerting or durable observation. Its events come from `runtime/telemetry` emitters (`assembly/durable-job`). [assembly/run-engine](../../pieces/assembly/run-engine/piece.json) has OTP diagnostics only, and [integration/ai-text](../../pieces/integration/ai-text/piece.json) emits no Elzoo event (telemetry `planned`). So no ready metric counts Runs or model calls.
+- [workflow/budget](../../pieces/workflow/budget/piece.json) is a pure Cure reserve/settle/release over a sealed cap and unit with one **volatile** owner. Its Contract says "Not money settlement, quota or rate limiting", open reservations are lost by restart, and entries grow per `cost_ref` until reset. It is the per-Run Budget of `assembly/run-engine`.
+- [delivery/rate-limit](../../pieces/delivery/rate-limit/piece.json) is a volatile per-tenant and per-principal token bucket. It has no persistence across restarts, so it is not a period allowance.
+- [integration/ai-model](../../pieces/integration/ai-model/piece.json) defines unit-tagged usage: amounts are non-negative integers or `:unknown`, with the input-token convention and the source. It has "no provider call, pricing, cost, metering". [integration/ai-token-count](../../pieces/integration/ai-token-count/piece.json) is an upper-bound estimate that is "not a usage fact and is not for billing".
+- [domain/money](../../pieces/domain/money/piece.json) gives exact amounts over a versioned ISO 4217 registry: integer minor units, no Float, seven declared rounding modes, ratio allocation and a canonical codec. Its limits exclude exchange rates and journal posting, and they state that "whether a posting context accepts a retired currency is domain/journal's decision".
+- `llm_db 2026.11.0` (locked in `mix.lock`) describes model prices as `pricing.components` with a `currency` string and `rate` typed as `Zoi.number()`, so a rate can be a Float. `domain/money` takes no Float. A price derived from `llm_db` therefore needs a declared conversion, and it is an input at most.
+- [assembly/run-engine](../../pieces/assembly/run-engine/README.md) exposes `status/1` (payload-free), `result/3` (the payload of a **completed** Run only, read-only from Unit sequence 1, under an exact `tenant`/`principal`/`run_id` scope and exact `max_records`/`max_bytes` limits) and `event_waits/3`. Its `ResultReader` takes the Unit, evidence and Run-owner Stores as arguments and invokes no callback or mutation. Its README says the tagged v1 and v2 records "distinguish protocol, configuration, gate, admission, authorization, continuation, Run/lifecycle and Resource-cursor facts". No ready API returns the sequence of inputs, actions and settlements of a Run.
+- [runtime/recipe-test](../../pieces/runtime/recipe-test/README.md) returns a step record of inputs, admitted actions and nested starts. `Elzoo.RecipeTest.run/1` is a function of a test helper (`.exs`) loaded with `Code.require_file`, with scripted models only, no network and a clock fixed at 2,000 ms. Its README says "The record is read from the version-1 records of the engine; a later record form needs a change here".
+- [state/artifact](../../pieces/state/artifact/piece.json) stores tenant-owned versioned bytes (at most 16 MiB a version by default) with SHA-256 verification on every get. Caller attribution is consumer-vouched.
+- [delivery/dead-letter](../../pieces/delivery/dead-letter/piece.json) gives redacted neutral failure records and has "no payload storage, persistence, retention or sink". Its README says "A caller may keep the original work under its own storage Contract keyed by message_id".
+- [integration/jobs](../../pieces/integration/jobs/piece.json): "a full page of permanently skipped items blocks later items (stated limit)" for its outbox Relay; an item is acked only when `handle` returns `:done`.
+- [assembly/checked-command](../../pieces/assembly/checked-command/piece.json) retains outcomes in the Store with revision fencing. It is bounded to 1,024 retained operations and 4,096 records a stream, with "No TTL, compaction, deletion or reset API".
+- [state/audit-log](../../pieces/state/audit-log/piece.json) captures Carbonite session-attributed changes of `elzoo_log_records` INSERT/DELETE only, and denied or no-mutation decisions are not captured. It requires `DBConnection.ConnectionPool` (Sandbox refused), a dedicated non-superuser audit owner and an application role without audit-schema privilege or TRUNCATE. Its fixture uses "the connected migration role when it is not a superuser (the hosted CI role)" as audit owner. Its application-role case prints `NOT EXERCISED` where the connected role cannot create roles.
+- [state/tenant-isolation](../../pieces/state/tenant-isolation/piece.json) gives a forced restrictive row-security floor for consumer tables. Its limits say "ready Store tables (`elzoo_log_records` and others) are not protected". [state/retention-erasure](../../pieces/state/retention-erasure/piece.json) is the ready precedent for a Piece that installs its own tables with `Migration.install/1` over a consumer-owned Ecto Repo.
+- [integration/notification](../../pieces/integration/notification/piece.json) sends one email through the `delivery/effect-intent` owner (accepted is not delivery). [state/outbox](../../pieces/state/outbox/piece.json) holds committed pending offers with derived idempotency keys.
+- [domain/membership](../../pieces/domain/membership/piece.json) is ready (ELZ-269) and has "no invitations, tenant status, ... or authorization decision". [domain/kill-switch](../../pieces/domain/kill-switch/piece.json) shows the pure gate form `check/2 -> :allow | {:deny, code}` over a host read and its limit (a gate built before a Run cannot see a later change).
+- Historical dispositions in [catalogue-dispositions.md](catalogue-dispositions.md) (2026-11-08) map `domain/journal` to ADOPT `ash_double_entry`, `domain/quota` to WRAP `hammer` for a time-window slice, and `domain/metering` to ReqLLM per-call usage "stored through the ready Store" (owner product fact OD-F7). The 2026-11-20 owner decision keeps core in plain Elixir, Cure, Ecto and Postgrex with no Ash wrapper. The ready `delivery/rate-limit` now covers the time-window slice.
+
+## All candidate handles
+
+Each handle of the Wave 6 rows of both tables in [bot-platform.md](bot-platform.md), and `domain/entitlement`, which the Wave 5 plan moved here.
+
+| Candidate handle | Disposition | Level and boundary |
+| --- | --- | --- |
+| `domain/metering` (RC-21) | **New durable Piece.** Idempotent retained usage observations and attributable corrections. Estimated, provider-reported and unknown stay distinct, and unknown is never zero. | Level 1. No pricing, quota or admission. Storage per Q1. |
+| `domain/entitlement` (RC-07) | **New small pure Piece.** Versioned plan grants resolve, at an injected time, to entitled, grace or not entitled, with the plan's features and unit allowances. | Level 1. Pure; read by host gates (feature) and by `domain/quota` (allowance). Separate from quota because a gate needs it without durable state, and RC-07 names a distinct entitlement Piece. |
+| `domain/quota` (RC-08) | **New durable Piece.** Tenant allowance per unit and period, with `run_id`-idempotent reservation, settlement and release; unknown usage stays held; period reset is a new period. | Level 2, after entitlement. Keeps `workflow/budget` semantics durably; never a second volatile engine. |
+| `domain/pricing` (RC-23) | **New pure Piece.** Effective usage totals and an immutable rate-card version give an exact `domain/money` charge with declared rounding; provider cost and customer price are separate card kinds. | Level 2, after metering. Conditional on Q2–Q4. |
+| `domain/journal` (RC-22) | **New durable Piece, absorbing `domain/wallet`.** Atomic balanced same-currency postings under one operation identity, immutable linked reversals, and an account flag that forbids a negative balance (the wallet). | Level 1. Plain Ecto/Postgrex tables; `ash_double_entry` is not adopted (no Ash in core). |
+| `domain/wallet` | **Absorbed into `domain/journal`.** A wallet is a journal account that may not go negative. | Level 1, inside journal. |
+| `state/run-transcript` | **In-place extension of `assembly/run-engine`, no new Piece.** A read-only transcript of one Run's committed history: inputs, admitted actions, nested callables as a tree, settlements with their recorded times. | Level 1. The engine owns the record format; a second Piece would decode it again, as `runtime/recipe-test` already does. |
+| `delivery/dead-letter-store` | **New small durable Piece.** Retains ready `delivery/dead-letter` records once per `(tenant, source, message_id)` with an open → resolved lifecycle and bounded listing. | Level 1. Concrete caller: an `integration/jobs` Relay handle that stores a permanent failure and returns `:done`, so a full page of failures no longer blocks later items. |
+| `workflow/eval` | **New pure test-time Piece, absorbing `state/eval-dataset`.** A versioned dataset of recipe-test cases with checks, read from `state/artifact`, run through `runtime/recipe-test`, and scored into a deterministic report. | Level 1. Conditional on Q7 (default: deterministic scripted cases). |
+| `state/eval-dataset` | **Absorbed into `workflow/eval`.** The dataset format belongs to eval; its bytes live in ready `state/artifact`. | Level 1, inside eval. |
+| `runtime/telemetry` | **Reuse unchanged.** The event family for job/effect observations. | Ready. Q8 decides if a Run/model family is added in place. |
+| `integration/observability` (RC-03) | **Reuse unchanged.** Prometheus pull of the fixed events. | Ready. |
+| `runtime/telemetry-events` | **Reuse `runtime/telemetry`.** It is the event family. | Ready. |
+| `runtime/metrics` | **Reuse `integration/observability`.** | Ready. |
+| `runtime/log` | **No Piece.** The consumer's Logger; ready Pieces already keep secrets and payloads out of logs. | Consumer. |
+| `runtime/trace` | **Deferred; the Run tree comes from the transcript.** No OpenTelemetry adoption until a consumer needs an exporter; that would be its own provider prerequisite. | Deferred. |
+| `runtime/alert` | **No Piece.** Alerting rules over the Prometheus scrape are the consumer's. | Consumer. |
+| `workflow/spend-alert` | **Composition, no Piece.** The host compares `domain/quota` status with a threshold and commits one outbox notice through `assembly/checked-command` under the operation ID `(tenant, period, threshold)`. `integration/notification` sends it. | Level 3 root acceptance. |
+| `workflow/budget` | **Reuse unchanged** as the per-Run Budget of `assembly/run-engine`. A Run's Budget cap is the host's share of the tenant's quota reservation. | Ready. |
+| `state/audit-log` | **Reuse unchanged, composed in Wave 6.** Captures the Wave 6 admin commands (allowance grants, credit postings through checked commands) on `elzoo_log_records`. | Level 3 root acceptance; conditional Level 1 role task. |
+| `assembly/tenant-edge` (RC-40) | **Deferred example, pending Q9.** The root acceptance composes the counted gate (verify → membership → authorization → kill-switch → entitlement → quota → Run → metering → pricing → journal) as harness code, as ELZ-286 did. | Deferred (`deferred-example`, examples later). |
+| `runtime/faces` (RC-04) | **Deferred.** Every ready Piece already declares telemetry, Config and Control in its `piece.json` `operations`; no Wave 6 caller needs a universal management face. | Deferred. |
+| `state/projection` | **Deferred.** The Wave 6 read views are the transcript and the metering and quota totals; other read models are the consumer's. | Deferred. |
+| `state/feedback` | **Deferred.** End-user ratings need a product schema; they can be conversation or artifact records when a consumer asks. | Deferred. |
+| `workflow/red-team` | **Deferred.** Adversarial cases can be `workflow/eval` dataset cases; no separate Piece until a consumer needs generated attacks. | Deferred. |
+| `ui/component` (RC-31) | **Deferred.** Screens stay with the consumer ([bot-platform.md](bot-platform.md), "What stays with the consumer"). | Deferred. |
+
+## Dependency levels
+
+**Level 0 — ready now.** `main` `bd1fffb8` holds every prerequisite below. ELZ-290 and ELZ-291 (test repairs) and the timing flakes listed in the [Wave 5 closure](bot-platform-wave5.md#wave-5-closure-and-open-defect-handoff) do not block this wave.
+
+**Owner answers before publication.** Q1 governs the storage of metering, quota and the dead-letter store. Q7 governs eval. Q2–Q5 govern pricing and the root acceptance's money flow. Level 1 tasks whose sketch does not depend on an open question (entitlement, journal, the transcript) can be published first.
+
+### Level 1 — counting records, the transcript and failures (disjoint, parallelizable)
+
+Each task writes only its own Piece directory, except the transcript, which writes only `pieces/assembly/run-engine/`. Durable tasks keep the local small gate and the full review of the coordinator guide.
+
+**`domain/metering` (RC-21).**
+- *Dependencies:* ELZ-079 (usage values of `integration/ai-model`), ELZ-270 (row-security floor, under Q1 option A) or ELZ-009 (Store, under Q1 option B). No new external dependency.
+- *Contract sketch:* `record/3` retains one usage observation `{tenant, usage_id, run_id, operation_id, attempt, provider_id, model_id, unit, amount, source, period, observed_at_ms}`. `unit` is the closed unit grammar of `integration/ai-model`; `amount` is a non-negative integer or `:unknown`; `source` is `:estimated | :provider_reported | :unknown`; IDs are 1..128 UTF-8 bytes without NUL or control characters. The same `usage_id` with the same canonical bytes is `:duplicate`; with other bytes it is `{:error, :conflict}`. `correct/3` adds an attributable correction `{correction_id, usage_id, amount, reason, actor_ref}` to an existing observation: it never deletes, and the effective amount is the latest correction by commit order. `totals/3` returns, per `(tenant, period, unit, source)`, the known effective sum and the count of observations whose effective amount is unknown, never adding unknown as zero. Reads are bounded (`max_rows`). Refusals: malformed input, then the caller's open transaction, before any query. Fixed error atoms never echo an ID.
+- *Storage (Q1):* option A installs one table pair with `Migration.install/1` (observations with `UNIQUE (tenant, usage_id)`, and corrections), protected with `state/tenant-isolation`. Option B uses one ready-Store stream per `(tenant, period)` and states its record bound.
+- *Acceptance:* exact duplicate and conflicting duplicate; two concurrent records of one `usage_id` behind a barrier store one; an interrupted stream recorded `:unknown` stays out of the sum and in the unknown count; a late correction from unknown to known moves it into the sum; a correction of an absent `usage_id` is refused; mixed units and the three sources stay apart in totals; cross-tenant read returns no row and a write under another tenant is refused (option A, as `elzoo_app`); caller-transaction refusal; byte and count bounds at their edges. Negative controls: drop the unknown branch from `totals/3`, and drop the uniqueness.
+
+**`domain/entitlement` (RC-07, entitlement part).**
+- *Dependencies:* ELZ-033. No new external dependency.
+- *Contract sketch:* pure Cure decisions and Elixir validation. A plan version is `{plan_id, version, content_hash, features, allowances}`. `features` is a sorted unique list of 0..256 names. Each allowance is `{unit, amount, period_kind}`, with a positive integer `amount` and the unit grammar of `domain/metering`. A grant is `{tenant, plan_id, version, valid_from_ms, valid_to_ms | nil, grace_until_ms | nil, revoked_at_ms | nil}`. `resolve(facts, tenant, now_ms)` takes the host's plan versions and grants and returns `{:entitled, resolution}`, `{:grace, resolution}` or `{:not_entitled, :no_grant | :expired | :revoked}`. A grant is active when `valid_from <= now < valid_to` (an absent `valid_to` is open). Grace holds when `valid_to <= now < grace_until`. Revocation with `revoked_at <= now` wins over grace. Two grants of one tenant active at one `now` are refused `overlap`. A grant naming an unknown plan version, or a plan whose `content_hash` does not match its canonical bytes, is refused. `feature(resolution, name)` gives `:allow` or `{:deny, :feature_absent}`. A resolution in grace allows its features but marks its allowances as settle-only (no new reservation; `domain/quota` enforces that). No I/O, clock, storage or authorization decision; a revocation takes effect at the next call that sees it (the kill-switch form).
+- *Acceptance:* every boundary at exact `now` (`valid_from`, `valid_to` exclusive, `grace_until` exclusive); revoked during grace; overlap; unknown plan version; content-hash mismatch; feature absent and present; two tenants that do not cross; malformed facts in a fixed error order; error atoms with no ID. Selected Cure law: the status order (revoked > expired > grace > active) over the flags Elixir supplies. Negative control: swap grace and revocation in the order.
+
+**`domain/journal` (RC-22, absorbing `domain/wallet`).**
+- *Dependencies:* ELZ-031 (`domain/money`), ELZ-270 (row-security floor). No new external dependency; `ash_double_entry` is rejected for core (plain Ecto, owner 2026-11-20).
+- *Contract sketch:* `Migration.install/1` installs accounts `{tenant, account_id, currency identity, allow_negative}`, transactions `{tenant, operation_id, actor_ref, reason, reverses}` and postings `{transaction, account, minor units}`, with stored balances. `post/3` takes one operation with 2..64 postings: same tenant, every posting in its account's currency, and a zero sum. It commits all postings or none in one database transaction. Its steps are: insert the transaction row (a duplicate `operation_id` with equal canonical bytes returns the first result; other bytes are `conflict`); lock the affected balance rows in `account_id` order; refuse `insufficient_funds` when an `allow_negative: false` account would go below zero; then insert the postings and update the balances. Account identity is not principal identity. `reverse/3` posts the negation of one earlier operation as a new operation linked to it, at most once (`already_reversed`); a reversal is not reversible. A new posting in a retired currency is refused `retired_currency`; a reversal of an earlier posting in a now-retired currency is accepted. That is the decision `domain/money` leaves to the journal. `balance/3` and `history/3` are bounded reads. Amounts use the `domain/money` codec. No Float, no exchange rates, no payment or settlement claim (a balanced journal does not prove external settlement). Isolation: READ COMMITTED with ordered row locks; the task states it and tests it.
+- *Acceptance:* balanced post; unbalanced, cross-currency and cross-tenant posts refused; two concurrent debits of a wallet whose balance covers one commit exactly one behind a barrier; duplicate operation replay and conflicting duplicate; reversal and reversal replay; a connection killed inside the transaction leaves no posting and no balance change; retired-currency post refused and reversal accepted; caller-transaction refusal; row security as `elzoo_app`; bounds. Negative controls: drop the lock ordering (deadlock or lost update shows), and drop the zero-sum check.
+
+**Run transcript, in place on `assembly/run-engine` (job `state/run-transcript`).**
+- *Dependencies:* ELZ-127 (and the in-place tasks merged on it). No new external dependency. The job owns `pieces/assembly/run-engine/` only; `runtime/recipe-test` is not changed.
+- *Contract sketch:* a read-only `transcript/3` over the same exact scope (`tenant`, `principal`, `run_id`) and exact limits (`max_records`, `max_bytes`, with the maxima of `result/3`) and the same optional `result_reader` Store configuration. The worker checks first whether a function over the host's Store binding (the `ResultReader` form) can serve a stopped Run; if it can, the API is offered both ways and a stopped Run reads the same as a live one. It returns, in commit order, v1 and v2 entries: each input (kind, `input_id`, `at_ms`); each admitted action (occurrence, the callable path from the root as a list of parent occurrences, kind, schema ID and version, action ID, payload); each nested start and first admitted finish; each gate and authorization verdict with its policy identity; each settlement (outcome class, reason, actual or `unknown`, `at_ms`); and the terminal outcome. The tree comes from the callable path, and a span is admission to settlement in recorded time; no clock is read. It refuses pruned, gapped, damaged, over-limit or unpaired history with the bounded errors of `result/3` and invokes no Operator, pattern, gate, binding or clock callback, and no mutation.
+- *Acceptance:* a completed Run with a nested graph gives the expected tree; an ASK-paused Run; an Effect made `unknown` by a restart shows `unknown` and no actual; a v2 outside-event wait; wrong tenant, principal or Run is `scope`; one record or byte over the limit is `read_limit`; pruned history is `history`; Store heads unchanged and callbacks counted at zero; two reads equal; a read after the engine stops equals the read before (if offered). Negative control: drop the parent-occurrence link and the tree case fails. The small gate reruns every ready dependant (`runtime/recipe-test` and others).
+
+**`delivery/dead-letter-store`.**
+- *Dependencies:* ELZ-006 (`delivery/dead-letter`), ELZ-270 (option A of Q1) or ELZ-009 (option B), ELZ-010 (`integration/jobs`, test composition only). No new external dependency.
+- *Contract sketch:* `put/3` validates one record with `Elzoo.DeadLetter.validate/1` and retains it once per `(tenant, source, message_id)`, with an optional opaque `work_ref` of 1..256 bytes (the original work stays in its own store). Equal bytes are `:duplicate`, other bytes `conflict`. A record is `open` until `resolve/3` sets `replayed` or `discarded` once, with `actor_ref` and `at_ms`; a second resolve is `already_resolved`. The host does the replay itself; the Piece dispatches nothing. `list/3` returns open records of one tenant and source oldest first, with a bounded page and cursor. `count/2` gives the open count per source, and `purge/3` deletes resolved records older than a cutoff in bounded batches. No payload is stored (the dead-letter record has none).
+- *Acceptance:* a Relay re-offer after a crash before ack stores once; conflict; resolve once, and two concurrent resolves commit one; list order and paging; cross-tenant isolation; caller-transaction refusal; a malformed record refused through `delivery/dead-letter`; an `integration/jobs` Relay over a page full of permanently failing items, whose handle stores each failure and returns `:done`, then delivers the later items. Negative control: drop the uniqueness.
+
+**`workflow/eval` (absorbing `state/eval-dataset`), conditional on Q7.**
+- *Dependencies:* ELZ-181 and ELZ-183 (`runtime/recipe-test`), ELZ-096 (`state/artifact`). No new external dependency.
+- *Contract sketch (Q7 option A):* a test-time helper like `runtime/recipe-test`. A dataset version 1 is JSON (duplicate keys refused) `{dataset_id, version, cases}` with 1..256 cases of `{case_id, spec, checks}`. `spec` is a `runtime/recipe-test` spec. Each case has 1..16 checks from a closed set: `outcome_is`, `final_text_equals`, `final_text_contains`, `structured_matches` (a `core/payload-schema` schema), `tool_called` and `tool_not_called` (with a count), and `max_steps`. `load/2` reads the bytes through `state/artifact` `get` (hash verified) and validates them with a path to the first fault. `score/2` is pure: one recipe-test record and the checks give a pass or a failure with a fixed reason for each check. `run/2` runs each case and returns a report `{dataset identity (id, version, sha256), package identity, passed, failed, cases}`. An unscripted call or a harness error is a case error, not a crash. The report is a value; the host may store it as an artifact.
+- *Acceptance:* a passing dataset; one failing case per check kind; a malformed dataset refused at its path; an artifact hash mismatch refused; an unscripted call reported as a case error; the same dataset twice gives an equal report (observed, not proven); a changed recipe package flips the expected case. Risk is low (author data, test-time), so one light review and the hosted `check-piece` may serve as the small gate.
+
+**Audit roles check, conditional non-Piece task.** Before Level 3, the coordinator checks whether `state/audit-log`'s role Needs hold with the ELZ-285 roles: `elzoo_test` as migration and audit owner (the fixture's hosted form) and `elzoo_app` as the application role without audit-schema privilege or TRUNCATE. The Repo must use `DBConnection.ConnectionPool`, not the Sandbox. If they hold, no task is needed and the root acceptance records the check. If not, an ELZ-285-style CI and setup task adds one fixed audit-owner role with the full gate and merges first.
+
+### Level 2 — allowance and price (after their Level 1 inputs merge and `main` is green)
+
+**`domain/quota` (RC-08).**
+- *Dependencies:* the `domain/entitlement` task, ELZ-022 (`workflow/budget` semantics), ELZ-270 or ELZ-009 per Q1. No new external dependency.
+- *Contract sketch (storage per Q1, periods per Q6):* one allowance per `(tenant, unit, period)`, opened from an entitlement resolution. `reserve/3` takes `{run_id, estimate, expiry_ms}` all or nothing and is idempotent by `run_id` (the same bytes return the first result, other bytes are `conflict`); it is refused when committed + held + reserved + estimate would pass the allowance, or when the resolution is in grace. `settle/3` takes `{run_id, actual | :unknown}`: a known actual commits it and frees the rest; `:unknown` moves the estimate to held (never zero) until `reconcile/3` gives the actual from a metering correction, or an attributable operator write-off. A reservation that reaches its expiry unsettled is held at its estimate. `release/3` frees an unstarted reservation. A new period is a new allowance; a settlement of an old-period reservation lands in its own period. `status/3` gives allowance, committed, held, reserved and remaining. The task records whether it reuses `Cure.Elzoo.Budget` decisions over a locked row or states equivalent laws itself; no second volatile owner.
+- *Acceptance (RC-08):* concurrent last-unit admission of two Runs commits one; duplicate reserve and duplicate settle; a reset race at a period boundary; a restart with an open reservation and unknown usage keeps it held; grace refuses a new reservation and accepts a settlement; cross-tenant isolation; caller-transaction refusal.
+
+**`domain/pricing` (RC-23).**
+- *Dependencies:* the `domain/metering` task, ELZ-031. No new external dependency.
+- *Contract sketch (conditional on Q2–Q4):* pure Cure and Elixir. A rate card version `{card_id, version, content_hash, kind: :cost | :price, currency, lines}` is immutable. Each line is `{unit, provider_id, model_id, rate, per, minimum}`, with `rate` an exact decimal string and `per` a positive integer of units. `price/2` takes the `domain/metering` totals of one tenant and period and one card. It returns per-line exact charges rounded once per line by the Q3 rule, a total in the card's currency, the card identity, and `incomplete: true` with the unknown count when any observation is unknown; unknown is never priced as zero. A unit with no line is refused `unpriced_unit`; a `:cost` card and a `:price` card never combine. A correction re-prices the period from effective amounts under the card version of the original charge, and the host posts the difference as a new journal operation. Earlier charges are never re-priced by a newer card.
+- *Acceptance (RC-23):* a newer card leaves an earlier charge equal; mixed units or currency refused; fractional rates at the rounding boundary; zero usage and the minimum; unknown usage gives incomplete; a correction gives an attributable difference.
+
+### Level 3 — mandatory Wave 6 root consumer acceptance (no Piece output)
+
+Mirrors ELZ-252, ELZ-266 and ELZ-286. It depends on every Wave 6 task above, and on ELZ-127, ELZ-249, ELZ-055, ELZ-054, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-281 and ELZ-285. It exercises the public interfaces together on real disposable PostgreSQL. The application connection is the `elzoo_app` role, and the test fails, not skips, if the role is missing or bypasses row security. It adds no Piece, runtime, provider or generic test framework, and a Piece failure is a separately scoped repair.
+
+1. **Counted Runs:** two tenants run RunEngine Runs with a counting fake provider. Each completed model call gives an `integration/ai-model` usage, which the host records in `domain/metering` keyed by Run, occurrence and Attempt. A replay after a restart counts once. A call dropped by the restart is recorded `:unknown` and is in the unknown count, not the sum. A later correction moves it.
+2. **Allowance:** `domain/entitlement` resolves the plan, and a removed feature denies at the host gate. `domain/quota` reserves by `run_id` before each Run starts and gives the Run's Budget cap. Two Runs race for the last allowance and exactly one starts. Settlement uses the Run's committed actual, and an unknown keeps its share held across a restart.
+3. **Price and post:** the period's totals are priced with card version 1. Version 2, published later, leaves that charge equal. The charge posts to `domain/journal` as one balanced operation; a duplicate is replayed, a correction posts a linked difference, and a wallet that may not go negative refuses an overdraw (per Q5).
+4. **See:** the transcript of a completed T1 Run with a nested callable shows its tree; T2's scope is refused; the restarted Run shows its unknown Effect.
+5. **Failures:** a page of permanently failing outbox items is stored in `delivery/dead-letter-store` and acked, the later items are delivered, and a stored failure is replayed by the host and resolved once.
+6. **Audit capture:** the allowance grant and a manual credit go through `assembly/checked-command` on the Store with `state/audit-log` installed. Each committed command has one Carbonite transaction with its actor attribution, and a denied command has none (audit-log's stated exclusion).
+7. **Spend alert:** crossing a threshold commits one outbox notice under the operation ID `(tenant, period, threshold)`, and a second check commits none.
+8. **Eval:** a dataset artifact runs through `workflow/eval`, and a changed recipe fails its case.
+9. **Negative controls, one at a time:** connect without `SET ROLE` (group 1 isolation must fail); price unknown as zero (group 3 must fail); drop the `run_id` key from the reservation (group 2 duplicate must fail); skip audit installation (group 6 must fail). Restore each before the final passing run.
+
+Limits to state: pinned test keys, not an identity provider; scripted providers, so no real provider usage report or live MCP endpoint; no invoice, payment or settlement (Wave 9); the ready Store tables are not under row security, as in ELZ-286; Run and model metrics are not shown (Q8); the counted gate is harness code (Q9).
+
+## Provider prerequisites and open questions
+
+**Provider prerequisites:** none. Every proposed Piece uses only locked dependencies (`ecto_sql`, `postgrex`, `decimal`, `jason`, Cure). `ash_double_entry`, `hammer`, `ex_money` and an OpenTelemetry exporter are not adopted; any later adoption is its own provider-prerequisite task with the full check. The only conditional non-Piece task is the audit roles check of Level 1.
+
+**Owner questions.** Each one blocks only the named task.
+
+1. **Q1 — Where usage, allowance and dead-letter records live** (`domain/metering`, `domain/quota`, `delivery/dead-letter-store`).
+   - A: each Piece installs its own plain Ecto tables with `Migration.install/1`, protected by `state/tenant-isolation`.
+   - B: ready Store streams, as product fact OD-F7 (2026-11-08) said for metering.
+
+   *Recommendation: A.* The ready Store tables are not under row security, the Store gives no sum query, and CheckedCommand streams stop at 1,024 operations with no compaction. A replaces OD-F7's storage clause; its source stays ReqLLM per-call usage through `integration/ai-model`. `domain/journal` uses tables in either case (RC-22: Store CAS alone is not a journal).
+2. **Q2 — What a price is charged on** (`domain/pricing`).
+   - A: unit-tagged usage per provider and model (token kinds and calls), a rate per line and an optional per-line minimum.
+   - B: a flat fee per Run or per bot call.
+   - C: A plus volume tiers.
+
+   *Recommendation: A.* Tiers wait until a plan needs them.
+3. **Q3 — Currency and rounding** (`domain/pricing`, `domain/journal`).
+   - A: one currency per tenant billing account, any `domain/money` registry currency, no exchange; rates kept exact; round once per priced line per period with `:half_even` at the currency's minor unit.
+   - B: as A, but round each usage record up (`:ceiling`).
+   - C: one fixed platform currency.
+
+   *Recommendation: A.* B over-charges a little on many small records.
+4. **Q4 — Where rates come from** (`domain/pricing`).
+   - A: owner-authored decimal-string rate cards; `llm_db` prices are a reference only.
+   - B: cards derived from `llm_db` `pricing.components` with a declared Float-to-decimal conversion.
+
+   *Recommendation: A.* `llm_db` rates are `Zoi.number()`, and `domain/money` takes no Float.
+5. **Q5 — Billing model in Wave 6** (root acceptance; `domain/journal` supports both).
+   - A: postpaid within the allowance; charges post to a receivable account; invoices in Wave 9.
+   - B: prepaid credit wallet; a top-up grants allowance; a wallet that may not go negative.
+   - C: both.
+
+   *Recommendation: A, with B's wallet shown in the acceptance through the journal flag.* No Piece changes between them.
+6. **Q6 — Allowance period** (`domain/quota`).
+   - A: UTC calendar month; unused allowance does not carry over.
+   - B: the tenant's local calendar month.
+   - C: rolling 30 days.
+
+   *Recommendation: A.* The host passes the period ID, so B can follow without a Contract change.
+7. **Q7 — Eval scoring** (`workflow/eval`).
+   - A: deterministic scripted cases through `runtime/recipe-test` with the closed check set.
+   - B: live models through the real adapters, scored with the same checks.
+   - C: a model-graded judge.
+
+   *Recommendation: A for Wave 6.* B needs live credentials and is not repeatable in CI; C makes a model's word the evidence (rule 8).
+8. **Q8 — Run and model metrics.**
+   - A: none in Wave 6; counts are `domain/metering`, and seeing is the transcript.
+   - B: add in place a Run and model-call family to `runtime/telemetry` and `integration/observability`, emitted by `assembly/run-engine` and `integration/ai-text`, as Level 2 tasks.
+
+   *Recommendation: A.* B touches four ready Pieces; it is its own later task when a consumer needs Prometheus Run metrics.
+9. **Q9 — `assembly/tenant-edge` (RC-40).**
+   - A: keep it a deferred example; the root acceptance composes the counted gate as harness code.
+   - B: admit a reusable Assembly in Level 3.
+
+   *Recommendation: A.* RC-40 is an examples-later row that needs the owner's authorization for an examples wave, and no consumer yet asks for the gate as one interface.
