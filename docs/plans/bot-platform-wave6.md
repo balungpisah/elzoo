@@ -82,7 +82,7 @@ Each handle of the Wave 6 rows of both tables in [bot-platform.md](bot-platform.
 
 **Level 0 — ready now.** `main` `bd1fffb8` holds every prerequisite below. ELZ-290 and ELZ-291 (test repairs) and the timing flakes listed in the [Wave 5 closure](bot-platform-wave5.md#wave-5-closure-and-open-defect-handoff) do not block this wave.
 
-**Owner answers before publication.** Q1 governs the storage of metering, quota and the dead-letter store. Q7 governs eval. Q2–Q5 govern pricing and the root acceptance's money flow. Q6, and Q2 for units, govern the allowance shape of entitlement. Level 1 tasks whose sketch does not depend on an open question (journal, the transcript) can be published first.
+**Owner answers before publication.** Q1 governs the storage of metering, quota and the dead-letter store. Q7 governs eval. Q2–Q5 govern pricing and the root acceptance's money flow. Q2, for units, also governs metering. Q6, and Q2 for units, govern the allowance shape of entitlement. Level 1 tasks whose sketch does not depend on an open question (journal, the transcript) can be published first.
 
 ### Level 1 — counting records, the transcript and failures (disjoint, parallelizable)
 
@@ -161,7 +161,7 @@ Limits to state: audit capture covers only the CheckedCommand records on `elzoo_
    - B: ready Store streams, as product fact OD-F7 (2026-11-08) said for metering.
 
    *Recommendation: A.* The ready Store tables are not under row security, the Store gives no sum query, and a Store stream is read by replay (`state/scheduler` records that "replay scans the stream each operation"), so a period total under B reads every record of the stream. A replaces OD-F7's storage clause; its source stays ReqLLM per-call usage through `integration/ai-model`. `domain/journal` uses tables in either case (RC-22: Store CAS alone is not a journal).
-2. **Q2 — What a price is charged on** (`domain/pricing`).
+2. **Q2 — What a price is charged on** (`domain/pricing`; the unit set of `domain/metering` and `domain/entitlement`).
    - A: unit-tagged usage per provider and model in the `integration/ai-model` unit set (token kinds, images, search units and the rest), a rate per line and an optional per-line minimum.
    - B: a flat fee per completed Run; metering and entitlement then gain a host unit `runs`.
    - C: A plus volume tiers.
@@ -184,12 +184,12 @@ Limits to state: audit capture covers only the CheckedCommand records on `elzoo_
    - C: both.
 
    *Recommendation: A, with B's wallet shown in the acceptance through the journal flag.* No Piece changes between them.
-6. **Q6 — Allowance period** (`domain/quota`).
+6. **Q6 — Allowance period** (`domain/quota`; the `period_kind` set of `domain/entitlement`).
    - A: UTC calendar month; unused allowance does not carry over.
    - B: the tenant's local calendar month.
    - C: rolling 30 days.
 
-   *Recommendation: A.* The host passes the period ID, so B can follow without a Contract change.
+   *Recommendation: A.* The host passes the period ID, so B can follow without a change to quota's Contract; entitlement would gain one `period_kind` value.
 7. **Q7 — Eval scoring** (`workflow/eval`).
    - A: deterministic scripted cases through `runtime/recipe-test` with the closed check set.
    - B: live models through the real adapters, scored with the same checks.
