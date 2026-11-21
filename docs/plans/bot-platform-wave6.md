@@ -140,6 +140,8 @@ Each task writes only its own Piece directory, except the transcript, which writ
 
 ### Level 3 — mandatory Wave 6 root consumer acceptance (no Piece output)
 
+Published as [ELZ-323](../../tasks/ELZ-323-wave6-count-and-see-acceptance.md), whose text supersedes this sketch where they differ: it does not compose `integration/notification` (the spend-alert notice is committed, not sent), a retained checked-command denial is audited, and the allowance grant is a host grant fact in the command's resource rather than a quota write.
+
 Mirrors ELZ-252, ELZ-266 and ELZ-286. It depends on every Wave 6 task above, and on ELZ-127, ELZ-249, ELZ-055, ELZ-054, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-281 and ELZ-285. It exercises the public interfaces together on real disposable PostgreSQL. The application connection is the `elzoo_app` role, and the test fails, not skips, if the role is missing or bypasses row security. It adds no Piece, runtime, provider or generic test framework, and a Piece failure is a separately scoped repair.
 
 1. **Counted Runs:** two tenants run RunEngine Runs with a counting fake provider. Each completed model call gives an `integration/ai-model` usage, which the host records in `domain/metering` keyed by Run, occurrence and Attempt. Under T1's scope as `elzoo_app`, no T2 usage row is visible and a write of a T2 row is refused (SQLSTATE 42501). A replay after a restart counts once. A call dropped by the restart is recorded `:unknown` and is in the unknown count, not the sum. A later correction moves it.

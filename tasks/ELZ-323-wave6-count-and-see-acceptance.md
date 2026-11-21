@@ -37,7 +37,11 @@ fixture's hosted form) and owns the Store and audit schemas; `elzoo_app`,
 reached through `SET ROLE`, is the application role with only the Store-table
 privileges the Store needs, no `TRUNCATE` and no audit-schema privilege. The
 audited Store Repo uses `DBConnection.ConnectionPool`, never the Sandbox. The
-report records the role attributes it read.
+test asserts the role attributes it reads, and fails if `elzoo_app` holds
+`TRUNCATE` on a Store table, holds any privilege on the audit schema or owns
+a Store table; the report records them. This is the first run of audit-log
+under that role, whose own application-role case prints `NOT EXERCISED` in
+hosted runs.
 
 ## Fixture
 
