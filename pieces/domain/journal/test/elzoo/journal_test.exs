@@ -322,6 +322,33 @@ defmodule Elzoo.JournalTest do
       assert_raise ArgumentError, @message, fn -> Elzoo.Journal.Migration.install("1bad") end
       assert Journal.balance(%{j | prefix: "Bad"}, "T1", "a") == {:error, :invalid}
     end
+
+    test "new/1 takes only a registry that Registry.valid?/1 accepts", %{p: p} do
+      default = Registry.default()
+      v = Registry.latest(default)
+
+      # Each has the versions list and snapshots map that journal/1 checks per call.
+      for registry <- [
+            %{versions: ["bogus"], snapshots: %{}},
+            %{versions: ["bogus"], snapshots: %{}, active_numeric: %{}, sources: %{}},
+            put_in(default, [:snapshots, v, "EUR", :numeric], 1000),
+            Map.delete(default, :active_numeric),
+            Map.delete(default, :sources)
+          ] do
+        refute Registry.valid?(registry)
+
+        assert_raise ArgumentError, @message, fn ->
+          Journal.new(repo: AppRepo, prefix: p, registry: registry)
+        end
+      end
+
+      newer = Registry.build!([Harness.extract(), Harness.derived("2027-01-01", [], [])])
+
+      for registry <- [default, newer] do
+        assert %Journal{registry: ^registry} =
+                 Journal.new(repo: AppRepo, prefix: p, registry: registry)
+      end
+    end
   end
 
   # ------------------------------------------------------------ 2
