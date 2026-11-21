@@ -7870,6 +7870,29 @@
       "issue_body_sha256": "6f3ad0869149aac47c539de47b482075d96746e18c25165dc91b32fb4c722518"
     },
     {
+      "id": "ELZ-295",
+      "title": "ELZ-295 — Document the owner choices and deliberate limits for users",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-286"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-295-choices-and-limits.md"
+      ],
+      "outputs": [],
+      "acceptance": "docs/choices.md gives users, for each owner choice and deliberate limit (the Wave 5 choices, the ELZ-286 limits, the run-engine request charge and payload caps, and the earlier owner decisions still in force), what was chosen, why, what it means for them and how to change it, including whether a change needs a new Piece ID, with a source link for each; README.md links it; no Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 683,
+      "url": "https://github.com/balungpisah/elzoo/issues/683",
+      "issue_body_sha256": "48e18488d6626c8efbb4b12036651a42027c2c63522e3a16a6fb11c9205b02c3"
+    },
+    {
       "id": "ELZ-296",
       "title": "ELZ-296 — Plan Wave 6, Count and see",
       "kind": "published",
