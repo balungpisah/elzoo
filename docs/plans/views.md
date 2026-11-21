@@ -339,6 +339,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-287](https://github.com/balungpisah/elzoo/issues/661) | V1B / pieces | ELZ-127 | published 2026-11-20 | coordinator; one-PR path; independent review and merge queue |
 | [ELZ-288](https://github.com/balungpisah/elzoo/issues/662) | V1B / pieces | ELZ-079, ELZ-080, ELZ-087, ELZ-105, ELZ-271, ELZ-273 | published 2026-11-20 | coordinator; one-PR path; independent review and merge queue |
 | [ELZ-289](https://github.com/balungpisah/elzoo/issues/663) | V1B / pieces | ELZ-255 | published 2026-11-20 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
+| [ELZ-292](https://github.com/balungpisah/elzoo/issues/674) | V1B / pieces | none | published 2026-11-21 | coordinator; one-PR path for a documents change; independent review and merge queue |
+| [ELZ-293](https://github.com/balungpisah/elzoo/issues/677) | V1B / pieces | ELZ-286 | published 2026-11-21 | coordinator; one-PR path for a documents change; independent review and merge queue |
 | [ELZ-291](https://github.com/balungpisah/elzoo/issues/673) | V1B / pieces | ELZ-289 | published 2026-11-21 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 
 ## Catalogue accounting
@@ -526,7 +528,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-291.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-292, ELZ-293, ELZ-291.
 
 ### V2-ACCEPT
 
@@ -4196,6 +4198,26 @@ Publication copy: [tasks/ELZ-289-consumer-harness-completion-cleanup.md](../../t
 **Product aims:** P13.
 
 **Acceptance:** The copied-consumer helper rejects a zero-status run without its own top-level suite summary even when a nested suite printed success, and a killed owning test leaves no consumer BEAM or descendant running (#581); timeouts, selection and isolation assertions unchanged. Nested-success and owner-timeout cases with OS PIDs, per-part negative controls, full/affected gate.
+
+### ELZ-292
+
+ELZ-292 — State that the automatic Amp-Thread-ID commit trailer is allowed metadata
+
+Publication copy: [tasks/ELZ-292-amp-thread-id-trailer.md](../../tasks/ELZ-292-amp-thread-id-trailer.md).
+
+**Product aims:** P13.
+
+**Acceptance:** AGENTS.md section 4 and the matching change-class-flow bullet state that the Amp-Thread-ID trailer Amp adds automatically is allowed metadata, needs no approval and is not rewritten out of history (owner decision); authored content stays roles-only and every other rule is unchanged. Documents-only classification, live roadmap, claims and diff checks.
+
+### ELZ-293
+
+ELZ-293 — Record the Wave 5 closure and its open-defect handoff
+
+Publication copy: [tasks/ELZ-293-wave5-closure-note.md](../../tasks/ELZ-293-wave5-closure-note.md).
+
+**Product aims:** P13.
+
+**Acceptance:** bot-platform-wave5.md records the Wave 5 closure (every published Wave 5 task merged on a green main, repairs, recorded coordinator decisions, the ELZ-286 limits and the non-blocking open items) and bot-platform.md no longer calls Wave 5 planned; no Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.
 
 ### ELZ-291
 
