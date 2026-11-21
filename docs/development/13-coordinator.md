@@ -141,8 +141,10 @@
   `recheck/<PR>` at its last SHA, open a pull request from the second to the
   first, mark it ready so the automated reviewer passes, then close it
   unmerged and delete both branches. Each finding becomes its own task, and
-  the row is removed only once the automated reviewer has posted on that
-  pull request; if it posts nothing, the row stays.
+  the row is removed only after the automated reviewer posts findings or an
+  explicit no-findings result for the recheck head. If it posts no review
+  result, including when it reports that it is unavailable or out of quota,
+  the row stays.
 
   | Pull request | Skipped range | Why |
   | --- | --- | --- |
