@@ -54,7 +54,7 @@ Separate publication PRs keep the coordinator merge path (section 9).
 For a coordinator-owned non-Piece change with no output Piece ID or Piece
 Contract change, publication and implementation may share one PR. So may a
 coordinator-owned test-only Piece repair: it changes only files under the
-`test/` directory of ready Pieces that their `piece.json` already lists, with
+`test/` directory of one ready Piece that its `piece.json` already lists, with
 no output Piece ID, no Contract change and no change to `lib/`, `cure/`,
 `examples/`, `README.md`, `piece.json` or an index row (section 3), and it keeps the Piece flow's gates (small gate, exact-head
 `check-piece`, section 6 review, merge queue). For either: create the

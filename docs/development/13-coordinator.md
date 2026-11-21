@@ -19,7 +19,11 @@
   No separate publication PR, publication merge wait or task label is needed:
   no worker is waiting to claim it. The review that `AGENTS.md` section 6 requires, exact-head hosted
   evidence, freeze rules and the queue are unchanged. Classify the actual
-  paths using the decision tree in `AGENTS.md` section 1.
+  paths using the decision tree in `AGENTS.md` section 1. A test-only repair
+  of one ready Piece may use this path too, under the conditions of
+  `AGENTS.md` section 1 (listed test files only, no output, Contract, library,
+  README, manifest or index change, and the Piece flow's gates); it is still
+  one Piece directory.
 - **Check the text before you publish it.** A task is built from its text
   alone, and a fault in it costs a review pass and an amendment, or a worker
   that meets a clause which cannot hold. Before an issue is created:

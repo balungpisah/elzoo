@@ -4238,4 +4238,4 @@ Publication copy: [tasks/ELZ-294-one-pr-test-only-piece-repair.md](../../tasks/E
 
 **Product aims:** P13.
 
-**Acceptance:** AGENTS.md section 1 admits a coordinator-owned test-only Piece repair (Piece test/ paths only, no output, no Contract, library, README, manifest or index change) to the one-PR path, keeping the small gate, exact-head check-piece, section 6 review and merge queue; every other condition is unchanged. Documents-only classification, live roadmap, claims and diff checks.
+**Acceptance:** AGENTS.md section 1 admits a coordinator-owned test-only repair of one ready Piece (its listed test/ files only; no output, Contract, library, README, manifest or index change) to the one-PR path, keeping the small gate, exact-head check-piece, section 6 review and merge queue, and the coordinator guide's one-PR bullet names the same case; every other condition is unchanged. Documents-only classification, live roadmap, claims and diff checks.

@@ -19,7 +19,9 @@ documents check.
 Owned path:
 
 - `AGENTS.md` section 1: the "Piece-only implementation" row of the flow
-  table and the one-PR paragraph under it, only.
+  table and the one-PR paragraph under it, only;
+- `docs/development/13-coordinator.md`: the "One PR for coordinator-owned
+  non-Piece work" bullet, only.
 
 Publication owns this task file, its no-output job row in
 `docs/plans/release-plan.json`, and the generated `docs/plans/views.md` and
@@ -28,13 +30,14 @@ Publication owns this task file, its no-output job row in
 ## Required behavior
 
 1. The one-PR paragraph also admits a coordinator-owned test-only Piece
-   repair: a change under the `test/` directory of one or more ready Pieces
-   only, with no output Piece ID, no Piece Contract change, and no change to
+   repair: a change under the `test/` directory of one ready Piece only,
+   limited to files its `piece.json` already lists, with no output Piece ID, no Piece Contract change, and no change to
    `lib/`, `cure/`, `examples/`, `README.md`, `piece.json` or an index row.
 2. Such a repair keeps the Piece flow's gates: the small gate, `check-piece`
    on the exact head, the section 6 review and the merge queue.
 3. The "Piece-only implementation" row points to that paragraph for this
-   case.
+   case, and the coordinator guide's one-PR bullet names the same case,
+   which stays within its "one task is one Piece directory" rule.
 4. Every other condition of the paragraph stays: no `task` label, the section
    2 API lock, the task file and job row on the task branch, closing the task
    and reporting issues, not offering it to another worker, and "All review,
