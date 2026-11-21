@@ -8388,6 +8388,79 @@
       "issue": 734,
       "url": "https://github.com/balungpisah/elzoo/issues/734",
       "issue_body_sha256": "ae5520380d9a2449fff57727466a12fcb68dbb7aec08bb4b339c38c9b9783a9a"
+    },
+    {
+      "id": "ELZ-319",
+      "title": "ELZ-319 — A checked money registry: validate a custom registry once, not on every call",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-316"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; local small gate, full review and merge queue",
+      "paths": [
+        "tasks/ELZ-319-money-registry-token.md"
+      ],
+      "outputs": [],
+      "acceptance": "Elzoo.Money.Registry.check/1 walks a registry once and returns an opaque checked value whose registry is held in a closure made by a private function of Elzoo.Money.Registry; every registry: function of Elzoo.Money and Elzoo.Money.Codec accepts it after a constant-time fun_info test (module, local type, arity 0, the sealing function's name), a raw map is still walked in full, positional functions unwrap a genuine checked value and otherwise stay unchecked as today, and a new Registry.versions/1 reads versions of every form (owner decision: validate a custom registry once, no global cache or process state); forged raw maps and forged checked values refused; money limits state each form's cost and the token's limits (term-format forging, untrusted binary_to_term, refused after a purge or under another build). Measured walk against token test; negative controls for the raw-map walk, a shape-only test and a test without the function name; local small gate.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 739,
+      "url": "https://github.com/balungpisah/elzoo/issues/739",
+      "issue_body_sha256": "9c9abff18cdae54d2315ace1e539d6f48b2b1a1deb625fe4a2a8fa85b71ed6b6"
+    },
+    {
+      "id": "ELZ-320",
+      "title": "ELZ-320 — domain/journal checks its registry once and keeps the checked value",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-314",
+        "ELZ-319"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; local small gate, full review and merge queue",
+      "paths": [
+        "tasks/ELZ-320-journal-registry-token.md"
+      ],
+      "outputs": [],
+      "acceptance": "Elzoo.Journal.new/1 checks a raw registry once with Elzoo.Money.Registry.check/1 and keeps the default or the checked value, never a raw custom map, passes it to every money call and reads versions with Registry.versions/1; journal/1 also accepts a checked value (owner decision: validate a custom registry once); forged raw and forged checked values raise the fixed ArgumentError; results, bounds and queries unchanged; limits state the new cost. Equal-results tests for default, raw and checked registries, kept-raw-map negative control, local small gate.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 740,
+      "url": "https://github.com/balungpisah/elzoo/issues/740",
+      "issue_body_sha256": "d2883ecdd27b12103624ab2fafe53002684829f57ac012edeee507b837b7212a"
+    },
+    {
+      "id": "ELZ-321",
+      "title": "ELZ-321 — domain/pricing checks a custom registry once per call and accepts a checked registry",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-319"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; local small gate, full review and merge queue",
+      "paths": [
+        "tasks/ELZ-321-pricing-registry-token.md"
+      ],
+      "outputs": [],
+      "acceptance": "domain/pricing price/3 and difference/3 accept a checked registry from Elzoo.Money.Registry.check/1, check a raw custom registry once per call and pass the checked value to every money call, so it is walked once per call instead of once per line (owner decision: validate a custom registry once); forged raw and forged checked values stay {:error, :invalid}; pricing limits state each form's cost. Checked-equals-raw and forged-value tests, a measured 1024-line card with default, checked and raw registries each within 25 percent of the default, per-call-walk negative control, local small gate.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 742,
+      "url": "https://github.com/balungpisah/elzoo/issues/742",
+      "issue_body_sha256": "6c50ccfeeed3b28446c31fca90b9c4b16b627ddfcf41efc9f5625c3d305066b9"
     }
   ],
   "entries": [
