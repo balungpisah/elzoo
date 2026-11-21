@@ -26,19 +26,21 @@ defmodule Elzoo.Money.Codec do
   end
 
   @doc """
-  Decode canonical bytes. Wrong shape or a non-canonical integer is
-  `malformed_amount`; a version not held (in the bytes or as an explicit
+  Decode canonical bytes. An explicit `registry:` that
+  `Elzoo.Money.Registry.valid?/1` refuses is `invalid_registry`, first. Wrong
+  shape or a non-canonical integer is `malformed_amount`; a version not held (in the bytes or as an explicit
   `version:` option) is `unknown_registry_version`; bytes of another version than
   an explicit `version:` are `forged_currency`; an
   alpha held in no version is `unknown_currency`; an identity that is not the
   one in effect at the stated version is `forged_currency`.
   """
   def decode(bytes, opts \\ []) do
-    registry = Keyword.get(opts, :registry, Registry.default())
     requested = Keyword.get(opts, :version)
 
-    # An explicit version is validated before the bytes are parsed.
-    with :ok <- requested_version(opts, registry, requested),
+    # An explicit registry, then an explicit version, are validated before the
+    # bytes are parsed.
+    with {:ok, registry} <- Money.registry(opts),
+         :ok <- requested_version(opts, registry, requested),
          {:ok, version, alpha, numeric, exponent, minor} <- fields(bytes) do
       entry = Registry.entry(registry, version, alpha)
 

@@ -13,10 +13,13 @@ defmodule Elzoo.Money do
   `:currency_mismatch`, `:unknown_currency`, `:malformed_code`,
   `:retired_currency`, `:scale_overflow`, `:malformed_amount`,
   `:invalid_ratios`, `:unknown_rounding_mode`, `:unknown_placement`,
-  `:no_minor_unit`, `:forged_currency` and `:unknown_registry_version`.
+  `:no_minor_unit`, `:forged_currency`, `:unknown_registry_version` and
+  `:invalid_registry`.
 
   Options (per call; no default changes at runtime): `registry:` a registry
-  value (default `Elzoo.Money.Registry.default/0`); `version:` a held registry
+  value (default `Elzoo.Money.Registry.default/0`), checked first by
+  `Elzoo.Money.Registry.valid?/1`, else `{:error, {:invalid_registry, nil}}`
+  (the detail never echoes the registry); `version:` a held registry
   version id. For `parse/2` and `parse_numeric/2` it selects the version to
   resolve under (default the newest held version); for `numeric_candidates/2`
   it limits the enumeration to that version. For every function that takes a
@@ -403,26 +406,38 @@ defmodule Elzoo.Money do
   # Options of value functions: an explicit `version:` must be held, and every
   # currency argument must be the member at that version (else forged_currency).
   defp scope(opts) do
-    registry = Keyword.get(opts, :registry, Registry.default())
+    with {:ok, registry} <- registry(opts) do
+      case Keyword.fetch(opts, :version) do
+        :error ->
+          {:ok, registry, nil}
 
-    case Keyword.fetch(opts, :version) do
-      :error ->
-        {:ok, registry, nil}
-
-      {:ok, version} ->
-        if is_binary(version) and Registry.held?(registry, version),
-          do: {:ok, registry, version},
-          else: {:error, {:unknown_registry_version, version}}
+        {:ok, version} ->
+          if is_binary(version) and Registry.held?(registry, version),
+            do: {:ok, registry, version},
+            else: {:error, {:unknown_registry_version, version}}
+      end
     end
   end
 
   defp context(opts) do
-    registry = Keyword.get(opts, :registry, Registry.default())
-    version = Keyword.get(opts, :version, Registry.latest(registry))
+    with {:ok, registry} <- registry(opts) do
+      version = Keyword.get(opts, :version, Registry.latest(registry))
 
-    if is_binary(version) and Registry.held?(registry, version),
-      do: {:ok, registry, version},
-      else: {:error, {:unknown_registry_version, version}}
+      if is_binary(version) and Registry.held?(registry, version),
+        do: {:ok, registry, version},
+        else: {:error, {:unknown_registry_version, version}}
+    end
+  end
+
+  # An explicit registry: is checked before anything else of the call; the
+  # detail never echoes it.
+  @doc false
+  def registry(opts) do
+    registry = Keyword.get(opts, :registry, Registry.default())
+
+    if Registry.valid?(registry),
+      do: {:ok, registry},
+      else: {:error, {:invalid_registry, nil}}
   end
 
   @doc false

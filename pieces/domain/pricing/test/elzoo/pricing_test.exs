@@ -611,6 +611,9 @@ defmodule Elzoo.PricingTest do
       for opts <- [
             [registry: :none],
             [registry: %{}],
+            # The four keys of a built registry with forged contents.
+            [registry: %{versions: ["bogus"], snapshots: %{}, active_numeric: %{}, sources: %{}}],
+            [registry: %{Registry.default() | versions: []}],
             [foo: 1],
             [registry: Registry.default(), foo: 1],
             %{},
