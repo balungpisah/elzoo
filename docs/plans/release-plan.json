@@ -8033,6 +8033,27 @@
       "issue": 673,
       "url": "https://github.com/balungpisah/elzoo/issues/673",
       "issue_body_sha256": "edd28f3b95fcadfa8314609d742aaa0476bf1844c8f8c336653adb8d35891538"
+    },
+    {
+      "id": "ELZ-306",
+      "title": "ELZ-306 — Record the owner's review policy in AGENTS.md section 6",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-306-review-policy.md"
+      ],
+      "outputs": [],
+      "acceptance": "AGENTS.md section 6 records the owner's review policy: a same-model, different-session independent review is accepted when no other model family is available; the automated reviewer's pass on the exact head has finished and its threads are answered and resolved before each merge; and a reviewer of another model family, once available, rechecks domain/journal, domain/metering and delivery/dead-letter-store once, each finding its own task. No other rule changes. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 707,
+      "url": "https://github.com/balungpisah/elzoo/issues/707",
+      "issue_body_sha256": "8e30d95f99ee36c7d3a1d56875bf81a4c0be02c6b4d39ea11e7fb5819d24f531"
     }
   ],
   "entries": [
