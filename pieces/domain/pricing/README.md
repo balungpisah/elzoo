@@ -156,7 +156,9 @@ observations are all unknown); then the line charges and the total
 `difference/3` checks `opts` (`:invalid`), then both charges' shape and
 membership, including a non-negative `total` below 10^38 (`:charge`), then
 that both have the same `tenant`, `period`, `card` and total currency
-identity `{alpha, numeric, minor_unit}` (`:card_mismatch`).
+identity `{alpha, numeric, minor_unit}` (`:card_mismatch`). The amount it
+returns carries the later charge's currency value, including its registry
+version.
 
 Errors are `{:error, reason}` with a fixed atom that never echoes an ID or
 amount: `:invalid`, `:card`, `:content_hash`, `:usage`, `:unpriced_unit`,

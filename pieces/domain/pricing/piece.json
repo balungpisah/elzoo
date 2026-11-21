@@ -16,7 +16,7 @@
     "The charge of an incomplete line covers its known amounts only.",
     "An exact line value must fit 38 significant digits (with an 18-fractional-digit rate per unit, a quantity below about 10^20); a larger one is amount_range, never truncated.",
     "The per-provider and per-model rows are host-built until domain/metering has a read for them; the Piece does not check that the rows are a complete period, and the host owns the period and the card choice.",
-    "Selected Cure laws cover the minimum and completeness decisions in decision-split form, taking the below decision and the per-line known flags as arguments; that is_below and is_zero compute them from the integers is test-grounded, as are validation, the exact value, rounding (domain/money's), the content hash and the error order are Elixir-side and test-grounded only."
+    "Selected Cure laws cover the minimum and completeness decisions in decision-split form, taking the below decision and the per-line known flags as arguments; that is_below and is_zero compute them from the integers is test-grounded, as are validation, the exact value, rounding (domain/money's), the content hash and the error order, which are Elixir-side."
   ],
   "files": [
     "cure/elzoo/pricing.cure",
