@@ -103,16 +103,18 @@ bounded fixture
    charge posts it prices under the current card; after, under the posted charge's own card
    version. An incomplete charge is held; the first complete charge posts its total under an ID
    from its charge record; a later nonzero `difference/3` against the baseline posts under an ID
-   and reason from the correction that caused it; a zero difference posts nothing.
+   and reason from the correction that caused it; a zero difference posts nothing. Before each
+   post the host retains the exact pending post and its charge, and while one is pending the
+   decision replays it unchanged until it is confirmed `:applied` or `:duplicate`.
    - With two unknown observations, card version 1 gives an incomplete charge (known amounts: 2
      + 30 = 32 cents). The decision holds it and there is no journal operation for T1.
    - After `correct/3` makes the cut call known, the complete charge is 47 cents (6,000 input is
      1.8, so 2; 30,000 output is 45). Its post under `charge/T1/2026-11/retail/1` (reason
-     `charge T1 2026-11`) loses its reply, so nothing is recorded; the next decision derives the
-     same ID from the same charge record and the post is `:duplicate`. Revenue +47, receivable
-     −47.
-   - Version 2, now the current card, would give 62 cents. The decision re-prices under the
-     posted version 1 and gives an equal charge: nothing posts.
+     `charge T1 2026-11`) loses its reply. Card version 2, which would give 62 cents, is then
+     published and made current. The retry replays the retained pending post unchanged and is
+     `:duplicate`: T1 has that one operation, revenue +47, receivable −47.
+   - With version 2 current, the decision re-prices under the posted version 1 and gives an equal
+     charge: nothing posts.
    - Correction `dispute-1` (12,000 → 14,000 output) re-prices under version 1 to 50 cents. The
      difference, 3, posts as `charge-correction/T1/2026-11/dispute-1` with the reason
      `correction dispute-1: usage dispute`. The baseline total is 47 + 3.
@@ -186,7 +188,8 @@ bounded fixture
    with the recipe package passes its one case (`outcome_is`, `structured_matches` on
    `yes_result`, `tool_called`), and the report's dataset identity is the SHA-256 of the bytes.
    The changed package (choice links swapped) has another identity, and the case fails. The
-   artifact version is deleted at teardown, so its object leaves MinIO.
+   artifact version is deleted at teardown, and the test asserts its object outcome is `:deleted`
+   or `:absent`.
 
 ## Environment and checks
 
@@ -212,7 +215,7 @@ The affected gate (`mix check --affected origin/main`), the roadmap and claims c
 ## Harness negative controls
 
 Each was a temporary edit, run, recorded and reverted with `git checkout`. Both files then
-matched the committed SHA-256 (test `1b54d235…`, helper `c7eee9e3…`), on a base that includes
+matched the committed SHA-256 (test `84475b5a…`, helper `c15eed1f…`), on a base that includes
 ELZ-319, ELZ-320 and ELZ-321. Each run exited 2. The script is a scratch file, not committed.
 
 1. The application Repo connected without `SET ROLE` (as the owner). With the guard on,
