@@ -8070,13 +8070,13 @@
         "tasks/ELZ-306-review-policy.md"
       ],
       "outputs": [],
-      "acceptance": "AGENTS.md section 6 records the owner's review policy: a same-model, different-session independent review is accepted when no other model family is available; the automated reviewer's pass on the exact head has finished and its threads are answered and resolved before each merge; and a reviewer of another model family, once available, rechecks domain/journal, domain/metering and delivery/dead-letter-store once, each finding its own task. No other rule changes. Documents-only classification, live roadmap, claims and diff checks.",
+      "acceptance": "AGENTS.md section 6 records the owner's review policy: a same-model, different-session independent review is accepted when no other model family is available; the automated reviewer's pass on the exact head has finished and its threads are answered and resolved before the coordinator starts the merge queue, and a queue-made merge of main needs no new pass; and a reviewer of another model family, once available, rechecks domain/journal, domain/metering and delivery/dead-letter-store once, each finding its own task. No other rule changes. Documents-only classification, live roadmap, claims and diff checks.",
       "product_aims": [
         "P13"
       ],
       "issue": 707,
       "url": "https://github.com/balungpisah/elzoo/issues/707",
-      "issue_body_sha256": "c6fb4c66eb7eb808902e17930e1d00d8e66ac0a118029c9fb4597b994751c921"
+      "issue_body_sha256": "6c20ad37c4302352ab3e7a2fa9a89ce5ca346c042ad946d88ec3e593a0be0d37"
     }
   ],
   "entries": [

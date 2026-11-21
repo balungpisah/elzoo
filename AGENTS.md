@@ -381,9 +381,10 @@ exact-head requirements, or hosted checks on a new head.
       Tests: <commands that the reviewer ran, and exit codes> | reviewer could not run tests; worker ran <command>: exit <code>
       Verdict: <no blocker open | blockers open>
 - Answer each finding of the automated reviewer in its thread, and resolve
-  the thread. Before each merge, the automated reviewer's pass on the exact
-  head has finished and every one of its threads is resolved (owner
-  decision).
+  the thread. Before the coordinator starts the merge queue, the automated
+  reviewer's pass on the exact head has finished and every one of its
+  threads is resolved (owner decision). A head that the queue then makes by
+  merging `main` into the branch needs no new pass.
 - When a reviewer of another model family becomes available, it rechecks
   `domain/journal`, `domain/metering` and `delivery/dead-letter-store`
   once. Each finding becomes its own task (owner decision).
@@ -395,8 +396,8 @@ check is the evidence for that command.
 When the required local checks (or recorded hosted substitution), the hosted check and the review are green, mark the pull
 request ready for review. That is the request to merge. The automated reviewer
 reviews only a pull request that is not a draft, so its pass starts then; the
-coordinator merges only after that pass on the exact head has finished with
-its threads resolved, and gives the branch back for any fix. From the ready
+coordinator starts the queue only after that pass on the exact head has
+finished with its threads resolved, and gives the branch back for any fix. From the ready
 mark the coordinator owns the branch: do not push to it unless the coordinator gives it
 back. You can claim the next task.
 

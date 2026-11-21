@@ -11,6 +11,8 @@ The owner accepted the review practice the coordinator has used in Wave 6
   when no other model family is available;
 - the automated reviewer's pass on the exact head must have finished, and
   each of its threads must be answered and resolved, before each merge;
+  the coordinator checks this before it starts the merge queue, and a head
+  that the queue makes by merging `main` needs no new pass;
 - when a reviewer of another model family becomes available, it rechecks
   three merged Pieces once: `domain/journal` (the money ledger),
   `domain/metering` and `delivery/dead-letter-store`, and each finding
@@ -37,13 +39,16 @@ Publication owns this task file, its no-output job row in
 1. The reviewer bullet says that a different session of the same model is
    accepted when no other model family is available, by owner decision,
    and that the comment says so.
-2. The automated-reviewer bullet requires, before each merge, that the
-   automated reviewer's pass on the exact head has finished and that every
-   one of its threads is answered and resolved.
+2. The automated-reviewer bullet requires, before the coordinator starts
+   the merge queue, that the automated reviewer's pass on the exact head
+   has finished and that every one of its threads is answered and
+   resolved, and says that a head the queue makes by merging `main` needs
+   no new pass.
 3. The paragraph that marks a pull request ready says that the automated
    reviewer reviews only a pull request that is not a draft, so its pass
    starts when the PR is marked ready, and that the coordinator merges only
-   after that pass has finished with its threads resolved.
+   starts the queue only after that pass has finished with its threads
+   resolved.
 4. A bullet records the one-time recheck of the three Pieces above by a
    reviewer of another model family once one is available, with each
    finding as its own task.
