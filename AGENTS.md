@@ -358,8 +358,8 @@ When the reviewed delta is unchanged, avoid repeated main chasing and local
 gate runs; this does not waive section 5's required local gates, base and
 exact-head requirements, or hosted checks on a new head.
 
-- The reviewer is a different agent session, and a different model where one
-  is available. Give it the issue body and the diff, not your summary. The
+- The reviewer is a different agent session, and a model of another family
+  where one is available. Give it the issue body and the diff, not your summary. The
   review comment names the model of the reviewer. When no other model
   family is available, a different session of the same model is accepted
   (owner decision), and the comment says so.
@@ -375,7 +375,7 @@ exact-head requirements, or hosted checks on a new head.
 - The record is one pull request comment for each pass. Write no review file.
   Use these five lines:
 
-      Reviewer: <role>; <model> | same model, different session (no other model available)
+      Reviewer: <role>; <model> | same model, different session (no other model family available)
       Reviewed: <SHA> | second pass <first reviewed SHA>..<head>
       Findings: <BLOCKER or NOTE, each with file and line> | none
       Tests: <commands that the reviewer ran, and exit codes> | reviewer could not run tests; worker ran <command>: exit <code>
@@ -393,7 +393,7 @@ missing. Then record the command and the reason in `Local gate:`. The hosted
 check is the evidence for that command.
 
 When the required local checks (or recorded hosted substitution), the hosted check and the review are green, and the
-automated reviewer's pass on the head has finished with its threads resolved, mark the pull
+automated reviewer's pass on the exact head has finished with its threads resolved, mark the pull
 request ready for review. That is the request to merge. From then the
 coordinator owns the branch: do not push to it unless the coordinator gives it
 back. You can claim the next task.
