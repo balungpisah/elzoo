@@ -36,9 +36,11 @@ not change; only the `limits` may gain the sentence of requirement 2. Do not edi
    of the journal value (`journal/1`) keeps its repo, prefix-identifier and
    key-shape registry checks and does not call `valid?/1`. The
    `Elzoo.Money` calls the journal makes still apply ELZ-316's check, which
-   costs nothing for the default registry and walks any other registry on
-   each call. When that applies, say so in the `limits` of `piece.json` and
-   refresh its `manifest_sha256`.
+   costs one `===` comparison for the default registry and walks any other
+   registry on each call. State that in the `limits` of `piece.json` with its
+   bound: for a registry other than the default, `history/3` walks it at
+   most 2 × limit + held versions times and `balance/3` at most held
+   versions + 1 times. Refresh its `manifest_sha256`.
 3. Every other behavior of `new/1` and of the Piece is unchanged.
 
 ## Acceptance and evidence
