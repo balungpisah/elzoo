@@ -2585,7 +2585,9 @@
       "contract": "One operation contains all same-currency postings, atomic balance constraints and immutable linked reversals. Account identity is not principal identity.",
       "acceptance": "Concurrent balance constraint, duplicate operation, partial commit, currency mismatch, retired currency and reversal replay at selected isolation level.",
       "reuse": "Evaluate maintained ledger libraries and transactional SQL; never implement debit and credit as independent effects.",
-      "paths": [],
+      "paths": [
+        "pieces/domain/journal/"
+      ],
       "blockers": [
         "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
         "Choose journal transaction/isolation and atomic balance enforcement; Store CAS alone is not a journal."
@@ -7922,11 +7924,11 @@
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-297-journal.md"],
       "outputs": ["domain/journal"],
-      "acceptance": "Durable plain Ecto/Postgrex journal under the tenant-isolation floor: 2..64 same-currency zero-sum postings committed all or none under one operation ID (equal replay duplicate, other bytes conflict), account rows locked in account_id byte order at READ COMMITTED, no-negative accounts (wallets) refused insufficient_funds, linked reversals at most once and never reversible, retired currency refused for new posts and accepted for reversals; concurrent wallet debits, lock order, concurrent replay, killed connection, caller-transaction refusal, elzoo_app row security and history bounds on disposable PostgreSQL; negative controls on lock order and the zero-sum check.",
+      "acceptance": "Durable plain Ecto/Postgrex journal under the tenant-isolation floor: 2..64 same-currency zero-sum postings committed all or none under one operation ID (equal replay duplicate, other bytes conflict), account rows locked in account_id byte order at a checked READ COMMITTED Need, any registry currency per account, no-negative accounts (wallets) refused insufficient_funds, linked reversals at most once and never reversible, retired currency refused for new posts and accepted for reversals; concurrent wallet debits, lock order, concurrent replay, killed connection, caller-transaction refusal, elzoo_app row security and history bounds on disposable PostgreSQL; negative controls on lock order and the zero-sum check.",
       "product_aims": ["P09", "P10"],
       "issue": 687,
       "url": "https://github.com/balungpisah/elzoo/issues/687",
-      "issue_body_sha256": "8e42a8abbd0e1c4b8f50fed34ce0f1a949df5762c8927fb20b3b0b93d67764cd"
+      "issue_body_sha256": "dc631babbd4a299b081040e1b47b80876c0001938b205701895f99ceb3b9563b"
     },
     {
       "id": "ELZ-298",
@@ -7943,7 +7945,7 @@
       "product_aims": ["P13"],
       "issue": 688,
       "url": "https://github.com/balungpisah/elzoo/issues/688",
-      "issue_body_sha256": "834ba85dfab699c707aaee29d10224c7b67c5b07b1f13ef7b75d4321899bb85f"
+      "issue_body_sha256": "0c3eb0d1d7d8ada16ea1311674e4970e12f53893c77c0c335560f2981ad8f610"
     }
   ],
   "entries": [

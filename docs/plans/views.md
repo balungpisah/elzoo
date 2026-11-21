@@ -4272,7 +4272,7 @@ Publication copy: [tasks/ELZ-297-journal.md](../../tasks/ELZ-297-journal.md).
 
 **Product aims:** P09, P10.
 
-**Acceptance:** Durable plain Ecto/Postgrex journal under the tenant-isolation floor: 2..64 same-currency zero-sum postings committed all or none under one operation ID (equal replay duplicate, other bytes conflict), account rows locked in account_id byte order at READ COMMITTED, no-negative accounts (wallets) refused insufficient_funds, linked reversals at most once and never reversible, retired currency refused for new posts and accepted for reversals; concurrent wallet debits, lock order, concurrent replay, killed connection, caller-transaction refusal, elzoo_app row security and history bounds on disposable PostgreSQL; negative controls on lock order and the zero-sum check.
+**Acceptance:** Durable plain Ecto/Postgrex journal under the tenant-isolation floor: 2..64 same-currency zero-sum postings committed all or none under one operation ID (equal replay duplicate, other bytes conflict), account rows locked in account_id byte order at a checked READ COMMITTED Need, any registry currency per account, no-negative accounts (wallets) refused insufficient_funds, linked reversals at most once and never reversible, retired currency refused for new posts and accepted for reversals; concurrent wallet debits, lock order, concurrent replay, killed connection, caller-transaction refusal, elzoo_app row security and history bounds on disposable PostgreSQL; negative controls on lock order and the zero-sum check.
 
 ### ELZ-298
 
