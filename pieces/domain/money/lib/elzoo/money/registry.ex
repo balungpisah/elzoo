@@ -28,13 +28,14 @@ defmodule Elzoo.Money.Registry do
   other value is walked in full: exactly the keys `versions`, `snapshots`,
   `active_numeric` and `sources`; `versions` a non-empty list of distinct
   `YYYY-MM-DD` binaries, oldest first; the other three maps keyed by exactly
-  those versions; each snapshot maps a three-letter alpha code to a plain
-  entry map with that `alpha`, `numeric` an integer 0..999 or nil,
+  those versions; each snapshot a plain map from a three-letter alpha code
+  to a plain entry map with that `alpha`, `numeric` an integer 0..999 or nil,
   `minor_unit` an integer 0..99 or an atom, `status` `:active` or
   `{:retired, _}` and `rows` a list of maps with `numeric` an integer 0..999
   or nil; no two active entries share a numeric code; and each
   `active_numeric` value is exactly the map from the numeric code of each
-  active entry to its alpha.
+  active entry to its alpha; and every alpha of a version is held by each
+  later version (append-only).
   """
   def valid?(registry), do: registry === default() or walk?(registry)
 
@@ -42,7 +43,8 @@ defmodule Elzoo.Money.Registry do
        when map_size(r) == 4 and is_map(s) and is_map(a) and is_map(src) do
     ascending?(versions) and keyed?(s, versions) and keyed?(a, versions) and
       keyed?(src, versions) and
-      Enum.all?(versions, &snapshot?(Map.fetch!(s, &1), Map.fetch!(a, &1)))
+      Enum.all?(versions, &snapshot?(Map.fetch!(s, &1), Map.fetch!(a, &1))) and
+      retained?(Enum.map(versions, &Map.fetch!(s, &1)))
   end
 
   defp walk?(_), do: false
@@ -58,7 +60,8 @@ defmodule Elzoo.Money.Registry do
   defp keyed?(map, versions),
     do: map_size(map) == length(versions) and Enum.all?(versions, &is_map_key(map, &1))
 
-  defp snapshot?(snapshot, index) when is_map(snapshot) and is_map(index) do
+  defp snapshot?(snapshot, index)
+       when is_map(snapshot) and not is_struct(snapshot) and is_map(index) do
     if Enum.all?(snapshot, &entry?/1) do
       pairs =
         for {alpha, %{status: :active, numeric: n}} <- snapshot, is_integer(n), do: {n, alpha}
@@ -71,6 +74,14 @@ defmodule Elzoo.Money.Registry do
   end
 
   defp snapshot?(_, _), do: false
+
+  # Append-only, as build!/1 folds: every alpha of a version is held by each
+  # later one (current_status/2 reads the newest entry of an older member).
+  defp retained?([older, newer | rest]),
+    do:
+      Enum.all?(older, fn {alpha, _} -> is_map_key(newer, alpha) end) and retained?([newer | rest])
+
+  defp retained?(_), do: true
 
   defp entry?({<<a, b, c>> = alpha, %{alpha: alpha, numeric: n, minor_unit: m, status: s} = e})
        when a in ?A..?Z and b in ?A..?Z and c in ?A..?Z and not is_struct(e) and

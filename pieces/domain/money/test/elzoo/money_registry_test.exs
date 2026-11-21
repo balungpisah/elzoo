@@ -567,6 +567,16 @@ defmodule Elzoo.MoneyRegistryTest do
         sources_not_map: %{d | sources: nil},
         # snapshot entries
         snapshot_not_map: put_in(d, [:snapshots, @v1], []),
+        snapshot_struct:
+          put_in(d, [:snapshots, @v1], %M.Currency{
+            alpha: "EUR",
+            numeric: 978,
+            minor_unit: 2,
+            status: :active,
+            version: @v1
+          }),
+        # an older member absent from a later version (build!/1 never deletes)
+        older_alpha_dropped: update_in(r, [:snapshots, @v2], &Map.delete(&1, "EUR")),
         alpha_key_not_code: put_in(d, [:snapshots, @v1, "eur"], %{hrk | alpha: "eur"}),
         alpha_differs_from_key: put_entry(d, "EUR", &%{&1 | alpha: "USD"}),
         entry_struct: put_entry(d, "EUR", &Map.put(&1, :__struct__, M.Currency)),
@@ -613,6 +623,11 @@ defmodule Elzoo.MoneyRegistryTest do
       ]
 
       for {name, value} <- refused, do: refute(Registry.valid?(value), inspect(name))
+
+      # Without the append-only rule current_status/2 raised on this value.
+      {:ok, eur1} = M.parse("EUR", version: @v1)
+      dropped = refused[:older_alpha_dropped]
+      assert M.current_status(eur1, registry: dropped) == {:error, {:invalid_registry, nil}}
 
       # The float copy is == to the default, so only === may skip the walk.
       assert float_copy() == d and float_copy() !== d
