@@ -3,13 +3,36 @@ defmodule Elzoo.CureConsumerCaseHelperTest do
   @moduledoc """
   ELZ-289: the copied-consumer harness with controlled consumers (one small Mix project each, no Piece). A
   run that exits 0 without the end of its own suite is rejected, a completed run is accepted, and a consumer
-  whose owning test ExUnit kills stops with its actual descendants.
+  whose owning test ExUnit kills stops with its actual descendants. ELZ-291: also while a descendant forks.
   """
   use ExUnit.Case, async: true
 
   alias Elzoo.CureConsumerCase
 
   @helper Path.expand("support/cure_consumer_case_test_helper.exs", __DIR__)
+
+  # ELZ-291: forks continuously. Each fork copies 60,000 mappings (of alternating protection, so they cannot
+  # merge; below Linux's default limit of 65,530 per process) and takes tens of milliseconds, so a stop
+  # signal often arrives while a fork is in flight. Each child appends its PID to the file named by argv[1],
+  # then becomes `sleep 60`. Only the two newest children are kept, so the cleanup walk is short and often
+  # ends before a fork in flight has returned.
+  @forker ~S"""
+  import mmap, os, shutil, signal, sys
+  log = os.open(sys.argv[1], os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+  sleep = shutil.which("sleep")
+  maps = [mmap.mmap(-1, 4096, prot=mmap.PROT_READ | (i % 2) * mmap.PROT_WRITE) for i in range(60000)]
+  children = []
+  while True:
+      pid = os.fork()
+      if pid == 0:
+          os.write(log, b"%d\n" % os.getpid())
+          os.execv(sleep, ["sleep", "60"])
+      children.append(pid)
+      if len(children) > 2:
+          old = children.pop(0)
+          os.kill(old, signal.SIGKILL)
+          os.waitpid(old, 0)
+  """
 
   # A consumer project whose one test prints a nested suite's summary line, then runs `body`.
   defp consumer!(body) do
@@ -62,46 +85,97 @@ defmodule Elzoo.CureConsumerCaseHelperTest do
   end
 
   test "a consumer whose owning test is killed on its timeout stops with its descendants" do
-    record = Path.join(CureConsumerCase.create_destination!(), "descendants")
-    on_exit(fn -> File.rm_rf!(Path.dirname(record)) end)
+    dir = CureConsumerCase.create_destination!()
+    on_exit(fn -> File.rm_rf!(dir) end)
 
-    # The consumer starts a port child (OTP gives it a session of its own) with a background grandchild,
-    # writes its own OS PID and every descendant's (PID, parent, command), then keeps writing output: the
-    # end of its output pipe would end it before its children.
-    destination =
-      consumer!(
-        String.replace(
-          ~S"""
-          Task.start(fn -> System.cmd("sh", ["-c", "sleep 600 & sleep 600"]) end)
-          root = System.pid()
-
-          tree = fn ->
-            {table, 0} = System.cmd("ps", ["-A", "-o", "pid=,ppid=,comm="])
-            rows = for line <- String.split(table, "\n", trim: true),
-                       [pid, ppid, comm | _] <- [String.split(line)], Path.basename(comm) != "ps",
-                       do: {pid, ppid, Path.basename(comm)}
-            seen = Enum.reduce(1..10, MapSet.new([root]), fn _, seen ->
-              Enum.reduce(rows, seen, fn {pid, ppid, _}, seen ->
-                if ppid in seen, do: MapSet.put(seen, pid), else: seen
-              end)
-            end)
-            Enum.filter(rows, fn {pid, _, _} -> pid in seen end)
-          end
-
-          rows = Enum.find_value(1..200, fn _ ->
-            rows = tree.()
-            if Enum.count(rows, &(elem(&1, 2) == "sleep")) == 2, do: rows, else: Process.sleep(50) && nil
-          end)
-
-          File.write!(RECORD, Enum.map_join(rows, "\n", fn {pid, ppid, comm} -> "#{pid} #{ppid} #{comm}" end))
-          Stream.repeatedly(fn -> IO.write("."); Process.sleep(2) end) |> Stream.run()
-          """,
-          "RECORD",
-          inspect(record)
-        )
+    # A port child (OTP gives it a session of its own) with a background grandchild.
+    rows =
+      killed_owner!(
+        dir,
+        ~S|Task.start(fn -> System.cmd("sh", ["-c", "sleep 600 & sleep 600"]) end)|,
+        ~S|Enum.count(rows, &(elem(&1, 2) == "sleep")) == 2|
       )
 
-    owner = Path.join(Path.dirname(record), "owner.exs")
+    left = kill_running(Enum.map(rows, &hd/1), 0)
+
+    # The consumer VM, its port helper erl_child_setup, the port child sh and its two sleep children.
+    assert Enum.map(rows, &List.last/1)
+           |> Enum.frequencies()
+           |> Map.take(~w(sh sleep erl_child_setup)) ==
+             %{"sh" => 1, "sleep" => 2, "erl_child_setup" => 1}
+
+    assert left == [], "still running after the owner was killed: #{inspect(left)}"
+  end
+
+  test "a consumer whose owning test is killed while a descendant forks stops with every child" do
+    dir = CureConsumerCase.create_destination!()
+    on_exit(fn -> File.rm_rf!(dir) end)
+    forked = Path.join(dir, "forked")
+
+    # A port child that forks continuously; the tree is recorded once two of its children run `sleep`.
+    rows =
+      killed_owner!(
+        dir,
+        "Task.start(fn -> System.cmd(\"python3\", #{inspect(["-I", "-c", @forker, forked])}) end)",
+        ~S|Enum.count(rows, &(elem(&1, 2) == "sleep")) >= 2|
+      )
+
+    children = String.split(File.read!(forked))
+
+    # A killed forker can take a moment to end (it unmaps 60,000 mappings); an escaped child is a `sleep 60`.
+    left = kill_running(Enum.map(rows, &hd/1) ++ children, 40)
+    # A forker that cleanup missed went on forking while kill_running waited.
+    later = String.split(File.read!(forked)) -- children
+    if later != [], do: kill_running(later, 0)
+
+    assert length(children) >= 3
+
+    assert left == [],
+           "still running after the owner was killed: #{inspect(left)} of #{length(children)} forked"
+  end
+
+  # Runs a consumer whose test evaluates `start`, waits until `ready` holds for `rows`, its OS process tree
+  # ({pid, ppid, comm} of its own OS PID and every descendant's, from `ps`), writes that tree to a record in
+  # `dir` and keeps writing output (the end of its output pipe would end it before its children). Its owner
+  # is an inner ExUnit test that ExUnit kills on its timeout. Returns the recorded rows as [pid, ppid, comm].
+  defp killed_owner!(dir, start, ready) do
+    record = Path.join(dir, "descendants")
+
+    tree =
+      String.replace(
+        ~S"""
+        root = System.pid()
+
+        tree = fn ->
+          {table, 0} = System.cmd("ps", ["-A", "-o", "pid=,ppid=,comm="])
+          rows = for line <- String.split(table, "\n", trim: true),
+                     [pid, ppid, comm | _] <- [String.split(line)], Path.basename(comm) != "ps",
+                     do: {pid, ppid, Path.basename(comm)}
+          seen = Enum.reduce(1..10, MapSet.new([root]), fn _, seen ->
+            Enum.reduce(rows, seen, fn {pid, ppid, _}, seen ->
+              if ppid in seen, do: MapSet.put(seen, pid), else: seen
+            end)
+          end)
+          Enum.filter(rows, fn {pid, _, _} -> pid in seen end)
+        end
+
+        rows = Enum.find_value(1..200, fn _ ->
+          rows = tree.()
+          if READY, do: rows, else: Process.sleep(50) && nil
+        end)
+
+        File.write!(RECORD, Enum.map_join(rows, "\n", fn {pid, ppid, comm} -> "#{pid} #{ppid} #{comm}" end))
+        Stream.repeatedly(fn -> IO.write("."); Process.sleep(2) end) |> Stream.run()
+        """,
+        ["READY", "RECORD"],
+        fn
+          "READY" -> ready
+          "RECORD" -> inspect(record)
+        end
+      )
+
+    destination = consumer!(start <> "\n" <> tree)
+    owner = Path.join(dir, "owner.exs")
 
     File.write!(owner, """
     Code.require_file(#{inspect(@helper)})
@@ -122,7 +196,7 @@ defmodule Elzoo.CureConsumerCaseHelperTest do
 
     {output, _} =
       System.cmd("elixir", ["-pa", Mix.Project.compile_path(), owner],
-        cd: Path.dirname(record),
+        cd: dir,
         stderr_to_stdout: true
       )
 
@@ -131,26 +205,33 @@ defmodule Elzoo.CureConsumerCaseHelperTest do
     assert File.exists?(record),
            "the consumer recorded no descendants before its owner was killed\n" <> output
 
-    rows = for line <- File.read!(record) |> String.split("\n"), do: String.split(line)
-    left = running(Enum.map(rows, &hd/1))
-    if left != [], do: System.cmd("kill", ["-KILL" | left], stderr_to_stdout: true)
-
-    # The consumer VM, its port helper erl_child_setup, the port child sh and its two sleep children.
-    assert Enum.map(rows, &List.last/1)
-           |> Enum.frequencies()
-           |> Map.take(~w(sh sleep erl_child_setup)) ==
-             %{"sh" => 1, "sleep" => 2, "erl_child_setup" => 1}
-
-    assert left == [], "still running after the owner was killed: #{inspect(left)}"
+    for line <- File.read!(record) |> String.split("\n"), do: String.split(line)
   end
 
-  # PIDs of `pids` that run (a zombie has ended and waits only to be reaped).
-  defp running(pids) do
-    {table, _} = System.cmd("ps", ["-o", "pid=,stat=", "-p", Enum.join(pids, ",")])
+  # `ps` rows ("pid stat command") of the PIDs of `pids` that still run, killed so none outlives the case. A
+  # zombie has ended and waits only to be reaped. With `tries`, a process gets up to `tries` × 50 ms to end.
+  defp kill_running(pids, tries) do
+    {table, _} = System.cmd("ps", ["-o", "pid=,stat=,comm=", "-p", Enum.join(pids, ",")])
 
-    for line <- String.split(table, "\n", trim: true),
-        [pid, stat] <- [String.split(line)],
-        not String.starts_with?(stat, "Z"),
-        do: pid
+    left =
+      for line <- String.split(table, "\n", trim: true),
+          [pid, stat | _] <- [String.split(line)],
+          not String.starts_with?(stat, "Z"),
+          do: {pid, String.trim(line)}
+
+    left_pids = Enum.map(left, &elem(&1, 0))
+
+    cond do
+      left == [] ->
+        []
+
+      tries > 0 ->
+        Process.sleep(50)
+        kill_running(left_pids, tries - 1)
+
+      true ->
+        System.cmd("kill", ["-KILL" | left_pids], stderr_to_stdout: true)
+        Enum.map(left, &elem(&1, 1))
+    end
   end
 end
