@@ -550,6 +550,14 @@ defmodule Elzoo.PricingTest do
       # 20.00 then 30.00 EUR: +10.00 EUR in the later charge's currency.
       assert Pricing.difference(a, b, registry: newer) ==
                {:ok, %Amount{currency: eur_2, minor_units: 1000}}
+
+      # The checked value of the same registry prices and differences alike.
+      {:ok, checked} = Registry.check(newer)
+      assert Pricing.price(earlier, usage([row(:estimated, 1000)]), registry: checked) == {:ok, a}
+      assert Pricing.price(later, usage([row(:estimated, 1500)]), registry: checked) == {:ok, b}
+
+      assert Pricing.difference(a, b, registry: checked) ==
+               {:ok, %Amount{currency: eur_2, minor_units: 1000}}
     end
   end
 
@@ -614,6 +622,8 @@ defmodule Elzoo.PricingTest do
             # The four keys of a built registry with forged contents.
             [registry: %{versions: ["bogus"], snapshots: %{}, active_numeric: %{}, sources: %{}}],
             [registry: %{Registry.default() | versions: []}],
+            # A checked value that Registry.check/1 did not make.
+            [registry: %Registry.Checked{read: fn -> Registry.default() end}],
             [foo: 1],
             [registry: Registry.default(), foo: 1],
             %{},
