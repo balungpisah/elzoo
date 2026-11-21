@@ -25,7 +25,7 @@ defmodule Elzoo.SecretsTest.SecretError do
 end
 
 defmodule Elzoo.SecretsTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   import ExUnit.CaptureLog
   alias Elzoo.Secrets
   alias Elzoo.SecretsTest.{SecretError, Trap}
