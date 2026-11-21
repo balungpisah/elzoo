@@ -273,6 +273,26 @@ These are recorded on their issues
 - **To change.** Binding the credential into the runtime identity would be a
   new `integration/mcp-client` Contract task, under the ID rule.
 
+## Wave 6 coordinator decisions
+
+These are set in the published task texts
+([wave plan](plans/bot-platform-wave6.md#status-and-scope)).
+
+### A reversal never takes a wallet below zero
+
+- **Chosen.** In `domain/journal`, a reversal is an ordinary posting under the
+  same balance rule: a reversal that would take an account with
+  `allow_negative: false` (a wallet) below zero is refused
+  `insufficient_funds`, and nothing is posted
+  ([ELZ-297](../tasks/ELZ-297-journal.md)).
+- **Why.** The flag forbids a negative balance without exception, so a wallet
+  balance is never negative, also under a correction.
+- **For you.** Before you reverse a credit to a wallet that has been spent,
+  post the shortfall from another account, or open the wallet with
+  `allow_negative: true` if a negative balance is acceptable.
+- **To change.** A reversal that may overdraw would change the failure
+  guarantees of `domain/journal`: a published task, under the ID rule.
+
 ## Request charge and payload caps of `assembly/run-engine` (RC-50)
 
 Sources: the [piece.json](../pieces/assembly/run-engine/piece.json) contract

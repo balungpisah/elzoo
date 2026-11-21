@@ -2,7 +2,9 @@
 
 ## Status and scope
 
-This document is planning input for Wave 6 (`Count and see`) of the P13 track in [bot-platform.md](bot-platform.md). It publishes no task, admits no Piece and promotes nothing to ready. [release-plan.json](release-plan.json) remains the one canonical planning source; handles are provisional until publication, and the coordinator assigns the ELZ IDs then.
+This document is planning input for Wave 6 (`Count and see`) of the P13 track in [bot-platform.md](bot-platform.md). It promotes nothing to ready. [release-plan.json](release-plan.json) remains the one canonical planning source; handles are provisional until publication, and the coordinator assigns the ELZ IDs then.
+
+Level 1 is published in part: [ELZ-297 task](../../tasks/ELZ-297-journal.md) · [issue #687](https://github.com/balungpisah/elzoo/issues/687) (`domain/journal`, release V2 because `domain/money` is V2) and [ELZ-298 task](../../tasks/ELZ-298-run-transcript.md) · [issue #688](https://github.com/balungpisah/elzoo/issues/688) (the Run transcript in place on `assembly/run-engine`). The other Level 1 tasks wait on the answers to Q1, Q2, Q6 and Q7.
 
 Wave 5 is accepted: its root consumer acceptance [ELZ-286](../../tasks/ELZ-286-wave5-tenancy-acceptance.md) is merged, so the serial rule of [bot-platform.md](bot-platform.md) lets Wave 6 be registered. The coordinator reports that the owner approved Wave 6 for planning (2026-11-21). This plan starts from the pruned Wave 6 core in [bot-platform.md](bot-platform.md) ("Subsequent waves (Waves 6–9)"). It checks each handle against the ready manifests and keeps a new Piece only for missing policy.
 

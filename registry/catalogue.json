@@ -347,11 +347,11 @@
     },
     {
       "id": "domain/journal",
-      "summary": "Atomic balanced posting and reversal",
-      "disposition": "defer",
-      "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Balanced posting with stable operation identity and immutable corrections for C3/C4; reuse transactional storage or a suitable ledger provider; not the Piece Ledger or a new storage engine."
+      "summary": "Atomic balanced posting, reversal and no-negative wallets",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-297: plain Ecto/Postgrex tables under state/tenant-isolation, domain/money amounts; absorbs domain/wallet; ash_double_entry not adopted (no Ash in core)."
     },
     {
       "id": "domain/membership",

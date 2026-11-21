@@ -2574,22 +2574,18 @@
       "kind": "proposal",
       "release": "V2",
       "stage": "pieces",
-      "outputs": [
-        "domain/journal"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-031",
         "RC-10",
         "ELZ-009"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for domain/journal by published ELZ-297 (output moved; it absorbs the domain/wallet handle, Wave 6 plan); no remaining output",
       "contract": "One operation contains all same-currency postings, atomic balance constraints and immutable linked reversals. Account identity is not principal identity.",
       "acceptance": "Concurrent balance constraint, duplicate operation, partial commit, currency mismatch, retired currency and reversal replay at selected isolation level.",
       "reuse": "Evaluate maintained ledger libraries and transactional SQL; never implement debit and credit as independent effects.",
-      "paths": [
-        "pieces/domain/journal/"
-      ],
+      "paths": [],
       "blockers": [
         "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
         "Choose journal transaction/isolation and atomic balance enforcement; Store CAS alone is not a journal."
@@ -7914,6 +7910,40 @@
       "issue": 684,
       "url": "https://github.com/balungpisah/elzoo/issues/684",
       "issue_body_sha256": "af708ea62e88520427284377a84a902440abead56c1459034307dbe20a38e59a"
+    },
+    {
+      "id": "ELZ-297",
+      "title": "ELZ-297 — Balanced money journal whose no-negative accounts are wallets",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-031", "ELZ-270", "ELZ-285"],
+      "status": "published 2026-11-21",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-297-journal.md"],
+      "outputs": ["domain/journal"],
+      "acceptance": "Durable plain Ecto/Postgrex journal under the tenant-isolation floor: 2..64 same-currency zero-sum postings committed all or none under one operation ID (equal replay duplicate, other bytes conflict), account rows locked in account_id byte order at READ COMMITTED, no-negative accounts (wallets) refused insufficient_funds, linked reversals at most once and never reversible, retired currency refused for new posts and accepted for reversals; concurrent wallet debits, lock order, concurrent replay, killed connection, caller-transaction refusal, elzoo_app row security and history bounds on disposable PostgreSQL; negative controls on lock order and the zero-sum check.",
+      "product_aims": ["P09", "P10"],
+      "issue": 687,
+      "url": "https://github.com/balungpisah/elzoo/issues/687",
+      "issue_body_sha256": "8e42a8abbd0e1c4b8f50fed34ce0f1a949df5762c8927fb20b3b0b93d67764cd"
+    },
+    {
+      "id": "ELZ-298",
+      "title": "ELZ-298 — Read-only Run transcript of the run engine",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-127", "ELZ-256", "ELZ-265", "ELZ-287"],
+      "status": "published 2026-11-21",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-298-run-transcript.md"],
+      "outputs": [],
+      "acceptance": "In-place read-only RunEngine transcript/3 (job handle state/run-transcript) with result/3 scope, limits and reader configuration: one Run's committed entries in commit order (inputs, gate and authorization verdicts with policy identity, admitted actions with their callable path, nested starts and kept finishes, settlements with outcome, reason, actual or unknown, terminal outcome) derived from the public DurableUnit fold; scoped Run only, history and limit refusals, no callback or mutation; nested tree, ASK, restart unknown, v2 wait, earlier-Run and read-only cases; negative controls on the parent link and the Run scope; small gate reruns runtime/recipe-test and per-ID consumers. Output none.",
+      "product_aims": ["P13"],
+      "issue": 688,
+      "url": "https://github.com/balungpisah/elzoo/issues/688",
+      "issue_body_sha256": "834ba85dfab699c707aaee29d10224c7b67c5b07b1f13ef7b75d4321899bb85f"
     }
   ],
   "entries": [
@@ -8325,10 +8355,10 @@
     },
     {
       "id": "domain/journal",
-      "job": "RC-22",
-      "note": "Balanced posting with stable operation identity and immutable corrections for C3/C4; reuse transactional storage or a suitable ledger provider; not the Piece Ledger or a new storage engine.",
+      "job": "ELZ-297",
+      "note": "Planned durable money journal in plain Ecto/Postgrex tables under the state/tenant-isolation floor: accounts with stored balances and a no-negative flag (a wallet), operations of 2..64 same-currency zero-sum domain/money postings committed all or none under one operation ID with ordered row locks at READ COMMITTED, and immutable linked reversals at most once; retired currencies refused for new posts and accepted for reversals. No Ash, exchange rate, payment or settlement claim.",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
