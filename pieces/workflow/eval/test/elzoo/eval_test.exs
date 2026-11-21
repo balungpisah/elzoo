@@ -533,6 +533,14 @@ defmodule Elzoo.EvalTest do
           ~s("checks":[{"kind":"outcome_is","outcome":"completed","outcome":"failed"}]}]})
 
       refused(text, ["cases", 0, "checks", 0, "outcome"], :duplicate_key)
+
+      # Before an unknown kind, a member is still read as JSON.
+      text =
+        ~s({"format_version":1,"dataset_id":"d","version":1,"cases":[{"case_id":"c",) <>
+          ~s("input":"x","script":[],"restart_after":null,) <>
+          ~s("checks":[{"schema":{"a":1,"a":2},"kind":"judge"}]}]})
+
+      refused(text, ["cases", 0, "checks", 0, "schema", "a"], :duplicate_key)
     end
 
     test "an unknown check kind is refused" do
@@ -621,6 +629,15 @@ defmodule Elzoo.EvalTest do
 
       assert Enum.map(others, & &1.status) == [:passed, :passed]
       assert {report.passed, report.failed, report.errored} == {2, 0, 1}
+    end
+
+    test "an atom reason of recipe-test is the case error" do
+      report = Eval.run(loaded(dataset("d", agent_cases())), %{agent_base() | gate: 1})
+
+      assert Enum.map(report.cases, &{&1.status, &1.checks, &1.error}) ==
+               List.duplicate({:error, [], :invalid_spec}, 3)
+
+      assert report.errored == 3
     end
   end
 

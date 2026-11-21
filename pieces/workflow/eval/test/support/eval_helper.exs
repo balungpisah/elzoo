@@ -278,7 +278,7 @@ defmodule Elzoo.Eval do
   defp object(_, path, _fields), do: fault(path, :type)
 
   # An object whose member `tag` names its variant: the first `tag` member decides the other
-  # members. Before an unknown or missing tag, a member of any variant is not read.
+  # members. With an unknown or missing tag, a member of any variant is read as JSON only.
   defp tagged(%Jason.OrderedObject{values: members} = value, path, tag, variants, unknown) do
     tag_field =
       {tag,
@@ -297,7 +297,7 @@ defmodule Elzoo.Eval do
 
         _ ->
           for key <- Enum.uniq(for {_, fields} <- variants, {key, _} <- fields, do: key),
-              do: {key, fn _, _ -> {:ok, nil} end}
+              do: {key, &json/2}
       end
 
     object(value, path, [tag_field | members_of])

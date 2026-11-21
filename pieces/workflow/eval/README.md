@@ -107,7 +107,9 @@ object keys and list indexes to the first fault, and `reason` one of:
 
 The walk is in document order. A list's length is checked before its items. A missing member is
 reported after the members that are present, in the order of the tables above. In a check or a
-result entry, `kind` or `class` decides which other members the object may have.
+result entry, `kind` or `class` decides which other members the object may have; with an unknown
+or missing `kind` or `class`, the other members are read as JSON only, so a repeated key in them
+is still found.
 
 `Elzoo.Eval.load(artifact, caller, artifact_id, version)` reads the bytes with
 `Elzoo.Artifact.get/4` and decodes them. `{:error, {:integrity_mismatch, _}}` of the artifact is
