@@ -2105,16 +2105,14 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "domain/quota"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-022",
         "RC-07",
         "ELZ-009"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for domain/quota by published ELZ-303 (output moved; storage under owner Q1 A, Wave 6 plan); no remaining output",
       "contract": "Tenant, unit, period and operation identity -> atomic reservation/settlement/reset. Reuse arithmetic but keep quota state and reset authority separate from a Run budget.",
       "acceptance": "Concurrent last-unit admission, duplicate settle, reset race, restart with open reservation and unknown usage; missing usage cannot become zero.",
       "reuse": "Evaluate provider transactional counters; compose budget arithmetic, never copy a second reservation engine.",
@@ -2600,15 +2598,13 @@
       "kind": "proposal",
       "release": "V2",
       "stage": "pieces",
-      "outputs": [
-        "domain/pricing"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-031",
         "RC-21"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for domain/pricing by published ELZ-304 (output moved; owner Q2 A, Q3 A with rounding and Q4 A, Wave 6 plan); no remaining output",
       "contract": "Unit-tagged accepted usage and immutable rate version -> exact currency charge with declared precision, tiers, rounding and minimums. Provider cost and customer price remain separate.",
       "acceptance": "Price change cannot reprice history, mixed units/currency rejected, fractional rate precision, zero/missing usage and attributable corrections.",
       "reuse": "Decimal/ex_money and finite tables; no arbitrary pricing DSL.",
@@ -8012,6 +8008,40 @@
       "issue_body_sha256": "ca5f8046564e34b36babebf92b4eccbf697db1749c8b5aa955887812c2942778"
     },
     {
+      "id": "ELZ-303",
+      "title": "ELZ-303 — Durable tenant allowance with Run reservations whose unknown usage stays held",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-022", "ELZ-079", "ELZ-270", "ELZ-285", "ELZ-300"],
+      "status": "published 2026-11-21",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-303-quota.md"],
+      "outputs": ["domain/quota"],
+      "acceptance": "Durable plain Ecto/Postgrex allowance counters under the tenant-isolation floor (owner Q1 A), keyed by tenant, tagged window {:period, id} and unit, with the amount derived at each reservation from a domain/entitlement resolution (grant_id checked against the listed grants, settle_only allowances reserve nothing); all-or-nothing multi-unit Run reservations idempotent by run_id with counter rows locked in unit order at READ COMMITTED, settlement of known actuals or :unknown held at the estimate, attributable reconcile by metering or write-off, release before expiry; own Cure laws instead of Cure.Elzoo.Budget, no volatile owner; last-unit race, lock order, duplicates, unknown held across restart, grace, window boundary, expiry, overage, elzoo_app row security, caller-transaction and bound cases; negative controls on the run_id key, the row lock and unknown as zero.",
+      "product_aims": ["P09", "P13"],
+      "issue": 704,
+      "url": "https://github.com/balungpisah/elzoo/issues/704",
+      "issue_body_sha256": "2d8e48a8301abb768f9a23b4511083e9f30019ecf82f052fd439f952df73fd7f"
+    },
+    {
+      "id": "ELZ-304",
+      "title": "ELZ-304 — Exact charges from usage totals under immutable rate-card versions",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-031", "ELZ-079", "ELZ-299"],
+      "status": "published 2026-11-21",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-304-pricing.md"],
+      "outputs": ["domain/pricing"],
+      "acceptance": "Pure Cure/Elixir pricing (owner Q2 A, Q3 A with a required per-card rounding mode, Q4 A): metering-shaped usage rows per provider, model, unit and source priced under one content-hashed immutable :cost or :price card version of stand-alone lines (exact decimal-string rate per power-of-ten units, optional minimum on a used line), rounded once per line through domain/money, total in the card currency, incomplete with the unknown count and never unknown as zero, unpriced_unit refused; difference/3 only between charges of one card version; posting to domain/journal named, not performed; exact, rounding-boundary, minimum, unknown, version, correction and validation cases; negative controls on unknown as zero and per-row rounding.",
+      "product_aims": ["P09"],
+      "issue": 705,
+      "url": "https://github.com/balungpisah/elzoo/issues/705",
+      "issue_body_sha256": "595904d5d2947a64cd1c7f51b35d1771fb0b075e0c3a714e4fdcb8e90de3ccb2"
+    },
+    {
       "id": "ELZ-291",
       "title": "ELZ-291 — Confirm each stop before listing children in copied-consumer cleanup",
       "kind": "published",
@@ -8522,10 +8552,10 @@
     },
     {
       "id": "domain/pricing",
-      "job": "RC-23",
-      "note": "C9 requires currency/precision/rounding and immutable rate/template versions; choose libraries before authoring policy. No pricing DSL or settlement implementation.",
+      "job": "ELZ-304",
+      "note": "Planned pure pricing: usage rows per provider, model, unit and source (the domain/metering totals shape plus provider_id and model_id) priced under one immutable content-hashed rate-card version of kind cost or price, one currency and a required domain/money rounding mode; stand-alone lines of an exact decimal-string rate per power-of-ten units and an optional minimum, rounded once per line; a charge with per-line amounts, total and incomplete with the unknown count, never pricing unknown as zero; differences only between charges of one card version. No post, tiers, exchange or Float.",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -8540,10 +8570,10 @@
     },
     {
       "id": "domain/quota",
-      "job": "RC-08",
-      "note": "Allocation/reset/admission contract for C2/C9; distinct from observed metering, pricing and financial posting. Provider/storage evaluation required; no implementation.",
+      "job": "ELZ-303",
+      "note": "Planned durable tenant allowance in plain Ecto/Postgrex tables under the state/tenant-isolation floor: counters per tenant, tagged window {:period, id} and unit, the amount derived at each reservation from a domain/entitlement resolution; all-or-nothing Run reservations idempotent by run_id under ordered row locks at READ COMMITTED; known actuals committed, unknown held at the estimate until an attributable reconcile; grace reserves nothing and settles; a new window is a new allowance. Own Cure laws, no volatile owner, no pricing or posting.",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

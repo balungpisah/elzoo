@@ -446,6 +446,39 @@ These are set in the published task texts
 - **For you.** Keep your recipe package and bindings in test code.
 - **To change.** Additive members of a later format version.
 
+### Quota reads the allowance at each reservation
+
+- **Chosen.** `domain/quota` takes the tenant's current `domain/entitlement`
+  resolution with each reservation and derives each unit's amount from it: the
+  sum of the allowances of that unit whose grant is not in grace, each checked
+  against the grants the resolution lists. Settlements take no resolution. An
+  open reservation is never freed by time; past its expiry it stays counted
+  until it is settled ([ELZ-303](../tasks/ELZ-303-quota.md)).
+- **Why.** A plan change, grace or revocation then applies at the next
+  reservation, as a gate does, and a Run that may have started never loses its
+  share.
+- **For you.** Resolve the plan before each reservation. End a lost Run by
+  settling `:unknown` and reconciling with `basis: :write_off`.
+- **To change.** Another stacking rule for several grants is in place before
+  the first release; a timed release of expired reservations would change
+  `domain/quota`'s state rules: under the ID rule.
+
+### A rate-card minimum applies to a used line, and estimates are charged
+
+- **Chosen.** In `domain/pricing`, a line's minimum applies only when the
+  period has usage on that line, also usage of amount zero or unknown; a card
+  line with no usage is not charged. Every known amount is charged, whatever
+  its source (`:estimated`, `:provider_reported` or `:unknown`); each charged
+  line lists the sources it used ([ELZ-304](../tasks/ELZ-304-pricing.md)).
+- **Why.** A tenant pays nothing for a model it never used, and a corrected
+  estimate keeps its source in `domain/metering`, so excluding estimates would
+  exclude corrected usage.
+- **For you.** Charge a fixed fee as its own host unit later, not as a
+  minimum. Refuse to post a charge whose `sources` include `:estimated` if
+  your contract bills reported usage only.
+- **To change.** An optional per-line field (an always-on minimum, or a source
+  filter) is additive.
+
 ## Deferred options
 
 Each option below is open by design. "Additive" means an in-place change before
@@ -456,11 +489,11 @@ usable (the ID rule above).
 
 | Option | Piece | How it is added | Additive |
 | --- | --- | --- | --- |
-| Volume tiers | `domain/pricing` (Level 2) | An optional `tiers` field on a rate-card line; each line stands alone, so a card without tiers prices as before | Yes |
+| Volume tiers | `domain/pricing` ([ELZ-304](../tasks/ELZ-304-pricing.md)) | An optional `tiers` field on a rate-card line; each line stands alone, so a card without tiers prices as before | Yes |
 | Tenant-local month, rolling window | `domain/entitlement`, `domain/quota`, `domain/metering` | Entitlement gains a `period_kind` member; quota keys its allowance by a tagged window (`{:period, id}`) and gains a rolling window beside it; metering already takes an opaque period ID and keeps `observed_at_ms`, so a time-range total is a new read | Yes |
 | A reusable `assembly/tenant-edge` | new Assembly (RC-40) | Composes the public interfaces of verify, membership, authorization, kill-switch, entitlement, quota, Run, metering, pricing and journal; no Piece needs a private path for it | Yes (new ID) |
 | Run and model metrics | `runtime/telemetry`, `integration/observability`, `assembly/run-engine`, `integration/ai-text` | A new event family emitted in place; the transcript and metering stay as they are | Yes |
-| More than one active plan per tenant | `domain/entitlement` | Drop the version 1 `overlap` refusal for a declared stacking rule; a resolution already lists its grants and plans, and allowances are a list tagged by grant | Yes (accepted inputs widen) |
+| More than one active plan per tenant | `domain/entitlement` | Drop the version 1 `overlap` refusal for a declared stacking rule; a resolution already lists its grants and plans, and allowances are a list tagged by grant; `domain/quota` checks each allowance against the listed grants and sums the amounts of one unit | Yes (accepted inputs widen) |
 | A host unit such as `runs` | `domain/metering`, `domain/entitlement` | A new member of the unit set | Yes |
 | Live-model eval | `workflow/eval` | An optional dataset `mode` member, default scripted | Yes |
 
@@ -470,7 +503,8 @@ Each plan type is a composition of Pieces in your host. The planned Wave 6 root
 acceptance has one named group for each; those groups come with the acceptance
 task and are not published yet
 ([wave plan, Level 3](plans/bot-platform-wave6.md#level-3--mandatory-wave-6-root-consumer-acceptance-no-piece-output)).
-`domain/quota` and `domain/pricing` are Level 2 and not published yet either.
+`domain/quota` and `domain/pricing` are published as Level 2 tasks
+([ELZ-303](../tasks/ELZ-303-quota.md), [ELZ-304](../tasks/ELZ-304-pricing.md)).
 
 - **Pay-as-you-go.** Record each Run's usage with `domain/metering`
   (unknown kept apart), price the period's totals with a `domain/pricing` card,

@@ -1,0 +1,70 @@
+# ELZ-304 — Exact charges from usage totals under immutable rate-card versions
+
+- Phase: Wave 6 Level 2
+- Dependencies: ELZ-033, ELZ-031, ELZ-079, ELZ-299
+- Release: V2
+- Output: new `domain/pricing` Piece (from RC-23)
+- Change class: Piece-only
+- Owned paths: `pieces/domain/pricing/**` and its own catalogue/release-plan rows and generated views only. Do not edit root/shared code, another Piece (including `domain/metering`), `mix.exs`, `mix.lock` or CI.
+
+## Outcome and boundary
+
+One pure Piece in Elixir with Cure for the line decisions: the usage totals of one tenant and period and one immutable rate-card version give an exact `domain/money` (ELZ-031) charge, rounded once per line with the card's declared mode, that says when it is incomplete. Unknown usage is never priced as zero. Provider cost and customer price are separate card kinds that never combine. No I/O, clock, storage, journal post, exchange rate, invoice or Float. Release V2, because `domain/money` is V2.
+
+Owner decisions that bind this task (2026-11-21): rates are charged on unit-tagged usage per provider and model, with a rate per line and an optional per-line minimum, and no volume tiers now (Q2 A); one currency per card, any `domain/money` registry currency, no exchange, and a required per-card `rounding` field holding one of `Elzoo.Money.rounding_modes/0`, applied once per priced line per period (Q3 A plus `rounding`); owner-authored decimal-string rates, no Float, `llm_db` prices a reference only (Q4 A). RC-23 names tiers; this task narrows it to no tiers.
+
+**Lines stand alone (owner rule).** A line's charge depends only on its own fields and its own usage, never on another line. So an optional `tiers` field can be added to a line in place: the content hash encodes it only when present, and a card without it prices as before.
+
+**Usage input.** The rows that `price/3` takes are the rows of `domain/metering` `totals/3` (ELZ-299: `%{unit, source, known, unknown_count, count}`) with two more keys, `provider_id` and `model_id`. Metering's `totals/3` groups by unit and source only, so a per-provider and per-model read of metering is not available yet; that read is outside this task (the coordinator owns it before the Wave 6 root acceptance), and this Piece's tests build rows directly. This Piece does not depend on metering code.
+
+**Posting (coordinator decision, 2026-11-21).** The Piece posts nothing. The README states how a charge becomes one `domain/journal` `post/3` operation: two postings, `total` and its negation, in the card's currency, between the account that pays (a receivable for postpaid, a no-negative wallet for prepaid) and a revenue account for a `:price` card or a cost account for a `:cost` card; the host chooses the accounts and the sign convention and derives the `operation_id` from its own charge record, so a retry is a journal duplicate. A zero total posts nothing (the journal refuses a zero posting). A correction re-prices the period under the card version of the original charge; `difference/3` gives the nonzero amount that the host posts as a new linked operation, not as a `reverse/3` (a reversal negates a whole operation). An incomplete charge is the host's to hold or to post with its difference later.
+
+## Interface
+
+- `Elzoo.Pricing.content_hash(card)` takes a card with or without its `content_hash` key (the key is ignored) and returns `{:ok, hash}`, 32 bytes, the SHA-256 of a documented canonical encoding of `{card_id, version, kind, currency identity {alpha, numeric, minor_unit}, rounding, lines}` (lines in their required order, `rate` and `minimum` as their given strings, a `nil` minimum encoded as absent), or `{:error, :card}`. A field that a later in-place version adds as optional (for example a line's `tiers`) is encoded only when present, so existing hashes stay equal.
+- `Elzoo.Pricing.price(card, usage, opts \\ [])`. `opts` is `[]` or `[registry: registry]` (an `Elzoo.Money.Registry` value; default `Elzoo.Money.Registry.default/0`).
+  - A card is exactly `%{card_id, version, content_hash, kind, currency, rounding, lines}`. `kind` is `:cost` or `:price`. `currency` is an `%Elzoo.Money.Currency{}` member of the registry with an integer minor unit. `rounding` is one of `Elzoo.Money.rounding_modes/0`. `lines` is a proper list of 1..1024 lines sorted by `{provider_id, model_id, unit}` in Erlang term order and unique on it.
+  - A line is exactly `%{provider_id, model_id, unit, rate, per, minimum}`. `rate` is a decimal string `(0|[1-9][0-9]*)(\.[0-9]+)?` with at most 18 significant digits and at most 18 fractional digits: a price per `per` units in major units of the card's currency (for example `"3"` per `1_000_000` tokens), zero allowed, no sign. `per` is one of 1, 10, 100, …, 10^9. `minimum` is `nil` or a non-negative decimal string that `Elzoo.Money.from_decimal_string/3` accepts for the card's currency (no fraction finer than its minor unit).
+  - `usage` is exactly `%{tenant, period, rows}`, `rows` a proper list of 0..4096 `%{provider_id, model_id, unit, source, known, unknown_count, count}`, unique on `{provider_id, model_id, unit, source}`, with `source` `:estimated`, `:provider_reported` or `:unknown`, `count` an integer ≥ 1, `unknown_count` an integer 0..`count`, `known` an integer 0..10^38−1, and `known` 0 when `unknown_count == count`.
+  - Returns `{:ok, charge}` or `{:error, reason}`.
+- `charge` is `%{tenant, period, card, lines, total, incomplete, unknown_count}`. `card` is `%{card_id, version, content_hash, kind}`. `lines` has one entry for each card line that has at least one row, sorted as the card's lines: `%{provider_id, model_id, unit, quantity, unknown_count, count, sources, charge}`, where `quantity` is the sum of `known` over the line's rows of every source, `unknown_count` and `count` their sums, `sources` the sorted sources of those rows, and `charge` an `%Elzoo.Money.Amount{}`. `total` is the exact sum of the line charges, an amount of zero in the card's currency when there is none. `unknown_count` is the sum over lines; `incomplete` is `true` exactly when it is above zero.
+- `Elzoo.Pricing.difference(earlier, later, opts \\ [])` takes two charges that `price/3` returned (a malformed one is `:charge`) for the same `tenant`, `period` and `card` (all four fields equal, else `:card_mismatch`) and returns `{:ok, amount}`, `later.total − earlier.total`, which may be zero or negative.
+
+Texts (`card_id`, `provider_id`, `model_id`, `tenant`, `period`): 1..128 bytes of valid UTF-8 without a C0 or C1 control character, compared by exact bytes, the `domain/metering` rule. `version`: an integer 1..2^31−1. `unit`: one of `Elzoo.AiModel.Usage.units/0` or `{:cache_write_tokens, ttl}` with `ttl` one of `Elzoo.AiModel.Usage.ttls/0`, the unit set of `domain/metering`.
+
+## Rules
+
+**Line charge.** For each card line with at least one row: the exact value `quantity × rate ÷ per` is passed once, as a `%Decimal{}`, to `Elzoo.Money.from_decimal/4` with the card's currency and `rounding` (so the one rounding is `domain/money`'s integer arithmetic and no process Decimal context applies; `per` is a power of ten, so the value is an exact decimal). Then, when `minimum` is set and the rounded charge is below it, the charge is the minimum. A minimum applies only to a line that has at least one row in the period, also when every row's `known` is 0 or every observation is unknown; a card line with no row is not charged (coordinator decision; a later optional field may change this per line in place). Every source's known amount is charged: `source` is provenance, and a corrected estimate keeps its source in `domain/metering`. Each line is computed from its own fields and rows only.
+
+**Unknown.** An unknown observation adds nothing to `quantity` and its count to `unknown_count`, and the charge is `incomplete`. It is never priced as zero silently: the charge of an incomplete line is the charge of its known amounts only, and says so.
+
+**Checks.** `price/3` checks, in this order, and stops at the first failure: `opts` (`:invalid`); the card's shape and bounds and currency membership (`:card`); its `content_hash` against `content_hash/1` (`:content_hash`); `usage` (`:usage`); every row has a card line with its `{provider_id, model_id, unit}` (`:unpriced_unit`, also for a row whose observations are all unknown); then the line charges and the total, where a value that `domain/money` cannot take (more than 38 significant digits, or outside its range) is `:amount_range`, never truncated. `difference/3` checks `opts`, then both charges' shape and membership (`:charge`), then their identity (`:card_mismatch`), then `:amount_range`.
+
+Errors are `{:error, reason}` with a fixed atom that never echoes an ID or amount: `:invalid`, `:card`, `:content_hash`, `:usage`, `:unpriced_unit`, `:amount_range`, `:charge`, `:card_mismatch`. The kind, error and source sets, and the maps returned, may gain members and keys in a later in-place version (for example a line's `tiers`, or another usage source); a caller matches on the members and keys it uses.
+
+**Immutability.** A charge depends only on the card version and rows passed. The host stores each card version unchanged, and the card identity with each charge; an earlier charge is re-priced only under its own card version, never by a newer card.
+
+**Cure.** Cure owns the minimum and completeness decisions over integer minor units and counts. Selected laws, at least: `minimum_floor` (with a minimum and at least one row, the line charge is at least the minimum), `minimum_keeps_larger` (a rounded charge at or above the minimum is unchanged) and `incomplete_when_unknown` (a charge is complete only when every line's unknown count is zero). Arithmetic and rounding are `domain/money`'s, and that Elixir passes the exact value is test-grounded.
+
+`piece.json` declares telemetry, config and control `not_applicable` (a pure Piece with fixed bounds). Piece dependencies: `domain/money` and `integration/ai-model` (the unit set).
+
+## Acceptance
+
+Expected amounts in the tests are written out by hand, not computed with the Piece's code.
+
+1. Exact charges: cards in EUR (exponent 2), JPY (0) and BHD (3); a rate with 18 fractional digits; `per` 1 and 10^6; a cache-write unit line; lines of two providers and two models of one unit stay apart.
+2. Rounding: each of the seven modes at a value exactly half a minor unit and just above and below it, also on a line whose exact value is a whole number of minor units; once per line: two rows of one line (two sources), each worth less than half a minor unit, together worth more, give the charge of their sum.
+3. Zero usage and the minimum: a line whose rows have `known` 0 is charged its minimum, and with no minimum zero; a card line with no row is absent from `lines`; a rounded charge above the minimum keeps its value; a usage with no rows gives an empty, complete charge with a zero total.
+4. Unknown: a line with known and unknown rows gives the charge of the known amount, its `unknown_count` and `incomplete: true`; a line whose rows are all unknown is charged its minimum (or zero) and is incomplete; a row with no card line is `:unpriced_unit`, also when it is all unknown.
+5. A newer card leaves an earlier charge equal: pricing the same rows under version 1 again gives an equal charge after version 2 (another rate) exists; `difference/3` of a version 1 and a version 2 charge, of a `:cost` and a `:price` card, and of two tenants or periods is `:card_mismatch`; a card whose `content_hash` does not match is `:content_hash`; the documented encoding gives fixed expected bytes for one card.
+6. A correction gives an attributable difference: totals before and after a correction (a known amount raised, an unknown made known) priced under the same card version give a positive difference equal to the hand value; a correction down gives a negative one; equal totals give zero.
+7. Mixed units: a row of one unit is not priced by a line of another unit or another model (`:unpriced_unit`); duplicate or unsorted lines are `:card`.
+8. Validation in the fixed order: one input with bad `opts` and a bad card gives `:invalid`; a bad card and bad usage give `:card`; rate `"-1"`, `"01"`, `"1."`, `"1e3"`, a Float, 19 significant digits and 19 fractional digits; `per` 0, 3 and 10^10; a minimum finer than the minor unit and a negative minimum; a forged currency and one without a minor unit; lines 0 and 1025; rows 4097; `count` 0, `unknown_count` above `count`, and `known` above 0 with every observation unknown; each 128-byte text at 0, 128 and 129 bytes, invalid UTF-8 and a C1 character; a quantity whose exact charge needs 39 significant digits is `:amount_range`. Error atoms carry no ID.
+9. Selected Cure laws as listed under Rules.
+10. Negative controls, one at a time, each restored before the final gates: price unknown as zero and report the charge complete (case 4 must fail); round each row before summing a line (case 2's once-per-line case must fail).
+
+Run the Piece tests and the new-Piece small gate locally (the Piece is pure but computes money, so the hosted `check-piece` does not replace the local run), the roadmap and claims checks and the diff check. One independent review (section 6) that recomputes the listed amounts by hand, the exact-head hosted check and the merge queue are required.
+
+## Limits to state
+
+No tiers, exchange rate, tax, discount, invoice, payment or journal post. One currency per card; a tenant billed in two currencies uses two cards, and a tenant with two plans whose cards cover different usage prices each subset with its own card. Rates are owner-authored; `llm_db` prices are a reference only. The charge of an incomplete line covers its known amounts only. The per-provider and per-model rows are host-built until `domain/metering` has a read for them. The Piece does not check that the rows are a complete period; the host owns the period and the card choice.
