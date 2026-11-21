@@ -1702,11 +1702,11 @@ defmodule Elzoo.RunEngine do
   end
 
   def handle_call({:event_waits, scope, limits}, _, s) do
-    {:reply, read_retained(s, scope, limits, :event_waits), s}
+    {:reply, read_retained(s, scope, limits, &Elzoo.RunEngine.ResultReader.event_waits/8), s}
   end
 
   def handle_call({:transcript, scope, limits}, _, s) do
-    {:reply, read_retained(s, scope, limits, :transcript), s}
+    {:reply, read_retained(s, scope, limits, &Elzoo.RunEngine.ResultReader.transcript/8), s}
   end
 
   def handle_call({:input, id, input, context}, _, s) do
@@ -4971,7 +4971,7 @@ defmodule Elzoo.RunEngine do
   end
 
   # event_waits/3 and transcript/3: the same scope, limits, owner and history checks;
-  # `reader` names the ResultReader projection of the retained Unit history.
+  # `reader` is the ResultReader projection of the retained Unit history.
   defp read_retained(s, scope, limits, reader) do
     cond do
       not valid_result_scope?(s, scope) ->
@@ -4988,7 +4988,7 @@ defmodule Elzoo.RunEngine do
           {:ok, owner} ->
             with true <- valid_event_wait_owner?(owner, s.opts.run_id),
                  {:ok, projection} <-
-                   apply(Elzoo.RunEngine.ResultReader, reader, [
+                   reader.(
                      s.opts.store,
                      s.opts.identity,
                      owner,
@@ -4997,7 +4997,7 @@ defmodule Elzoo.RunEngine do
                      s.opts.bindings,
                      reader_config(s),
                      {__MODULE__, :step, empty_state(protocol_version(s))}
-                   ]),
+                   ),
                  {:ok, current} <- result_owner(s),
                  true <- owner_snapshot(owner) == owner_snapshot(current) do
               {:ok, projection}

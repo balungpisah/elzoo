@@ -203,6 +203,56 @@ defmodule Elzoo.RunEngineTranscriptTest do
     end
   end
 
+  describe "later_actual" do
+    test "a parent settled with no actual gets an actual entry when its child's cost arrives later" do
+      {c, bindings} = nested_setup(%{"nested" => [request([action("slow", "tool_call")])]})
+      nested = bindings["nested_callable"]
+
+      bindings =
+        Map.put(bindings, "nested_callable", %{
+          nested
+          | facts: fn a -> %{nested.facts.(a) | deadline_ms: 10_000} end
+        })
+
+      engine = start(c, bindings: bindings, result_reader: reader(c))
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}
+      Agent.update(c.clock, fn _ -> 15_000 end)
+      assert {:ok, _} = RunEngine.input(engine, "wake", wake(), verified())
+      assert view(engine).slots[{1, 0}].outcome == "expired"
+      Agent.update(c.clock, fn _ -> 16_000 end)
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "slow-result",
+                 result("slow"),
+                 verified(%{occurrence: {2, 0}, actual: 5, dispatch: "dispatched"})
+               )
+
+      wait_for(engine, fn _ ->
+        {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+        DurableUnit.snapshot(unit).slots[{1, 0}][:actual] == 5
+      end)
+
+      send(provider, {:result, %{}})
+      {:ok, %{entries: entries}} = transcript(engine)
+      from_wake = Enum.drop_while(entries, &(Map.get(&1, :input_id) != "wake"))
+
+      assert Enum.map(from_wake, &brief/1) == [
+               {:input, "wake", 15_000},
+               {:settlement, {1, 0}, [], "expired", :protocol, nil, :unknown, 15_000},
+               {:input, "action_outcome", 16_000},
+               {:settlement, {2, 0}, [{1, 0}], "completed", :protocol, nil, 5, 16_000},
+               {:actual, {1, 0}, 5, 16_000}
+             ]
+
+      [actual] = Enum.filter(entries, &(&1.type == :actual))
+      assert {:ok, [input, _result], _} = DurableLog.read(c.store, c.prefix, actual.sequence, 2)
+      assert {1, {_, %{kind: :nested_actual}}} = :erlang.binary_to_term(input.payload, [:safe])
+    end
+  end
+
   describe "outside_event_wait" do
     test "a native v2 outside-event wait shows its action, the outside-event input and its settlement" do
       ticket = start_supervised!({Agent, fn -> nil end}, id: make_ref())
@@ -432,6 +482,15 @@ defmodule Elzoo.RunEngineTranscriptTest do
 
       assert {1, {"late-first", %{kind: :protocol, run_id: "run"}}} =
                :erlang.binary_to_term(late.payload, [:safe])
+
+      # The new Run is configured before the late input of the earlier Run.
+      assert Enum.any?(rows(c), fn row ->
+               row.sequence < late.sequence and row.kind == "input" and
+                 match?(
+                   {1, {_, %{kind: :configure, control: %{run_id: "period-two"}}}},
+                   :erlang.binary_to_term(row.payload, [:safe])
+                 )
+             end)
 
       context = verified(%{run_id: "period-two", attempt_id: "third"})
       assert {:ok, :applied} = RunEngine.input(engine, "period-two-input", start_input(), context)
