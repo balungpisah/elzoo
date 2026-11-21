@@ -385,7 +385,22 @@ exact-head requirements, or hosted checks on a new head.
   reviewer's pass on the exact head has finished and every one of its
   threads is resolved (owner decision). A head that the queue makes by
   merging `main` into the branch within that run needs no new pass; a head
-  pushed for a repair needs a finished pass before the queue starts again.
+  pushed for a repair needs a finished pass, or the extra review below,
+  before the queue starts again.
+- Do not wait on an unavailable automated reviewer (owner decision). It posts
+  nothing when it starts, and on a later head it may post nothing at all. So
+  when it has posted nothing for the exact head 30 minutes after the later
+  of the ready mark and that head's push, or says that it is out of quota or
+  unavailable, one extra independent review in a fresh session replaces its
+  pass. That review reads the commits since the automated reviewer's last
+  posted pass (the whole diff when it posted none), looks for edge cases,
+  races, bounds and error paths, and records the five lines; with no blocker
+  open it is the gate. The coordinator records on the pull request that the
+  automated reviewer was skipped and why, and adds the pull request and the
+  skipped range to "Skipped automated reviews" in the
+  [coordinator guide](docs/development/13-coordinator.md). A Piece with any
+  weight listed in section 5 keeps its full review; the extra review does
+  not replace it.
 - When a reviewer of another model family becomes available, it rechecks
   `domain/journal`, `domain/metering` and `delivery/dead-letter-store`
   once. Each finding becomes its own task (owner decision).
@@ -398,7 +413,8 @@ When the required local checks (or recorded hosted substitution), the hosted che
 request ready for review. That is the request to merge. The automated reviewer
 reviews only a pull request that is not a draft, so its pass starts then; the
 coordinator starts the queue only after that pass on the exact head has
-finished with its threads resolved, and gives the branch back for any fix. From the ready
+finished with its threads resolved, or after the extra review that replaces
+it (above), and gives the branch back for any fix. From the ready
 mark the coordinator owns the branch: do not push to it unless the coordinator gives it
 back. You can claim the next task.
 
