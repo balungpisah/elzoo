@@ -369,6 +369,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-317](https://github.com/balungpisah/elzoo/issues/734) | V1B / pieces | ELZ-311 | published 2026-11-21 | coordinator; one-PR path for a documents change; merge queue |
 | [ELZ-319](https://github.com/balungpisah/elzoo/issues/739) | V2 / pieces | ELZ-316 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
 | [ELZ-320](https://github.com/balungpisah/elzoo/issues/740) | V2 / pieces | ELZ-314, ELZ-319 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
+| [ELZ-321](https://github.com/balungpisah/elzoo/issues/742) | V2 / pieces | ELZ-319 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
 
 ## Catalogue accounting
 
@@ -563,7 +564,7 @@ Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321.
 
 Prior release gate: V1-ACCEPT.
 
@@ -4516,7 +4517,7 @@ Publication copy: [tasks/ELZ-319-money-registry-token.md](../../tasks/ELZ-319-mo
 
 **Product aims:** P09, P10.
 
-**Acceptance:** Elzoo.Money.Registry.check/1 walks a registry once and returns an opaque checked value whose registry is held in a closure made by Elzoo.Money.Registry; every money, codec and registry function and domain/pricing accept it in constant time, a raw map is still walked in full, and pricing checks a raw map once per call instead of once per money call (owner decision, no global cache or process state); forged raw maps and forged checked values refused; money and pricing limits state each form's cost and the token's limits. Measured 1024-line card with default, checked and raw registries within 25 percent of the default; negative controls for the raw-map walk, the token test and the per-call pricing walk; local small gate.
+**Acceptance:** Elzoo.Money.Registry.check/1 walks a registry once and returns an opaque checked value whose registry is held in a closure made by a private function of Elzoo.Money.Registry; every registry: function of Elzoo.Money and Elzoo.Money.Codec accepts it after a constant-time fun_info test (module, local type, arity 0, the sealing function's name), a raw map is still walked in full, positional functions unwrap a genuine checked value and otherwise stay unchecked as today, and a new Registry.versions/1 reads versions of every form (owner decision: validate a custom registry once, no global cache or process state); forged raw maps and forged checked values refused; money limits state each form's cost and the token's limits (term-format forging, untrusted binary_to_term, badfun after purge or across nodes). Measured walk against token test; negative controls for the raw-map walk, a shape-only test and a test without the function name; local small gate.
 
 ### ELZ-320
 
@@ -4526,4 +4527,14 @@ Publication copy: [tasks/ELZ-320-journal-registry-token.md](../../tasks/ELZ-320-
 
 **Product aims:** P09, P10.
 
-**Acceptance:** Elzoo.Journal.new/1 checks a raw registry once with Elzoo.Money.Registry.check/1 and keeps the default or the checked value, never a raw custom map, and passes it to every money call (owner decision: validate a custom registry once); forged raw and forged checked values raise the fixed ArgumentError; results, bounds and queries unchanged; limits state the new cost. Equal-results tests for default, raw and checked registries, kept-raw-map negative control, local small gate.
+**Acceptance:** Elzoo.Journal.new/1 checks a raw registry once with Elzoo.Money.Registry.check/1 and keeps the default or the checked value, never a raw custom map, passes it to every money call and reads versions with Registry.versions/1; journal/1 also accepts a checked value (owner decision: validate a custom registry once); forged raw and forged checked values raise the fixed ArgumentError; results, bounds and queries unchanged; limits state the new cost. Equal-results tests for default, raw and checked registries, kept-raw-map negative control, local small gate.
+
+### ELZ-321
+
+ELZ-321 — domain/pricing checks a custom registry once per call and accepts a checked registry
+
+Publication copy: [tasks/ELZ-321-pricing-registry-token.md](../../tasks/ELZ-321-pricing-registry-token.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** domain/pricing price/3 and difference/3 accept a checked registry from Elzoo.Money.Registry.check/1, check a raw custom registry once per call and pass the checked value to every money call, so it is walked once per call instead of once per line (owner decision: validate a custom registry once); forged raw and forged checked values stay {:error, :invalid}; pricing limits state each form's cost. Checked-equals-raw and forged-value tests, a measured 1024-line card with default, checked and raw registries each within 25 percent of the default, per-call-walk negative control, local small gate.

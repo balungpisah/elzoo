@@ -27,9 +27,14 @@ equal to `contract` if `contract` changes) and the generated views
    - The journal value keeps the default or a checked value, never a raw
      custom map.
    - A forged checked value is refused with the same `ArgumentError`.
-2. Every `Elzoo.Money` call the journal makes passes that kept value.
+2. Every `Elzoo.Money` call the journal makes passes that kept value, and
+   where it reads `j.registry.versions` today (`currency/3`, journal.ex
+   near line 542), it uses `Elzoo.Money.Registry.versions/1` (ELZ-319).
    - `journal/1`'s per-call checks stay as they are, except that its
-     registry check also accepts a checked value.
+     registry check (`registry?/1`, journal.ex near line 79, which matches
+     on map keys) also accepts a checked value, through
+     `Elzoo.Money.Registry.valid?/1` of a checked value, which is constant
+     time (ELZ-319), and keeps its key check for the default.
    - Every result, bound and query is unchanged.
 3. The journal `limits` replace the walk-count bound of ELZ-313 with the new
    cost: one walk in `new/1` for a raw custom registry, and constant time per
