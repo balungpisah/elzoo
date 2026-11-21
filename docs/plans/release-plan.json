@@ -7891,6 +7891,29 @@
       "issue": 683,
       "url": "https://github.com/balungpisah/elzoo/issues/683",
       "issue_body_sha256": "48e18488d6626c8efbb4b12036651a42027c2c63522e3a16a6fb11c9205b02c3"
+    },
+    {
+      "id": "ELZ-296",
+      "title": "ELZ-296 — Plan Wave 6, Count and see",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-286"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-296-wave6-plan.md"
+      ],
+      "outputs": [],
+      "acceptance": "docs/plans/bot-platform-wave6.md gives the Wave 6 source boundaries, one disposition per candidate handle, dependency levels ending in a root consumer acceptance, Level 1 Contract sketches and the open owner questions with recommendations; bot-platform.md states the outcome of the RC-07, RC-09 and RC-20 rows (#679) and points the Wave 6 rows to the page; no Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 684,
+      "url": "https://github.com/balungpisah/elzoo/issues/684",
+      "issue_body_sha256": "af708ea62e88520427284377a84a902440abead56c1459034307dbe20a38e59a"
     }
   ],
   "entries": [
