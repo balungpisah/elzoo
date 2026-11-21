@@ -8341,6 +8341,29 @@
       "issue": 718,
       "url": "https://github.com/balungpisah/elzoo/issues/718",
       "issue_body_sha256": "6201053883b94bf0f49e80c093b55dc64461f3c627e92a168e5cae29376957b8"
+    },
+    {
+      "id": "ELZ-317",
+      "title": "ELZ-317 — Skip list: clear the rechecked rows, add the 21 Nov fallback skips",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-311"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path for a documents change; merge queue",
+      "paths": [
+        "tasks/ELZ-317-skip-list-rechecks.md"
+      ],
+      "outputs": [],
+      "acceptance": "The Skipped automated reviews list in docs/development/13-coordinator.md drops the rows for #703, #708, #709, #712 and #714, whose other-family recheck records are posted (the #703 finding merged as ELZ-315), adds rows for #719 (3d624ba1..ac2bc431), #723 (b1fa8b9d..cb1385b9), #725 (42910465..d7a0e54b) and #729 (d1316117..3390fc53) with the review posted on each PR as the gate, and drops the quota-outage paragraph that no row cites; recheck procedure, rules, Contracts, Pieces and catalogue unchanged. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 734,
+      "url": "https://github.com/balungpisah/elzoo/issues/734",
+      "issue_body_sha256": "ae5520380d9a2449fff57727466a12fcb68dbb7aec08bb4b339c38c9b9783a9a"
     }
   ],
   "entries": [
