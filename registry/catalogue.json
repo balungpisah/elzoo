@@ -359,7 +359,8 @@
       "summary": "Atomic balanced posting, reversal and no-negative wallets",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/journal/piece.json",
       "reason": "ELZ-297: plain Ecto/Postgrex tables under state/tenant-isolation, domain/money amounts; absorbs domain/wallet; ash_double_entry not adopted (no Ash in core)."
     },
     {

@@ -8467,10 +8467,12 @@
     {
       "id": "domain/journal",
       "job": "ELZ-297",
-      "note": "Planned durable money journal in plain Ecto/Postgrex tables under the state/tenant-isolation floor: accounts with stored balances and a no-negative flag (a wallet), operations of 2..64 same-currency zero-sum domain/money postings committed all or none under one operation ID with ordered row locks at READ COMMITTED, and immutable linked reversals at most once; retired currencies refused for new posts and accepted for reversals. No Ash, exchange rate, payment or settlement claim.",
+      "note": "Durable money journal in plain Ecto/Postgrex tables on PostgreSQL 16 under the state/tenant-isolation floor: accounts with a stored balance in their own domain/money registry currency (identity alpha, numeric, minor unit; no default currency) and a no-negative flag (a wallet); operations of 2..64 same-currency zero-sum postings committed all or none under one operation ID (equal request digest duplicate, other digest conflict) with account rows locked one at a time in account_id byte order at a checked READ COMMITTED Need, in the journal's own transaction (caller transaction refused); immutable linked reversals at most once and never reversible; retired currencies refused for new accounts and posts and accepted for replays and reversals; bounded balance and history reads; fixed error atoms that echo no ID or amount; a database failure is unavailable and safe to retry. No Ash, Float, exchange rate, payment or settlement claim.",
       "baseline_status": "deferred",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/journal/piece.json",
+      "manifest_sha256": "af8ab1a76f459dfa4512783f19d3d623d9adf6ebff973dfdd9458626d9a97fd9"
     },
     {
       "id": "domain/membership",
