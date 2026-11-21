@@ -158,6 +158,11 @@
   | #723 | `b1fa8b9d..cb1385b9` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
   | #725 | `42910465..d7a0e54b` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
   | #729 | `d1316117..3390fc53` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
+  | #737 | `4304e053..d8171bde` | nothing posted for `35717057` or the later merge head `d8171bde` 30 minutes after the `35717057` push; the other-family fallback review was the gate |
+  | #741 | `fc3abf63..03f2d744` | nothing posted for the head 30 minutes after its push and the ready mark; the other-family fallback review was the gate |
+  | #747 | `36937f30..e24f4cce` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
+  | #750 | `0c14fd52..5aa596f5` | nothing posted for the head 30 minutes after its push and the ready mark; the other-family fallback review was the gate |
+  | #753 | `a1920865..db617841` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
 
 - **Repair of a red `main`.** The full check on `main` is the evidence of the
   small-gate merges. When it is red:

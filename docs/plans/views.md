@@ -373,6 +373,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-321](https://github.com/balungpisah/elzoo/issues/742) | V2 / pieces | ELZ-319 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
 | [ELZ-322](https://github.com/balungpisah/elzoo/issues/745) | V1B / pieces | ELZ-299, ELZ-312 | published 2026-11-21 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-323](https://github.com/balungpisah/elzoo/issues/746) | V2 / pieces | ELZ-055, ELZ-127, ELZ-249, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-281, ELZ-285, ELZ-297, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-304, ELZ-312, ELZ-313, ELZ-314, ELZ-316, ELZ-318, ELZ-322 | published 2026-11-21 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-324](https://github.com/balungpisah/elzoo/issues/752) | V2 / pieces | ELZ-321, ELZ-322 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
+| [ELZ-325](https://github.com/balungpisah/elzoo/issues/754) | V1B / pieces | ELZ-317 | published 2026-11-21 | coordinator; one-PR path for a documents change; merge queue |
 
 ## Catalogue accounting
 
@@ -561,13 +563,13 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-291, ELZ-305, ELZ-306, ELZ-307, ELZ-308, ELZ-309, ELZ-315, ELZ-311, ELZ-312, ELZ-310, ELZ-318, ELZ-317, ELZ-322.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-291, ELZ-305, ELZ-306, ELZ-307, ELZ-308, ELZ-309, ELZ-315, ELZ-311, ELZ-312, ELZ-310, ELZ-318, ELZ-317, ELZ-322, ELZ-325.
 
 ### V2-ACCEPT
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324.
 
 Prior release gate: V1-ACCEPT.
 
@@ -4571,3 +4573,23 @@ Publication copy: [tasks/ELZ-323-wave6-count-and-see-acceptance.md](../../tasks/
 **Product aims:** P09, P10.
 
 **Acceptance:** Real PostgreSQL as the non-owner application role: counted Runs with unknown kept apart and corrected, entitlement and quota reservation racing for the last allowance, pricing per provider and model with card versions, balanced journal posts with replay and correction difference, the Run transcript, dead-letter storage behind a Relay, Carbonite audit capture of the allowance-grant and credit checked commands, a retained denial included (the credit command first, then its journal post), the pay-as-you-go, quota-capped and prepaid groups, a once-only spend-alert notice and a dataset eval; four harness negative controls. Default money registry; ELZ-319 to ELZ-321 not required.
+
+### ELZ-324
+
+ELZ-324 — domain/pricing documents: the metering read for its rows and the checked registry's code lifetime
+
+Publication copy: [tasks/ELZ-324-pricing-readme-metering-read.md](../../tasks/ELZ-324-pricing-readme-metering-read.md).
+
+**Product aims:** P09.
+
+**Acceptance:** domain/pricing README (Usage section and limits paragraph) and the piece.json limit name Elzoo.Metering.model_totals/3 (ELZ-322, its {:ok, rows}) as the read of the per-provider and per-model rows of a period of at most 1,000 groups (read_limit above max_rows 1..1000; a larger period's rows, up to 4096, stay host-built), and the Needs line and piece.json assumption say the host supplies complete rows, read or built; the README opts paragraph adds that a checked registry is accepted only while the Elzoo.Money.Registry build that made it is loaded, so the host checks again after a code upgrade (domain/money limits), and a value check/1 refuses is invalid. No code, test, example or Contract change; new manifest_sha256, note equal to contract; Piece tests, local small gate, full review.
+
+### ELZ-325
+
+ELZ-325 — Skip list: add the later 21 Nov fallback skips
+
+Publication copy: [tasks/ELZ-325-skip-list-wave6-fallbacks.md](../../tasks/ELZ-325-skip-list-wave6-fallbacks.md).
+
+**Product aims:** P13.
+
+**Acceptance:** The Skipped automated reviews list in docs/development/13-coordinator.md adds rows for #737 (4304e053..d8171bde), #741 (fc3abf63..03f2d744), #747 (36937f30..e24f4cce), #750 (0c14fd52..5aa596f5) and #753 (a1920865..db617841), each with the reason in its skip comment and the other-family fallback review posted on the PR as the gate; existing rows, recheck procedure, rules, Contracts, Pieces and catalogue unchanged. Documents-only classification, live roadmap, claims and diff checks.
