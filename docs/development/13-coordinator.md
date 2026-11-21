@@ -8,7 +8,8 @@
   The body lists each path outside the Piece directory.
 - Give parallel workers tasks with disjoint paths. Put a shared prerequisite
   in its own task and merge it first.
-- **One PR for coordinator-owned non-Piece work.** If the coordinator does
+- **One PR for coordinator-owned non-Piece work and test-only Piece
+  repairs.** If the coordinator does
   the work itself, there is no output Piece ID or Piece Contract change, and
   the task is not offered to another worker, publication and implementation
   may share one `task/ELZ-###` PR. Write the task, create its issue from the
@@ -19,7 +20,11 @@
   No separate publication PR, publication merge wait or task label is needed:
   no worker is waiting to claim it. The review that `AGENTS.md` section 6 requires, exact-head hosted
   evidence, freeze rules and the queue are unchanged. Classify the actual
-  paths using the decision tree in `AGENTS.md` section 1.
+  paths using the decision tree in `AGENTS.md` section 1. A test-only repair
+  of one ready Piece may use this path too, under the conditions of
+  `AGENTS.md` section 1 (listed test files only, no output, Contract, library,
+  README, manifest or index change, and the Piece flow's gates); it is still
+  one Piece directory.
 - **Check the text before you publish it.** A task is built from its text
   alone, and a fault in it costs a review pass and an amendment, or a worker
   that meets a clause which cannot hold. Before an issue is created:

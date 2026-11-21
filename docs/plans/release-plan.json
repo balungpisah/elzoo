@@ -7847,6 +7847,27 @@
       "issue": 677,
       "url": "https://github.com/balungpisah/elzoo/issues/677",
       "issue_body_sha256": "7f3d7b7a3fd6532e20fa4ae2a2138a13b6866eedc8183f79a6270c0b5e847f6e"
+    },
+    {
+      "id": "ELZ-294",
+      "title": "ELZ-294 — Let a test-only Piece repair use the coordinator's one-PR path",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-294-one-pr-test-only-piece-repair.md"
+      ],
+      "outputs": [],
+      "acceptance": "AGENTS.md section 1 admits a coordinator-owned test-only repair of one ready Piece (its listed test/ files only; no output, Contract, library, README, manifest or index change) to the one-PR path, keeping the small gate, exact-head check-piece, section 6 review and merge queue, and the coordinator guide's one-PR bullet names the same case; every other condition is unchanged. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 681,
+      "url": "https://github.com/balungpisah/elzoo/issues/681",
+      "issue_body_sha256": "6f3ad0869149aac47c539de47b482075d96746e18c25165dc91b32fb4c722518"
     }
   ],
   "entries": [
