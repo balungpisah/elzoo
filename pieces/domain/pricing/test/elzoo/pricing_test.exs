@@ -525,6 +525,32 @@ defmodule Elzoo.PricingTest do
       assert Pricing.difference(before, down, registry: Registry.default()) ==
                {:ok, %Amount{currency: currency("EUR"), minor_units: -200}}
     end
+
+    test "a currency re-read under a newer registry version keeps the card and the difference" do
+      dir = Registry.module_info(:compile)[:source] |> to_string() |> Path.dirname()
+      v1 = Registry.latest(Registry.default())
+      extract = File.read!(Path.join([dir, "iso4217", v1 <> ".tsv"]))
+
+      next =
+        extract
+        |> String.replace("# version\t#{v1}", "# version\t2027-01-01")
+        |> String.replace("# current_published\t#{v1}", "# current_published\t2027-01-01")
+
+      newer = Registry.build!([extract, next])
+      {:ok, eur_2} = Money.parse("EUR", registry: newer, version: "2027-01-01")
+      assert eur_2.version == "2027-01-01"
+
+      earlier = card([line("0.02", 1)])
+      later = card([line("0.02", 1)], %{currency: eur_2})
+      assert later.content_hash == earlier.content_hash
+
+      assert {:ok, a} = Pricing.price(earlier, usage([row(:estimated, 1000)]), registry: newer)
+      assert {:ok, b} = Pricing.price(later, usage([row(:estimated, 1500)]), registry: newer)
+
+      # 20.00 then 30.00 EUR: +10.00 EUR in the later charge's currency.
+      assert Pricing.difference(a, b, registry: newer) ==
+               {:ok, %Amount{currency: eur_2, minor_units: 1000}}
+    end
   end
 
   # ---------------------------------------------------------------- 7 mixed units
@@ -567,8 +593,14 @@ defmodule Elzoo.PricingTest do
       unpriced_and_bad = usage([row(:estimated, 1, %{model_id: "x"}), row(:estimated, -1)])
       assert Pricing.price(good, unpriced_and_bad) == {:error, :usage}
 
-      range_and_unpriced = [row(:estimated, 1, %{model_id: "x"})]
+      # The huge line's own row alone is amount_range; the unpriced row is checked first.
+      range_and_unpriced = [
+        row(:estimated, Integer.pow(10, 37)),
+        row(:estimated, 1, %{model_id: "x"})
+      ]
+
       huge = card([line("100000000000000000", 1)])
+      assert Pricing.price(huge, usage(Enum.take(range_and_unpriced, 1))) == {:error, :amount_range}
       assert Pricing.price(huge, usage(range_and_unpriced)) == {:error, :unpriced_unit}
     end
 
@@ -763,6 +795,11 @@ defmodule Elzoo.PricingTest do
         assert {:ok, _} = Pricing.price(c, usage([], %{field => ok}))
         for t <- bad, do: assert(Pricing.price(c, usage([], %{field => t})) == {:error, :usage})
       end
+
+      long = card([line("1", 1, %{provider_id: ok, model_id: ok})])
+
+      assert {:ok, %{lines: [_]}} =
+               Pricing.price(long, usage([row(:estimated, 1, %{provider_id: ok, model_id: ok})]))
 
       for field <- [:provider_id, :model_id], t <- bad do
         assert Pricing.price(c, usage([row(:estimated, 1, %{field => t})])) == {:error, :usage}

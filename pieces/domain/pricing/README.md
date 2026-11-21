@@ -155,7 +155,8 @@ observations are all unknown); then the line charges and the total
 
 `difference/3` checks `opts` (`:invalid`), then both charges' shape and
 membership, including a non-negative `total` below 10^38 (`:charge`), then
-that both have the same `tenant`, `period` and `card` (`:card_mismatch`).
+that both have the same `tenant`, `period`, `card` and total currency
+identity `{alpha, numeric, minor_unit}` (`:card_mismatch`).
 
 Errors are `{:error, reason}` with a fixed atom that never echoes an ID or
 amount: `:invalid`, `:card`, `:content_hash`, `:usage`, `:unpriced_unit`,
@@ -206,7 +207,9 @@ takes the difference the host would post.
   decision `rounded < minimum` as an argument): `minimum_floor` (a line with a
   row and a minimum whose rounded charge is below it is charged the minimum),
   `minimum_keeps_larger` (a rounded charge not below the minimum is
-  unchanged; together the two give a charge of at least the minimum),
+  unchanged), so a charged line with a minimum is at least the minimum given
+  that Cure's `is_below` decision is `rounded < minimum`, which rests on the
+  pinned Cure `Int` comparison and the production-decision tests, not a law;
   `no_minimum_keeps`, `no_row_absent`, `incomplete_when_unknown` (for all
   earlier and later lines, one line whose unknown count is not zero makes the
   charge incomplete; induction on the earlier lines) and

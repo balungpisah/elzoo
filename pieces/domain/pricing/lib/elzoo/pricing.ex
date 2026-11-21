@@ -92,11 +92,17 @@ defmodule Elzoo.Pricing do
          true <- (charge?(earlier, registry) and charge?(later, registry)) || {:error, :charge},
          true <-
            (earlier.tenant == later.tenant and earlier.period == later.period and
-              earlier.card == later.card and earlier.total.currency == later.total.currency) ||
+              earlier.card == later.card and identity(earlier) == identity(later)) ||
              {:error, :card_mismatch} do
-      Money.subtract(later.total, earlier.total, registry: registry)
+      Money.subtract(later.total, %{earlier.total | currency: later.total.currency},
+        registry: registry
+      )
     end
   end
+
+  # The currency identity that the content hash encodes; registry version and
+  # status may differ between two charges of one card.
+  defp identity(charge), do: Map.take(charge.total.currency, [:alpha, :numeric, :minor_unit])
 
   # ---------------------------------------------------------------- charges
 
