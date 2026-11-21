@@ -126,9 +126,8 @@ Each write checks, in order: shape and bounds (`:invalid`), then `repo.in_transa
 `:isolation`: READ COMMITTED is a consumer Need that the Piece checks but cannot set.
 
 - `record/3` inserts with `ON CONFLICT (tenant, usage_id) DO NOTHING` and on a conflict
-  compares digests, so two concurrent records of
-  one `usage_id` store one: the second waits for the first, then is `:duplicate` or
-  `:conflict`.
+  compares digests, so two concurrent records of one `usage_id` store one: the second waits
+  for the first, then is `:duplicate` or `:conflict`.
 - `correct/3` locks the observation row (`FOR UPDATE`; none is `:unknown_usage`), looks up
   the `correction_id` (equal digest `:duplicate`, another `:conflict`), refuses a 1,025th
   correction (`:read_limit`), then inserts the correction with the next revision and sets
@@ -146,9 +145,10 @@ The digest is SHA-256 over `"elzoo.metering." <> kind <> <<0>>` followed by each
 sorted by its name, as `<<byte_size(name)::32, name::binary, byte_size(value)::32,
 value::binary>>`: each length is a 32-bit unsigned big-endian integer, and the name is the
 field's map key as text (for example `usage_id`). `kind` is `observation` or `correction`.
-Values: text as its bytes; integers as ASCII decimal without sign or leading zeros; `:unknown` as `unknown`; a unit as its atom name, or `cache_write_tokens:` and the
-TTL; a source as its atom name. The tenant is not encoded: it is part of every key. A field that
-a later in-place version adds as optional is encoded only when present, so existing digests,
+Values: text as its bytes; integers as ASCII decimal without sign or leading zeros;
+`:unknown` as `unknown`; a unit as its atom name, or `cache_write_tokens:` and the TTL; a
+source as its atom name. The tenant is not encoded: it is part of every key. A field that a
+later in-place version adds as optional is encoded only when present, so existing digests,
 and the duplicates they decide, stay equal.
 
 ## Limits
