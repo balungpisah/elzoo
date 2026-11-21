@@ -98,7 +98,7 @@ defmodule Elzoo.JournalTest do
 
     try do
       result = fun.()
-      {result, Enum.reject(sent([]), &excluded?/1)}
+      {result, own(sent([]))}
     after
       :telemetry.detach("elz314-statements")
     end
@@ -112,9 +112,14 @@ defmodule Elzoo.JournalTest do
     end
   end
 
-  defp excluded?(sql),
-    do:
-      sql in ["begin", "commit", "rollback"] or sql =~ ~r/\ASELECT set_config\('elzoo\.tenant_id', /
+  # Only in their places: begin and transact/3's set first, then its clear and commit last, or a
+  # rollback alone after a refusal. Every statement between them is the function's own.
+  defp own(["begin", "SELECT set_config('elzoo.tenant_id', $1::text, true)" <> _ | rest]) do
+    case Enum.reverse(rest) do
+      ["commit", "SELECT set_config('elzoo.tenant_id', '', true)" <> _ | own] -> Enum.reverse(own)
+      ["rollback" | own] -> Enum.reverse(own)
+    end
+  end
 
   # ------------------------------------------------------------ 1
 
