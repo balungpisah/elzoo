@@ -321,7 +321,12 @@ down; it is `[]` in the root callable.
 
 A settlement has a `reason` only when the settling record is a protocol outcome
 under the refusal schema `elzoo.run-engine.refusal` whose correlation occurrence
-and `action_id` name that slot; a slot that the same record settles by expiry or
+and `action_id` name that slot and whose own effect settled it, as the engine's
+own expiry pass and protocol rule of that fold step decide (the reader reruns that
+pure engine code on the folded state before the record; it calls no callback, and
+like the fold it depends on the current engine code); a slot that the same
+record settles by expiry (the named slot too, when its deadline had passed and the
+outcome came too late) or
 `run_closed`, and the closers inside a fold step (`attempt_closed`,
 `run_closed`, `local_closed`), give `nil`, and `by` tells them apart. `actual` is
 `0` for a `finish` action settled by its `:finish` record and `:unknown` when no
@@ -1076,6 +1081,9 @@ new Run's entries), `scope_limits_reader` (wrong tenant, principal or Run, malfo
 limits and no reader fail with no Run-owner status call and no Store read),
 `later_actual` (a nested parent settled `expired` with no actual gets an `:actual`
 entry from the later `:nested_actual` record when its child's tool cost arrives),
+`expired_before_its_own_outcome` (local work whose timeout outcome is committed
+after its deadline settles `expired` by that record with no reason, not the
+late outcome's `local_lost`),
 `read_bounds` (exact limits succeed, one record or one byte less is `read_limit`,
 an unavailable Store is `unavailable`, pruned history is `history`) and `read_only`
 (Unit, Run-owner and evidence heads and every gate, clock, binding and pattern
@@ -1083,5 +1091,6 @@ counter are unchanged across two reads, and the reads are equal). Temporary edit
 are negative controls: a `path` without the link to the enclosing parent
 (`nested_tree` fails), entries from sequence 1 regardless of the configured Run
 (`earlier_run` fails), the configure check kept but a protocol record of another
-Run not filtered (`earlier_run` fails) and no `:actual` entry (`later_actual`
-fails). Listed finite scenarios, not a proof.
+Run not filtered (`earlier_run` fails), no `:actual` entry (`later_actual`
+fails) and the reason taken without the own-effect check
+(`expired_before_its_own_outcome` fails). Listed finite scenarios, not a proof.
