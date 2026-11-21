@@ -8010,6 +8010,29 @@
       "issue": 693,
       "url": "https://github.com/balungpisah/elzoo/issues/693",
       "issue_body_sha256": "ca5f8046564e34b36babebf92b4eccbf697db1749c8b5aa955887812c2942778"
+    },
+    {
+      "id": "ELZ-291",
+      "title": "ELZ-291 — Confirm each stop before listing children in copied-consumer cleanup",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-289"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-291-consumer-tree-stop-confirmation.md"
+      ],
+      "outputs": [],
+      "acceptance": "Copied-consumer cleanup confirms each signalled process has stopped or exited, within a bound that fails loudly, before listing its children, so a descendant forking during cleanup cannot escape (#671); consumer timeouts, selection and isolation assertions unchanged. Repeated forking-descendant race case, stop-confirmation negative control, ELZ-289 cases and controls, full/affected gate.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 673,
+      "url": "https://github.com/balungpisah/elzoo/issues/673",
+      "issue_body_sha256": "edd28f3b95fcadfa8314609d742aaa0476bf1844c8f8c336653adb8d35891538"
     }
   ],
   "entries": [
