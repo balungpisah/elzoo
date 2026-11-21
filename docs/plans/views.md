@@ -83,7 +83,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-05 | V1 / pieces | ELZ-033, ELZ-011 | superseded for integration/secrets by published ELZ-105; output moved | one claimed task worker after admission |
 | RC-06 | V1 / pieces | ELZ-033, RC-05, ELZ-024 | superseded for domain/principal by published ELZ-267; output moved. integration/identity stays a conditional host recipe (Wave 5 plan). | one claimed task worker after admission |
 | RC-10 | V1 / pieces | ELZ-033, ELZ-009, ELZ-024 | superseded for state/audit-log by published ELZ-055 (output moved); no remaining output | one claimed task worker after admission |
-| RC-07 | V1 / pieces | ELZ-033, RC-06, ELZ-024, RC-10 | superseded for domain/membership by published ELZ-269; output moved. domain/entitlement stays with RC-07 (Wave 6 per the Wave 5 plan). | one claimed task worker after admission |
+| RC-07 | V1 / pieces | ELZ-033, RC-06, ELZ-024, RC-10 | superseded for domain/membership by published ELZ-269 and for domain/entitlement by published ELZ-300; outputs moved; no remaining output | one claimed task worker after admission |
 | RC-08 | V1 / pieces | ELZ-033, ELZ-022, RC-07, ELZ-009 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-09 | V1 / pieces | ELZ-033, ELZ-024, RC-06 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-11 | V1 / pieces | ELZ-033, ELZ-026, ELZ-028, ELZ-024, RC-10 | blocked: unpublished admission proposal | one claimed task worker after admission |
@@ -98,8 +98,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-43 | V1 / pieces | ELZ-033, ELZ-009, ELZ-010, ELZ-023, ELZ-011 | assessed by ELZ-104; residual durable publication-to-job handoff remains open for separate admission | one claimed task worker after admission |
 | RC-19 | V1 / pieces | ELZ-033, ELZ-011, ELZ-023, RC-05, RC-43 | superseded for integration/notification by published ELZ-054 (output moved); no remaining output | one claimed task worker after admission |
 | RC-20 | V2 / pieces | ELZ-033, ELZ-024 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-21 | V2 / pieces | ELZ-033, RC-16, RC-10, ELZ-009 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-22 | V2 / pieces | ELZ-033, ELZ-031, RC-10, ELZ-009 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-21 | V2 / pieces | ELZ-033, RC-16, RC-10, ELZ-009 | superseded for domain/metering by published ELZ-299 (output moved; storage under owner Q1 A, Wave 6 plan); no remaining output | one claimed task worker after admission |
+| RC-22 | V2 / pieces | ELZ-033, ELZ-031, RC-10, ELZ-009 | superseded for domain/journal by published ELZ-297 (output moved; it absorbs the domain/wallet handle, Wave 6 plan); no remaining output | one claimed task worker after admission |
 | RC-23 | V2 / pieces | ELZ-033, ELZ-031, RC-21 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-24 | V2 / pieces | ELZ-033, ELZ-023, ELZ-031, RC-05, RC-22, ELZ-024 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | [ELZ-099](https://github.com/balungpisah/elzoo/issues/185) | V1 / pieces | ELZ-033, ELZ-006 | published 2026-11-11 | one claimed provider-prerequisite worker; coordinator owns review and merge |
@@ -344,6 +344,13 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-293](https://github.com/balungpisah/elzoo/issues/677) | V1B / pieces | ELZ-286 | published 2026-11-21 | coordinator; one-PR path for a documents change; independent review and merge queue |
 | [ELZ-294](https://github.com/balungpisah/elzoo/issues/681) | V1B / pieces | none | published 2026-11-21 | coordinator; one-PR path for a documents change; independent review and merge queue |
 | [ELZ-295](https://github.com/balungpisah/elzoo/issues/683) | V1B / pieces | ELZ-286 | published 2026-11-21 | coordinator; one-PR path for a documents change; independent review and merge queue |
+| [ELZ-296](https://github.com/balungpisah/elzoo/issues/684) | V1B / pieces | ELZ-286 | published 2026-11-21 | coordinator; one-PR path for a documents change; independent review and merge queue |
+| [ELZ-297](https://github.com/balungpisah/elzoo/issues/687) | V2 / pieces | ELZ-033, ELZ-031, ELZ-270, ELZ-285 | published 2026-11-21 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-298](https://github.com/balungpisah/elzoo/issues/688) | V1B / pieces | ELZ-127, ELZ-256, ELZ-265, ELZ-287 | published 2026-11-21 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-299](https://github.com/balungpisah/elzoo/issues/690) | V1B / pieces | ELZ-033, ELZ-079, ELZ-270, ELZ-285 | published 2026-11-21 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-300](https://github.com/balungpisah/elzoo/issues/691) | V1B / pieces | ELZ-033, ELZ-079 | published 2026-11-21 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-301](https://github.com/balungpisah/elzoo/issues/692) | V1B / pieces | ELZ-033, ELZ-006, ELZ-010, ELZ-270, ELZ-285 | published 2026-11-21 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-302](https://github.com/balungpisah/elzoo/issues/693) | V1B / pieces | ELZ-033, ELZ-096, ELZ-115, ELZ-181, ELZ-183 | published 2026-11-21 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-291](https://github.com/balungpisah/elzoo/issues/673) | V1B / pieces | ELZ-289 | published 2026-11-21 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 
 ## Catalogue accounting
@@ -379,6 +386,8 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [delivery/circuit-breaker](../../pieces/delivery/circuit-breaker/piece.json) | planned | V1 / pieces | ELZ-100 / P09 | prepared-ready-contract; task acceptance separate: Volatile single-owner first-failure circuit admission over fuse 2.5.0: cold probation, one recovery probe, holder/incarnation/epoch-bound one-use observations, retained expired probe fence, monotonic minimum cooldown and permanently latched provider-incarnation failure; bounded permit bookkeeping through unchanged Backpressure, no Effect, queue, retry or physical resource bound. |
 | [delivery/data-stream](../../pieces/delivery/data-stream/piece.json) | deferred | V1 / pieces | ELZ-101 / P06 | ready-contract on task branch; task acceptance separate: Bounded caller-scoped text-only Anthropic HTTP1.1 stream: serialized Backpressure admission, actual checkpoint-before-send EffectIntent, exact raw-block/SSE framing, a JSON schema of the members that it reads with each other member and event type ignored, one acknowledged local offer at a time, source-complete finish after request result/DOWN, finite cleanup/retention and provider-reported usage independent of delivery. |
 | [delivery/dead-letter](../../pieces/delivery/dead-letter/piece.json) | ready | V1 / pieces | ELZ-006 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | retained-ready-contract: Redacted neutral failure records with validated identity, failure labels and optional last-result triple; no payload or storage. |
+| delivery/dead-letter-store | planned | V1B / pieces | ELZ-301 / P13 | planned-contract: Planned durable retention of validated delivery/dead-letter records once per (tenant, source, message_id) in a plain Ecto/Postgrex table under the state/tenant-isolation floor, open until resolved once as replayed or discarded, with bounded listing, counts and purge; no payload or dispatch. |
+| workflow/eval | planned | V1B / pieces | ELZ-302 / P13 | planned-contract: Planned test-time evaluation: versioned JSON datasets of scripted recipe cases with a closed, extendable check set, read through state/artifact, run through runtime/recipe-test and scored into a deterministic report. Absorbs state/eval-dataset; no live model or judge. |
 | [delivery/debounce](../../pieces/delivery/debounce/piece.json) | not in baseline (new row, ELZ-246) | V1B / pieces | ELZ-246 / P13 | ready-contract: Pure, bounded trailing-edge latest-binary-value policy for one caller-owned partition: host supplies a UTF-8 epoch, quiet interval, nondecreasing samples in a nonnegative monotonic origin and timer delivery. State starts with no last sample; accepted puts and timeouts, including ignored well-formed nonmatching tokens, record now. Clear preserves last time and generation. Generation maximum is reachable and usable; malformed tokens reject unchanged and well-formed nonmatching tokens are ignored. Matching due timeout emits the latest value once; early matching timeout reschedules at the same deadline. Accepted empty-state and post-emission duplicate timeouts emit and schedule nothing but still record now. No timer, registry, persistence, leading edge or maximum wait. |
 | [delivery/idempotency](../../pieces/delivery/idempotency/piece.json) | ready | V1 / pieces | ELZ-004 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | retained-ready-contract: Volatile exact-key duplicate suppression by sender/incarnation/sequence. Duplicate detection/receiver behavior has test evidence; proofs cover only emit with an already-computed duplicate flag. |
 | [delivery/effect-intent](../../pieces/delivery/effect-intent/piece.json) | deferred | V1 / pieces | ELZ-023 / P01, P02, P03, P04, P05, P06, P07, P08, P10, P11 | prepared-ready-contract; task acceptance separate: Bounded checkpoint-before-send intent owner over the existing Store with Cure rearm/history policy: three recorded grounds, narrow provider replay, monotone history, per-attempt settlement/contradiction evidence, and read-only recovery until a nonce/snapshot-bound trusted host activation. |
@@ -394,10 +403,10 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [delivery/trigger](../../pieces/delivery/trigger/piece.json) | deferred | V1 / pieces | ELZ-027 / P06 | published-scoped-work: Pure schedule-occurrence policy over already computed due slots: identity {schedule id, generation, scheduled instant}; skip, replace and queue(n) overlap decisions with at most one (skip, replace) or n (queue) unsettled occurrences; caller-supplied availability boundary separates offline catch-up slots (occurrences only under queue) from live slots; per-schedule watermark records already_recorded{slot} without asserting an occurrence; settlement, delivery admission and generation-gated redefinition; translations to the core/envelope result schema and per-schedule delivery/idempotency histories. Bound and identity laws are proved over the production admit_slot for admissible configurations with the Int comparisons as hypotheses; the Elixir boundary validates terms and refuses a call without a valid boundary. |
 | [delivery/windowed-idempotency](../../pieces/delivery/windowed-idempotency/piece.json) | ready | V1 / pieces | ELZ-005 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | retained-ready-contract: Volatile bounded per-sender sequence-window duplicate and stale-input suppression; positive construction-time window/max_senders; refuse new senders at capacity without eviction. Accepted inputs emit unchanged. Proofs cover supplied-decision step laws and singleton_advance_window (helper/W=1 only), not receiver or general window bounds; those have finite test/model evidence. |
 | [domain/authorization](../../pieces/domain/authorization/piece.json) | deferred | V1 / pieces | ELZ-024 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | merged-ready-contract; task acceptance separate: Pure ALLOW/ASK/DENY reducer over typed exact-match rules (effect class, principal, tenant, resource, payload, target, field, write value) with deny > ask > allow, default deny, whole-action escrow on ASK, and whole-proposal rejection when writes exceed the trusted own authority or, for a child, the parent's authority. Trusted proposer and host-derived effect class come from context; proposal copies must match. Portable tagged value domain with duplicate-preserving records and fixed bounds; three failure classes (DENY, invalid_input, unavailable_context). Policy identity (id, version, content_hash) on every decision. |
-| domain/entitlement | deferred | V1 / pieces | RC-07 / P04, P05, P09 | blocked-admission-proposal: Provider-backed subscription/feature availability for C2/C8; explicit grace/revocation policy, separate from identity and quota. No billing implementation. |
-| domain/journal | deferred | V2 / pieces | RC-22 / P09, P10 | blocked-admission-proposal: Balanced posting with stable operation identity and immutable corrections for C3/C4; reuse transactional storage or a suitable ledger provider; not the Piece Ledger or a new storage engine. |
+| domain/entitlement | deferred | V1B / pieces | ELZ-300 / P09, P13 | planned-contract: Planned pure resolution of host plan versions and grants at an injected time to entitled, grace or not entitled, with features and a list of unit allowances and the contributing grants and plan identities; revocation wins over grace; v1 refuses overlapping grants (stacking stays addable in place). No I/O, billing, quota or authorization decision. |
+| domain/journal | deferred | V2 / pieces | ELZ-297 / P09, P10 | planned-contract: Planned durable money journal in plain Ecto/Postgrex tables under the state/tenant-isolation floor: accounts with stored balances and a no-negative flag (a wallet), operations of 2..64 same-currency zero-sum domain/money postings committed all or none under one operation ID with ordered row locks at READ COMMITTED, and immutable linked reversals at most once; retired currencies refused for new posts and accepted for reversals. No Ash, exchange rate, payment or settlement claim. |
 | [domain/membership](../../pieces/domain/membership/piece.json) | deferred | V1B / pieces | ELZ-269 / P13 | ready-contract: Pure resolution of the sorted permissions a domain/principal holds at one space at one injected time from bounded host facts (spaces in an optional same-tenant tree of depth at most 32, named roles, memberships with a validity window and soft revocation, non-inheriting prefixes), and of the sorted spaces of the principal's tenant where one permission holds. The authority owner is the principal, or an agent's parent; a membership grants at its space and below it unless a block_inheritance space lies on the path or the permission has a non-inheriting byte prefix; nothing flows upward, across branches or across tenants; an agent is capped by its allowed_scopes and exact allowed_spaces. Fixed error atoms in the order principal, now, facts, target. No I/O, clock, storage, invitation, tenant status or authorization decision. |
-| domain/metering | deferred | V2 / pieces | RC-21 / P09 | blocked-admission-proposal: C9 separates estimates from reconciled usage, deduplicates usage records and preserves corrections; no billing/price/admission policy implied. ELZ-025 study: unreported provider usage is a distinct count, never zero; a budget that cannot be verified from observed usage stops admission. |
+| domain/metering | deferred | V1B / pieces | ELZ-299 / P09, P13 | planned-contract: Planned durable usage observations in plain Ecto/Postgrex tables under the state/tenant-isolation floor: idempotent record by usage_id, attributable corrections that never delete, and bounded totals per opaque host period, unit and source in which unknown is counted apart and never as zero; observed_at_ms kept for later time-range totals; unit set extendable. No pricing, quota or admission. |
 | [domain/money](../../pieces/domain/money/piece.json) | deferred | V2 / pieces | ELZ-031 / P09, P10 | merged-ready-contract; task acceptance separate: Exact currency amounts over a closed, versioned ISO 4217 registry folded append-only from a dated, source-attributed derived extract (current list 2026-09-17, historic list 2026-01-01): a currency is a registry member with alpha code, numeric code or explicit absence, and minor-unit exponent or explicit :not_applicable/:not_recorded, plus its status and registry version; an amount is an integer count of minor units scaled by that exponent. Pure Cure same-currency add/subtract/compare/negate and ratio allocation (1..1000 non-negative integer ratios, positive sum, shares truncated toward zero, residual placed :first/:last/:spread on positive-ratio parts and reported as already placed); untrusted alpha/numeric parse distinguishes malformed from unknown; version-specific membership on every call (forged_currency); exact Decimal-string and %Decimal{} boundaries with declared rounding modes; canonical versioned codec bytes that decode to the original identity after registry updates. Typed rejections: currency_mismatch, unknown_currency, malformed_code, retired_currency, scale_overflow, malformed_amount, invalid_ratios, unknown_rounding_mode, unknown_placement, no_minor_unit, forged_currency, unknown_registry_version. No Float. |
 | domain/payment-lifecycle | deferred | V2 / pieces | RC-24 / P10 | blocked-admission-proposal: Authorize/capture/refund/unknown-outcome transitions for C3; provider-specific semantics and reconciliation before retries. No provider adopted. Unknown-outcome recovery mechanics are shared with delivery/effect-intent (ELZ-023). |
 | domain/policy-rules | deferred | V2 / pieces | RC-20 / P09, P10 | blocked-admission-proposal: A product must provide a finite rule schema, conflict policy and audit requirement before choosing an evaluator |
@@ -531,13 +540,13 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-291.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-291.
 
 ### V2-ACCEPT
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297.
 
 Prior release gate: V1-ACCEPT.
 
@@ -4251,6 +4260,76 @@ Publication copy: [tasks/ELZ-295-choices-and-limits.md](../../tasks/ELZ-295-choi
 **Product aims:** P13.
 
 **Acceptance:** docs/choices.md gives users, for each owner choice and deliberate limit (the Wave 5 choices, the ELZ-286 limits, the run-engine request charge and payload caps, and the earlier owner decisions still in force), what was chosen, why, what it means for them and how to change it, including whether a change needs a new Piece ID, with a source link for each; README.md links it; no Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.
+
+### ELZ-296
+
+ELZ-296 — Plan Wave 6, Count and see
+
+Publication copy: [tasks/ELZ-296-wave6-plan.md](../../tasks/ELZ-296-wave6-plan.md).
+
+**Product aims:** P13.
+
+**Acceptance:** docs/plans/bot-platform-wave6.md gives the Wave 6 source boundaries, one disposition per candidate handle, dependency levels ending in a root consumer acceptance, Level 1 Contract sketches and the open owner questions with recommendations; bot-platform.md states the outcome of the RC-07, RC-09 and RC-20 rows (#679) and points the Wave 6 rows to the page; no Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.
+
+### ELZ-297
+
+ELZ-297 — Balanced money journal whose no-negative accounts are wallets
+
+Publication copy: [tasks/ELZ-297-journal.md](../../tasks/ELZ-297-journal.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** Durable plain Ecto/Postgrex journal under the tenant-isolation floor: 2..64 same-currency zero-sum postings committed all or none under one operation ID (equal replay duplicate, other bytes conflict), account rows locked in account_id byte order at a checked READ COMMITTED Need, any registry currency per account, no-negative accounts (wallets) refused insufficient_funds, linked reversals at most once and never reversible, retired currency refused for new posts and accepted for reversals; concurrent wallet debits, lock order, concurrent replay, killed connection, caller-transaction refusal, elzoo_app row security and history bounds on disposable PostgreSQL; negative controls on lock order and the zero-sum check.
+
+### ELZ-298
+
+ELZ-298 — Read-only Run transcript of the run engine
+
+Publication copy: [tasks/ELZ-298-run-transcript.md](../../tasks/ELZ-298-run-transcript.md).
+
+**Product aims:** P13.
+
+**Acceptance:** In-place read-only RunEngine transcript/3 (job handle state/run-transcript) with result/3 scope, limits and reader configuration: one Run's committed entries in commit order (inputs, gate and authorization verdicts with policy identity, admitted actions with their callable path, nested starts and kept finishes, settlements with outcome, reason, actual or unknown, terminal outcome) derived from the public DurableUnit fold; scoped Run only, history and limit refusals, no callback or mutation; nested tree, ASK, restart unknown, v2 wait, earlier-Run and read-only cases; negative controls on the parent link and the Run scope; small gate reruns runtime/recipe-test and per-ID consumers. Output none.
+
+### ELZ-299
+
+ELZ-299 — Retained usage observations whose unknown amounts never count as zero
+
+Publication copy: [tasks/ELZ-299-metering.md](../../tasks/ELZ-299-metering.md).
+
+**Product aims:** P09, P13.
+
+**Acceptance:** Durable plain Ecto/Postgrex usage observations under the tenant-isolation floor (owner Q1 A): record idempotent by usage_id (equal digest duplicate, other conflict), attributable corrections that never delete with latest-by-commit effective amount, bounded totals per opaque period, unit and source with unknown counted apart and never as zero; ai-model unit set plus cache-write units, extendable; observed_at_ms kept; concurrent record, unknown-to-known correction, isolation as elzoo_app, caller-transaction and bound cases; negative controls on the unknown branch and the uniqueness.
+
+### ELZ-300
+
+ELZ-300 — Plan grants that resolve to entitled, grace or not entitled at one time
+
+Publication copy: [tasks/ELZ-300-entitlement.md](../../tasks/ELZ-300-entitlement.md).
+
+**Product aims:** P09, P13.
+
+**Acceptance:** Pure Cure/Elixir resolution of host plan versions and grants at an injected time to entitled, grace or not entitled (revoked > expired > grace > active, exclusive ends), with sorted features and a list of unit allowances (period_kind :utc_month, owner Q6 A; settle-only in grace) and the contributing grants and plan identities; v1 refuses overlapping grants; content-hash and unknown-plan refusals in a fixed order; Cure status-order law; negative control swaps grace and revocation.
+
+### ELZ-301
+
+ELZ-301 — Retained dead-letter records with an open-to-resolved lifecycle
+
+Publication copy: [tasks/ELZ-301-dead-letter-store.md](../../tasks/ELZ-301-dead-letter-store.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Durable plain Ecto/Postgrex store of validated delivery/dead-letter records once per (tenant, source, message_id) under the tenant-isolation floor (owner Q1 A), open until resolved once as replayed or discarded, bounded oldest-first listing, counts and purge of resolved records; no payload or dispatch; Relay re-offer, concurrent resolve, isolation as elzoo_app and a full page of permanent failures that no longer blocks later items; negative control drops the uniqueness.
+
+### ELZ-302
+
+ELZ-302 — Versioned datasets of scripted recipe cases, scored into a deterministic report
+
+Publication copy: [tasks/ELZ-302-eval.md](../../tasks/ELZ-302-eval.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Test-time Piece (owner Q7 A): a version-1 JSON dataset (duplicate keys refused) of 1..256 cases with input, script and 1..16 checks from a closed, extendable set, read through state/artifact with its hash verified, run through runtime/recipe-test over a host base spec, and scored into an equal-on-repeat report with dataset and package identities; malformed dataset refused at its path, integrity mismatch, unscripted call as a case error, changed package flips a case. Hosted check-piece path.
 
 ### ELZ-291
 
