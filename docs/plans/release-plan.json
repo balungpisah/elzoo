@@ -8033,6 +8033,29 @@
       "issue": 673,
       "url": "https://github.com/balungpisah/elzoo/issues/673",
       "issue_body_sha256": "edd28f3b95fcadfa8314609d742aaa0476bf1844c8f8c336653adb8d35891538"
+    },
+    {
+      "id": "ELZ-305",
+      "title": "ELZ-305 — A cancel after a delivered result answers unknown_run in runtime/os-isolation",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-029"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; small gate, full review and merge queue",
+      "paths": [
+        "tasks/ELZ-305-os-process-cancel-after-result.md"
+      ],
+      "outputs": [],
+      "acceptance": "A cancel that runtime/os-isolation handles after it sent a run's terminal result answers {:error, :unknown_run}, never {:error, :already_exited}, because the result and the record removal are one step of the owning process (#694); Contract, README and T7 unchanged, no sleep, retry or second accepted reply. Deterministic window regression test with an unfixed-code negative control, T7 --repeat-until-failure 500, Piece suite, small gate.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 702,
+      "url": "https://github.com/balungpisah/elzoo/issues/702",
+      "issue_body_sha256": "cb5e80519c96752631490b777939a5f20a8cd839a0c4c2f6a41d2ca591bab27d"
     }
   ],
   "entries": [
