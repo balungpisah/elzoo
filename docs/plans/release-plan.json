@@ -8986,11 +8986,11 @@
     {
       "id": "domain/metering",
       "job": "ELZ-299",
-      "note": "Retained usage observations over a consumer-owned Ecto Repo on PostgreSQL 16 in two Piece-owned tables that Migration.install/1 creates and protects with the state/tenant-isolation floor: record/3 stores one observation per (tenant, usage_id) with INSERT ... ON CONFLICT DO NOTHING and a SHA-256 request digest (equal is duplicate, else conflict); correct/3 locks the observation FOR UPDATE, decides its correction_id by digest, refuses a 1,025th correction and appends the correction with the next revision as the effective amount (latest by commit order, never a delete); totals/3 returns at most max_rows (1..1000) groups per opaque host period, unit and source with known (numeric sum of known effective amounts), unknown_count and count, an unknown amount never added as zero, or read_limit; observation/3 returns one observation with its corrections in commit order. Shape, then the caller's open transaction, before any query; writes refuse a transaction isolation other than READ COMMITTED; fixed error atoms, log: false, no telemetry.",
+      "note": "Retained usage observations over a consumer-owned Ecto Repo on PostgreSQL 16 in two Piece-owned tables that Migration.install/1 creates and protects with the state/tenant-isolation floor: record/3 stores one observation per (tenant, usage_id) with INSERT ... ON CONFLICT DO NOTHING and a SHA-256 request digest (equal is duplicate, else conflict); correct/3 locks the observation FOR UPDATE, decides its correction_id by digest, refuses a 1,025th correction and appends the correction with the next revision as the effective amount (latest by commit order, never a delete); totals/3 returns at most max_rows (1..1000) groups per opaque host period, unit and source with known (numeric sum of known effective amounts), unknown_count and count, an unknown amount never added as zero, or read_limit; model_totals/3 returns the same per period, provider_id, model_id, unit and source, sorted by those four in Erlang term order, the rows of a domain/pricing usage value; observation/3 returns one observation with its corrections in commit order. Shape, then the caller's open transaction, before any query; writes refuse a transaction isolation other than READ COMMITTED; fixed error atoms, log: false, no telemetry.",
       "baseline_status": "deferred",
       "disposition": "ready-contract",
       "manifest": "pieces/domain/metering/piece.json",
-      "manifest_sha256": "55e678b9bdc93e0665d3cc20f3417661f43fb8e1510bd1384825f7424f4d7ca7",
+      "manifest_sha256": "6c0b954f5dbfcb8ffffe7879d99aec1cf27562eca2af67149066f77b9c9dd7f8",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
