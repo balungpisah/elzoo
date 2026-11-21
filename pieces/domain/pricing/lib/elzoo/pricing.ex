@@ -246,10 +246,15 @@ defmodule Elzoo.Pricing do
 
   # ---------------------------------------------------------------- validation
 
+  # One check per call: every money call of the call gets the checked value, so
+  # a raw registry is walked once, not once per line.
   defp registry([]), do: {:ok, Registry.default()}
 
   defp registry(registry: r) do
-    if Registry.valid?(r), do: {:ok, r}, else: {:error, :invalid}
+    case Registry.check(r) do
+      {:ok, checked} -> {:ok, checked}
+      {:error, _} -> {:error, :invalid}
+    end
   end
 
   defp registry(_opts), do: {:error, :invalid}
