@@ -8930,7 +8930,7 @@
       "disposition": "merged-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/money/piece.json",
-      "manifest_sha256": "fef44027db353a827958505914bc8f833925d4eef9976545073bfaf99beda918"
+      "manifest_sha256": "2b7bf31dd597a1124340bb9f81c29bc89875686658161fbd257f02074104ebdc"
     },
     {
       "id": "domain/payment-lifecycle",
