@@ -451,7 +451,8 @@ These are set in the published task texts
 - **Chosen.** `domain/quota` takes the tenant's current `domain/entitlement`
   resolution with each reservation and derives each unit's amount from it: the
   sum of the allowances of that unit whose grant is not in grace, each checked
-  against the grants the resolution lists. Settlements take no resolution. An
+  against the grants the resolution lists; an allowance of a unit or period
+  kind quota does not map is ignored. Settlements take no resolution. An
   open reservation is never freed by time; past its expiry it stays counted
   until it is settled ([ELZ-303](../tasks/ELZ-303-quota.md)).
 - **Why.** A plan change, grace or revocation then applies at the next

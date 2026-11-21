@@ -407,7 +407,7 @@
     },
     {
       "id": "domain/pricing",
-      "summary": "Versioned usage-to-price rules and templates",
+      "summary": "Usage charges under immutable rate-card versions",
       "disposition": "own",
       "phase": "P4",
       "status": "planned",
