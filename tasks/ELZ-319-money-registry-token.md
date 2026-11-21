@@ -92,10 +92,11 @@ neither changes here. `domain/quota` takes no registry.
      build of `Elzoo.Money.Registry` is not loaded, `:erlang.fun_info/2`
      gives `[]` as its name, so a `registry:` call refuses it with the
      existing rejection and a positional function takes it as any other
-     value. While that code stays loaded, as current code or as old code
-     during an upgrade, the value is accepted and used, and a node that runs
-     the same build accepts and uses it. So the host checks again after a
-     code upgrade and does not send checked values between nodes.
+     value; the same happens to a value from an older build whose sealing
+     closure has another compiler name than the literal of the current
+     build. Requirement 2 alone decides acceptance; this limit claims only
+     these refusals. So the host checks again after a code upgrade and does
+     not send checked values between nodes.
 
 ## Acceptance and evidence
 
