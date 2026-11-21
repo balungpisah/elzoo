@@ -485,17 +485,19 @@ defmodule Elzoo.Journal do
          {:ok, id, after_version, limit} <- history_shape(tenant, request),
          :ok <- outside(j) do
       run(j, tenant, fn ->
+        # One statement: the account row, joined to at most limit + 1 postings after the
+        # cursor. No row is an unknown account; one row with a NULL version is an empty page.
         case query!(
                j,
-               "SELECT currency_alpha, currency_numeric, currency_minor_unit FROM #{table(j, :accounts)} WHERE tenant = $1 AND account_id = $2",
-               [tenant, id]
+               "SELECT a.currency_alpha, a.currency_numeric, a.currency_minor_unit, h.version, h.operation_id, h.reverses, h.minor_units, h.balance FROM #{table(j, :accounts)} a LEFT JOIN LATERAL (SELECT p.version, p.operation_id, o.reverses, p.minor_units::text AS minor_units, p.balance::text AS balance FROM #{table(j, :postings)} p JOIN #{table(j, :operations)} o ON o.tenant = p.tenant AND o.operation_id = p.operation_id WHERE p.tenant = a.tenant AND p.account_id = a.account_id AND p.version > $3 ORDER BY p.version LIMIT $4) h ON true WHERE a.tenant = $1 AND a.account_id = $2 ORDER BY h.version",
+               [tenant, id, after_version, limit + 1]
              ) do
           [] ->
             {:error, :unknown_account}
 
-          [[alpha, numeric, minor]] ->
+          [[alpha, numeric, minor | _] | _] = rows ->
             with {:ok, currency} <- currency(j, {alpha, numeric, minor}),
-                 do: page(j, tenant, id, currency, after_version, limit)
+                 do: page(j, currency, rows, limit)
         end
       end)
     end
@@ -512,18 +514,14 @@ defmodule Elzoo.Journal do
 
   defp history_shape(_tenant, _request), do: {:error, :invalid}
 
-  defp page(j, tenant, id, currency, after_version, limit) do
-    rows =
-      query!(
-        j,
-        "SELECT p.version, p.operation_id, o.reverses, p.minor_units::text, p.balance::text FROM #{table(j, :postings)} p JOIN #{table(j, :operations)} o ON o.tenant = p.tenant AND o.operation_id = p.operation_id WHERE p.tenant = $1 AND p.account_id = $2 AND p.version > $3 ORDER BY p.version LIMIT $4",
-        [tenant, id, after_version, limit + 1]
-      )
-
-    {entries, rest} = Enum.split(rows, limit)
+  defp page(j, currency, rows, limit) do
+    {entries, rest} =
+      rows
+      |> Enum.reject(&match?([_, _, _, nil | _], &1))
+      |> Enum.split(limit)
 
     entries =
-      Enum.map(entries, fn [version, operation_id, reverses, units, balance] ->
+      Enum.map(entries, fn [_, _, _, version, operation_id, reverses, units, balance] ->
         %{
           version: version,
           operation_id: operation_id,
