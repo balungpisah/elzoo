@@ -40,8 +40,10 @@ Publication owns this task file, its no-output job row in
 2. The automated-reviewer bullet requires, before each merge, that the
    automated reviewer's pass on the exact head has finished and that every
    one of its threads is answered and resolved.
-3. The paragraph that marks a pull request ready names that finished pass
-   among the conditions.
+3. The paragraph that marks a pull request ready says that the automated
+   reviewer reviews only a pull request that is not a draft, so its pass
+   starts when the PR is marked ready, and that the coordinator merges only
+   after that pass has finished with its threads resolved.
 4. A bullet records the one-time recheck of the three Pieces above by a
    reviewer of another model family once one is available, with each
    finding as its own task.
@@ -56,6 +58,6 @@ No other rule changes. The merge queue script is not changed.
 3. `python3 scripts/check-roadmap.py --live`, `python3
    scripts/check-claims.py` and `git diff --check` pass.
 4. One light independent review of the wording, a green exact-head hosted
-   documents check, the automated reviewer's finished pass with its threads
-   resolved, and the PR marked ready. The coordinator merges on a green
-   `main`.
+   documents check and the PR marked ready; the coordinator merges on a
+   green `main` after the automated reviewer's finished pass with its
+   threads resolved.

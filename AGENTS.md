@@ -392,9 +392,11 @@ A local command can be impossible on your host, for example when a service is
 missing. Then record the command and the reason in `Local gate:`. The hosted
 check is the evidence for that command.
 
-When the required local checks (or recorded hosted substitution), the hosted check and the review are green, and the
-automated reviewer's pass on the exact head has finished with its threads resolved, mark the pull
-request ready for review. That is the request to merge. From then the
+When the required local checks (or recorded hosted substitution), the hosted check and the review are green, mark the pull
+request ready for review. That is the request to merge. The automated reviewer
+reviews only a pull request that is not a draft, so its pass starts then; the
+coordinator merges only after that pass on the exact head has finished with
+its threads resolved, and gives the branch back for any fix. From then the
 coordinator owns the branch: do not push to it unless the coordinator gives it
 back. You can claim the next task.
 
