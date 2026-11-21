@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "id": "domain/entitlement",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir", "otp"],
+  "dependencies": ["integration/ai-model"],
+  "contract": "Pure resolution of host plan versions and a tenant's grants of them at an injected time to entitled, grace or not entitled. A grant's status is revoked > expired > grace > active > not yet, with exclusive valid_to_ms and grace_until_ms; two grants of one tenant active or in grace at once are overlap in this version. A resolution {tenant, at_ms, grants, features, allowances} lists each contributing grant with its plan_id, version, content_hash and status, the sorted union of features, and a list of unit allowances {unit, amount, period_kind :utc_month, settle_only, grant_id} over the integration/ai-model unit set, settle_only true in grace. With no contributing grant the result is revoked, else expired, else no_grant. content_hash/1 is the SHA-256 of a documented canonical plan encoding. feature/2 allows a feature of an entitled or grace resolution. Fixed error atoms in the order now, tenant, facts, plans, grants, content_hash, unknown_plan, overlap, and invalid for feature/2; none echoes an ID. Unit, period_kind, status and error sets and the returned maps may gain members. No I/O, clock, storage, billing, quota or authorization decision.",
+  "limits": [
+    "Facts are host-supplied; the Piece does not fetch, store or authenticate them, and a revocation reaches a gate only at its next call.",
+    "One active or grace grant per tenant in this version; a base plan with an add-on is refused as overlap until a later in-place version allows stacking.",
+    "No billing, invoice, subscription or period accounting, and no quota enforcement: settle_only is a mark that domain/quota enforces.",
+    "Selected Cure laws cover the status order over the four flags Elixir supplies; flag computation from the grant times, validation, the content hash, tenancy, overlap, the not-entitled reason and the error order are Elixir-side and test-grounded only."
+  ],
+  "files": [
+    "cure/elzoo/entitlement.cure",
+    "lib/elzoo/entitlement.ex",
+    "test/elzoo/entitlement_test.exs",
+    "examples/entitlement.exs"
+  ],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/entitlement.cure", "symbol": "revoked_wins", "claim": "For all expired, grace and active flags, a revocation gives StatusRevoked, also over grace."},
+    {"kind": "proof", "file": "cure/elzoo/entitlement.cure", "symbol": "expired_before_grace", "claim": "For all grace and active flags, with no revocation an expiry gives StatusExpired."},
+    {"kind": "proof", "file": "cure/elzoo/entitlement.cure", "symbol": "grace_before_active", "claim": "For every active flag, with no revocation or expiry grace gives StatusGrace."},
+    {"kind": "proof", "file": "cure/elzoo/entitlement.cure", "symbol": "active_alone", "claim": "Active with no revocation, expiry or grace gives StatusActive."},
+    {"kind": "proof", "file": "cure/elzoo/entitlement.cure", "symbol": "none_not_yet", "claim": "No flag gives StatusNotYet."},
+    {"kind": "type", "file": "cure/elzoo/entitlement.cure", "claim": "Pinned Cure checks types and totality of the status decision; the source audit reports no axiom, hole, unresolved, unaudited, opaque or unproved-total definition."},
+    {"kind": "test", "file": "test/elzoo/entitlement_test.exs", "claim": "Listed scenarios: valid_from_ms - 1 and valid_from_ms, valid_to_ms - 1 and valid_to_ms with and without grace, grace_until_ms - 1 and grace_until_ms, an open valid_to_ms and times 0 and 2^63-1; revoked during grace, at valid_to_ms, before valid_from_ms and after now; revoked and expired; the revoked > expired > no_grant reason over several grants; overlap of entitled and grace grants, non-overlapping grants resolving to the active one, two tenants that never cross, another tenant's overlap and unknown plan ignored, exact-byte tenants; unknown plan version and plan_id; content-hash mismatch also for a plan no grant names, content_hash/1 ignoring its key, distinguishing every body field and equal to the documented encoding; the full entitled resolution, grace with settle_only true, empty plans, the named version; feature/2 present, absent and in grace and refusals of malformed resolutions and names; refusals of every key set, struct and string-keyed facts, improper lists, unsorted and duplicate features and allowances, unknown unit, ttl and period_kind, amount 0 and 2^63, versions 0 and 2^31, texts of 0 and 129 bytes, invalid UTF-8, NUL, DEL, U+0085 and U+009F, times -1, 2^63 and floats, grant window rules, duplicate grant IDs and 1025 entries, with 128-byte texts, 256 features, every unit and 1024 plans and grants accepted; the fixed error order and junk inputs without a raise or an echoed ID; the status order over all 16 flag combinations; Cure laws, audit and the checked example. Swapping the grace and revocation flags at the Cure call, letting grace win over revocation and dropping the tenant filter each make these tests fail; swapping grace and revocation in the Cure order fails the revoked_wins law at compile (negative controls). Finite scenarios, not universal proofs."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Pinned Cure compilation, reduction checking and BEAM decision semantics; compiler soundness not locally proved."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir/OTP term order of binaries, atoms and tuples for the sorted features and allowances, :lists.usort/1, String.valid?/1 and the utf8 binary pattern."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html", "claim": "OTP 29.1.2 :crypto SHA-256 of the canonical plan encoding gives the content hash."},
+    {"kind": "assumption", "claim": "The host reads plans and grants from its own authenticated storage, computes and stores each plan version's content hash, keeps revoked and ended grant rows, injects the current time and maps the resolution into its own gates and domain/quota."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure functions emit no observations and no logs; the host owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "Fixed Contract bounds (1024 plans and grants, 256 features, 64 allowances, 128-byte texts, versions 1..2^31-1, amounts 1..2^63-1, 0..2^63-1 ms); facts, tenant and time are per-call operands, not settings."},
+    "control": {"status": "not_applicable", "contract": "No process or lifecycle; revocation is a fact the host supplies per call."}
+  }
+}
