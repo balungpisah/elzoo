@@ -383,8 +383,9 @@ exact-head requirements, or hosted checks on a new head.
 - Answer each finding of the automated reviewer in its thread, and resolve
   the thread. Before the coordinator starts the merge queue, the automated
   reviewer's pass on the exact head has finished and every one of its
-  threads is resolved (owner decision). A head that the queue then makes by
-  merging `main` into the branch needs no new pass.
+  threads is resolved (owner decision). A head that the queue makes by
+  merging `main` into the branch within that run needs no new pass; a head
+  pushed for a repair needs a finished pass before the queue starts again.
 - When a reviewer of another model family becomes available, it rechecks
   `domain/journal`, `domain/metering` and `delivery/dead-letter-store`
   once. Each finding becomes its own task (owner decision).
