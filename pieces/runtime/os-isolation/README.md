@@ -51,7 +51,9 @@ arrival order, bounded by `max_output_bytes` (`truncated: true` beyond it).
 `run/3` waits `queue_timeout_ms + run limit + grace + observation + 5 s`
 (`bounds/1` exposes the instance values); a shorter `await_ms` ends the wait
 early, cancels the run (acceptance only) and returns `{:error, {:no_result,
-ref}}`; the late result message still arrives. `cancel/2` returns
+ref}}`; the late result message still arrives, except when the owner is
+killed between retiring its registry row and sending the result (the declared
+residual under "If an owner dies" in [Processes](#processes)). `cancel/2` returns
 `{:ok, :requested}` once and `{:ok, :already_requested}` for a repeated cancel
 of a running run; `{:error, :already_exited}` only once a provider exit report
 confirms that the leader has exited (the provider can no longer stop the group;
