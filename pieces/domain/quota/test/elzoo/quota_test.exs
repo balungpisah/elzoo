@@ -205,6 +205,12 @@ defmodule Elzoo.QuotaTest do
       assert reserve(q, "d1", images: 3) == {:ok, :applied}
       assert reserve(q, "d1", images: 3) == {:ok, :duplicate}
       assert reserve(q, "d1", [images: 3], now: 500, resolution: grace()) == {:ok, :duplicate}
+      # Also at expiry and with a resolution that lacks the unit: steps 6, 7 and 9 never run.
+      assert reserve(q, "d1", [images: 3], now: 1_000) == {:ok, :duplicate}
+
+      assert reserve(q, "d1", [images: 3], resolution: resolution(allowances: [output_tokens: 1])) ==
+               {:ok, :duplicate}
+
       assert counters(q, :images) == {0, 0, 3}
 
       refused(p, :conflict, fn -> reserve(q, "d1", images: 4) end)
@@ -508,11 +514,12 @@ defmodule Elzoo.QuotaTest do
 
     refused(p, :unknown_reservation, fn -> settle(q, "t2-run", images: 1) end)
 
-    assert {:error, %Postgrex.Error{postgres: %{code: @denied}}} =
-             probe.(
-               "INSERT INTO #{Harness.table(p, :counters)} (tenant, window_tag, window_id, unit, committed, held, reserved) VALUES ('T2', 'period', '2026-11', 'characters', 0, 0, 0)",
-               []
-             )
+    for sql <- [
+          "INSERT INTO #{Harness.table(p, :counters)} (tenant, window_tag, window_id, unit, committed, held, reserved) VALUES ('T2', 'period', '2026-11', 'characters', 0, 0, 0)",
+          "INSERT INTO #{Harness.table(p, :reservations)} (tenant, run_id, window_tag, window_id, expiry_ms, request_digest, state) VALUES ('T2', 'direct', 'period', '2026-11', 1, decode(repeat('00', 32), 'hex'), 'open')",
+          "INSERT INTO #{Harness.table(p, :units)} (tenant, run_id, unit, estimate) VALUES ('T2', 't2-run', 'characters', 1)"
+        ],
+        do: assert({:error, %Postgrex.Error{postgres: %{code: @denied}}} = probe.(sql, []))
 
     for t <- [:counters, :reservations, :units] do
       assert {:error, %Postgrex.Error{postgres: %{code: @denied}}} =
@@ -561,6 +568,19 @@ defmodule Elzoo.QuotaTest do
 
     assert {:ok, [%{unit: :images, reserved: 2, held: 2}]} =
              Quota.status(rr, "T1", %{window: @nov, resolution: nil})
+  end
+
+  test "11 a database failure is unavailable with nothing committed", %{q: q, p: p} do
+    assert reserve(q, "f1", images: 1) == {:ok, :applied}
+    missing = Quota.new(repo: AppRepo, prefix: "elz303_missing")
+    refused(p, :unavailable, fn -> reserve(missing, "f1", images: 1) end)
+    refused(p, :unavailable, fn -> settle(missing, "f1", images: 1) end)
+    refused(p, :unavailable, fn -> reconcile(missing, "f1", :images, 1) end)
+    refused(p, :unavailable, fn -> release(missing, "f1") end)
+
+    refused(p, :unavailable, fn ->
+      Quota.status(missing, "T1", %{window: @nov, resolution: nil})
+    end)
   end
 
   # ------------------------------------------------------------ 12
