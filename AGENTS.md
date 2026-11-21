@@ -187,12 +187,14 @@ agent writes in a worktree at a time.
 - The repository is public. Standard Git author, committer and co-author
   metadata, and platform authorship attribution, are allowed; automatic
   authorship metadata alone needs no rewrite or approval. The `Amp-Thread-ID`
-  trailer that Amp adds to its commits is such metadata: it is allowed, and
-  published history is not rewritten to remove it. Authored repository
-  content, examples, commit-message prose, and issue/PR prose remain roles-only:
-  include no person's name or private environment details. Do not include
-  session links or publish hostnames, addresses, local paths, database names,
-  credentials or session identifiers.
+  trailer that Amp adds to its commits automatically is such metadata: it is
+  allowed, needs no approval, and published history is not rewritten to
+  remove it. It is the only exception to the session-link rule below; do not
+  copy its value into commit-message prose, issue/PR prose or files.
+  Authored repository content, examples, commit-message prose, and issue/PR
+  prose remain roles-only: include no person's name or private environment
+  details. Do not include session links or publish hostnames, addresses, local
+  paths, database names, credentials or session identifiers.
 - Write a file under `docs/work/` only when the task body names that file as a
   deliverable. The pull request body is the record of the task.
 - Test named Contract boundaries adversarially; a first green run alone is not

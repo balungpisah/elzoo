@@ -31,8 +31,11 @@ follows the order it receives. It changes no command or check.
 - Public authored repository content, examples, commit-message prose, and
   issue/PR prose remain roles-only; private details and session links stay
   forbidden. Standard Git author/committer/co-author metadata and platform
-  authorship attribution are allowed, and so is the `Amp-Thread-ID` trailer
-  that Amp adds to its commits automatically. Do not force-push or rewrite
+  authorship attribution are allowed. The `Amp-Thread-ID` trailer that Amp
+  adds to its commits automatically is allowed metadata too: it needs no
+  approval and is not rewritten out of published history. It is the only
+  exception to the session-link rule; its value is not copied into prose, PR
+  bodies or files. Do not force-push or rewrite
   published or shared history, including commits supplied for review or used by another
   worker as a dependency. A sole owner may amend or reorganize their own
   unpublished local commits before sharing without separate permission, while
