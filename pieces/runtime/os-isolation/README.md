@@ -156,7 +156,11 @@ produces no synthetic `'DOWN'`; the proxy's exit reason (`normal`,
 `{exit_status, S}`, `port_closed`) arrives through the link and the monitor
 after all output messages. If an owner dies, the provider stops the group
 through the link and the Adapter reports `unknown{owner_exit}` after its own
-observation; if the Adapter dies, running owners finish and reply, queued
+observation, unless the owner had already retired its registry row as finished,
+the step immediately before it sends the result: an owner killed after the send
+gives only that result, and one killed between the two steps gives none, so the
+caller's `run/3` wait ends with `{:error, {:no_result, ref}}` (a declared
+residual); if the Adapter dies, running owners finish and reply, queued
 callers' calls exit, and the restarted Adapter rebuilds its slots from the
 registry. If the VM exits, the port program's `finalize` stops every child.
 

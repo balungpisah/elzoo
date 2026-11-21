@@ -656,6 +656,87 @@ defmodule Elzoo.OsProcessTest do
     assert :ok = wait_empty(os_pid)
   end
 
+  test "R5 a cancel that reaches the Adapter after the result was sent, before the owner's exit, answers unknown_run" do
+    parent = self()
+    gate = make_ref()
+
+    sup =
+      start(
+        test_hooks: %{
+          after_result: fn ->
+            send(parent, {:after_result, self(), gate})
+
+            receive do
+              {^gate, :go} -> :ok
+            end
+          end
+        }
+      )
+
+    # The owner is held right after its send, so the Adapter still lists the run as running.
+    held = fn ->
+      receive do
+        {:after_result, owner, ^gate} -> owner
+      after
+        10_000 -> flunk("the owner did not reach the after_result hook")
+      end
+    end
+
+    release = fn owner, ref ->
+      send(owner, {gate, :go})
+      assert :ok = wait_until(fn -> OsProcess.snapshot(sup).in_flight == 0 end, 5_000)
+      refute_receive {OsProcess, ^ref, _}, 300
+      assert {:error, :unknown_run} = OsProcess.cancel(sup, ref)
+    end
+
+    # completed: before the fix the live state answered already_exited
+    {:ok, done} = OsProcess.submit(sup, spec("exit", [0]), max_run_ms: 5_000)
+    owner = held.()
+    assert %{status: :completed, exit_code: 0} = result(done)
+    assert Process.alive?(owner)
+    assert {:error, :unknown_run} = OsProcess.cancel(sup, done)
+    release.(owner, done)
+
+    # a cancel already requested: before the fix already_requested
+    {:ok, cancelled} = OsProcess.submit(sup, spec("sleep", [30]), max_run_ms: 20_000)
+    os_pid = os_pid_of(sup, cancelled)
+    assert {:ok, :requested} = OsProcess.cancel(sup, cancelled)
+    owner = held.()
+    assert %{status: :unknown, reason: :provider_masked_stop, cause: :cancel} = result(cancelled)
+    assert Process.alive?(owner)
+    assert {:error, :unknown_run} = OsProcess.cancel(sup, cancelled)
+    release.(owner, cancelled)
+    assert members(os_pid) == []
+
+    # rejected{spawn_failed} before any OS pid: before the fix requested
+    {:ok, failed} = OsProcess.submit(sup, %{executable: "/nonexistent/bin/x"}, max_run_ms: 5_000)
+    owner = held.()
+    assert %{status: :rejected, reason: :spawn_failed} = result(failed)
+    assert Process.alive?(owner)
+    assert {:error, :unknown_run} = OsProcess.cancel(sup, failed)
+    release.(owner, failed)
+  end
+
+  test "R6 an owner killed between retiring its row and sending gives no result; run/3 ends with no_result" do
+    sup = start(test_hooks: %{after_retire: fn -> Process.exit(self(), :kill) end})
+
+    assert {:error, {:no_result, ref}} =
+             OsProcess.run(sup, spec("exit", [0]), max_run_ms: 5_000, await_ms: 1_500)
+
+    assert :ok = wait_until(fn -> OsProcess.snapshot(sup).in_flight == 0 end, 5_000)
+    refute_receive {OsProcess, ^ref, _}, 300
+    assert OsProcess.info(sup, ref) == nil
+  end
+
+  test "R7 an owner killed right after sending its result gives exactly that result" do
+    sup = start(test_hooks: %{after_result: fn -> Process.exit(self(), :kill) end})
+    {:ok, ref} = OsProcess.submit(sup, spec("exit", [0]), max_run_ms: 5_000)
+    assert %{status: :completed, exit_code: 0} = result(ref)
+    assert :ok = wait_until(fn -> OsProcess.snapshot(sup).in_flight == 0 end, 5_000)
+    refute_receive {OsProcess, ^ref, _}, 300
+    assert OsProcess.info(sup, ref) == nil
+  end
+
   # ---- spawn failure (T9) and exec failure after validation (B5)
 
   test "T9 pre-dispatch validation: missing file, no execute bit, missing cwd are rejected{spawn_failed}" do
