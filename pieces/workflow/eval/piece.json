@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "id": "workflow/eval",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "otp", "jason"],
+  "dependencies": ["runtime/recipe-test", "state/artifact", "core/payload-schema"],
+  "contract": "An ExUnit helper that decodes a versioned JSON dataset of scripted recipe cases (format version 1: a dataset id, an author version and 1..256 cases of input, script, restart_after and 1..16 checks of a closed, extendable set of seven kinds), refusing a malformed one at the path of its first fault with a fixed reason, reads its bytes through state/artifact with the hash verified, runs each case once through runtime/recipe-test with scripted models only over a recipe spec that the host gives, and scores each record into a report that is a plain value with the dataset and package identities and a fixed reason for each failed check; a harness error is a case error, not a crash.",
+  "limits": [
+    "`Elzoo.Eval.decode/1`, `load/4`, `score/2` and `run/2` are functions of the test helper `test/support/eval_helper.exs`, loaded with `Code.require_file`, because `run/2` calls `Elzoo.RecipeTest.run/1` of the `.exs` helper of `runtime/recipe-test`. No module is compiled. The calling test module starts what recipe-test needs.",
+    "Scripted results are written by the author, so a passing report shows that the recipe handles those results, not that a provider would give them. No live model, network, model-graded judge, statistics or storage of the report; the host may store the report itself.",
+    "Test-time only, with the limits of `runtime/recipe-test`: a clock that does not move, one restart, no network. A record whose Run did not end `:completed`, such as an agent that stopped, has no root finish, and its text and `structured_matches` checks fail with `no_root_finish`.",
+    "The final text is only that of an answered agent root (`workflow/agent-loop` finish form); a graph or decision root has none. The check set and the root members are closed in version 1; a live-model mode or a new check kind is a later in-place extension, not part of this Contract.",
+    "The same dataset gives the same report: observed, not proven. Bounds cover the dataset document, not the CPU or memory of decoding or of a JSON Schema."
+  ],
+  "files": ["test/support/eval_helper.exs", "test/elzoo/eval_test.exs"],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/eval_test.exs",
+      "claim": "Listed scenarios of the groups passing_dataset (an agent dataset and a graph dataset of three cases each, loaded from the Memory Store and the fake object store of the state/artifact test helper, every case passed), failing_checks (one failing case per check kind with its fixed reason, no_final_text for a graph root, no_root_finish for a stopped agent and for a literal record that is not completed), malformed_dataset (a duplicate key in a nested object, an unknown check kind, 257 cases, a duplicate case_id, a results entry with a bad reason and an invalid schema, each at its path and reason, and other root faults), artifact_faults (changed stored bytes are integrity_mismatch, an absent artifact artifact_unavailable), unscripted_case (an unscripted_call case error while the other cases pass), same_dataset_same_report and changed_package (a changed recipe package flips the expected cases from passed to failed with schema and changes the package identity) pass. The groups that run recipes run on PostgreSQL through ELZOO_TEST_DATABASE_URL and fail closed when it is missing; none is skipped; no live object store is used. Five negative controls: a JSON walk that keeps the last of a repeated key fails the nested duplicate-key scenario, a root finish taken as the first finish fails the graph cases of passing_dataset, same_dataset_same_report and changed_package, a final text taken from the last completed model result fails the graph no_final_text scenario, a case error that keeps the whole reason tuple fails unscripted_case, and a tool_called that needs more than at_least calls fails the passing datasets. Finite scenarios, not a universal proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "Pinned JSON decoding with `objects: :ordered_objects` keeps every member of an object in document order, a repeated key included, so that the walk here can refuse it."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The Contracts of runtime/recipe-test, state/artifact and core/payload-schema hold as each of them states, scoped as it states them; this Piece proves nothing about them. It has no Cure module: decoding and scoring are shape checks without a meaningful law."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "A test helper that makes no observation of its own; the report of the call is its output."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Every input is an operand of one call; no ambient settings."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No lifecycle beyond one call; the test owns every process that recipe-test starts."
+    }
+  }
+}
