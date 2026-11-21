@@ -8080,7 +8080,7 @@
     },
     {
       "id": "ELZ-308",
-      "title": "ELZ-308 — Record the Continuum ideas for Waves 8 and 9 and the first release",
+      "title": "ELZ-308 — Record the Continuum and Temporal ideas for later waves and the first release",
       "kind": "published",
       "release": "V1B",
       "stage": "pieces",
@@ -8091,13 +8091,13 @@
         "tasks/ELZ-308-continuum-notes.md"
       ],
       "outputs": [],
-      "acceptance": "bot-platform.md records the owner's 2026-11-21 decisions from the Continuum evaluation: Wave 8 room rollover as a continuation chain and a closed mailbox input surface (delivery/room, delivery/durable-mailbox), Wave 9 saga rules (assembly/ledger-checkout, domain/payment-lifecycle), and frozen record fixtures for run-engine, pattern-step and recipe-test when the first release freezes the formats; docs/dependencies.md lists Continuum v0.9.3 as evaluated and not adopted. No Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.",
+      "acceptance": "bot-platform.md records the owner's 2026-11-21 decisions from the Continuum and Temporal evaluations: Wave 8 room rollover as a continuation chain whose successors and child Runs keep the pinned recipe version, a closed mailbox input surface and a per-child parent-close rule (delivery/room, delivery/durable-mailbox, workflow/delegation); Wave 9 saga rules (assembly/ledger-checkout, domain/payment-lifecycle) and a failure-given retry delay with optional jitter for undispatched results (delivery/retry-timeout in place, first caller delivery/model-routing); frozen record fixtures for run-engine, pattern-step and recipe-test when the first release freezes the formats; five deferred items kept until a caller needs them; docs/dependencies.md lists Continuum v0.9.3 as evaluated and not adopted. No Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.",
       "product_aims": [
         "P13"
       ],
       "issue": 713,
       "url": "https://github.com/balungpisah/elzoo/issues/713",
-      "issue_body_sha256": "91b561699b4e41afb62623fb245b7c1f00cc040eb32d96b9fa7a63f88d3ecfe8"
+      "issue_body_sha256": "d07220e5dc7577a1cc6653a9cbbedf28ffcc9c85a99f1f48e27e4ac38d69e6bd"
     }
   ],
   "entries": [

@@ -4366,10 +4366,10 @@ Publication copy: [tasks/ELZ-306-review-policy.md](../../tasks/ELZ-306-review-po
 
 ### ELZ-308
 
-ELZ-308 — Record the Continuum ideas for Waves 8 and 9 and the first release
+ELZ-308 — Record the Continuum and Temporal ideas for later waves and the first release
 
 Publication copy: [tasks/ELZ-308-continuum-notes.md](../../tasks/ELZ-308-continuum-notes.md).
 
 **Product aims:** P13.
 
-**Acceptance:** bot-platform.md records the owner's 2026-11-21 decisions from the Continuum evaluation: Wave 8 room rollover as a continuation chain and a closed mailbox input surface (delivery/room, delivery/durable-mailbox), Wave 9 saga rules (assembly/ledger-checkout, domain/payment-lifecycle), and frozen record fixtures for run-engine, pattern-step and recipe-test when the first release freezes the formats; docs/dependencies.md lists Continuum v0.9.3 as evaluated and not adopted. No Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.
+**Acceptance:** bot-platform.md records the owner's 2026-11-21 decisions from the Continuum and Temporal evaluations: Wave 8 room rollover as a continuation chain whose successors and child Runs keep the pinned recipe version, a closed mailbox input surface and a per-child parent-close rule (delivery/room, delivery/durable-mailbox, workflow/delegation); Wave 9 saga rules (assembly/ledger-checkout, domain/payment-lifecycle) and a failure-given retry delay with optional jitter for undispatched results (delivery/retry-timeout in place, first caller delivery/model-routing); frozen record fixtures for run-engine, pattern-step and recipe-test when the first release freezes the formats; five deferred items kept until a caller needs them; docs/dependencies.md lists Continuum v0.9.3 as evaluated and not adopted. No Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.

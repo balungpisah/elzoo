@@ -1,4 +1,4 @@
-# ELZ-308 — Record the Continuum ideas for Waves 8 and 9 and the first release
+# ELZ-308 — Record the Continuum and Temporal ideas for later waves and the first release
 
 - Dependencies: none
 
@@ -8,7 +8,11 @@ The coordinator evaluated Continuum, an Elixir library for durable
 workflows (Hex `continuum` v0.9.3, source commit `65efcee`, Apache-2.0), on
 2026-11-21. The owner decided (2026-11-21) that Elzoo does not adopt it, and
 that four of its ideas go into the drafting notes of later waves and of the
-first release. This task records those decisions. It writes no Contract,
+first release. The coordinator then compared Temporal's documented model
+(docs.temporal.io, read on 2026-11-21) with the ready Pieces; the owner
+decided (2026-11-21) to keep three of its ideas, mapped to waves, and to
+defer five more until a caller needs them. Temporal is not adopted. This
+task records those decisions. It writes no Contract,
 publishes no Piece task and changes no catalogue row.
 
 This is a coordinator one-PR documents change: publication and
@@ -18,8 +22,8 @@ documents check.
 Owned paths:
 
 - `docs/plans/bot-platform.md`: one block of owner decisions dated
-  2026-11-21, after the Wave 6 block and before the table of open
-  decisions;
+  2026-11-21 for both evaluations, after the Wave 6 block and before the
+  table of open decisions;
 - `docs/dependencies.md`: one row in "External library candidates".
 
 Publication owns this task file, its no-output job row in
@@ -54,6 +58,26 @@ Publication owns this task file, its no-output job row in
    its replay needs a determinism checker; and it brings its own
    application, tables and `phoenix_pubsub` into core. An application may
    still use it next to copied Pieces.
+6. **Wave 9, `delivery/retry-timeout`, in place: a retry delay from the
+   failure.** A retry delay taken from the failure, such as a Retry-After
+   value or a rate-limit wait, plus optional jitter, for results that were
+   not dispatched only. Its first caller is Wave 9 `delivery/model-routing`.
+   The note says that a published task changes the ready Contract.
+7. **Wave 8, `workflow/delegation`: a parent-close rule for each child
+   Run.** When a parent ends while a child is still open, the child's rule
+   is abandon, request cancel (the default) or cancel.
+8. **Wave 8, `workflow/delegation` and `delivery/room`: the pinned recipe
+   version passes on.** A child Run and a room-rollover successor keep the
+   pinned recipe version unless an explicit change says otherwise. The note
+   sits next to the room-rollover note.
+9. **Deferred until a caller needs them:** more schedule policies (pause
+   after a failure, a maximum number of occurrences, run now, jitter, the
+   last result handed to the next run) for `state/scheduler`; a ramped
+   rollout of a recipe version; a progress heartbeat for
+   `runtime/async-work`, whose likely caller is Wave 7
+   `assembly/knowledge-ingest`; a business-key reuse rule for
+   `assembly/durable-job`; and a Nexus-style call shape for the Wave 8
+   a2a Pieces.
 
 No other document changes. The block names the owner decision and its
 date. It holds no session link.
