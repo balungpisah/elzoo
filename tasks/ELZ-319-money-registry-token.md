@@ -50,14 +50,16 @@ neither changes here. `domain/quota` takes no registry.
      of arity 0, whose `name` is that of the private sealing function; then
      its registry is used. `new_uniq` is the same for every fun of the module,
      so it does not identify the function, and the test does not compare it
-     with a live reference fun (see the code-purge limit in requirement 5);
+     with a live reference fun; `name` is read from the loaded code, so it
+     is `[]` when that code is not loaded (see requirement 5);
    - any other term: `valid?/1`, as today.
    Anything else that has the checked struct's shape is refused with the
    existing rejection. That includes a struct literal whose closure comes
-   from another module; a closure of `Elzoo.Money.Registry` from another
-   function, which the test builds by editing the index of a genuine
-   token's closure in its external term format; an external capture such as
-   `&Elzoo.Money.Registry.default/0`; and a plain map with a `__struct__` key
+   from another module; a closure of `Elzoo.Money.Registry` with another
+   index, which the test builds by editing the index of a genuine token's
+   closure in its external term format (its module, type and arity come
+   from the bytes, and its name is not that of the sealing function); an
+   external capture such as `&Elzoo.Money.Registry.default/0`; and a plain map with a `__struct__` key
    and a closure that is not genuine. The test does not walk the registry.
 3. Functions that take the registry as a positional argument (such as
    `Elzoo.Money.member/2`, `Elzoo.Money.Registry.latest/1`, `entry/3` and
@@ -82,10 +84,13 @@ neither changes here. `domain/quota` takes no registry.
      accepted, so a host never decodes a registry from untrusted bytes (a
      raw map decoded that way is still walked);
    - that a checked value works only with the `Elzoo.Money.Registry` code
-     that made it: after a purge of that code, or sent with
-     `term_to_binary` to another node or a later build, it still passes the
-     test and using it raises `badfun`, so the host checks again after a code
-     upgrade and does not send checked values between nodes.
+     that made it: after a purge of that code, or decoded where that exact
+     build of `Elzoo.Money.Registry` is not loaded, `:erlang.fun_info/2`
+     gives `[]` as its name, so a `registry:` call refuses it with the
+     existing rejection and a positional function takes it as any other
+     value; a node that runs the same build accepts and uses it. So the host
+     checks again after a code upgrade and does not send checked values
+     between nodes.
 
 ## Acceptance and evidence
 
@@ -109,7 +114,7 @@ neither changes here. `domain/quota` takes no registry.
      checked value whose closure comes from the test module passes, and
      test 1 fails.
    - Drop only the function-name test (keep module, type and arity): the
-     closure of `Elzoo.Money.Registry` from another function passes, and
+     closure of `Elzoo.Money.Registry` with another index passes, and
      test 1 fails.
 4. `mix test pieces/domain/money/test`, the local small gate (`mix check
    --piece`, which also runs the pricing and journal tests that depend on
