@@ -14,9 +14,6 @@ defmodule Elzoo.Journal.Migration do
 
   @tables ~w(elzoo_journal_accounts elzoo_journal_operations elzoo_journal_postings)
 
-  @doc "The journal tables, in creation order."
-  def tables, do: @tables
-
   @doc "Install the readers, create the tables in `prefix` and protect each."
   def install(prefix) do
     p = Elzoo.Journal.prefix!(prefix)

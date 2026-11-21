@@ -351,7 +351,8 @@ defmodule Elzoo.JournalTest do
   # ------------------------------------------------------------ 3
 
   test "3 lock order: postings A,B and B,A both wait on A and both commit", %{j: j, p: p} do
-    # Byte order (COLLATE "C") puts "B-acct" before "a-acct"; a linguistic collation would not.
+    # Byte order (COLLATE "C") puts "B-acct" before "a-acct"; a linguistic collation would not,
+    # and the NOWAIT probes of B below tell the two apart.
     a = "B-acct"
     b = "a-acct"
     open!(j, a, eur(), true)
@@ -360,13 +361,19 @@ defmodule Elzoo.JournalTest do
     holder = Harness.hold!(p, "T1", a)
     one = Task.async(fn -> post(j, "op-1", eur(), [{a, 10}, {b, -10}]) end)
     Harness.await_blocked_by!(holder, 1)
+    # Neither post may hold B while it waits: a lock order that takes "a-acct" first makes a
+    # probe :locked (55P03). The probes are asserted after the commits, so that a posting-order
+    # lock first shows as the deadlock that the negative control names.
+    probe_one = Harness.nowait!(p, "T1", b)
     two = Task.async(fn -> post(j, "op-2", eur(), [{b, 5}, {a, -5}]) end)
     # The second waits on A behind the first (the row's tuple lock), not on B.
     Harness.await_blocked!(2)
+    probe_two = Harness.nowait!(p, "T1", b)
     Harness.release!(holder)
 
     assert Task.await(one, 30_000) == {:ok, :applied}
     assert Task.await(two, 30_000) == {:ok, :applied}
+    assert {probe_one, probe_two} == {:free, :free}
     assert {units(j, a), units(j, b)} == {5, -5}
   end
 
@@ -391,6 +398,58 @@ defmodule Elzoo.JournalTest do
       open!(j, "T2", "a", eur(), true)
       open!(j, "T2", "b", eur(), true)
       assert Journal.post(j, "T2", r) == {:ok, :applied}
+    end
+
+    test "the stored request digest is the README encoding (known answers)", %{j: j, p: p} do
+      open!(j, "a", eur(), true)
+      open!(j, "b", eur(), true)
+      assert {:ok, :applied} = post(j, "op-d", eur(), [{"b", -100}, {"a", 100}])
+      assert reverse(j, "undo-d", "op-d") == {:ok, :applied}
+
+      # Built here from the README text, not by the Piece: length-prefixed fields after the tag,
+      # postings in byte order of account_id, amounts as identity and minor units.
+      field = fn name, value ->
+        <<byte_size(name)::32, name::binary, byte_size(value)::32, value::binary>>
+      end
+
+      posting = fn id, units ->
+        field.(
+          "posting",
+          field.("account_id", id) <>
+            field.("alpha", "EUR") <>
+            field.("numeric", "978") <>
+            field.("minor_unit", "2") <> field.("minor_units", units)
+        )
+      end
+
+      tag = "elzoo-journal-request/1"
+
+      post_bytes =
+        tag <>
+          field.("kind", "post") <>
+          field.("operation_id", "op-d") <>
+          field.("actor_ref", "actor-1") <>
+          field.("reason", "test") <>
+          field.("postings", posting.("a", "100") <> posting.("b", "-100"))
+
+      reverse_bytes =
+        tag <>
+          field.("kind", "reverse") <>
+          field.("operation_id", "undo-d") <>
+          field.("reverses", "op-d") <>
+          field.("actor_ref", "actor-1") <> field.("reason", "undo")
+
+      stored = Map.new(Harness.truth(p).operations, &{&1.key, &1.digest})
+      assert stored[{"T1", "op-d"}] == :crypto.hash(:sha256, post_bytes)
+      assert stored[{"T1", "undo-d"}] == :crypto.hash(:sha256, reverse_bytes)
+
+      # Pinned values (SHA-256 computed outside Elixir): a change of the encoding fails here,
+      # since it would turn every replay of an existing operation into a conflict.
+      assert Base.encode16(stored[{"T1", "op-d"}], case: :lower) ==
+               "bd9d6ec59800cdbd71a958efe741883a816546c6d245d1afd6542ad820c28b68"
+
+      assert Base.encode16(stored[{"T1", "undo-d"}], case: :lower) ==
+               "4d048a5b493929d615c82d797b29e90c3cfc70ba2a36f72b4ea2f0d831881544"
     end
 
     test "two concurrent posts of one request commit once", %{j: j, p: p} do
@@ -535,7 +594,14 @@ defmodule Elzoo.JournalTest do
     task = Task.async(fn -> Journal.post(j, "T1", r) end)
     Harness.await_blocked_by!(holder, 1)
     [backend] = Harness.blocked_by(holder)
-    # The post waits after its operation insert: that row is not visible to the owner yet.
+    # The post waits after its operation insert: its backend holds the insert's lock on the
+    # operations table, and the uncommitted row is not visible to the owner.
+    assert Harness.q!(
+             OwnerRepo,
+             "SELECT count(*) FROM pg_locks WHERE pid = $1 AND relation = to_regclass($2::text) AND mode = 'RowExclusiveLock' AND granted",
+             [backend, Harness.table(p, :operations)]
+           ) == [[1]]
+
     assert Harness.q!(OwnerRepo, "SELECT pg_terminate_backend($1)", [backend]) == [[true]]
     assert Task.await(task, 30_000) == {:error, :unavailable}
     Harness.release!(holder)
@@ -668,6 +734,7 @@ defmodule Elzoo.JournalTest do
           "UPDATE #{Harness.table(p, :postings)} SET balance = 0",
           "DELETE FROM #{Harness.table(p, :postings)}",
           "UPDATE #{Harness.table(p, :operations)} SET reason = 'x'",
+          "DELETE FROM #{Harness.table(p, :operations)}",
           "DELETE FROM #{Harness.table(p, :accounts)}"
         ] do
       assert {:error, %Postgrex.Error{postgres: %{code: @denied}}} =

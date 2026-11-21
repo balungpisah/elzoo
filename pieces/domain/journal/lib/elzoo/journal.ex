@@ -49,9 +49,6 @@ defmodule Elzoo.Journal do
   @enforce_keys [:repo, :prefix, :registry]
   defstruct @enforce_keys
 
-  @doc "The error atoms of this version."
-  def refusals, do: @refusals
-
   @doc """
   A journal value: exactly `repo:` and `prefix:`, and optionally `registry:` (an
   `Elzoo.Money.Registry` value; default `Elzoo.Money.Registry.default/0`). Raises
@@ -582,7 +579,7 @@ defmodule Elzoo.Journal do
   # ── plumbing ────────────────────────────────────────────────────────────
 
   defp journal(%__MODULE__{repo: repo, prefix: prefix, registry: registry} = j)
-       when is_atom(repo) do
+       when is_atom(repo) and repo not in [nil, true, false] do
     if identifier?(prefix) and registry?(registry), do: {:ok, j}, else: {:error, :invalid}
   end
 

@@ -294,6 +294,29 @@ defmodule Elzoo.JournalTest.Harness do
     end
   end
 
+  @doc """
+  A third connection under the tenant scope tries the account's row lock with NOWAIT in a
+  rolled-back transaction: `:free`, or `:locked` when another transaction holds it (55P03).
+  """
+  def nowait!(p, tenant, account_id) do
+    {:error, {:probe, result}} =
+      TI.transact(OwnerRepo, %{tenant: tenant}, fn ->
+        result =
+          q(
+            OwnerRepo,
+            "SELECT 1 FROM #{table(p, :accounts)} WHERE tenant = $1 AND account_id = $2 FOR UPDATE NOWAIT",
+            [tenant, account_id]
+          )
+
+        {:error, {:probe, result}}
+      end)
+
+    case result do
+      {:ok, %{rows: [[1]]}} -> :free
+      {:error, %Postgrex.Error{postgres: %{code: :lock_not_available}}} -> :locked
+    end
+  end
+
   @doc "Wait until exactly `n` backends wait on the holder (seen in pg_stat_activity)."
   def await_blocked_by!({_pid, backend}, n),
     do:
