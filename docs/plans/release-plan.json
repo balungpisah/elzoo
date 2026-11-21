@@ -8461,6 +8461,77 @@
       "issue": 742,
       "url": "https://github.com/balungpisah/elzoo/issues/742",
       "issue_body_sha256": "6c50ccfeeed3b28446c31fca90b9c4b16b627ddfcf41efc9f5625c3d305066b9"
+    },
+    {
+      "id": "ELZ-322",
+      "title": "ELZ-322 — domain/metering: period totals per provider and model, the rows domain/pricing takes",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-299",
+        "ELZ-312"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-322-metering-model-totals.md"
+      ],
+      "outputs": [],
+      "acceptance": "domain/metering gains model_totals/3: per tenant and period, one row per {provider_id, model_id, unit, source} with known effective sum, unknown count and count, sorted, bounded by max_rows with read_limit, under the same admission and tenant scope as totals/3, so its rows are the rows of a domain/pricing usage value; totals/3 and every other term unchanged. Row sums equal totals/3, correction and unknown cases, byte order, max_rows edge, refusal before query, cross-tenant; negative controls without model_id and with raw amounts; local small gate, full review.",
+      "product_aims": [
+        "P09",
+        "P13"
+      ],
+      "issue": 745,
+      "url": "https://github.com/balungpisah/elzoo/issues/745",
+      "issue_body_sha256": "dfe8965d48c8f9492f92d3fbc2f899bb6ae89dfffcc48be1c3af204752bca3e2"
+    },
+    {
+      "id": "ELZ-323",
+      "title": "ELZ-323 — Count, price, post and see tenant Runs end to end on PostgreSQL as a non-owner application role",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-055",
+        "ELZ-127",
+        "ELZ-249",
+        "ELZ-267",
+        "ELZ-268",
+        "ELZ-269",
+        "ELZ-270",
+        "ELZ-281",
+        "ELZ-285",
+        "ELZ-297",
+        "ELZ-298",
+        "ELZ-299",
+        "ELZ-300",
+        "ELZ-301",
+        "ELZ-302",
+        "ELZ-303",
+        "ELZ-304",
+        "ELZ-312",
+        "ELZ-313",
+        "ELZ-314",
+        "ELZ-316",
+        "ELZ-318",
+        "ELZ-322"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-323-wave6-count-and-see-acceptance.md"
+      ],
+      "outputs": [],
+      "acceptance": "Real PostgreSQL as the non-owner application role: counted Runs with unknown kept apart and corrected, entitlement and quota reservation racing for the last allowance, pricing per provider and model with card versions, balanced journal posts with replay and correction difference, the Run transcript, dead-letter storage behind a Relay, Carbonite audit capture of the allowance-grant and credit checked commands, a retained denial included (the credit command first, then its journal post), the pay-as-you-go, quota-capped and prepaid groups, a once-only spend-alert notice and a dataset eval; four harness negative controls. Default money registry; ELZ-319 to ELZ-321 not required.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 746,
+      "url": "https://github.com/balungpisah/elzoo/issues/746",
+      "issue_body_sha256": "fff7b94a449b0b40a5b5cdbace4e8ccff6380c778e8ed2499dbdf5257686372d"
     }
   ],
   "entries": [
@@ -8951,12 +9022,12 @@
     {
       "id": "domain/pricing",
       "job": "ELZ-304",
-      "note": "Pure charges from the usage totals of one tenant and period under one immutable rate-card version. price/3 takes a card {card_id, version, content_hash, kind :cost | :price, currency (a domain/money registry member with an integer minor unit), rounding (one of Elzoo.Money.rounding_modes/0), lines} of 1..1024 stand-alone lines {provider_id, model_id, unit, rate, per, minimum} sorted and unique on {provider_id, model_id, unit}, with an exact decimal-string rate (at most 18 significant and 18 fractional digits) per power-of-ten units (1..10^9) and an optional minimum, and usage {tenant, period, rows} of 0..4096 rows in the domain/metering totals shape plus provider_id and model_id. Each line with a row is charged quantity x rate / per, built exactly in integer arithmetic and rounded once through Elzoo.Money.from_decimal/4, then raised to its minimum; a line with no row is absent; unknown observations add nothing to quantity, count in unknown_count and make the charge incomplete, never priced as zero. A charge {tenant, period, card identity, lines, total, incomplete, unknown_count} has an exact total in the card currency. difference/3 is later.total - earlier.total for two charges of one tenant, period and card identity. content_hash/1 is the SHA-256 of a documented canonical card encoding. Fixed error atoms in the order invalid, card, content_hash, usage, unpriced_unit, amount_range, and charge, card_mismatch for difference/3; none echoes an ID or amount. Kind, source and error sets and the returned maps may gain members. No I/O, clock, storage, journal post, tiers, exchange rate, invoice or Float.",
+      "note": "Pure charges from the usage totals of one tenant and period under one immutable rate-card version. price/3 takes a card {card_id, version, content_hash, kind :cost | :price, currency (a domain/money registry member with an integer minor unit), rounding (one of Elzoo.Money.rounding_modes/0), lines} of 1..1024 stand-alone lines {provider_id, model_id, unit, rate, per, minimum} sorted and unique on {provider_id, model_id, unit}, with an exact decimal-string rate (at most 18 significant and 18 fractional digits) per power-of-ten units (1..10^9) and an optional minimum, and usage {tenant, period, rows} of 0..4096 rows in the domain/metering totals shape plus provider_id and model_id. Each line with a row is charged quantity x rate / per, built exactly in integer arithmetic and rounded once through Elzoo.Money.from_decimal/4, then raised to its minimum; a line with no row is absent; unknown observations add nothing to quantity, count in unknown_count and make the charge incomplete, never priced as zero. A charge {tenant, period, card identity, lines, total, incomplete, unknown_count} has an exact total in the card currency. difference/3 is later.total - earlier.total for two charges of one tenant, period and card identity. Both take opts [] (the compiled domain/money registry) or [registry: r], r the compiled default, a raw domain/money registry or a checked value of Elzoo.Money.Registry.check/1; a raw registry is checked once per call with check/1 and that checked value goes to every domain/money call of the call, a checked value as it is; a registry that check/1 refuses, a forged checked value included, is invalid. content_hash/1 is the SHA-256 of a documented canonical card encoding. Fixed error atoms in the order invalid, card, content_hash, usage, unpriced_unit, amount_range, and charge, card_mismatch for difference/3; none echoes an ID or amount. Kind, source and error sets and the returned maps may gain members. No I/O, clock, storage, journal post, tiers, exchange rate, invoice or Float.",
       "baseline_status": "deferred",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/pricing/piece.json",
-      "manifest_sha256": "843ddb117a1d480a4c8182631bcb715627fa313d095babfdfa9e61f35dab3c76"
+      "manifest_sha256": "0a4f8f13a2336b51816a1e6ecb3d9980d1bcc53c6d8040bd790a79b8789ec9f4"
     },
     {
       "id": "domain/principal",
