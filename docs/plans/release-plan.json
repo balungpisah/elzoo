@@ -7756,6 +7756,29 @@
       "issue": 662,
       "url": "https://github.com/balungpisah/elzoo/issues/662",
       "issue_body_sha256": "44ca53f601650a977e017ffae40de738f23268867638538eb2332b8512af46a1"
+    },
+    {
+      "id": "ELZ-289",
+      "title": "ELZ-289 — Require complete copied-consumer evidence and clean up a timed-out consumer",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-255"
+      ],
+      "status": "published 2026-11-20",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-289-consumer-harness-completion-cleanup.md"
+      ],
+      "outputs": [],
+      "acceptance": "The copied-consumer helper rejects a zero-status run without its own top-level suite summary even when a nested suite printed success, and a killed owning test leaves no consumer BEAM or descendant running (#581); timeouts, selection and isolation assertions unchanged. Nested-success and owner-timeout cases with OS PIDs, per-part negative controls, full/affected gate.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 663,
+      "url": "https://github.com/balungpisah/elzoo/issues/663",
+      "issue_body_sha256": "a6aca18d4422ffc36857bb497bffecc9b4cb3a52ce292eddc607c35aaf18231b"
     }
   ],
   "entries": [
