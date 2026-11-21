@@ -144,7 +144,9 @@
   `AGENTS.md` section 6 may recheck a listed range instead, under that
   section's reading and citation rule. Each finding becomes its own task, and
   the row is removed only after the automated reviewer or that reviewer posts
-  findings or an explicit no-findings result for the range. If neither posts
+  findings or an explicit no-findings result for the range, as a review on
+  the recheck pull request or, for that reviewer, its five-line record on the
+  skipped pull request. If neither posts
   a review result, including when the automated reviewer reports that it is
   unavailable or out of quota, the row stays.
 
