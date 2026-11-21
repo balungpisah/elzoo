@@ -482,6 +482,8 @@ defmodule Elzoo.EntitlementTest do
       bad_plan(%{allowances: [a.({:cache_write_tokens, "5m"}, 1), a.(:output_tokens, 1)]})
       bad_plan(%{allowances: [a.(:output_tokens, 1), a.(:cache_read_tokens, 1)]})
 
+      # The v1 unit set has 15 distinct {unit, period_kind} pairs, so the
+      # 64-entry bound is not reachable without a duplicate.
       bad_plan(%{allowances: List.duplicate(ok, 65)})
       bad_plan(%{allowances: [ok | ok]})
 
@@ -499,6 +501,12 @@ defmodule Elzoo.EntitlementTest do
       bad_grant(%{tenant: "a\u0085"})
       bad_grant(%{plan_id: :team})
       bad_grant(%{version: 0})
+      bad_grant(%{version: 2_147_483_648})
+      bad_grant(%{tenant: String.duplicate("t", 129)})
+      bad_grant(%{plan_id: String.duplicate("p", 129)})
+      bad_grant(%{valid_from_ms: @max + 1, valid_to_ms: nil, grace_until_ms: nil})
+      bad_grant(%{grace_until_ms: @max + 1})
+      bad_grant(%{revoked_at_ms: @max + 1})
       bad_grant(%{valid_from_ms: -1})
       bad_grant(%{valid_from_ms: nil})
       bad_grant(%{valid_to_ms: 1_000})

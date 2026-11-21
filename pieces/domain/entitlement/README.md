@@ -131,8 +131,9 @@ tenant's revoked grant.
 - Test: `mix test pieces/domain/entitlement/test` runs every time boundary on
   both sides, revocation before, during and after grace, overlap and
   non-overlap, two tenants, unknown plan versions, content-hash mismatches and
-  the documented encoding, `feature/2`, every validation bound and the error
-  order. Negative controls: swapping grace and revocation in the Cure order
+  the documented encoding, `feature/2`, each reachable validation bound on both sides and
+  the error order (the 64-allowance bound is not reachable with the 15
+  distinct unit pairs of this version). Negative controls: swapping grace and revocation in the Cure order
   fails the `revoked_wins` law at compile; swapping the two flags at the
   Elixir call, letting grace win over revocation, and dropping the tenant
   filter each make the tests fail. Finite scenarios, not universal proofs.
