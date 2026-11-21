@@ -36,7 +36,6 @@ defmodule Elzoo.Pricing do
     :unit,
     :unknown_count
   ]
-  @registry_keys [:active_numeric, :snapshots, :sources, :versions]
   @kinds [:cost, :price]
   @sources [:estimated, :provider_reported, :unknown]
   @pers for e <- 0..9, do: Integer.pow(10, e)
@@ -249,11 +248,8 @@ defmodule Elzoo.Pricing do
 
   defp registry([]), do: {:ok, Registry.default()}
 
-  # A registry value has the keys of Elzoo.Money.Registry.build!/1.
   defp registry(registry: r) do
-    if shape?(r, @registry_keys) and is_map(r.snapshots) and is_list(r.versions),
-      do: {:ok, r},
-      else: {:error, :invalid}
+    if Registry.valid?(r), do: {:ok, r}, else: {:error, :invalid}
   end
 
   defp registry(_opts), do: {:error, :invalid}

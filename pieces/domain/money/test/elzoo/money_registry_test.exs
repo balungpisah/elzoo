@@ -484,6 +484,192 @@ defmodule Elzoo.MoneyRegistryTest do
     end
   end
 
+  @forged %{versions: ["bogus"], snapshots: %{}, active_numeric: %{}, sources: %{}}
+
+  # The default with every entry's numeric and minor_unit as a float: == to
+  # the default (== equates 978.0 and 978), but not ===.
+  defp float_copy do
+    r = Registry.default()
+
+    float = fn
+      n when is_integer(n) -> n * 1.0
+      other -> other
+    end
+
+    snapshots =
+      Map.new(r.snapshots, fn {v, s} ->
+        {v,
+         Map.new(s, fn {alpha, e} ->
+           {alpha, %{e | numeric: float.(e.numeric), minor_unit: float.(e.minor_unit)}}
+         end)}
+      end)
+
+    %{r | snapshots: snapshots}
+  end
+
+  # The same registry with version `from` renamed to `to` in every field.
+  defp renamed(r, from, to) do
+    rename = fn map -> map |> Map.delete(from) |> Map.put(to, map[from]) end
+
+    %{
+      versions: Enum.map(r.versions, &if(&1 == from, do: to, else: &1)),
+      snapshots: rename.(r.snapshots),
+      active_numeric: rename.(r.active_numeric),
+      sources: rename.(r.sources)
+    }
+  end
+
+  defp put_entry(r, alpha, fun), do: update_in(r, [:snapshots, @v1, alpha], fun)
+
+  describe "registry check" do
+    test "valid?/1 accepts the default and values build!/1 returns" do
+      assert Registry.valid?(Registry.default())
+      assert Registry.valid?(folded())
+      assert Registry.valid?(Registry.build!([@extract]))
+      assert Registry.valid?(Registry.build!([@extract, next_version()]))
+      # The renaming helper of the refusal cases keeps a valid registry valid.
+      assert Registry.valid?(renamed(folded(), @v2, "2027-02-01"))
+    end
+
+    test "valid?/1 refuses one value per failure" do
+      d = Registry.default()
+      r = folded()
+      eur = d.snapshots[@v1]["EUR"]
+      usd = d.snapshots[@v1]["USD"]
+      # A retired entry with a numeric code: not in the active index.
+      hrk = d.snapshots[@v1]["HRK"]
+      assert {hrk.numeric, elem(hrk.status, 0)} == {191, :retired}
+
+      refused = [
+        # not a map with exactly the four keys
+        forged: @forged,
+        not_map: :none,
+        list: Map.to_list(d),
+        missing_key: Map.delete(d, :sources),
+        extra_key: Map.put(d, :extra, %{}),
+        struct: Map.put(d, :__struct__, Registry),
+        # versions
+        empty_versions: %{d | versions: []},
+        versions_not_list: %{d | versions: @v1},
+        improper_versions: %{r | versions: [@v1 | @v2]},
+        non_binary_version: %{d | versions: [:v]},
+        malformed_version: renamed(d, @v1, "2026-9-17"),
+        duplicate_versions: %{r | versions: [@v1, @v1, @v2]},
+        descending_versions: %{r | versions: [@v2, @v1]},
+        # maps keyed by exactly the versions
+        snapshots_not_map: %{d | snapshots: [{@v1, d.snapshots[@v1]}]},
+        snapshots_missing_version: %{r | snapshots: Map.delete(r.snapshots, @v2)},
+        snapshots_extra_version: put_in(d, [:snapshots, @v2], d.snapshots[@v1]),
+        active_numeric_missing_version: %{r | active_numeric: Map.delete(r.active_numeric, @v1)},
+        active_numeric_extra_version: put_in(d, [:active_numeric, @v2], %{}),
+        sources_missing_version: %{d | sources: %{}},
+        sources_extra_version: put_in(d, [:sources, @v2], %{}),
+        sources_not_map: %{d | sources: nil},
+        # snapshot entries
+        snapshot_not_map: put_in(d, [:snapshots, @v1], []),
+        snapshot_struct:
+          put_in(d, [:snapshots, @v1], %M.Currency{
+            alpha: "EUR",
+            numeric: 978,
+            minor_unit: 2,
+            status: :active,
+            version: @v1
+          }),
+        # an older member absent from a later version (build!/1 never deletes)
+        older_alpha_dropped: update_in(r, [:snapshots, @v2], &Map.delete(&1, "EUR")),
+        alpha_key_not_code: put_in(d, [:snapshots, @v1, "eur"], %{hrk | alpha: "eur"}),
+        alpha_differs_from_key: put_entry(d, "EUR", &%{&1 | alpha: "USD"}),
+        entry_struct: put_entry(d, "EUR", &Map.put(&1, :__struct__, M.Currency)),
+        entry_not_map: put_in(d, [:snapshots, @v1, "EUR"], {"EUR", 978, 2}),
+        missing_numeric: put_entry(d, "HRK", &Map.delete(&1, :numeric)),
+        missing_minor_unit: put_entry(d, "EUR", &Map.delete(&1, :minor_unit)),
+        missing_status: put_entry(d, "HRK", &Map.delete(&1, :status)),
+        missing_rows: put_entry(d, "EUR", &Map.delete(&1, :rows)),
+        float_numeric: put_entry(d, "HRK", &%{&1 | numeric: 191.0}),
+        string_numeric: put_entry(d, "HRK", &%{&1 | numeric: "191"}),
+        numeric_out_of_range: put_entry(d, "HRK", &%{&1 | numeric: 1000}),
+        float_minor_unit: put_entry(d, "EUR", &%{&1 | minor_unit: 2.0}),
+        string_minor_unit: put_entry(d, "EUR", &%{&1 | minor_unit: "2"}),
+        minor_unit_out_of_range: put_entry(d, "EUR", &%{&1 | minor_unit: 100}),
+        bad_status: put_entry(d, "HRK", &%{&1 | status: :retired}),
+        rows_not_list: put_entry(d, "EUR", &%{&1 | rows: %{}}),
+        improper_rows: put_entry(d, "EUR", &%{&1 | rows: [hd(&1.rows) | :tail]}),
+        row_without_numeric: put_entry(d, "EUR", &%{&1 | rows: [%{table: :current}]}),
+        row_float_numeric: put_entry(d, "EUR", &%{&1 | rows: [%{numeric: 978.0}]}),
+        # active numeric index
+        active_entry_missing_from_index:
+          update_in(d, [:active_numeric, @v1], &Map.delete(&1, eur.numeric)),
+        index_extra_code: put_in(d, [:active_numeric, @v1, 999], "EUR"),
+        index_wrong_alpha: put_in(d, [:active_numeric, @v1, eur.numeric], "USD"),
+        index_float_key:
+          update_in(d, [:active_numeric, @v1], fn index ->
+            index |> Map.delete(eur.numeric) |> Map.put(978.0, "EUR")
+          end),
+        index_not_map: put_in(d, [:active_numeric, @v1], []),
+        # two active entries share a numeric code; the rebuilt index hides it
+        shared_active_numeric:
+          (fn ->
+             shared = put_entry(d, "EUR", &%{&1 | numeric: usd.numeric})
+
+             index =
+               for {a, %{status: :active, numeric: n}} <- shared.snapshots[@v1],
+                   is_integer(n),
+                   into: %{},
+                   do: {n, a}
+
+             put_in(shared, [:active_numeric, @v1], index)
+           end).(),
+        float_copy: float_copy()
+      ]
+
+      for {name, value} <- refused, do: refute(Registry.valid?(value), inspect(name))
+
+      # Without the append-only rule current_status/2 raised on this value.
+      {:ok, eur1} = M.parse("EUR", version: @v1)
+      dropped = refused[:older_alpha_dropped]
+      assert M.current_status(eur1, registry: dropped) == {:error, {:invalid_registry, nil}}
+
+      # The float copy is == to the default, so only === may skip the walk.
+      assert float_copy() == d and float_copy() !== d
+    end
+
+    test "every function taking registry: refuses an invalid explicit registry first" do
+      {:ok, eur} = M.parse("EUR")
+      {:ok, amount} = M.from_minor_units(eur, 100)
+      {:ok, bytes} = Codec.encode(amount)
+      expected = {:error, {:invalid_registry, nil}}
+
+      for registry <- [@forged, float_copy()],
+          extra <- [[], [version: "2030-01-01"], [version: @v1]] do
+        opts = [registry: registry] ++ extra
+        assert M.parse("EUR", opts) == expected
+        assert M.parse("bad!", opts) == expected
+        assert M.parse_numeric("978", opts) == expected
+        assert M.numeric_candidates("978", opts) == expected
+        assert M.current_status(eur, opts) == expected
+        assert M.from_minor_units(eur, 100, opts) == expected
+        assert M.from_decimal_string(eur, "1.00", opts) == expected
+        assert M.from_decimal(eur, Decimal.new(1, 1, 0), :down, opts) == expected
+        assert M.add(amount, amount, opts) == expected
+        assert M.subtract(amount, amount, opts) == expected
+        assert M.compare(amount, amount, opts) == expected
+        assert M.negate(amount, opts) == expected
+        assert M.allocate(amount, [1, 1], :first, opts) == expected
+        assert M.round(amount, 0, :down, opts) == expected
+        assert M.to_decimal(amount, opts) == expected
+        assert M.to_decimal_string(amount, opts) == expected
+        assert Codec.encode(amount, opts) == expected
+        assert Codec.decode(bytes, opts) == expected
+        assert Codec.decode("bad", opts) == expected
+      end
+
+      # A valid explicit registry, equal to the default but built again, still works.
+      rebuilt = Registry.build!([@extract])
+      assert Codec.decode(bytes, registry: rebuilt) == {:ok, amount}
+      assert M.add(amount, amount, registry: folded()) == M.add(amount, amount)
+    end
+  end
+
   test "Source.latest_withdrawal keeps the verbatim text of the latest date" do
     rows =
       for w <- ["1989 to 1990", "1990-07 to 1990-09", "1989-1990", "1978 to 1981"],
