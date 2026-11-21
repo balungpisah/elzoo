@@ -47,10 +47,13 @@ neither changes here. `domain/quota` takes no registry.
    - a checked value: accepted after a constant-time test that it is the
      struct `check/1` returns and that its closure, read with
      `:erlang.fun_info/2`, is a `local` fun of module `Elzoo.Money.Registry`,
-     of arity 0, whose `name` is that of the private sealing function; then
-     its registry is used. `new_uniq` is the same for every fun of the module,
-     so it does not identify the function, and the test does not compare it
-     with a live reference fun; `name` is read from the loaded code, so it
+     of arity 0, whose `name` is the name the compiler gives the closure
+     in the private sealing function (an atom such as
+     `:"-seal/1-fun-0-"`, written as a literal, which a test compares with
+     the name of a genuine checked value); then its registry is used.
+     `new_uniq` is the same for every fun of the module, so it does not
+     identify the function, and the test does not compare it with a live
+     reference fun; `name` is read from the loaded code, so it
      is `[]` when that code is not loaded (see requirement 5);
    - any other term: `valid?/1`, as today.
    Anything else that has the checked struct's shape is refused with the
@@ -58,7 +61,7 @@ neither changes here. `domain/quota` takes no registry.
    from another module; a closure of `Elzoo.Money.Registry` with another
    index, which the test builds by editing the index of a genuine token's
    closure in its external term format (its module, type and arity come
-   from the bytes, and its name is not that of the sealing function); an
+   from the bytes, and its name is not that closure's name); an
    external capture such as `&Elzoo.Money.Registry.default/0`; and a plain
    map with a `__struct__` key and a closure that is not genuine. The test
    does not walk the registry.
@@ -89,9 +92,10 @@ neither changes here. `domain/quota` takes no registry.
      build of `Elzoo.Money.Registry` is not loaded, `:erlang.fun_info/2`
      gives `[]` as its name, so a `registry:` call refuses it with the
      existing rejection and a positional function takes it as any other
-     value; a node that runs the same build accepts and uses it. So the host
-     checks again after a code upgrade and does not send checked values
-     between nodes.
+     value. While that code stays loaded, as current code or as old code
+     during an upgrade, the value is accepted and used, and a node that runs
+     the same build accepts and uses it. So the host checks again after a
+     code upgrade and does not send checked values between nodes.
 
 ## Acceptance and evidence
 
