@@ -81,9 +81,12 @@ opaque `:utc_month` ID such as `2026-11`.
      operation whose `operation_id` the host derives from its charge record,
      so a retry is `:duplicate`.
    - A later correction of a known observation of that posted period
-     re-prices under the original card version. `difference/3` of the posted
-     charge and the re-priced one, when nonzero, posts as a new operation
-     whose ID and reason derive from the correction.
+     re-prices under the original card version. The fixture's correction is
+     chosen so that `difference/3` of the posted charge and the re-priced one
+     is nonzero after rounding (the test asserts that), and it posts as a new
+     operation whose ID and reason derive from the correction. A second
+     correction that leaves the rounded charge equal gives a zero difference
+     and posts nothing.
 4. **See.** `transcript/3` of a completed T1 Run with a nested callable shows
    its tree; T2's scope is refused `{:error, :scope}`; the restarted Run shows
    its Effect as unknown with no actual.
