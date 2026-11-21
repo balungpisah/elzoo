@@ -8199,6 +8199,29 @@
       "issue_body_sha256": "01c61d2091c01dbd02f67655742ed19b95c45da2a5eb66c85441a7207cad2757"
     },
     {
+      "id": "ELZ-312",
+      "title": "ELZ-312 — Test domain/metering correction order against a controlled commit order",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-299"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-312-metering-commit-order-oracle.md"
+      ],
+      "outputs": [],
+      "acceptance": "A domain/metering test controls or independently observes the commit order of two concurrent corrections and asserts that observation/3 lists them in that order and that the effective amount and totals known follow the last committed one, so the 'latest by commit order' claim has a test that a wrong order fails (other-family recheck finding); Contract, library, README and manifest unchanged. Wrong-order negative control, repeated Piece tests, small gate.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 724,
+      "url": "https://github.com/balungpisah/elzoo/issues/724",
+      "issue_body_sha256": "5f0ae01acb718baf4c4c73b1ecc70389655305fc59adf83ca2555b728b716f71"
+    },
+    {
       "id": "ELZ-310",
       "title": "ELZ-310 — List the automated-review skips of the 21 Nov quota outage",
       "kind": "published",
