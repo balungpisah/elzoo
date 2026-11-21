@@ -154,17 +154,10 @@
 
   | Pull request | Skipped range | Why |
   | --- | --- | --- |
-  | #703 | `b2805e09..ce123ab5` | silent on the final head; merged before this rule |
-  | #708 | `37949c54..7c864110` | silent on the final heads; merged before this rule |
-  | #709 | `08037e02..26e66a06` | nothing posted for the head 30 minutes after the ready mark; the extra review was the gate |
-  | #712 | `682bd985..1d0e9bab` | nothing posted for the final head (quota outage); the extra review was the gate |
-  | #714 | `26efb104..5620eec5` | nothing posted for the final head (quota outage); the extra review was the gate |
-
-  Quota outage: on 21 November 2026 the owner reported that the automated
-  reviewer's quota had run out, with service expected back at about 08:30
-  UTC on 22 November. That is the reason for the rows marked "quota outage".
-  Each such row stays until its recheck, and each recheck finding becomes its
-  own task. The triggers for skipping stay those of `AGENTS.md` section 6.
+  | #719 | `3d624ba1..ac2bc431` | nothing posted for the head 30 minutes after its push; the extra review was the gate |
+  | #723 | `b1fa8b9d..cb1385b9` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
+  | #725 | `42910465..d7a0e54b` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
+  | #729 | `d1316117..3390fc53` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
 
 - **Repair of a red `main`.** The full check on `main` is the evidence of the
   small-gate merges. When it is red:
