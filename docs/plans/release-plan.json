@@ -8659,10 +8659,12 @@
     {
       "id": "domain/quota",
       "job": "ELZ-303",
-      "note": "Planned durable tenant allowance in plain Ecto/Postgrex tables under the state/tenant-isolation floor: counters per tenant, tagged window {:period, id} and unit, the amount derived at each reservation from a domain/entitlement resolution; all-or-nothing Run reservations idempotent by run_id under ordered row locks at READ COMMITTED; known actuals committed, unknown held at the estimate until an attributable reconcile; grace reserves nothing and settles; a new window is a new allowance. Own Cure laws, no volatile owner, no pricing or posting.",
+      "note": "Durable tenant allowance in plain Ecto/Postgrex tables on PostgreSQL 16 under the state/tenant-isolation floor: numeric(38,0) counters committed, held and reserved per (tenant, window, unit), the window exactly {:period, id} with an opaque host ID, the amount of a unit derived at each reserve/3 from a domain/entitlement resolution (the sum of its non-settle_only allowances of a period_kind mapped to the window tag, every allowance's grant_id among the listed grants, settle_only exactly for a grace grant, unmapped units and kinds ignored); Run reservations of 1..16 sorted unique units all or none, idempotent by run_id (equal request digest duplicate, other digest conflict), counter rows locked one at a time in unit order at a checked READ COMMITTED Need, in the Piece's own transaction (caller transaction refused); grace reserves nothing (settle_only); settle/3 commits a known actual in full or holds the estimate for :unknown, also after expiry, release or revocation; reconcile/3 moves a held estimate out and commits an attributable actual with basis :metering or :write_off; release/3 frees an open reservation only before its expiry; status/3 reads counters and the derived amount and remaining, also with resolution nil. Own Cure laws for the per-unit decisions; fixed error atoms that echo no ID or amount; a database failure is unavailable and safe to retry. No clock, timer, carry-over, pricing, posting, metering read or Run control.",
       "baseline_status": "deferred",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/quota/piece.json",
+      "manifest_sha256": "057da2f08979aa2fb22843464427efeb355ac2d1f84644bbfe6f6a8f4eac782c"
     },
     {
       "id": "domain/saas-controls",

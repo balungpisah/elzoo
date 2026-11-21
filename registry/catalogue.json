@@ -427,7 +427,8 @@
       "summary": "Durable tenant allowance with Run reservations",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/quota/piece.json",
       "reason": "ELZ-303: plain Ecto/Postgrex tables under state/tenant-isolation (owner Q1 A), allowance from a domain/entitlement resolution; distinct from metering, pricing and financial posting."
     },
     {
