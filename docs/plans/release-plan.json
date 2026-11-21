@@ -8077,6 +8077,29 @@
       "issue": 707,
       "url": "https://github.com/balungpisah/elzoo/issues/707",
       "issue_body_sha256": "e89e856153db2192cc572b574857fd5d09d1c2a4104ac43805329a99d066742e"
+    },
+    {
+      "id": "ELZ-307",
+      "title": "ELZ-307 — Do not wait on an unavailable automated reviewer",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-306"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-307-devin-escape-hatch.md"
+      ],
+      "outputs": [],
+      "acceptance": "AGENTS.md section 6 lets the coordinator skip the automated reviewer when it has posted nothing for the exact head 30 minutes after the later of the ready mark and the head push, or reports no quota or no service: one extra fresh-session review of the commits since its last posted pass, aimed at edge cases, races, bounds and error paths, is the gate instead; the skip is recorded on the PR and in a list in the coordinator guide that the automated reviewer rechecks when back, each finding its own task; weighted Pieces keep the full review. The list starts with #703, #708 and #709. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 711,
+      "url": "https://github.com/balungpisah/elzoo/issues/711",
+      "issue_body_sha256": "3e164c9e6b2e9336de33f9bd7f97577a71ee93971e59384d7f718f862e887640"
     }
   ],
   "entries": [
