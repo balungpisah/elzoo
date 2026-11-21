@@ -88,9 +88,11 @@ opaque `:utc_month` ID such as `2026-11`.
      re-prices under the original card version. The fixture's correction is
      chosen so that `difference/3` of the posted charge and the re-priced one
      is nonzero after rounding (the test asserts that), and it posts as a new
-     operation whose ID and reason derive from the correction. A second
-     correction that leaves the rounded charge equal gives a zero difference
-     and posts nothing.
+     operation whose ID and reason derive from the correction. The host
+     keeps the latest charge it has posted for the period (the original plus
+     each posted difference) as the baseline. A second correction that leaves
+     the rounded charge equal to that baseline gives a zero `difference/3`
+     against it and posts nothing.
 4. **See.** `transcript/3` of a completed T1 Run with a nested callable shows
    its tree; T2's scope is refused `{:error, :scope}`; the restarted Run shows
    its Effect as unknown with no actual.
