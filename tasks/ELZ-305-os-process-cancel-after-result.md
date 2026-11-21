@@ -31,12 +31,13 @@ cancellation answers `{:ok, :already_requested}`. In this task the window
 starts when the run's registry row is retired as finished, and the result
 is sent immediately after that step.
 
-Owned paths: `pieces/runtime/os-isolation/lib/**` and
-`pieces/runtime/os-isolation/test/**`. Conditionally, if a new test file or
-new grounding must be listed: `pieces/runtime/os-isolation/piece.json`,
-then, in the last commit, its `docs/plans/release-plan.json` entry
-(`manifest_sha256`) and the generated `LEDGER.md` and `docs/plans/views.md`
-(AGENTS.md section 3). The README and the Contract text do not change.
+Owned paths: `pieces/runtime/os-isolation/lib/**`,
+`pieces/runtime/os-isolation/test/**`, and, for the residual of behavior 3
+only, `pieces/runtime/os-isolation/README.md` and the `limits` of
+`pieces/runtime/os-isolation/piece.json`; then, in the last commit, its
+`docs/plans/release-plan.json` entry (`manifest_sha256`) and the generated
+`LEDGER.md` and `docs/plans/views.md` (AGENTS.md section 3). The `contract`
+field of `piece.json` and every other README statement do not change.
 
 ## Required behavior
 
@@ -68,9 +69,11 @@ then, in the last commit, its `docs/plans/release-plan.json` entry
    exactly that result and no second one from the observer path. An Owner
    killed with `:kill` between retiring its row and sending gives no
    result; the caller's `run/3` wait then ends with `{:error, {:no_result,
-   ref}}`. State this as a limit in the PR body. The README does not
-   change. Today's order can give two results in the same window; this
-   task removes that.
+   ref}}`. Declare this residual where a consumer reads it: in the README
+   sentence "If an owner dies, … the Adapter reports `unknown{owner_exit}`"
+   and in the `limits` of `piece.json`, next to the declared residuals;
+   state it in the PR body too. Today's order can give two results in the
+   same window; this task removes that.
 4. Every reply before the row is retired keeps its current behavior.
 5. Stop and comment on the issue, with the path and the reason, only if
    the invariant cannot be met with the Contract as written after trying

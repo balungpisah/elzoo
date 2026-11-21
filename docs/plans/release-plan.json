@@ -8049,13 +8049,13 @@
         "tasks/ELZ-305-os-process-cancel-after-result.md"
       ],
       "outputs": [],
-      "acceptance": "From the moment runtime/os-isolation retires a run's row as finished (immediately before sending its result), every cancel of that ref answers {:error, :unknown_run} (except the 1024 cancelled-queue refs that answer {:ok, :already_requested}), closing the window of #694; a run gives at most one result: an Owner killed after the send gives exactly that one, an Owner killed between retiring its row and the send gives none (stated as a limit); Contract, README, T7 and T17 unchanged, no sleep, retry or second accepted reply. Deterministic hook-forced regression test with an unfixed-code negative control, killed-Owner tests on both sides of the send, T7 --repeat-until-failure 500, Piece suite, small gate.",
+      "acceptance": "From the moment runtime/os-isolation retires a run's row as finished (immediately before sending its result), every cancel of that ref answers {:error, :unknown_run} (except the 1024 cancelled-queue refs that answer {:ok, :already_requested}), closing the window of #694; a run gives at most one result: an Owner killed after the send gives exactly that one, an Owner killed between retiring its row and the send gives none (declared as a residual in the README and piece.json limits); piece.json contract field, T7 and T17 unchanged, no sleep, retry or second accepted reply. Deterministic hook-forced regression test with an unfixed-code negative control, killed-Owner tests on both sides of the send, T7 --repeat-until-failure 500, Piece suite, small gate.",
       "product_aims": [
         "P13"
       ],
       "issue": 702,
       "url": "https://github.com/balungpisah/elzoo/issues/702",
-      "issue_body_sha256": "b4afa9fe21a79bc4056cf064dcf9d8424640e72ba36c8befc1ec6a0b8561863f"
+      "issue_body_sha256": "2c8b249d0c8ade56879d42fc641af9928b8271f7dfaaeb57e54ce322df59d253"
     }
   ],
   "entries": [
