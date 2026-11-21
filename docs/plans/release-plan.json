@@ -8341,6 +8341,30 @@
       "issue": 718,
       "url": "https://github.com/balungpisah/elzoo/issues/718",
       "issue_body_sha256": "6201053883b94bf0f49e80c093b55dc64461f3c627e92a168e5cae29376957b8"
+    },
+    {
+      "id": "ELZ-318",
+      "title": "ELZ-318 — domain/quota: a database uniqueness rule on the unit rows",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-303"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; local small gate, full review and merge queue",
+      "paths": [
+        "tasks/ELZ-318-quota-unit-uniqueness.md"
+      ],
+      "outputs": [],
+      "acceptance": "Elzoo.Quota.Migration.install/1 gives elzoo_quota_units UNIQUE (tenant, run_id, unit) in place of its plain index, a second layer under the reservation primary key (owner decision before the first release); every public result unchanged, README, migration comment and manifest describe both layers. Catalog schema test; negative controls: without the reservation key the rule refuses the duplicate reserve and rolls back (replacing #704's first case-14 control), without both layers case 3 fails; existing tests and the copied consumer pass; local small gate.",
+      "product_aims": [
+        "P09",
+        "P13"
+      ],
+      "issue": 736,
+      "url": "https://github.com/balungpisah/elzoo/issues/736",
+      "issue_body_sha256": "0969bbdf0e3e635f4690f7580cdfaf1c325c0cb5aaca53a549e400e9b6e9aa05"
     }
   ],
   "entries": [
