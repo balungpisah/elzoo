@@ -1,0 +1,132 @@
+# SPDX-License-Identifier: Apache-2.0
+# domain/pricing (ELZ-304): the minimum and completeness decisions of one
+# charge, over integer minor units and counts. Pure: no I/O and no registry
+# data. The Elixir boundary (Elzoo.Pricing) validates the card and the rows,
+# builds each line's exact value and rounds it once through domain/money; these
+# functions decide what a line is charged and whether the charge is complete.
+mod Elzoo.Pricing
+  # One card line's verdict: not charged (no row in the period) or charged
+  # this many minor units.
+  type PricingLine = LineAbsent | LineCharged(Int)
+
+  # ── line ────────────────────────────────────────────────────────────────
+
+  @total true
+  @reducible
+  fn is_below(rounded: Int, minimum: Int) -> Bool =
+    pickup
+      rounded < minimum -> True()
+      else -> False()
+
+  # A line with no row is not charged; with a row, a set minimum replaces a
+  # rounded charge below it, and every other rounded charge stands.
+  @total true
+  @reducible
+  fn line_with(has_rows: Bool, has_minimum: Bool, below: Bool, rounded: Int, minimum: Int) -> PricingLine =
+    match has_rows
+      False() -> LineAbsent()
+      True() ->
+        match has_minimum
+          False() -> LineCharged(rounded)
+          True() ->
+            match below
+              True() -> LineCharged(minimum)
+              False() -> LineCharged(rounded)
+
+  @total true
+  @reducible
+  fn line(has_rows: Bool, has_minimum: Bool, rounded: Int, minimum: Int) -> PricingLine =
+    line_with(has_rows, has_minimum, is_below(rounded, minimum), rounded, minimum)
+
+  # ── completeness ────────────────────────────────────────────────────────
+
+  @total true
+  @reducible
+  fn is_zero(n: Int) -> Bool =
+    pickup
+      n < 0 -> False()
+      n > 0 -> False()
+      else -> True()
+
+  # One flag per line: True when the line's unknown count is zero.
+  @total true
+  @reducible
+  fn all_known(known: List(Bool)) -> Bool =
+    match known
+      [] -> True()
+      [k | rest] ->
+        match k
+          True() -> all_known(rest)
+          False() -> False()
+
+  @total true
+  @reducible
+  fn known_flags(unknown_counts: List(Int)) -> List(Bool) =
+    match unknown_counts
+      [] -> []
+      [n | rest] -> [is_zero(n) | known_flags(rest)]
+
+  @total true
+  @reducible
+  fn complete(unknown_counts: List(Int)) -> Bool = all_known(known_flags(unknown_counts))
+
+  # ── law helpers ─────────────────────────────────────────────────────────
+
+  @total true
+  @reducible
+  fn joined(earlier: List(Bool), later: List(Bool)) -> List(Bool) =
+    match earlier
+      [] -> later
+      [k | rest] -> [k | joined(rest, later)]
+
+  # The earlier lines, one line with an unknown count above zero, then the later lines.
+  @total true
+  @reducible
+  fn with_unknown(earlier: List(Bool), later: List(Bool)) -> List(Bool) = joined(earlier, [False() | later])
+
+  @total true
+  @reducible
+  fn no_lines() -> List(Bool) = []
+
+  # ── selected laws (decision-split form) ─────────────────────────────────
+  # Pinned Cure keeps native Int comparison neutral on symbolic values, so
+  # each minimum law takes the below decision (rounded < minimum) as evidence.
+
+  # minimum_floor: on a line with a row and a minimum, a rounded charge below
+  # the minimum is charged the minimum (so the charge is at least the minimum).
+  @total true
+  fn minimum_floor(rounded: Int, minimum: Int) -> Equivalent(PricingLine, line_with(True(), True(), True(), rounded, minimum), LineCharged(minimum)) =
+    reflexive(LineCharged(minimum))
+
+  # minimum_keeps_larger: a rounded charge at or above the minimum is unchanged.
+  @total true
+  fn minimum_keeps_larger(rounded: Int, minimum: Int) -> Equivalent(PricingLine, line_with(True(), True(), False(), rounded, minimum), LineCharged(rounded)) =
+    reflexive(LineCharged(rounded))
+
+  # no_minimum_keeps: without a minimum, the rounded charge stands for every decision.
+  @total true
+  fn no_minimum_keeps(below: Bool, rounded: Int, minimum: Int) -> Equivalent(PricingLine, line_with(True(), False(), below, rounded, minimum), LineCharged(rounded)) =
+    reflexive(LineCharged(rounded))
+
+  # no_row_absent: a line with no row is not charged, also with a minimum.
+  @total true
+  fn no_row_absent(has_minimum: Bool, below: Bool, rounded: Int, minimum: Int) -> Equivalent(PricingLine, line_with(False(), has_minimum, below, rounded, minimum), LineAbsent()) =
+    reflexive(LineAbsent())
+
+  # incomplete_when_unknown: for all earlier and later lines, one line whose
+  # unknown count is not zero makes the charge incomplete (induction on the
+  # earlier lines).
+  @total true
+  fn incomplete_when_unknown(earlier: List(Bool), later: List(Bool)) -> Equivalent(Bool, all_known(with_unknown(earlier, later)), False()) =
+    match earlier
+      [] -> reflexive(False())
+      [k | rest] ->
+        match k
+          True() -> incomplete_when_unknown(rest, later)
+          False() -> reflexive(False())
+
+  # complete_without_lines: a charge with no line is complete.
+  @total true
+  fn complete_without_lines() -> Equivalent(Bool, all_known(no_lines()), True()) =
+    reflexive(True())
+end

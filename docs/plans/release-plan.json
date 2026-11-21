@@ -8197,6 +8197,29 @@
       "issue": 722,
       "url": "https://github.com/balungpisah/elzoo/issues/722",
       "issue_body_sha256": "01c61d2091c01dbd02f67655742ed19b95c45da2a5eb66c85441a7207cad2757"
+    },
+    {
+      "id": "ELZ-310",
+      "title": "ELZ-310 — List the automated-review skips of the 21 Nov quota outage",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-307"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "coordinator; one-PR path for a documents change; merge queue",
+      "paths": [
+        "tasks/ELZ-310-skip-list-quota-outage.md"
+      ],
+      "outputs": [],
+      "acceptance": "The Skipped automated reviews list in docs/development/13-coordinator.md has rows for #712 (682bd985..1d0e9bab) and #714 (26efb104..5620eec5) and names the 21 Nov quota outage (service back about 08:30 UTC on 22 Nov) as the reason, with the extra review as the gate; rows stay until the recheck, each finding its own task; no rule, Contract, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 718,
+      "url": "https://github.com/balungpisah/elzoo/issues/718",
+      "issue_body_sha256": "6201053883b94bf0f49e80c093b55dc64461f3c627e92a168e5cae29376957b8"
     }
   ],
   "entries": [
@@ -8687,10 +8710,12 @@
     {
       "id": "domain/pricing",
       "job": "ELZ-304",
-      "note": "Planned pure pricing: usage rows per provider, model, unit and source (the domain/metering totals shape plus provider_id and model_id) priced under one immutable content-hashed rate-card version of kind cost or price, one currency and a required domain/money rounding mode; stand-alone lines of an exact decimal-string rate per power-of-ten units and an optional minimum, rounded once per line; a charge with per-line amounts, total and incomplete with the unknown count, never pricing unknown as zero; differences only between charges of one card version. No post, tiers, exchange or Float.",
+      "note": "Pure charges from the usage totals of one tenant and period under one immutable rate-card version. price/3 takes a card {card_id, version, content_hash, kind :cost | :price, currency (a domain/money registry member with an integer minor unit), rounding (one of Elzoo.Money.rounding_modes/0), lines} of 1..1024 stand-alone lines {provider_id, model_id, unit, rate, per, minimum} sorted and unique on {provider_id, model_id, unit}, with an exact decimal-string rate (at most 18 significant and 18 fractional digits) per power-of-ten units (1..10^9) and an optional minimum, and usage {tenant, period, rows} of 0..4096 rows in the domain/metering totals shape plus provider_id and model_id. Each line with a row is charged quantity x rate / per, built exactly in integer arithmetic and rounded once through Elzoo.Money.from_decimal/4, then raised to its minimum; a line with no row is absent; unknown observations add nothing to quantity, count in unknown_count and make the charge incomplete, never priced as zero. A charge {tenant, period, card identity, lines, total, incomplete, unknown_count} has an exact total in the card currency. difference/3 is later.total - earlier.total for two charges of one tenant, period and card identity. content_hash/1 is the SHA-256 of a documented canonical card encoding. Fixed error atoms in the order invalid, card, content_hash, usage, unpriced_unit, amount_range, and charge, card_mismatch for difference/3; none echoes an ID or amount. Kind, source and error sets and the returned maps may gain members. No I/O, clock, storage, journal post, tiers, exchange rate, invoice or Float.",
       "baseline_status": "deferred",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/pricing/piece.json",
+      "manifest_sha256": "f0381c402f1f9789f7c90b7036f2fc76b89000d940d9b202afafb0e0e8aa6fdf"
     },
     {
       "id": "domain/principal",
