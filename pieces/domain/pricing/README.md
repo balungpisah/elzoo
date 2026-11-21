@@ -87,9 +87,16 @@ hash differs.
 | `difference(earlier, later, opts \\ [])` | `{:ok, amount}` (`later.total − earlier.total`, may be zero or negative) or `{:error, reason}` |
 | `content_hash(card)` | `{:ok, hash}` or `{:error, :card}` |
 
-`opts` is `[]` or `[registry: registry]`, an `Elzoo.Money.Registry` value
-that `Elzoo.Money.Registry.valid?/1` accepts (default
-`Elzoo.Money.Registry.default/0`); anything else is `:invalid`.
+`opts` is `[]` (the compiled `Elzoo.Money.Registry.default/0`) or
+`[registry: registry]`, where `registry` is the compiled default, a raw
+`Elzoo.Money.Registry` value or a checked value from
+`Elzoo.Money.Registry.check/1`. A raw registry is checked once per call with
+`check/1`, and that checked value is passed to every `Elzoo.Money` call the
+call makes, so it is walked once per call, not once per line; a checked value
+is passed on as it is. A host that prices many cards under one custom
+registry can check it once itself and pass the checked value. A registry that
+`check/1` refuses, a forged checked value included, and any other `opts` are
+`:invalid`.
 
 ### Usage
 
@@ -224,14 +231,16 @@ takes the difference the host would post.
   every rounding mode at, above and below half a minor unit and on a whole
   value, once-per-line rounding, minimums, unknown and incomplete lines,
   card versions and identity, the fixed encoding bytes, corrections, mixed
-  units, the listed validation bounds and the error order. Arithmetic and
+  units, the listed validation bounds and the error order, and a checked
+  registry pricing and differencing like its raw registry. Arithmetic and
   rounding are `domain/money`'s; that Elixir passes the exact value is
   test-grounded. Negative controls: pricing unknown as zero and reporting the
   charge complete fails the unknown cases; rounding each row before summing a
   line fails the once-per-line case; letting a below-minimum charge keep its
   rounded value fails `minimum_floor` at compile; letting an unknown flag pass
-  fails `incomplete_when_unknown` at compile. Finite scenarios, not universal
-  proofs.
+  fails `incomplete_when_unknown` at compile; taking any checked struct
+  unchecked fails the options case; pricing a checked value under the default
+  fails the checked-registry case. Finite scenarios, not universal proofs.
 - Upstream: pinned Cure; `domain/money` (`from_decimal/4`, `add/3`,
   `subtract/3`, registry membership); Decimal 3.2.0 `Decimal.new/3` struct
   fields; pinned Elixir/OTP term order, `String.valid?/1` and `:crypto`
@@ -254,6 +263,25 @@ is `:amount_range`, never truncated. The per-provider and per-model rows are
 host-built until `domain/metering` has a read for them. The Piece does not
 check that the rows are a complete period; the host owns the period and the
 card choice. Telemetry, Config and Control are not applicable.
+
+Registry cost per call, `price/3` of one unchanged 1024-line card and usage
+with a row and a minimum on every line, accepted by all three forms with equal
+charges, three runs in one local session on the pinned toolchain (ELZ-321;
+mean of 30 calls after 5 warm-up; local timings, not a bound). The custom
+registry is the default's extract with only its `downloaded` header changed:
+the same version and entries (one version, 307 entries), not `===` the
+default.
+
+| `registry:` | Registry cost | Runs (ms) |
+| --- | --- | --- |
+| none (the compiled default) | one `===` comparison where each money call resolves its `registry:` option | 16.74, 18.39, 18.28 |
+| a checked value of the custom registry | one constant-time test where each money call resolves its `registry:` option, and one in each unwrap of the positional lookups `member/2` makes (`held?/2`, `entry/3`) | 20.84, 18.96, 19.50 |
+| the same registry as a raw map | one `check/1` walk per call (about 65–80 µs, `domain/money`), then as a checked value | 19.40, 17.58, 19.10 |
+
+An explicit compiled default is sealed by `check/1` after one `===`
+comparison and then costs as a checked value. Passing the raw map to every
+money call again measured 203.97, 206.64 and 201.59 ms in that session. That
+the walk is once per call is grounded by this measurement, not by a test.
 
 Modules are application-owned under `Elzoo.Pricing` and `Cure.Elzoo.Pricing`;
 the Piece depends on `domain/money` and on `integration/ai-model` for the unit
