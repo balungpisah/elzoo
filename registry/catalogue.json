@@ -222,8 +222,9 @@
       "summary": "Retained dead-letter records with an open-to-resolved lifecycle",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-301: plain Ecto/Postgrex table under state/tenant-isolation; no payload storage or dispatch."
+      "status": "ready",
+      "reason": "ELZ-301: plain Ecto/Postgrex table under state/tenant-isolation; no payload storage or dispatch.",
+      "manifest": "pieces/delivery/dead-letter-store/piece.json"
     },
     {
       "id": "delivery/debounce",
@@ -376,7 +377,8 @@
       "summary": "Unit-tagged observed usage with provenance",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/metering/piece.json",
       "reason": "ELZ-299: plain Ecto/Postgrex tables under state/tenant-isolation (owner Q1 A); unknown usage is a distinct count, never zero; no pricing, quota or admission."
     },
     {
@@ -983,8 +985,9 @@
       "summary": "Dataset-backed scripted evaluation of recipes",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-302: test-time datasets read through state/artifact, run through runtime/recipe-test; absorbs state/eval-dataset; no live model or judge."
+      "status": "ready",
+      "reason": "ELZ-302: test-time datasets read through state/artifact, run through runtime/recipe-test; absorbs state/eval-dataset; no live model or judge.",
+      "manifest": "pieces/workflow/eval/piece.json"
     },
     {
       "id": "workflow/run",

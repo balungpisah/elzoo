@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "id": "delivery/dead-letter-store",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": ["ecto_sql", "postgrex", "jason", "telemetry", "elixir", "otp"],
+  "dependencies": ["delivery/dead-letter", "state/tenant-isolation", "integration/jobs"],
+  "applications": [],
+  "contract": "Retained delivery/dead-letter records in one table under the state/tenant-isolation floor over a consumer-owned Ecto Repo on PostgreSQL 16: Migration.install/1 installs the readers, a table keyed (tenant, source, message_id) holding the canonical record JSON as text, work_ref, put_at_ms and resolution fields, an open-list index and the forced tenant floor; put/3 stores a validated record once (ON CONFLICT DO NOTHING, equal canonical bytes and work_ref are duplicate, else conflict, a resolved key is not reopened); resolve/3 sets replayed or discarded once (UPDATE only an open row; duplicate, already_resolved, unknown_record); list/3 pages open records of one source by (put_at_ms, message_id) with an opaque cursor, 1..1000; count/2 per source up to 1,000 sources; purge/3 deletes up to 1..1000 resolved records before a cutoff, oldest first. Shape, then the caller's open transaction, are refused before any query; one transact/3 transaction refuses any isolation level but read committed; fixed error atoms; no payload or dispatch.",
+  "limits": [
+    "The state/tenant-isolation limits apply; the consumer Repo's query telemetry receives the tenant and every parameter (record bytes, work_ref, actor_ref).",
+    "No payload storage, replay dispatch, alerting or retention policy beyond purge/3; the host chooses when to purge and supplies every time.",
+    "list/3 pages by position: a record put later with an earlier put_at_ms than the cursor is not returned by the remaining pages of that walk; a key purged and put again is a new open record. A resolve identifies its record only by (tenant, source, message_id): a retried unconfirmed resolve after that record was purged and its key put again resolves the new record; retry an unconfirmed resolve before purging that record.",
+    "An :unavailable result says nothing about whether the write committed; a retry with the same request is safe until that record is purged (after a purge a retried put stores it again as open and a retried resolve is unknown_record or resolves a new record under the same key).",
+    "integration/jobs and its closure are test-only dependencies; the library code does not call them.",
+    "Finite listed scenarios on one local PostgreSQL 16, including lock-controlled races; not proofs of isolation, atomicity or ordering."
+  ],
+  "files": [
+    "lib/elzoo/dead_letter_store.ex",
+    "lib/elzoo/dead_letter_store/migration.ex",
+    "test/elzoo/dead_letter_store_test.exs",
+    "test/support/dead_letter_store_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/dead_letter_store_test.exs",
+      "claim": "Listed scenarios on the worker's own disposable PostgreSQL 16 database behind a fail-closed target guard, DBConnection.ConnectionPool Repos (not the Sandbox), random schemas dropped afterwards, application connections SET ROLE to ELZOO_TEST_APP_ROLE with only the README grants (fails when unset): 1 an integration/jobs Relay over a state/outbox Memory Store re-offers an item after a handle that stores then raises once, stored once, second offer duplicate; 2 conflict on another record or work_ref, duplicate of a resolved key does not reopen it, canonical text bytes; 3 resolve once, duplicate, already_resolved, unknown_record, two concurrent resolves held behind another connection's row lock until both wait in pg_locks commit one; 4 list order and paging across limits, resolved absent, count matches, read_limit over 1,000 sources; 5 verify/3 passes, T1 lists, counts and resolves no T2 record and a direct T2 insert fails with 42501; 6 a caller's open transaction gives in_transaction for every function with no query; 7 malformed records are record through Elzoo.DeadLetter.validate/1; 8 purge of resolved records before the cutoff, oldest first, at most limit, open kept, and a purged key put again with a retried resolve (the stated limit); 9 a Relay over a failing first full page delivers later items with the store and blocks them without it; 10 text, work_ref, limit, time, message_id, 16,384-byte record and NUL bounds, and records with 1,025- and 10,000-digit integers and with escaped and non-ASCII texts listed back unchanged; isolation refusal, unreachable Repo and missing table unavailable; no echoed IDs. Dropping the primary key fails case 1, and decoding the stored record with Jason fails the long-integer case (negative controls). Finite scenarios, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/16/sql-insert.html#SQL-ON-CONFLICT",
+      "claim": "PostgreSQL 16 INSERT ... ON CONFLICT DO NOTHING waiting for a concurrent inserter, UPDATE re-evaluating its WHERE on the newest row version under read committed, row locks visible in pg_locks, COLLATE \"C\" byte order, row-level security and transaction_isolation are upstream server contracts reached through Postgrex 0.22.4."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "Ecto SQL 3.14.0 Repo.transact/2, in_transaction?/0, Ecto.Adapters.SQL.query!/4 with log: false, migration execute/1 and the query telemetry event are upstream behavior; DBConnection raises for an unreachable pool."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "Pinned Jason encodes an ordered object without white space for the canonical record bytes; its decoder refuses integers of more than 1,024 digits, so the Piece does not decode with it."
+    },
+    {
+      "kind": "upstream",
+      "provider": "telemetry",
+      "reference": "https://hexdocs.pm/telemetry/1.4.2/telemetry.html",
+      "claim": "The tests attach to the Repo's query event to observe that no query runs inside a caller's transaction."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir String.valid?/1, the utf8 binary pattern, Regex anchors and Base.url_encode64/2 for the text, prefix and cursor rules."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.2 :json.decode/1 reads the stored canonical record back with integers of any length; process, Task and ETS semantics used by the tests."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The consumer runs the migration as the table owner, connects the application as a non-owner, non-bypass role with the README grants, runs transactions at read committed, calls verify/3 at startup, keeps the original work under its own storage keyed by message_id or work_ref, and does not record the Repo's query telemetry parameters."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "The Piece emits no events and no logs; its queries pass log: false, and the consumer Repo's query telemetry is unchanged (a limit: it receives the parameters)."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "The store value (repo and prefix) is a construction-time operand; fixed Contract bounds (128-byte texts, 256-byte message_id and work_ref, 16,384-byte records, limits 1..1000, 1,000 sources, times 0..2^63-1); no ambient settings and no hot change."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle; resolve/3 and purge/3 are data operations and the consumer owns the Repo, migrations and roles."
+    }
+  }
+}

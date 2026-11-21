@@ -507,6 +507,11 @@ defmodule Elzoo.CureConsumerCase do
   # callback follows the OS process tree instead. The port belongs to an unlinked process, so the consumer's
   # output pipe stays open until the tree is stopped (a closed pipe ends a writing consumer, and its children
   # would then leave the tree). After a normal exit the callback is replaced by a no-op.
+  #
+  # ELZ-291: the cleanup waits at most this long, for the whole tree, for signalled processes to stop. ExUnit
+  # bounds an on_exit callback by its test's limit; this stays below the controlled owner cases' 10 s.
+  @stop_bound_ms 5_000
+
   defp owned_cmd(command, args, opts) do
     env =
       for {name, value} <- Keyword.get(opts, :env, []),
@@ -536,8 +541,18 @@ defmodule Elzoo.CureConsumerCase do
     ref = make_ref()
 
     ExUnit.Callbacks.on_exit(ref, fn ->
-      stop_process_tree(os_pid)
+      unstopped = stop_process_tree(os_pid)
       Process.exit(holder, :kill)
+
+      if unstopped != [] do
+        message =
+          "copied-consumer cleanup of OS PID #{os_pid}: #{Enum.join(unstopped, ", ")} neither stopped " <>
+            "nor exited within #{@stop_bound_ms} ms; killed the processes found, without their children"
+
+        # ExUnit keeps the owner's own failure (for example its timeout) and drops this callback's error.
+        IO.puts(:stderr, message)
+        raise message
+      end
     end)
 
     result =
@@ -559,26 +574,63 @@ defmodule Elzoo.CureConsumerCase do
   end
 
   # Stop the tree from the root down until no new child appears (a stopped process does not fork, and its
-  # children keep it as parent), then kill every stopped process.
+  # children keep it as parent), then kill every stopped process. ELZ-291: `kill -STOP` returns before its
+  # target stops, and a process stops only after a fork in flight has returned, so a process's children are
+  # listed only once it shows as stopped or ended. If one does neither within @stop_bound_ms for the whole
+  # tree, the walk ends there: what it found is killed, and the PIDs that did not stop are returned.
   defp stop_process_tree(root) do
-    pids = stop_descendants([root], [])
+    {pids, unstopped} =
+      stop_descendants([root], [], System.monotonic_time(:millisecond) + @stop_bound_ms)
+
     System.cmd("kill", ["-KILL" | Enum.map(pids, &Integer.to_string/1)], stderr_to_stdout: true)
+    unstopped
   end
 
-  defp stop_descendants([], stopped), do: stopped
+  defp stop_descendants([], stopped, _deadline), do: {stopped, []}
 
-  defp stop_descendants(pids, stopped) do
+  defp stop_descendants(pids, stopped, deadline) do
     System.cmd("kill", ["-STOP" | Enum.map(pids, &Integer.to_string/1)], stderr_to_stdout: true)
     stopped = pids ++ stopped
-    {table, 0} = System.cmd("ps", ["-A", "-o", "pid=,ppid="])
 
-    children =
+    case await_stopped(pids, deadline) do
+      [] ->
+        {table, 0} = System.cmd("ps", ["-A", "-o", "pid=,ppid="])
+
+        children =
+          for line <- String.split(table, "\n", trim: true),
+              [pid, ppid] <- [Enum.map(String.split(line), &String.to_integer/1)],
+              ppid in stopped and pid not in stopped,
+              do: pid
+
+        stop_descendants(children, stopped, deadline)
+
+      unstopped ->
+        {stopped, unstopped}
+    end
+  end
+
+  # The PIDs of `pids` that still run, polled until there are none or the deadline has passed. `ps` omits an
+  # ended process; a zombie (`Z`) has ended; `T` is stopped by a signal, `t` by a tracer.
+  defp await_stopped(pids, deadline) do
+    {table, _} = System.cmd("ps", ["-o", "pid=,stat=", "-p", Enum.join(pids, ",")])
+
+    running =
       for line <- String.split(table, "\n", trim: true),
-          [pid, ppid] <- [Enum.map(String.split(line), &String.to_integer/1)],
-          ppid in stopped and pid not in stopped,
-          do: pid
+          [pid, stat] <- [String.split(line)],
+          not String.starts_with?(stat, ["T", "t", "Z"]),
+          do: String.to_integer(pid)
 
-    stop_descendants(children, stopped)
+    cond do
+      running == [] ->
+        []
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        running
+
+      true ->
+        Process.sleep(5)
+        await_stopped(running, deadline)
+    end
   end
 
   # The files of one ID that `mix test` loads by default in the consumer: `*_test.exs` below `test/`.
