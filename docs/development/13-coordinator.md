@@ -8,7 +8,8 @@
   The body lists each path outside the Piece directory.
 - Give parallel workers tasks with disjoint paths. Put a shared prerequisite
   in its own task and merge it first.
-- **One PR for coordinator-owned non-Piece work.** If the coordinator does
+- **One PR for coordinator-owned non-Piece work and test-only Piece
+  repairs.** If the coordinator does
   the work itself, there is no output Piece ID or Piece Contract change, and
   the task is not offered to another worker, publication and implementation
   may share one `task/ELZ-###` PR. Write the task, create its issue from the
