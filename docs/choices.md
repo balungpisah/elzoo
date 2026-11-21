@@ -501,9 +501,9 @@ usable (the ID rule above).
 ## Composing plan types
 
 Each plan type is a composition of Pieces in your host. The planned Wave 6 root
-acceptance has one named group for each; those groups come with the acceptance
-task and are not published yet
-([wave plan, Level 3](plans/bot-platform-wave6.md#level-3--mandatory-wave-6-root-consumer-acceptance-no-piece-output)).
+acceptance has one named group for each
+([ELZ-323](../tasks/ELZ-323-wave6-count-and-see-acceptance.md), group 7;
+[wave plan, Level 3](plans/bot-platform-wave6.md#level-3--mandatory-wave-6-root-consumer-acceptance-no-piece-output)).
 `domain/quota` and `domain/pricing` are published as Level 2 tasks
 ([ELZ-303](../tasks/ELZ-303-quota.md), [ELZ-304](../tasks/ELZ-304-pricing.md)).
 
