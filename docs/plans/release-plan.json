@@ -8461,6 +8461,77 @@
       "issue": 742,
       "url": "https://github.com/balungpisah/elzoo/issues/742",
       "issue_body_sha256": "6c50ccfeeed3b28446c31fca90b9c4b16b627ddfcf41efc9f5625c3d305066b9"
+    },
+    {
+      "id": "ELZ-322",
+      "title": "ELZ-322 — domain/metering: period totals per provider and model, the rows domain/pricing takes",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-299",
+        "ELZ-312"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-322-metering-model-totals.md"
+      ],
+      "outputs": [],
+      "acceptance": "domain/metering gains model_totals/3: per tenant and period, one row per {provider_id, model_id, unit, source} with known effective sum, unknown count and count, sorted, bounded by max_rows with read_limit, under the same admission and tenant scope as totals/3, so its rows are the rows of a domain/pricing usage value; totals/3 and every other term unchanged. Row sums equal totals/3, correction and unknown cases, byte order, max_rows edge, refusal before query, cross-tenant; negative controls without model_id and with raw amounts; local small gate, full review.",
+      "product_aims": [
+        "P09",
+        "P13"
+      ],
+      "issue": 745,
+      "url": "https://github.com/balungpisah/elzoo/issues/745",
+      "issue_body_sha256": "98b82ae5669a9cfcaaa14c838b0ade80a546ab2b2e1fcc98a6eb19e7f8c633c9"
+    },
+    {
+      "id": "ELZ-323",
+      "title": "ELZ-323 — Count, price, post and see tenant Runs end to end on PostgreSQL as a non-owner application role",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-055",
+        "ELZ-127",
+        "ELZ-249",
+        "ELZ-267",
+        "ELZ-268",
+        "ELZ-269",
+        "ELZ-270",
+        "ELZ-281",
+        "ELZ-285",
+        "ELZ-297",
+        "ELZ-298",
+        "ELZ-299",
+        "ELZ-300",
+        "ELZ-301",
+        "ELZ-302",
+        "ELZ-303",
+        "ELZ-304",
+        "ELZ-312",
+        "ELZ-313",
+        "ELZ-314",
+        "ELZ-316",
+        "ELZ-318",
+        "ELZ-322"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-323-wave6-count-and-see-acceptance.md"
+      ],
+      "outputs": [],
+      "acceptance": "Real PostgreSQL as the non-owner application role: counted Runs with unknown kept apart and corrected, entitlement and quota reservation racing for the last allowance, pricing per provider and model with card versions, balanced journal posts with replay and correction difference, the Run transcript, dead-letter storage behind a Relay, Carbonite audit capture of the allowance-grant and credit checked commands (command first, then effect), the pay-as-you-go, quota-capped and prepaid groups, a once-only spend-alert notice and a dataset eval; four harness negative controls. Default money registry; ELZ-319 to ELZ-321 not required.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 746,
+      "url": "https://github.com/balungpisah/elzoo/issues/746",
+      "issue_body_sha256": "0390d9b6cf2bf3058fa43aadb9f18a6a33ec5f095dfcaaa4b74ce766b6f37aa8"
     }
   ],
   "entries": [
