@@ -12,7 +12,7 @@ Level 3's mandatory root consumer acceptance, [ELZ-286](../../tasks/ELZ-286-wave
 
 ## Wave 5 closure and open-defect handoff
 
-All published Wave 5 tasks are merged on `main` (`63099d77`, push check green):
+All published Wave 5 tasks are merged on `main` (`63099d77`, push check green), except the two in-progress test repairs ELZ-290 and ELZ-291 listed under open items:
 
 - **Level 1:** ELZ-267 (`domain/principal`) and ELZ-268 (`integration/token-verify`).
 - **Level 2:** ELZ-269 (`domain/membership`), ELZ-270 (`state/tenant-isolation`), ELZ-271 (`integration/egress-policy`), ELZ-272 (`domain/provider-data-policy`) and ELZ-273 (`integration/encryption`).
@@ -21,7 +21,7 @@ All published Wave 5 tasks are merged on `main` (`63099d77`, push check green):
 
 Coordinator decisions taken during Level 3 are recorded on their issues: a runtime MCP context is bound to its admission's key ([#646](https://github.com/balungpisah/elzoo/issues/646)); one tenant credential per server stays a host duty of `integration/mcp-runtime` ([#647](https://github.com/balungpisah/elzoo/issues/647)); and a lifecycle operation past the switch bound is `too_many`, while an accept answered ASK and released after expiry is a stated limit ([#648](https://github.com/balungpisah/elzoo/issues/648)).
 
-ELZ-286 establishes only its finite tested composition. It does not show a production identity provider (its keys are pinned test keys), a live public MCP endpoint, or Carbonite `state/audit-log` capture of these commands. A RunEngine gate cannot see a switch engaged during its Run; live Runs stop only through the host's Run control.
+ELZ-286 establishes only its finite tested composition; its [report's Limits](../research/wave5-tenancy.md#limits) are the full list. It does not show a production identity provider (its keys are pinned test keys), a live public MCP endpoint, or Carbonite `state/audit-log` capture of these commands. A RunEngine gate cannot see a switch engaged during its Run; live Runs stop only through the host's Run control. The RunEngine Runs and their stores use the owner connection, and the ready Store tables are not protected by `state/tenant-isolation`; only CheckedCommand, the vault and the consumer tables run as the application role. The host checks (membership resolution, the payment check, invitation application and the `vault_erased` fact) are harness code, not Pieces.
 
 Open items, none blocking the next wave:
 
