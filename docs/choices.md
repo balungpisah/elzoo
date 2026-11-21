@@ -412,15 +412,18 @@ These are set in the published task texts
 - **To change.** A reversal that may overdraw would change the failure
   guarantees of `domain/journal`: a published task, under the ID rule.
 
-### The journal needs READ COMMITTED
+### The durable Wave 6 Pieces need READ COMMITTED
 
-- **Chosen.** `domain/journal` checks that its transaction runs at READ
-  COMMITTED and refuses `isolation` otherwise
-  ([ELZ-297](../tasks/ELZ-297-journal.md)).
-- **Why.** Its balance rule relies on ordered row locks at READ COMMITTED, and
-  `state/tenant-isolation` cannot set the level.
-- **For you.** Keep the PostgreSQL default isolation on the journal's Repo.
-- **To change.** Another level would change the journal's Needs: under the ID
+- **Chosen.** `domain/journal`, `domain/metering` and
+  `delivery/dead-letter-store` check that their transaction runs at READ
+  COMMITTED and refuse `isolation` otherwise
+  ([ELZ-297](../tasks/ELZ-297-journal.md),
+  [ELZ-299](../tasks/ELZ-299-metering.md),
+  [ELZ-301](../tasks/ELZ-301-dead-letter-store.md)).
+- **Why.** Their row locks and conflict-free inserts give the stated results
+  only at READ COMMITTED, and `state/tenant-isolation` cannot set the level.
+- **For you.** Keep the PostgreSQL default isolation on their Repo.
+- **To change.** Another level would change these Pieces' Needs: under the ID
   rule.
 
 ### Metering also counts cache writes
