@@ -8524,7 +8524,7 @@
         "tasks/ELZ-323-wave6-count-and-see-acceptance.md"
       ],
       "outputs": [],
-      "acceptance": "Real PostgreSQL as the non-owner application role: counted Runs with unknown kept apart and corrected, entitlement and quota reservation racing for the last allowance, pricing per provider and model with card versions, balanced journal posts with replay and correction difference, the Run transcript, dead-letter storage behind a Relay, Carbonite audit capture of the allowance-grant and credit checked commands (command first, then effect), the pay-as-you-go, quota-capped and prepaid groups, a once-only spend-alert notice and a dataset eval; four harness negative controls. Default money registry; ELZ-319 to ELZ-321 not required.",
+      "acceptance": "Real PostgreSQL as the non-owner application role: counted Runs with unknown kept apart and corrected, entitlement and quota reservation racing for the last allowance, pricing per provider and model with card versions, balanced journal posts with replay and correction difference, the Run transcript, dead-letter storage behind a Relay, Carbonite audit capture of the allowance-grant and credit checked commands, a retained denial included (the credit command first, then its journal post), the pay-as-you-go, quota-capped and prepaid groups, a once-only spend-alert notice and a dataset eval; four harness negative controls. Default money registry; ELZ-319 to ELZ-321 not required.",
       "product_aims": [
         "P09",
         "P10"

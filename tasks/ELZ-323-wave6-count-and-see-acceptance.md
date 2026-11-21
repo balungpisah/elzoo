@@ -56,7 +56,9 @@ opaque `:utc_month` ID such as `2026-11`.
    usage that the host records with `Elzoo.Metering.record/3`, its `usage_id`
    derived from Run, occurrence and Attempt. Under T1's scope as the
    application role no T2 usage row is visible, and a write of a T2 row gives
-   SQLSTATE 42501. A replay after an engine restart records once
+   SQLSTATE 42501. As the application role, `ALTER TABLE ... NO FORCE ROW
+   LEVEL SECURITY` and `DROP POLICY` on the metering observations table are
+   refused (owner-only). A replay after an engine restart records once
    (`:duplicate`). A call cut off by the restart is recorded `:unknown`: it is
    in `unknown_count`, not in `known`. A later `correct/3` moves it.
 2. **Allowance.** `Elzoo.Entitlement.resolve/3` resolves T1's plan; a feature
@@ -70,13 +72,18 @@ opaque `:utc_month` ID such as `2026-11`.
    refuses a new reservation and accepts a settlement.
 3. **Price and post.** `Elzoo.Metering.model_totals/3` (ELZ-322) gives the
    rows of the `domain/pricing` usage value. Card version 1 prices the period;
-   version 2, published later, leaves that charge equal. An incomplete charge
-   (unknown usage) is held, not posted. The complete charge posts with
-   `Elzoo.Journal.post/3` as one balanced operation whose `operation_id` the
-   host derives from its charge record, so a retry is `:duplicate`. A
-   correction re-prices under the original card version, and its nonzero
-   `difference/3` posts as a new operation whose ID and reason derive from the
-   correction.
+   version 2, published later, leaves that charge equal.
+   - While an observation of the period is unknown, the charge is
+     incomplete; the host holds it and posts nothing. After `correct/3` makes
+     it known, the re-priced complete charge is the period's first posted
+     charge.
+   - A complete charge posts with `Elzoo.Journal.post/3` as one balanced
+     operation whose `operation_id` the host derives from its charge record,
+     so a retry is `:duplicate`.
+   - A later correction of a known observation of that posted period
+     re-prices under the original card version. `difference/3` of the posted
+     charge and the re-priced one, when nonzero, posts as a new operation
+     whose ID and reason derive from the correction.
 4. **See.** `transcript/3` of a completed T1 Run with a nested callable shows
    its tree; T2's scope is refused `{:error, :scope}`; the restarted Run shows
    its Effect as unknown with no actual.
@@ -87,15 +94,23 @@ opaque `:utc_month` ID such as `2026-11`.
    resolve with other values is `already_resolved`.
 6. **Audit capture.** The allowance grant and a manual credit are
    `assembly/checked-command` descriptors on the PostgreSQL Store with
-   `state/audit-log` installed and bound. Each committed command has exactly
-   one Carbonite transaction with its actor attribution; a denied command has
-   none (audit-log's stated exclusion). Order is command first, then effect:
-   the command commits its outcome and one outbox item, and the host then
-   applies it once to `domain/quota` or `domain/journal`, reusing the
-   command's `operation_id` as the journal operation ID, so a retried apply
-   replays. A crash between commit and apply leaves the item pending, and the
-   next apply delivers it once. The journal, quota and metering tables are not
-   audited (a stated limit).
+   `state/audit-log` installed and bound.
+   - Each command that appends a record has exactly one Carbonite
+     transaction with its actor attribution. That includes an authorization
+     denial, which checked-command retains as a record; its transaction holds
+     only that record, and it has no outbox item and no effect.
+   - The allowance grant writes the host's plan grant in the command's
+     resource. The grant fact that `Elzoo.Entitlement.resolve/3` reads comes
+     from that resource, so the next reservation sees the new allowance.
+     `domain/quota` has no grant write.
+   - The manual credit is command first, then effect. The command commits
+     its outcome and one outbox item. The host then posts it once with
+     `Elzoo.Journal.post/3`, reusing the command's `operation_id` as the
+     journal operation ID, so a retried apply replays. A crash between
+     commit and apply leaves the item pending, and the next apply posts it
+     once.
+   - The journal, quota and metering tables are not audited (a stated
+     limit).
 7. **Plan types** (owner, 2026-11-21; `docs/choices.md`, "Composing plan
    types"), one named group each:
    - pay-as-you-go: metering, pricing, and a post from a receivable account
@@ -111,9 +126,12 @@ opaque `:utc_month` ID such as `2026-11`.
 9. **Eval.** `Elzoo.Eval.load/4` reads the dataset artifact and
    `Elzoo.Eval.run/2` passes it; a changed recipe package fails its case.
 10. **Negative controls**, one at a time, each restored before the final
-    passing run: connect the application Repo without `SET ROLE`, and group
-    1's isolation refusals must fail; price unknown usage as zero (host
-    side), and group 3's held incomplete charge must fail; reserve each Run
+    passing run: connect the application Repo without `SET ROLE`, with the
+    role guard of "Admission and scope" off for that run only, and group 1's
+    owner-only refusals must fail (forced row security still filters the
+    owner's reads, so the visibility cases alone would not fail); price
+    unknown usage as zero (host side), and group 3's held incomplete charge
+    must fail; reserve each Run
     under a fresh `run_id`, and group 2's duplicate reserve must fail; skip
     the audit installation, and group 6 must fail. These validate the harness;
     they do not replace the Pieces' own controls.
