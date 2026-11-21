@@ -70,6 +70,18 @@ defmodule Elzoo.Money.Registry do
   # unchecked. Every positional function reads its registry through this.
   def unwrap(registry), do: if(sealed?(registry), do: registry.read.(), else: registry)
 
+  @doc false
+  # The one check of a registry: option, deciding once: the default by ===, a
+  # checked value by sealed?/1 (then its registry), any other term by the walk.
+  def resolve(registry) do
+    cond do
+      registry === default() -> {:ok, registry}
+      sealed?(registry) -> {:ok, registry.read.()}
+      walk?(registry) -> {:ok, registry}
+      true -> {:error, {:invalid_registry, nil}}
+    end
+  end
+
   @doc """
   Whether `registry` has the shape `build!/1` writes, for every field that
   `Elzoo.Money` reads. Pure. A value `===` `default/0` and a genuine checked
@@ -86,7 +98,7 @@ defmodule Elzoo.Money.Registry do
   active entry to its alpha; and every alpha of a version is held by each
   later version (append-only).
   """
-  def valid?(registry), do: registry === default() or sealed?(registry) or walk?(registry)
+  def valid?(registry), do: match?({:ok, _}, resolve(registry))
 
   defp walk?(%{versions: [_ | _] = versions, snapshots: s, active_numeric: a, sources: src} = r)
        when map_size(r) == 4 and is_map(s) and is_map(a) and is_map(src) do

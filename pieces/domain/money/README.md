@@ -45,11 +45,13 @@ The positional functions `versions/1`, `latest/1`, `entry/3`, `held?/2` and
 and do not validate: a genuine checked value is unwrapped, any other value is
 read as given. A forged checked value (a value of the checked struct's shape
 that `check/1` did not return) is such an other value and its closure is
-never called: `versions/1` and `latest/1` raise `FunctionClauseError`,
+never called. For one with only the struct's fields (`__struct__` and
+`read`): `versions/1` and `latest/1` raise `FunctionClauseError`,
 `entry/3` raises `UndefinedFunctionError` (the struct has no Access),
 `held?/2` raises `KeyError`, and `member/2,3` raises `KeyError` for a
 `%Currency{}` it would look up, else returns `forged_currency` as for any
-registry.
+registry. A forged value that also carries registry keys such as `versions`
+or `snapshots` is read through those keys, unchecked, like any raw map.
 
 Options on every call: `registry:` (default the compiled registry) and
 `version:`. An explicit `registry:` is decided first, by one check: the
@@ -156,7 +158,8 @@ Dataset disposition (G5, disposed by recorded decision, not verified):
   codec round trip through `integration/sql`; it is not part of this bundle.
 - **Upstream contract:** Decimal 3.2.0 struct fields, `Decimal.new/3` and mode
   names; pinned Cure; Elixir 1.20.4 integer arithmetic.
-- **Monitored behavior:** none.
+- **Monitored behavior:** none. The timings under Limits are a one-session
+  local benchmark, not an ongoing monitor.
 
 ## Limits
 
@@ -176,8 +179,8 @@ Dataset disposition (G5, disposed by recorded decision, not verified):
   walk on every call, about 65–80 µs for a registry the size of the default
   (one version, 307 entries; ELZ-316). Measured in one local session on the
   pinned toolchain (ELZ-319), three runs each: `valid?/1` of such a raw
-  registry 67.49, 63.22 and 69.10 µs; of its checked value 0.125, 0.123 and
-  0.123 µs. `valid?/1` checks shape, field types and ranges, not that the
+  registry 64.64, 61.18 and 60.29 µs; of its checked value 0.139, 0.140 and
+  0.130 µs. `valid?/1` checks shape, field types and ranges, not that the
   data came from a held extract.
 - A checked value resists ordinary Elixir code, not the external term format:
   code that edits those bytes can build one, and decoding untrusted bytes with
