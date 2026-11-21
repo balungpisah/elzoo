@@ -511,6 +511,33 @@ defmodule Elzoo.JournalTest do
       assert {units(j, "revenue"), units(j, "wallet")} == {0, 0}
     end
 
+    test "identical concurrent reversals: one applies, the others are duplicate", %{j: j} do
+      open!(j, "revenue", eur(), true)
+      open!(j, "wallet", eur(), true)
+
+      # Released together, so the operation inserts race on both unique keys. The answer for an
+      # equal request is duplicate, never already_reversed (each round below about one in seven
+      # failed when only the operation ID was the conflict target).
+      for i <- 1..50 do
+        assert {:ok, :applied} = post(j, "sale-#{i}", eur(), [{"revenue", -1}, {"wallet", 1}])
+
+        tasks =
+          for _ <- 1..5 do
+            Task.async(fn ->
+              receive do: (:go -> :ok)
+              reverse(j, "undo-#{i}", "sale-#{i}")
+            end)
+          end
+
+        Enum.each(tasks, &send(&1.pid, :go))
+
+        assert Enum.sort(Enum.map(tasks, &Task.await(&1, 30_000))) ==
+                 [{:ok, :applied} | List.duplicate({:ok, :duplicate}, 4)]
+      end
+
+      assert {units(j, "revenue"), units(j, "wallet")} == {0, 0}
+    end
+
     test "a reversal of a wallet credit that was spent is insufficient_funds", %{j: j, p: p} do
       open!(j, "revenue", eur(), true)
       open!(j, "wallet", eur(), false)

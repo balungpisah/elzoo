@@ -44,7 +44,6 @@ defmodule Elzoo.Journal do
     :registry,
     :unavailable
   ]
-  @reverses_key "elzoo_journal_operations_reverses"
 
   @enforce_keys [:repo, :prefix, :registry]
   defstruct @enforce_keys
@@ -326,38 +325,47 @@ defmodule Elzoo.Journal do
     end
   end
 
-  # Step 4: the operation row decides the identity. A committed row with the same ID is a
-  # duplicate (equal digest) or a conflict; the unique reverses key decides a reversal race.
+  # Step 4: the operation row decides the identity. ON CONFLICT without a target makes both
+  # unique keys of the table, (tenant, operation_id) and (tenant, reverses), arbiters, so a
+  # concurrent insert on either key waits for the other transaction and then inserts nothing
+  # instead of raising. A committed row with the same ID is then a duplicate (equal digest) or a
+  # conflict; already_reversed needs the committed reversal row of the same `reverses`. Any
+  # other no-row outcome (a unique key this version does not create) is :unavailable.
   defp identify(j, tenant, op) do
-    result =
-      SQL.query(
-        j.repo,
-        "INSERT INTO #{table(j, :operations)} (tenant, operation_id, actor_ref, reason, reverses, request_digest) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (tenant, operation_id) DO NOTHING",
-        [tenant, op.operation_id, op.actor_ref, op.reason, op.reverses, op.digest],
-        log: false
+    inserted =
+      query(
+        j,
+        "INSERT INTO #{table(j, :operations)} (tenant, operation_id, actor_ref, reason, reverses, request_digest) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
+        [tenant, op.operation_id, op.actor_ref, op.reason, op.reverses, op.digest]
       )
 
-    case result do
-      {:ok, %{num_rows: 1}} ->
-        :inserted
-
-      {:ok, %{num_rows: 0}} ->
-        [[digest]] =
-          query!(
-            j,
-            "SELECT request_digest FROM #{table(j, :operations)} WHERE tenant = $1 AND operation_id = $2",
-            [tenant, op.operation_id]
-          )
-
-        if digest == op.digest, do: {:ok, :duplicate}, else: {:error, :conflict}
-
-      {:error, %Postgrex.Error{postgres: %{code: :unique_violation, constraint: @reverses_key}}} ->
-        {:error, :already_reversed}
-
-      {:error, error} ->
-        raise error
+    if inserted.num_rows == 1 do
+      :inserted
+    else
+      case query!(
+             j,
+             "SELECT request_digest FROM #{table(j, :operations)} WHERE tenant = $1 AND operation_id = $2",
+             [tenant, op.operation_id]
+           ) do
+        [[digest]] when digest == op.digest -> {:ok, :duplicate}
+        [[_digest]] -> {:error, :conflict}
+        [] -> reversed(j, tenant, op.reverses)
+      end
     end
   end
+
+  defp reversed(j, tenant, target) when is_binary(target) do
+    case query!(
+           j,
+           "SELECT 1 FROM #{table(j, :operations)} WHERE tenant = $1 AND reverses = $2",
+           [tenant, target]
+         ) do
+      [[1]] -> {:error, :already_reversed}
+      [] -> {:error, :unavailable}
+    end
+  end
+
+  defp reversed(_j, _tenant, nil), do: {:error, :unavailable}
 
   # Steps 6-9 over `[{account_id, minor_units}]`. `identity` nil (a reversal) takes the
   # accounts' own identity.

@@ -53,7 +53,10 @@ GRANT SELECT, INSERT, UPDATE ON prefix.elzoo_journal_accounts TO app_role;
 Nothing else. The Piece never updates or deletes a posting or an operation.
 
 Call `Elzoo.TenantIsolation.verify/3` for each table at startup, connected as the application
-role, with `prefix: prefix, tenant_column: "tenant", space_column: nil`.
+role, with `prefix: prefix, tenant_column: "tenant", space_column: nil`. `verify/3` also needs
+the database `TEMP` privilege for its rolled-back rebuild of the floor; PUBLIC has it by default
+(see the `state/tenant-isolation` README). Where PUBLIC lacks it, grant `TEMP` on the database to
+the application role; the journal itself does not use it.
 
 ## Interface
 
@@ -135,7 +138,8 @@ in-place version; match on the members and keys you use.
 `:in_transaction`, then in one transaction the isolation check and its own identity (steps
 3–4). Then `reverses` unknown to the tenant is `:unknown_operation`, a reversal is
 `:not_reversible`, and an operation already reversed by another ID is `:already_reversed` (the
-unique `reverses` key decides a race). It skips step 5: a reversal of postings in a now-retired
+unique `reverses` key decides a race; the insert names no conflict target, so an equal request
+racing on both keys is still `{:ok, :duplicate}`). It skips step 5: a reversal of postings in a now-retired
 currency is accepted. Steps 6–9 apply to the negated postings, so a reversal that would take a
 wallet below zero is `:insufficient_funds`.
 
