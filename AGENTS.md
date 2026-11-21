@@ -45,14 +45,19 @@ Separate publication PRs keep the coordinator merge path (section 9).
 | Change | Publication and claim | Local gate → hosted check |
 | --- | --- | --- |
 | New or changed Piece Contract | New capability: coordinator publishes the new Piece ID first; then claim (sections 2–4, 9). Changed Contract of a ready Piece before the first release: a published task on the same ID (section 4) | Piece gate below; from the first release never reuse an old ID for a new Contract |
-| Piece-only implementation | Published task, claim, implementation PR (sections 2–3) | Small gate (section 5) → `check-piece`; full check on main covers omitted tests |
+| Piece-only implementation | Published task, claim, implementation PR (sections 2–3); a test-only Piece repair may use the coordinator one-PR path below | Small gate (section 5) → `check-piece`; full check on main covers omitted tests |
 | Documents only | Published task or coordinator one-PR path below; claim | Roadmap/claims checks and diff check → docs-only check; no executable inputs changed |
 | Spike only, including dependencies or pins confined to the spike's own files (`mix.exs`, `mix.lock`, etc.) | Own task; published or coordinator one-PR path; claim | Changed spike's own checks and roadmap/diff checks → `check-spike` and Gleam when applicable; root tests do not consume spike contents, full check on main |
 | Non-Piece root/shared dependency, advisory or harness repair | Own task; published or coordinator one-PR path; claim | Full/affected gate as section 5 requires → full hosted check; no selected-gate shortcut |
 | CI, workflow or queue change | Same non-Piece flow; never docs-only | Relevant guard tests plus full/affected gate → full hosted check; no spike shortcut |
 
 For a coordinator-owned non-Piece change with no output Piece ID or Piece
-Contract change, publication and implementation may share one PR: create the
+Contract change, publication and implementation may share one PR. So may a
+coordinator-owned test-only Piece repair: it changes only files under the
+`test/` directory of ready Pieces, with no output Piece ID, no Contract change
+and no change to `lib/`, `cure/`, `examples/`, `README.md`, `piece.json` or an
+index row, and it keeps the Piece flow's gates (small gate, exact-head
+`check-piece`, section 6 review, merge queue). For either: create the
 issue from the task file without `task`, claim with the section 2 API lock,
 and commit the task, its published job row with live body hash and the change
 on `task/ELZ-###`. Close the task issue and the reporting issue if any.
