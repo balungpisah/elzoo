@@ -264,20 +264,23 @@ host-built until `domain/metering` has a read for them. The Piece does not
 check that the rows are a complete period; the host owns the period and the
 card choice. Telemetry, Config and Control are not applicable.
 
-Registry cost per call, `price/3` of one 1024-line card with a row and a
-minimum on every line, three runs in one local session on the pinned
-toolchain (ELZ-321; mean of 30 calls after 5 warm-up; local timings, not a
-bound):
+Registry cost per call, `price/3` of one unchanged 1024-line card and usage
+with a row and a minimum on every line, accepted by all three forms with equal
+charges, three runs in one local session on the pinned toolchain (ELZ-321;
+mean of 30 calls after 5 warm-up; local timings, not a bound). The custom
+registry is the default's extract with only its `downloaded` header changed:
+the same version and entries (one version, 307 entries), not `===` the
+default.
 
-| `registry:` | Cost per call | Runs (ms) |
+| `registry:` | Registry cost | Runs (ms) |
 | --- | --- | --- |
-| none (the compiled default) | one `===` comparison in each money call | 16.76, 17.96, 17.21 |
-| a checked value of a custom registry the size of the default (one version, 307 entries) | one constant-time test in each money call | 18.60, 17.21, 17.64 |
-| the same registry as a raw map | one `check/1` walk per call (about 65–80 µs, `domain/money`), then the checked value | 17.47, 18.24, 19.79 |
+| none (the compiled default) | one `===` comparison where each money call resolves its `registry:` option | 16.74, 18.39, 18.28 |
+| a checked value of the custom registry | one constant-time test where each money call resolves its `registry:` option, and one in each unwrap of the positional lookups `member/2` makes (`held?/2`, `entry/3`) | 20.84, 18.96, 19.50 |
+| the same registry as a raw map | one `check/1` walk per call (about 65–80 µs, `domain/money`), then as a checked value | 19.40, 17.58, 19.10 |
 
 An explicit compiled default is sealed by `check/1` after one `===`
 comparison and then costs as a checked value. Passing the raw map to every
-money call again measured 205.50, 195.33 and 192.33 ms in that session. That
+money call again measured 203.97, 206.64 and 201.59 ms in that session. That
 the walk is once per call is grounded by this measurement, not by a test.
 
 Modules are application-owned under `Elzoo.Pricing` and `Cure.Elzoo.Pricing`;
