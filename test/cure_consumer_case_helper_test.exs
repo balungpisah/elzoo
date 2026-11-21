@@ -126,9 +126,9 @@ defmodule Elzoo.CureConsumerCaseHelperTest do
 
     # A killed forker can take a moment to end (it unmaps 60,000 mappings); an escaped child is a `sleep 60`.
     left = kill_running(Enum.map(rows, &hd/1) ++ children, 40)
-    # A forker that cleanup missed went on forking while kill_running waited.
+    # A child logged after the first read (a forker that cleanup missed went on forking) counts too.
     later = String.split(File.read!(forked)) -- children
-    if later != [], do: kill_running(later, 0)
+    left = if later != [], do: left ++ kill_running(later, 0), else: left
 
     assert length(children) >= 3
 
