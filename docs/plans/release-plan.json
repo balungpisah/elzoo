@@ -9052,7 +9052,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/runtime/os-isolation/piece.json",
-      "manifest_sha256": "faed881e117837c4757d8bbe28f9f0e495406e4c9ad17ea704b88a7f64a9f944"
+      "manifest_sha256": "81dc24e869d6f71be93c8cda3d2fd05169b5f2af019332a165321d290aad52b1"
     },
     {
       "id": "runtime/registry",

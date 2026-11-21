@@ -55,6 +55,9 @@ defmodule Elzoo.OsProcess do
   + 5 s. A caller may shorten it with `await_ms`; when the wait ends first, the run is
   cancelled (acceptance only) and `{:error, {:no_result, ref}}` is returned; the late result
   message `{Elzoo.OsProcess, ref, result}` still arrives and must be consumed or ignored.
+  Declared residual: an owner killed between retiring its run as finished and sending the
+  result sends nothing, so the wait ends with `{:error, {:no_result, ref}}` and no late
+  message arrives.
   """
   def run(sup, spec, opts) do
     adapter = adapter(sup)
