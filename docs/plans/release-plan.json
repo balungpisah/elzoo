@@ -8033,6 +8033,29 @@
       "issue": 673,
       "url": "https://github.com/balungpisah/elzoo/issues/673",
       "issue_body_sha256": "edd28f3b95fcadfa8314609d742aaa0476bf1844c8f8c336653adb8d35891538"
+    },
+    {
+      "id": "ELZ-305",
+      "title": "ELZ-305 — A cancel after a delivered result answers unknown_run in runtime/os-isolation",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-029"
+      ],
+      "status": "published 2026-11-21",
+      "owner_role": "worker; published Piece task; small gate, full review and merge queue",
+      "paths": [
+        "tasks/ELZ-305-os-process-cancel-after-result.md"
+      ],
+      "outputs": [],
+      "acceptance": "From the moment runtime/os-isolation retires a run's row as finished (immediately before sending its result), every cancel of that ref answers {:error, :unknown_run} (except the 1024 cancelled-queue refs that answer {:ok, :already_requested}), closing the window of #694; a run gives at most one result: an Owner killed after the send gives exactly that one, an Owner killed between retiring its row and the send gives none (declared as a residual in the README and piece.json limits); piece.json contract field, T7 and T17 unchanged, no sleep, retry or second accepted reply. Deterministic hook-forced regression test with an unfixed-code negative control, killed-Owner tests on both sides of the send, T7 --repeat-until-failure 500, Piece suite, small gate.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 702,
+      "url": "https://github.com/balungpisah/elzoo/issues/702",
+      "issue_body_sha256": "2c8b249d0c8ade56879d42fc641af9928b8271f7dfaaeb57e54ce322df59d253"
     }
   ],
   "entries": [
