@@ -59,13 +59,18 @@ then, in the last commit, its `docs/plans/release-plan.json` entry
    process design: the Owner retires its registry row before it sends the
    result, and the Adapter's cancel answers `unknown_run` for a retired row
    before it looks at `state.running` or `cancel_requested`. Moving result
-   delivery into the Adapter is not required and must keep result delivery
-   across an Adapter restart (README, about lines 159-161) if chosen.
-3. An Owner killed at any point around the send, before retiring its
-   row, between retiring it and sending, or after sending, must give the
-   submitter exactly one result: not none, and not a second one from the
-   Adapter's observer path, which decides from the registry row (README:
-   "does not notify twice"). State how the change guarantees it.
+   delivery into the Adapter is not required; it would change the README's
+   statement that a running Owner replies to the submitter itself, which
+   this task keeps.
+3. A run gives its submitter at most one result, whenever its Owner is
+   killed (README: "does not notify twice"; the Adapter's observer already
+   follows this rule). An Owner killed after it sent the result gives
+   exactly that result and no second one from the observer path. An Owner
+   killed with `:kill` between retiring its row and sending gives no
+   result; the caller's `run/3` wait then ends with `{:error, {:no_result,
+   ref}}`. State this as a limit in the PR body. The README does not
+   change. Today's order can give two results in the same window; this
+   task removes that.
 4. Every reply before the row is retired keeps its current behavior.
 5. Stop and comment on the issue, with the path and the reason, only if
    the invariant cannot be met with the Contract as written after trying
@@ -78,8 +83,9 @@ then, in the last commit, its `docs/plans/release-plan.json` entry
    through a hook in `config.test_hooks` that blocks the Owner right after
    the send. It passes on the fix and fails on the unfixed code. Record that
    failure as a negative control (temporary edit, reverted).
-2. Tests for behavior 3: the Owner killed between retiring its row and
-   the send, and killed right after the send; each gives exactly one
+2. Tests for behavior 3, each forced through a hook: the Owner killed
+   between retiring its row and the send gives no result and no second
+   result; the Owner killed right after the send gives exactly one
    result.
 3. T7 and T17 unchanged.
    `mix test pieces/runtime/os-isolation/test/elzoo/os_process_test.exs:366
