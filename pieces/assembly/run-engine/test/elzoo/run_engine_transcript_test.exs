@@ -253,6 +253,34 @@ defmodule Elzoo.RunEngineTranscriptTest do
     end
   end
 
+  describe "expired_before_its_own_outcome" do
+    test "a local timeout committed after the deadline settles the slot expired with no reason" do
+      c = fixture(pattern: {TestPattern, :step, %{requests: [request([action("slow")])]}})
+      local = c.opts[:bindings]["local_work"]
+      parent = self()
+
+      bindings =
+        Map.put(c.opts[:bindings], "local_work", %{
+          local
+          | facts: fn a -> %{local.facts.(a) | deadline_ms: 2_500} end,
+            work: fn _ -> {TestPattern, :blocked, [parent, %{}]} end
+        })
+
+      engine = start(c, bindings: bindings, result_reader: reader(c))
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:local_started, worker}, 5_000
+      Agent.update(c.clock, fn _ -> 3_000 end)
+      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled), 1_000)
+      send(worker, :finish)
+      {:ok, %{entries: entries}} = transcript(engine)
+      [settlement] = Enum.filter(entries, &(&1.type == :settlement))
+      record = Enum.find(entries, &(&1.type == :input and &1.sequence == settlement.sequence))
+      assert String.starts_with?(record.input_id, "local:")
+      assert {settlement.outcome, settlement.by, settlement.at_ms} == {"expired", :protocol, 3_000}
+      assert settlement.reason == nil
+    end
+  end
+
   describe "outside_event_wait" do
     test "a native v2 outside-event wait shows its action, the outside-event input and its settlement" do
       ticket = start_supervised!({Agent, fn -> nil end}, id: make_ref())

@@ -1477,6 +1477,23 @@ defmodule Elzoo.RunEngine do
     end)
   end
 
+  # Whether the own effect of protocol `record` settles slot `key` of `state`: the
+  # slot is still open after the expiry pass of the same fold step and settled after
+  # the record's own protocol rule, before the end of a Run closes what is left.
+  # The steps of protocol_transition/2, pure; the transcript reader asks it so that
+  # it reads no reason from an outcome that came too late to apply.
+  @doc false
+  def own_settlement?(state, record, key) do
+    expired = expire_waits(state, record.input["at_ms"])
+
+    if expired.slots[key].phase == :settled do
+      false
+    else
+      {next, _accepted, _callable} = protocol(expired, record)
+      next.slots[key].phase == :settled
+    end
+  end
+
   defp lifecycle(state, ordinal) do
     life = state.control.lifecycle
 
@@ -5805,7 +5822,7 @@ defmodule Elzoo.RunEngine.ResultReader do
             action_id: slot.action_id,
             outcome: slot[:outcome],
             by: record.kind,
-            reason: transcript_reason(record, input, key, slot),
+            reason: transcript_reason(record, input, key, slot, before),
             actual: transcript_actual(record, key, slot)
           }
 
@@ -5866,17 +5883,20 @@ defmodule Elzoo.RunEngine.ResultReader do
 
   defp transcript_callable({request, index}), do: "#{request}:#{index}"
 
-  # Only a refusal outcome for this very slot gives its reason; one record can also
-  # settle other slots in its fold step (expiry, run_closed), which get none.
-  defp transcript_reason(%{kind: :protocol} = record, input, key, slot) do
+  # Only a refusal outcome for this very slot gives its reason, and only when its own
+  # effect settled the slot: one record can also settle slots in its fold step by
+  # expiry or run_closed, the named slot included (it expired first, or its late
+  # outcome left it to the end of the Run), and those settlements get none.
+  defp transcript_reason(%{kind: :protocol} = record, input, key, slot, before) do
     if input["schema_id"] == "elzoo.run-engine.refusal" and
          record.correlation[:occurrence] == key and input["action_id"] == slot.action_id and
-         is_map(input["payload"]),
+         is_map(input["payload"]) and is_map(before) and
+         Elzoo.RunEngine.own_settlement?(before, %{record | input: input}, key),
        do: input["payload"]["reason"],
        else: nil
   end
 
-  defp transcript_reason(_record, _input, _key, _slot), do: nil
+  defp transcript_reason(_record, _input, _key, _slot, _before), do: nil
 
   # A finish action settled by its :finish record settles its Budget entry at 0.
   defp transcript_actual(%{kind: :finish, occurrence: key}, key, _slot), do: 0
