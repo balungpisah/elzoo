@@ -90,9 +90,11 @@ but does not set.
   resolves one commits. The other re-reads the result and is `:duplicate` or
   `:already_resolved`.
 - A database or Repo failure is `{:error, :unavailable}`. It says nothing about whether the
-  write committed. A retry with the same request is safe: a committed put is then
-  `:duplicate`, a committed resolve `:duplicate`. Retry an unconfirmed resolve before purging
-  that record (see Limits).
+  write committed. A retry with the same request is safe until that record is purged: a
+  committed put is then `:duplicate`, a committed resolve `:duplicate`. After a purge a
+  retried put stores the record again as open, and a retried resolve is `:unknown_record`, or
+  resolves a new record put under the same key (see Limits). Retry an unconfirmed write before
+  purging that record.
 - Queries run with `log: false`.
 
 ## Limits

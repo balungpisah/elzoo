@@ -625,15 +625,17 @@ defmodule Elzoo.DeadLetterStoreTest do
       assert {:error, :invalid} = resolve(s, "T1", "src", "nul\0id", :replayed)
     end
 
-    test "integers longer than 1,024 digits are listed back unchanged", %{store: s} do
+    test "long integers and escaped or non-ASCII texts are listed back unchanged", %{store: s} do
       long = record("long", %{"attempts" => Integer.pow(10, 1024), "deadline_unix_ms" => 7})
       longer = record("longer", %{"attempts" => 1, "deadline_unix_ms" => Integer.pow(10, 9_999)})
       assert {:ok, _} = Elzoo.DeadLetter.validate(long)
       assert {:ok, :applied} = put(s, "T1", "long", long, nil, 1)
       assert {:ok, :applied} = put(s, "T1", "long", longer, nil, 2)
-      assert {:ok, :duplicate} = put(s, "T1", "long", long, nil, 3)
+      texts = record("é\"\\/\u2028😀", %{"correlation_id" => "line\nquote\"back\\slash\u00e9\u0001"})
+      assert {:ok, :applied} = put(s, "T1", "long", texts, nil, 3)
+      assert {:ok, :duplicate} = put(s, "T1", "long", long, nil, 4)
 
-      assert {:ok, %{entries: [%{record: ^long}, %{record: ^longer}], next: nil}} =
+      assert {:ok, %{entries: [%{record: ^long}, %{record: ^longer}, %{record: ^texts}], next: nil}} =
                list(s, "T1", "long", nil, 10)
     end
   end
