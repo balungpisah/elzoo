@@ -359,9 +359,10 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-307](https://github.com/balungpisah/elzoo/issues/711) | V1B / pieces | ELZ-306 | published 2026-11-21 | coordinator; one-PR path for a documents change; independent review and merge queue |
 | [ELZ-308](https://github.com/balungpisah/elzoo/issues/713) | V1B / pieces | none | published 2026-11-21 | coordinator; one-PR path for a documents change; independent review and merge queue |
 | [ELZ-309](https://github.com/balungpisah/elzoo/issues/717) | V1B / pieces | ELZ-287 | published 2026-11-21 | coordinator; one-PR path; independent review and merge queue |
-| [ELZ-313](https://github.com/balungpisah/elzoo/issues/726) | V2 / pieces | ELZ-297 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
-| [ELZ-314](https://github.com/balungpisah/elzoo/issues/727) | V2 / pieces | ELZ-297 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
-| [ELZ-315](https://github.com/balungpisah/elzoo/issues/728) | V1B / pieces | ELZ-305 | published 2026-11-21 | worker; published Piece task; hosted check-piece, light review and merge queue |
+| [ELZ-316](https://github.com/balungpisah/elzoo/issues/731) | V2 / pieces | ELZ-031, ELZ-304 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
+| [ELZ-313](https://github.com/balungpisah/elzoo/issues/726) | V2 / pieces | ELZ-297, ELZ-316 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
+| [ELZ-314](https://github.com/balungpisah/elzoo/issues/727) | V2 / pieces | ELZ-297, ELZ-313 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
+| [ELZ-315](https://github.com/balungpisah/elzoo/issues/728) | V1B / pieces | ELZ-305 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
 
 ## Catalogue accounting
 
@@ -556,7 +557,7 @@ Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-313, ELZ-314.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314.
 
 Prior release gate: V1-ACCEPT.
 
@@ -4421,6 +4422,16 @@ Publication copy: [tasks/ELZ-309-run-engine-await-local-outcome.md](../../tasks/
 
 **Acceptance:** Each run-engine test read of a terminal outcome whose slot completes by a later engine input (local work) waits for it with a total wait_for predicate before its strict assertion, so the KeyError of hosted run 44907924901 (#716) cannot recur; Contract, library, README, manifest, timeouts and poll budgets unchanged. Delayed-completion reproduction, wrong-outcome negative control, repeated Piece tests, small gate.
 
+### ELZ-316
+
+ELZ-316 — One money registry check, used by domain/money and domain/pricing
+
+Publication copy: [tasks/ELZ-316-money-registry-validator.md](../../tasks/ELZ-316-money-registry-validator.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** domain/money gains the pure Elzoo.Money.Registry.valid?/1 (true for the default and every build!/1 value, false for forged maps), every Elzoo.Money function with an explicit registry: returns {:error, :invalid_registry} when it is false, and domain/pricing uses the same check in place of its key-only one, refusing :invalid as before (owner decision: one shared check for money, pricing and journal before the first release); money Contract extended in place, pricing Contract unchanged, quota and docs/choices.md untouched. Forged-map tests in both Pieces, one negative control per change, local small gate.
+
 ### ELZ-313
 
 ELZ-313 — Elzoo.Journal.new/1 refuses a value that is not a money registry
@@ -4429,7 +4440,7 @@ Publication copy: [tasks/ELZ-313-journal-registry-check.md](../../tasks/ELZ-313-
 
 **Product aims:** P09, P10.
 
-**Acceptance:** Elzoo.Journal.new/1 raises its fixed ArgumentError for a registry: value that Elzoo.Money.Registry.build!/1 could not have built (versions, snapshot keys, entries), and still accepts the default and every built registry (other-family recheck finding); Contract, README and other behavior unchanged, no other Piece edited. Malformed-registry regression, key-only negative control, Piece tests, local small gate.
+**Acceptance:** Elzoo.Journal.new/1 raises its fixed ArgumentError when the shared Elzoo.Money.Registry.valid?/1 (ELZ-316) is false for its registry: value, and still accepts the default and every built registry; the deep check runs once in new/1 (other-family recheck finding, owner decision on one shared check); Contract, README and other behavior unchanged, no other Piece edited. Malformed and forged-registry regression, key-only negative control, Piece tests, local small gate.
 
 ### ELZ-314
 
@@ -4439,7 +4450,7 @@ Publication copy: [tasks/ELZ-314-journal-history-one-read.md](../../tasks/ELZ-31
 
 **Product aims:** P09, P10.
 
-**Acceptance:** Elzoo.Journal.history/3 sends one SQL statement after the tenant scope setup that returns the account's currency identity and the bounded page and tells an unknown account from an empty page, as the ELZ-297 single-read rule says (other-family recheck finding); results, bounds and row security unchanged. Statement-count test through Repo telemetry, two-statement negative control, Piece tests, local small gate.
+**Acceptance:** Elzoo.Journal.history/3 sends one SQL statement of its own under the tenant scope (transaction control and transact/3's set_config excluded) that returns the account's currency identity and the bounded page and tells an unknown account from an empty page, as the ELZ-297 single-read rule says (other-family recheck finding); results, bounds and row security unchanged. Statement-count test through Repo telemetry, two-statement negative control, Piece tests, local small gate.
 
 ### ELZ-315
 
@@ -4449,4 +4460,4 @@ Publication copy: [tasks/ELZ-315-os-isolation-late-result-sentence.md](../../tas
 
 **Product aims:** P13.
 
-**Acceptance:** The runtime/os-isolation README run/3 paragraph says the late result still arrives except in the declared killed-Owner residual, so it no longer contradicts the ELZ-305 residual (other-family recheck finding on #703); no code, test, piece.json or other README change. Piece tests, exact-head check-piece, diff and index checks.
+**Acceptance:** The runtime/os-isolation README run/3 paragraph says the late result still arrives except in the declared killed-Owner residual, so it no longer contradicts the ELZ-305 residual (other-family recheck finding on #703); no code, test, piece.json or other README change; the weighted-Piece gates apply. Piece tests, local small gate, full review, exact-head check-piece, diff and index checks.

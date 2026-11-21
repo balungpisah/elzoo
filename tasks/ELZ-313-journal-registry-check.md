@@ -1,6 +1,6 @@
 # ELZ-313 — Elzoo.Journal.new/1 refuses a value that is not a money registry
 
-- Dependencies: ELZ-297
+- Dependencies: ELZ-297, ELZ-316
 
 ## Outcome and scope
 
@@ -15,29 +15,34 @@ non-empty `versions` list and a `snapshots` map. The recheck reproduced this
 with `%{versions: ["bogus"], snapshots: %{}}`: `new/1` returned a journal
 value instead of raising.
 
+By owner decision, the journal uses the shared check that ELZ-316 adds to
+`domain/money` (`Elzoo.Money.Registry.valid?/1`), the same check that
+`domain/money` and `domain/pricing` use. `domain/money` is already a
+declared dependency of the journal, so a copied consumer has the check.
+
 Owned paths: `pieces/domain/journal/lib/**` and `pieces/domain/journal/test/**`;
 then, in the last commit, the Piece's `docs/plans/release-plan.json` entry
 (`manifest_sha256` only if `piece.json` changes) and the generated views
 (`AGENTS.md` section 3). The README and the `contract` of `piece.json` do
-not change.
+not change. Do not edit another Piece.
 
 ## Required behavior
 
-1. `new/1` raises the existing fixed `ArgumentError` for a `registry:` value
-   that `Elzoo.Money.Registry.build!/1` could not have built. At least:
-   `versions` is not a non-empty list of distinct version IDs; `snapshots` is
-   not a map whose keys are exactly those versions; a snapshot is not a map
-   from alpha code to an `%Elzoo.Money.Currency{}` entry with that alpha.
-   The check reads the value only, does no I/O, and accepts
-   `Elzoo.Money.Registry.default/0` and every value `build!/1` returns.
-2. Every other behavior of `new/1` and of the Piece is unchanged.
-3. Stop and comment on the issue if requirement 1 cannot be met without
-   changing `domain/money`. Do not edit another Piece.
+1. `new/1` raises the existing fixed `ArgumentError` when
+   `Elzoo.Money.Registry.valid?/1` is false for the `registry:` value. It
+   accepts `Elzoo.Money.Registry.default/0` and every value
+   `Elzoo.Money.Registry.build!/1` returns.
+2. The deep check runs once, in `new/1`. The per-call check of the journal
+   value (`journal/1`) stays cheap: it checks that the value is a journal
+   struct and does not walk the registry again.
+3. Every other behavior of `new/1` and of the Piece is unchanged.
 
 ## Acceptance and evidence
 
-1. A regression test: the recheck's malformed value and one value per
-   failure in requirement 1 each raise the fixed message; the default
+1. A regression test: the recheck's malformed value, a forged map that has
+   all four registry keys (`versions`, `snapshots`, `active_numeric`,
+   `sources`) but values `build!/1` could not give, and a map that lacks
+   `active_numeric` or `sources` each raise the fixed message. The default
    registry and a `build!/1` test registry (as in case 6 of ELZ-297) are
    accepted.
 2. Negative control: a temporary edit back to the key-only check makes the

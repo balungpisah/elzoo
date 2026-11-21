@@ -28,7 +28,10 @@ section 3). No code, test or `piece.json` change.
 
 ## Acceptance and evidence
 
-`mix test pieces/runtime/os-isolation/test` (unchanged code), the hosted
-`check-piece` on the exact head, `git diff --check`, the index step 3
-checks, one light review, the PR marked ready, and the automated reviewer's
-gate of `AGENTS.md` section 6.
+`runtime/os-isolation` manages concurrent external processes, so this
+change keeps the weighted-Piece gates even though it edits only the README:
+`mix test pieces/runtime/os-isolation/test` (unchanged code), the local
+small gate (`mix check --piece`), `git diff --check`, the index step 3
+checks, the full review of `AGENTS.md` section 6, a green exact-head hosted
+`check-piece`, the PR marked ready, and the automated reviewer's gate of
+section 6.

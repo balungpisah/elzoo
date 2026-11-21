@@ -1,6 +1,6 @@
 # ELZ-314 — Elzoo.Journal.history/3 reads the account and its page in one statement
 
-- Dependencies: ELZ-297
+- Dependencies: ELZ-297, ELZ-313
 
 ## Outcome and scope
 
@@ -16,6 +16,8 @@ identity never changes through the Piece, so no wrong page has been shown.
 The defect is that the code does not do what the Contract says, and that no
 test would notice.
 
+ELZ-313 changes the same file, so this task waits for it.
+
 Owned paths: `pieces/domain/journal/lib/**` and `pieces/domain/journal/test/**`;
 then, in the last commit, the Piece's `docs/plans/release-plan.json` entry
 (`manifest_sha256` only if `piece.json` changes) and the generated views
@@ -24,8 +26,10 @@ not change.
 
 ## Required behavior
 
-1. `history/3` issues exactly one SQL statement under the tenant scope after
-   the scope's own setup (the `set_config` of `Elzoo.TenantIsolation.transact/3`).
+1. `history/3` issues exactly one SQL statement of its own under the tenant
+   scope. Transaction control (begin, commit, rollback) and the `set_config`
+   statements that `Elzoo.TenantIsolation.transact/3` sends before and after
+   the function are not counted.
    That statement returns the account's currency identity and the bounded
    page together, and it distinguishes an unknown account from a known
    account with an empty page.
@@ -36,8 +40,9 @@ not change.
 ## Acceptance and evidence
 
 1. A test counts the statements that `history/3` sends to the Repo, through
-   the Repo's query telemetry. It asserts one statement after the scope setup
-   for a known account with entries, a known account with an empty page and
+   the Repo's query telemetry (Ecto emits it also with `log: false`), leaving
+   out the statements requirement 1 excludes. It asserts one statement for a
+   known account with entries, a known account with an empty page and
    an unknown account. All existing `history/3` cases still pass.
 2. Negative control: a temporary edit back to the two-statement read makes
    the new test fail. Revert it and never commit it.
