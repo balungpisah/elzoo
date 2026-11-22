@@ -154,8 +154,8 @@ defmodule Elzoo.ExportTest do
   # post-child checks. Local child work reached ~1,265 s; hosted child work took ~946 s.
   # ELZ-343 / #814: 2,700 s. Hosted fast runners took 964 s at 114 ready Pieces (2026-11-20) and
   # 1,079-1,085 s at 137 (2026-11-22): ~5 s per Piece, ~19 s per Piece from 133 to 137. Slow hosted
-  # runners took up to 1.27x (1,374 s at 136) and a local 4-CPU orb 1.29-1.36x (1,391 and 1,471 s
-  # at 137). 20 more Pieces at 20 s each, at 1.36x: ~2,020 s, ~680 s below this limit; a measured
+  # runners took up to 1.32x (1,291 s at 126, 1,374 s at 136) and a local 4-CPU orb 1.29-1.36x
+  # (1,391 and 1,471 s at 137). 20 more Pieces at 20 s each, at 1.36x: ~2,020 s, ~680 s below this limit; a measured
   # margin, not a worst-case guarantee. The inner run is ~75% sync (137 of 195 copied modules are
   # `async: false`) and uses about one core; running them at once would split this consumer, a
   # separate decision.

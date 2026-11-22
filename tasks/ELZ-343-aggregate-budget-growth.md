@@ -39,10 +39,11 @@ basis:
   1,085 s at 137 (22 Nov), a mean of about 5 s per added Piece. The steepest
   recent stretch, 133 to 137 Pieces (about 1,005 s to 1,082 s), is about
   19 s per Piece.
-- Slower runner: 1,274 s at 133 Pieces (1.24 to 1.27 times the fast runs at 133);
-  1,330 and 1,374 s at 136 (1.23 and 1.27 times the fast runs at 137). A
-  local 4-CPU orb takes 1.29 to 1.36 times the fast hosted run (1,391 s and
-  1,471 s at 137).
+- Slower runner: up to 1.32 times a fast run with the same Pieces: 1,291 s at
+  126 Pieces (978 s on a fast runner, 1.32 times); 1,274 s at 133 (1.24 to
+  1.29 times the fast runs at 133); 1,330 and 1,374 s at 136 (1.23 and 1.27
+  times the fast runs at 137). A local 4-CPU orb takes 1.29 to 1.36 times the
+  fast hosted run (1,391 s and 1,471 s at 137).
 - Projection for 20 more Pieces at 20 s each (the steepest recent rate, four
   times the mean): fast hosted 1,085 + 400 = 1,485 s; on a slow runner or a
   local orb, at 1.36 times, about 2,020 s. 2,700 s leaves about 680 s
