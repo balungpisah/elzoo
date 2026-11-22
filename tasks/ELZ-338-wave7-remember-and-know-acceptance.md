@@ -278,16 +278,21 @@ an observation).
      `access_denied` with detail `denied`.
    - *Tenants.* No T1 result of either query holds a candidate of version
      7, the word `cara-only` or a T2 `source_digest`, although T2's chunks
-     rank better; the same queries in T2's scope return them. A table read
-     (see "Table reads") without a tenant predicate, first in T2's scope and
-     then in T1's, of each protected Wave 7 table that holds a T2 row (the
-     vector and delete-mark tables of both search-data indexes, the four
-     knowledge-ingest tables, `elzoo_memory_records`,
-     `elzoo_memory_tombstones` and `elzoo_metering_observations`) finds at
-     least one T2 row in T2's scope and no T2 row in T1's scope, where it
-     finds T1's own rows. In T1's scope an insert of a T2 row into each of
-     those tables and into `elzoo_metering_corrections` is refused with
-     SQLSTATE 42501. As `elzoo_app`, `ALTER TABLE ... NO FORCE ROW LEVEL
+     rank better; the same queries in T2's scope return them.
+   - *Table floor, run after group 6*, when every table below holds rows
+     of both tenants. A table read (see "Table reads") without a tenant
+     predicate, first in T2's scope and then in T1's, of each protected
+     Wave 7 table that holds a T2 row (the vector and delete-mark tables of
+     both search-data indexes, the four knowledge-ingest tables,
+     `elzoo_memory_records`, `elzoo_memory_tombstones` and
+     `elzoo_metering_observations`) finds at least one T2 row in T2's scope
+     and no T2 row in T1's scope. In T1's scope each of these reads also
+     finds T1's own rows, except the read of `elzoo_knowledge_chunks`:
+     every T1 ingest has ended `indexed`, which deletes its staged chunks,
+     so T1 has none left, and that read passes on finding no T2 row while
+     T2's scope shows the `old-faq` staged chunks are there. In T1's scope
+     an insert of a T2 row into each of those tables and into
+     `elzoo_metering_corrections` is refused with SQLSTATE 42501. As `elzoo_app`, `ALTER TABLE ... NO FORCE ROW LEVEL
      SECURITY` and `DROP POLICY elzoo_tenant_floor ...` on the knowledge
      index's vector table and on `elzoo_memory_records` are refused (owner
      only).
@@ -406,9 +411,12 @@ an observation).
      of Ann's memories held her street address, which pii-redaction does not
      find (listed patterns only), in plain text; after the erasure a table
      read in T1's scope of `elzoo_memory_records` and the memory index's
-     vector table finds neither that address nor any marker of Ann, and an
-     owner read of the vault tables finds neither her email nor her name. Crypto-shredding covers only the values that
-     redaction found; an unlisted value is deleted with the record.
+     vector table finds neither that address nor any marker of Ann. An owner
+     read of the vault tables finds no `elzoo_vault_entries` and no
+     `elzoo_vault_keys` row of subject `"principal:" <> ann`, while Bob's
+     subject still has both (the erased subject's row in
+     `elzoo_vault_subjects` stays, with state `erased`). Crypto-shredding
+     covers only the values that redaction found; an unlisted value is deleted with the record.
 7. **Negative controls**, one at a time, each restored before the final
    passing run; they validate the harness and do not replace the Pieces' own
    controls:
@@ -441,7 +449,8 @@ above and its group, or it is under "Limits to state".
 | A new version; a removed document | only the new version returned; nothing returned | 1 |
 | Fusion; a stop-word-only lexical query | hand-computed order; the vector order | 2 |
 | Revoked before the query; after it | not returned; dropped `access_denied` | 2 |
-| T2 rows that rank better; direct reads and writes as `elzoo_app`; owner-only DDL | never in T1 results; none visible, 42501; refused | 2 |
+| T2 rows that rank better; owner-only DDL | never in T1 results; refused | 2 |
+| Direct table reads and writes as `elzoo_app` in each tenant's scope | T2 rows seen only in T2's scope, T1's own rows seen (staged chunks excepted); 42501 | 2, run after 6 |
 | A cited answer; an unknown item; a quote not found | resolved to parsed-text offsets; refused and not shown as cited | 3 |
 | Allowed, denied, ask, repeated writes | `:applied`, `:denied`, `:approval_required`, `:duplicate` | 4 |
 | An edited proposal before approval; the released approval | `:superseded`, `:stale_revision`, `:approval_mismatch`; `:applied` | 4 |
