@@ -119,8 +119,9 @@ when `unknown_count == count`.
 with these per-provider and per-model rows for a period of at most 1,000
 groups (`max_rows` 1..1000; more groups than `max_rows` is
 `{:error, :read_limit}`); the host builds the rows of a larger period, up to
-the 4096 rows this Piece takes, of which at most 3 × the card's lines (3072)
-can be priced. This Piece does not depend on metering code.
+the 4096 rows this Piece takes, of which at most 3 × the card's lines (3072
+with the 1024-line ceiling) can be priced. This Piece does not depend on
+metering code.
 
 ### Charge
 
