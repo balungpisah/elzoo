@@ -29,7 +29,8 @@ defmodule Elzoo.DocumentParseTest do
   defp sha(bytes), do: :crypto.hash(:sha256, bytes)
 
   defp text!(bytes, media_type, opts \\ []) do
-    assert {:ok, %{text: text}} = DocumentParse.parse(bytes, media_type, opts)
+    assert {:ok, %{text: text}} = result = DocumentParse.parse(bytes, media_type, opts)
+    fits!(result)
     text
   end
 
@@ -128,13 +129,36 @@ defmodule Elzoo.DocumentParseTest do
     test "no sentinel from a left-out place reaches the text" do
       doc = """
       <html><head><title>T</title><meta name="d" content="SENTcontent">
-      SENThead<style>SENTstyle</style><link href="SENThref"><p>SENTheadp</p></head>
+      SENThead<style>SENTstyle</style><link href="SENThref"><p>headp</p></head>
       <body><script>SENTscript</script><template><p>SENTtemplate</p></template>
       <noscript><p>SENTnoscript</p></noscript><!-- SENTcomment --><?SENTpi x="SENTpiattr"?>
       <p><img alt="SENTalt" title="SENTtitle"><a href="SENThref2">link</a> v</p></body></html>
       """
 
-      assert html!(doc) == "T\n\nlink v"
+      # The `p` in head starts the body: it is read as body content.
+      assert html!(doc) == "T\n\nheadp\n\nlink v"
+    end
+
+    test "head keeps only title until an element that is not head content starts the body" do
+      # The bundled parser does not close head at body or at body content.
+      assert html!("<html><head><title>T</title><body><p>body text</p></body></html>") ==
+               "T\n\nbody text"
+
+      assert html!("<html><head><meta charset=utf-8><body><p>body text</p></body></html>") ==
+               "body text"
+
+      assert html!("<head><title>T</title><p>text</p>") == "T\n\ntext"
+      # Text before the first such element is head text; every later sibling is body.
+      assert html!("<head>x<meta><p>y</p>z<title>t</title><script>s</script></head>") ==
+               "y\n\nz\n\nt"
+
+      assert html!("<head><link><b>x</b></head>") == "x"
+      # Comments, processing instructions and head content do not start the body.
+      assert html(
+               "<head><!-- c -->x<?p?>y<meta><link><base><style>s</style><noscript>n</noscript>z</head>"
+             ) == {:error, :empty_text}
+
+      assert html!("<head><template><p>t</p></template>w</head><p>b</p>") == "b"
     end
 
     test "head keeps only title; a title outside head is kept" do
@@ -155,7 +179,7 @@ defmodule Elzoo.DocumentParseTest do
       "<style>zzs@</style>",
       "<template><p>zzs@</p></template>",
       "<noscript><b>zzs@</b></noscript>",
-      "<head><title>v@</title><meta content=\"zzs@\">zzh@<p>zzp@</p></head>",
+      "<head><title>v@</title><meta content=\"zzs@\">zzh@<p>v@</p></head>",
       "<!-- zzs@ -->",
       "<?zzs@ a=\"zzs@\"?>",
       "<img alt=\"zzs@\" title=\"zzt@\">",
@@ -286,7 +310,9 @@ defmodule Elzoo.DocumentParseTest do
             "<p>a</p></p&amp;><p>b</p>",
             "<p>a</p></p&><p>b</p>",
             "<p>a</p></x</p&><p>b</p>",
-            "<p>a</p></x&"
+            "<p>a</p></x&",
+            "<p>a</p></>b<p>c</p>",
+            "<p>a</p></>rest"
           ] do
         assert html(doc) == {:error, :parse_failed}, doc
       end
@@ -301,6 +327,12 @@ defmodule Elzoo.DocumentParseTest do
       assert html!("<p>a</p></p>&amp;<p>b</p>") == "a\n\n&\n\nb"
       assert html!("<p>a</p></p/&><p>b</p>") == "a\n\nb"
       assert html!("<p>a</p></p=&><p>b</p>") == "a\n\nb"
+      # Only the exact bytes `</>` are refused.
+      assert html!("<p>a</p></ >b<p>c</p>") == "a\n\nb\n\nc"
+      assert html!("<p>a</p><//>b<p>c</p>") == "a\n\nb\n\nc"
+
+      for ws <- ["\t", "\n", "\f", "\r", " "],
+          do: assert(html!("<p>a</p></p#{ws}&><p>b</p>") == "a\n\nb", inspect(ws))
     end
 
     test "an unclosed title or textarea that takes in the parser's wrapper is refused" do
@@ -332,7 +364,9 @@ defmodule Elzoo.DocumentParseTest do
             ~s(<meta charset="utf-16"><p>a</p>),
             ~s(<noscript><meta charset=latin1></noscript><p>a</p>),
             ~s(<meta http-equiv=CONTENT-TYPE content="text/html; CHARSET=koi8-r"><p>a</p>),
-            ~s(<meta charset=utf-8<p>a</p>)
+            ~s(<meta charset=utf-8<p>a</p>),
+            # Only the first charset= of content is read.
+            ~s(<meta http-equiv="content-type" content="text/html; charset=latin1; charset=utf-8">a)
           ] do
         assert html(doc) == {:error, :unsupported_charset}, doc
       end
@@ -348,6 +382,7 @@ defmodule Elzoo.DocumentParseTest do
             # Without http-equiv content-type, content is not a declaration.
             ~s(<meta content="text/html; charset=latin1"><p>a</p>),
             ~s(<meta http-equiv="refresh" content="charset=latin1"><p>a</p>),
+            ~s(<meta http-equiv="content-type" content="text/html; charset=utf-8; charset=latin1">a),
             # Only meta declarations are read.
             ~s(<?xml version="1.0" encoding="latin1"?><p>a</p>),
             "<p>a</p>"
@@ -367,6 +402,9 @@ defmodule Elzoo.DocumentParseTest do
 
       assert html(~s(<meta charset=latin1><p>a</p></floki>)) == {:error, :parse_failed}
       assert html(~s(<meta charset=latin1><title>a)) == {:error, :parse_failed}
+      # A declaration that is not UTF-8 reports before empty text.
+      assert html("<meta charset=latin1>") == {:error, :unsupported_charset}
+      assert html("<meta charset=latin1><script>x</script>") == {:error, :unsupported_charset}
     end
   end
 
@@ -402,7 +440,7 @@ defmodule Elzoo.DocumentParseTest do
                  {:error, :too_large}
       end
 
-      assert {:ok, _} = DocumentParse.parse("a", "text/plain", max_bytes: 1)
+      assert text!("a", "text/plain", max_bytes: 1) == "a"
     end
 
     test "bad options" do
@@ -434,7 +472,8 @@ defmodule Elzoo.DocumentParseTest do
       assert DocumentParse.parse(at <> "a", "text/markdown") == {:error, :text_too_large}
       assert html("<p>" <> at <> "a</p>") == {:error, :text_too_large}
 
-      assert {:ok, %{text: ^at}} = DocumentParse.parse(@bom <> at, "text/plain")
+      assert {:ok, %{text: ^at}} = bom_result = DocumentParse.parse(@bom <> at, "text/plain")
+      fits!(bom_result)
       crlf = String.duplicate("a", @mib - 1) <> "\r\n"
       assert byte_size(crlf) == @mib + 1
       assert {:ok, %{text: text}} = result = DocumentParse.parse(crlf, "text/plain")

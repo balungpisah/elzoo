@@ -23,6 +23,9 @@ defmodule Elzoo.DocumentParse do
 
   @left_out ~w(script style template noscript)
   @raw_kept ~w(title textarea)
+  # Head content: inside `head`, the first child element outside this set, and every later
+  # sibling, is read as body content (the parser does not close `head` itself).
+  @head_content ~w(title meta link base style script noscript template)
   @blocks ~w(address article aside blockquote br caption dd details dialog div dl dt fieldset
              figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr li main nav ol p
              pre section summary table tbody td tfoot th thead title tr ul)
@@ -161,7 +164,8 @@ defmodule Elzoo.DocumentParse do
 
   # The bundled parser wraps the input in a root element `floki` and decodes character
   # references inside an end-tag name, so `</floki` in any ASCII case, or an end tag whose
-  # name holds `&`, would end the document early. Both are refused without decoding anything.
+  # name holds `&`, would end the document early; `</>` makes it take the text up to the
+  # next `>` as a tag. All three are refused without decoding anything.
   # Each `</` is read once; a name ends at its first ASCII whitespace, `>`, `/`, `=` or the end
   # of the input, so it ends before the `/` of the next `</` and the scan stays linear.
   defp check_cut_short(html) do
@@ -172,7 +176,7 @@ defmodule Elzoo.DocumentParse do
 
   defp cuts_short?(html, from) do
     name = binary_part(html, from, byte_size(html) - from)
-    floki?(name) or amp_name?(name)
+    floki?(name) or amp_name?(name) or match?(<<?>, _::binary>>, name)
   end
 
   defp floki?(<<prefix::binary-size(5), _::binary>>),
@@ -201,8 +205,8 @@ defmodule Elzoo.DocumentParse do
 
   # An iterative walk over the tree in document order, so deep nesting uses no call stack.
   # A frame `{:nodes, siblings, context, previous}` holds the siblings still to read, the
-  # context (:normal; :head inside `head` and outside `title`; :out inside a left-out
-  # element) and whether the previous sibling was a text node. It checks the shape of every
+  # context (:normal; :head among the children of `head` before the first element that is
+  # not head content; :out inside a left-out element) and whether the previous sibling was a text node. It checks the shape of every
   # node, left-out subtrees included, and gives the reversed tokens (text binaries, " " and
   # :break) and the charset declarations of every `meta` element.
   defp walk([], tokens, declarations), do: {:ok, tokens, declarations}
@@ -215,6 +219,7 @@ defmodule Elzoo.DocumentParse do
 
   defp walk([{:nodes, [node | siblings], context, previous} | stack], tokens, declarations) do
     kind = if is_binary(node), do: :text, else: :other
+    context = head_context(node, context)
 
     # One U+0020 between two adjacent sibling nodes that are both not text nodes.
     tokens =
@@ -269,6 +274,14 @@ defmodule Elzoo.DocumentParse do
 
   defp wrapper_suffix?([_node | rest]), do: wrapper_suffix?(rest)
   defp wrapper_suffix?(_end), do: false
+
+  # Inside `head`, an element outside head content starts the body: it and every later
+  # sibling (the rest frame takes the changed context) are read as body content.
+  defp head_context({tag, _attributes, _children}, :head)
+       when is_binary(tag) and tag not in @head_content,
+       do: :normal
+
+  defp head_context(_node, context), do: context
 
   defp child_context(_tag, :out), do: :out
   defp child_context(tag, _context) when tag in @left_out, do: :out

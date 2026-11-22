@@ -55,10 +55,11 @@ reason holds a byte of the input or of the text.
 | `:empty_text` | the text is empty (0 bytes, a lone BOM, HTML with no kept text) |
 | `:text_too_large` | the text is above 1 048 576 bytes; refused whole, never truncated |
 
-`:parse_failed` covers: the input holds `</floki` in any ASCII case, or an end tag whose name
-(after `</`, up to ASCII whitespace, `>`, `/`, `=` or the end) holds `&` — the parser's root
-element is `floki` and it decodes character references in end-tag names, so either would
-silently drop the rest of the document; a `title` or `textarea` text node that ends with
+`:parse_failed` covers: the input holds `</floki` in any ASCII case, an end tag whose name
+(after `</`, up to ASCII whitespace, `>`, `/`, `=` or the end) holds `&`, or the bytes `</>` —
+the parser's root element is `floki` and it decodes character references in end-tag names, and
+it takes the text after `</>` up to the next `>` as a tag, so each would silently drop text
+(`</>` by coordinator decision); a `title` or `textarea` text node that ends with
 `</floki>`, which only an unclosed one at the end of the input gives, since it takes in the
 parser's own closing wrapper (coordinator decision, option B); the parse gives `{:error, _}`,
 raises, throws or exits, or gives a node of another shape; or text that goes into `text` is not
@@ -80,8 +81,12 @@ document order:
 - A text node contributes its text, with entities as the parser decodes them (`&amp;` gives `&`,
   `&#xD800;` gives U+FFFD, `&bogus;` stays). `title` and `textarea` are raw text to the parser,
   so their entities stay as written.
-- `script`, `style`, `template` and `noscript` are left out with their subtree; inside `head`
-  only `title` text is kept; comments, processing instructions and attribute values never appear.
+- `script`, `style`, `template` and `noscript` are left out with their subtree. Inside `head`
+  only `title` text is kept, until the first child element that is not head content (`title`,
+  `meta`, `link`, `base`, `style`, `script`, `noscript`, `template`): it and every later sibling
+  are read as body content, since the parser does not close `head` at `body` (coordinator
+  decision, as HTML5's head insertion mode). Comments, processing instructions and attribute
+  values never appear.
 - Each element of the closed block set (`address`, `article`, `aside`, `blockquote`, `br`,
   `caption`, `dd`, `details`, `dialog`, `div`, `dl`, `dt`, `fieldset`, `figcaption`, `figure`,
   `footer`, `form`, `h1`–`h6`, `header`, `hgroup`, `hr`, `li`, `main`, `nav`, `ol`, `p`, `pre`,
@@ -123,7 +128,8 @@ Each can be added in place before the first release through a media type, an opt
 parameter that no existing caller passes; for every input version 1 accepts the result stays
 equal: PDF, DOCX and other formats (each with its provider; today `:unsupported_media_type`);
 headings and links as result keys behind an option; other charsets behind an option; media-type
-parameters; an offset map back to the input bytes; stripping the wrapper suffix of an unclosed
+parameters; an offset map back to the input bytes; accepting `</>` and `</floki` input with an
+exact reading; stripping the wrapper suffix of an unclosed
 `title` or `textarea` instead of refusing it; whitespace kept in `pre`, more block or left-out
 elements and other inline spacing behind an option. Options, result keys and error members may
 grow; a caller matches on those it uses.
@@ -131,8 +137,8 @@ grow; a caller matches on those it uses.
 ## Bounds and time
 
 CPU time is bounded only through the 8 MiB input bound. Observations on one shared host, not a
-guarantee: about 1.4 million nested `<div>` (7 MB) parse in about 5 s; 8 MiB of comment in about
-0.1 s. The tests print their own as `ELZOO OBSERVATION document-parse ...`. Keep large documents
+guarantee: 8 MiB of nested `<div>` (1.7 million) in about 7.5 s, 8 MiB of nested `<b>` in about
+10 s, an 8 MiB comment document in about 0.14 s. The tests print their own as `ELZOO OBSERVATION document-parse ...`. Keep large documents
 off request paths (a bounded job, for example).
 
 ## Needs and operations
@@ -157,7 +163,11 @@ Elixir, OTP `crypto`.
 - Limits: the text is not a rendering (no CSS, `display` or `hidden`; `pre` collapsed); the
   space between adjacent elements is this Piece's rule, not the source's; documents with
   `</floki`, an `&` end-tag name or an unclosed `title`/`textarea` at the end are refused even
-  when harmless; the left-out rules apply to the parsed tree, so a tag that the parser reads as part of an unclosed processing instruction, comment or attribute before it is no element (`<?x<style>s</style>` gives `s`); the bundled parser is not HTML5-compliant and no claim is made that it is safe
-  for hostile HTML beyond the listed and generated cases; Markdown passes through as source,
+  when harmless, and so is one that holds `</>`; the left-out rules apply to the parsed tree, so
+  a tag that the parser reads as part of an unclosed processing instruction, comment or attribute
+  before it is no element (`<?x<style>s</style>` gives `s`); an unclosed attribute value at the end
+  takes in the parser's wrapper and can change a charset declaration either way (`<meta
+  charset=utf-8` is refused); the bundled parser is not HTML5-compliant and no claim is made that
+  it is safe for hostile HTML beyond the listed and generated cases; Markdown passes through as source,
   HTML inside it untouched; UTF-8 only, `meta` declarations only; no PDF, DOCX, fetch, storage or
   chunking. Parsing grants no authority and prevents no injection.
