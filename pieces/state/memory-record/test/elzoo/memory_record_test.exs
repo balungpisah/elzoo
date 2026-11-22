@@ -712,24 +712,27 @@ defmodule Elzoo.MemoryRecordTest do
       # over s1 locks its batch [a, b]. Another connection holds the higher of the two keys,
       # one call queues first and the other second, once in each order (one tenant each).
       # With both calls taking keys in ascending order, the first holds the lower key and the
-      # second waits for it. With the calls taking them in opposite orders, in one of the two
-      # runs the first call waits for the higher key holding nothing while the second takes the
-      # lower one: a deadlock that PostgreSQL ends as :unavailable.
+      # second waits for it. A call that takes its keys in another order lists the held key
+      # first in one of the two runs; then it waits for that key holding nothing while the
+      # other call takes the lower one: a deadlock that PostgreSQL ends as :unavailable. The
+      # second tenant is chosen so that the higher key is on the same ID in both runs, so
+      # every run covers both cases.
       erased = {:ok, %{forgotten: ["a", "b"], cursor: nil}}
+      high = fn tenant -> Enum.max_by(["a", "b"], &key(p, tenant, &1)) end
+      second = Enum.find(Enum.map(2..64, &"T#{&1}"), &(high.(&1) == high.("T1")))
 
       for {tenant, order, expected} <- [
             {"T1", [:write, :erase], [{:ok, :duplicate}, erased]},
-            {"T2", [:erase, :write], [erased, {:error, :forgotten}]}
+            {second, [:erase, :write], [erased, {:error, :forgotten}]}
           ] do
         w!(m, tenant, prop("a"))
         b = prop("b", supersedes: "a")
         w!(m, tenant, b)
         call = %{write: fn -> w(m, tenant, b) end, erase: fn -> erase(m, tenant, "s1", nil) end}
-        high = Enum.max_by(["a", "b"], &key(p, tenant, &1))
         both = fn -> waiting(p, tenant, "a") + waiting(p, tenant, "b") end
 
         results =
-          behind_lock(p, tenant, high, fn ->
+          behind_lock(p, tenant, high.(tenant), fn ->
             [first, second] = order
             t1 = Task.async(call[first])
             wait_until(fn -> both.() == 1 end)
