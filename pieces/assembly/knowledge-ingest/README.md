@@ -173,10 +173,12 @@ not that it is still stored: `query/2` gives the live state.
 Each step is one `Elzoo.Jobs.Worker` job of `config.queue` (job `max_attempts` 3). Job keys are
 `<tenant>/<ingest ID>/<step>[/<batch>]/<n>`, unique per enqueue; they hold no source reference,
 content or vector. A job acts only in its own state (prepare: `requested` or `preparing`; the
-embed job of batch b: `embedding` with b the first batch not completed; index: `indexing`):
-every write takes the ingest row `FOR UPDATE` and checks that state first, and otherwise writes
-nothing and completes. Every step first checks that the config's search binding has the
-`index_identity` recorded at submit (else `:index_mismatch`).
+embed job of batch b: `embedding` with b the first batch not completed; index: `indexing`) and
+only while it is the ingest's current job, its key equal to the stored current job key with its
+`<n>`: every write takes the ingest row `FOR UPDATE` and checks both first, and otherwise writes
+nothing and completes. So a job that an equal submit or `resubmit/3` replaced writes nothing
+when `Oban.retry_job/2` runs it again. Every step first checks that the config's search binding
+has the `index_identity` recorded at submit (else `:index_mismatch`).
 
 1. **Prepare**: `Artifact.get/4` (`:store_unavailable` and `{:object_store_unknown, _}` are a
    job error; any other error fails at once), `DocumentParse.parse/2`, `TextChunking.chunk/4`
@@ -256,24 +258,27 @@ a superuser or `BYPASSRLS` role ignores them.
 
 Limits: scripted providers only (no quality claim, no live provider). `log: false` silences only
 the Logger: the consumer Repo's Ecto query telemetry still receives every query's parameters,
-including the tenant, source reference, chunk content and encoded vectors. No exactly-once Effect: a
-`:completed_lost` attempt is a second paid call, a throttle or overload may have been processed,
-and an `:unknown` attempt may have been charged; the attempts record keeps that visible. With a
-durable Store each admitted attempt leaves one intent whose arguments are the batch's chunk texts,
-outside the tenant floor; the Piece removes none, and neither a cancel nor `delete_source/4`
-removes them. Under a Memory Store an intent lasts only until a restart, and an interrupted
-attempt whose intent is not found is `:unknown` even when it was never sent. Oban job rows carry
-the tenant and the ingest ID, outside the floor. The step timings are observations, not
-guarantees: a slower host can fail a large document `{:step_failed, :prepare}`; a version too
-large to write within the search binding's `statement_timeout_ms` + 2,000 ms ends
-`{:step_failed, :index}`. `new/1` checks the request's model and dimension against the index
-descriptor, not its provider, so a provider mismatch is found only at the index step. A rescue of
-a live embed job, which the Lifeline Need excludes, can classify its in-flight attempt as
-`:unknown` or `:not_dispatched`. `indexed` is not live state. A delete that lands while a crashed
-index run awaits its re-run ends the ingest `superseded`. A stranded ingest waits for an equal
-`submit/3`; there is no sweeper. An older version is embedded in full before its index step finds
-it stale. Batches run one at a time. The index step holds every chunk and vector of the version
-in memory. A `failed` ingest keeps its staged chunks until it is cancelled, and ingest and attempt
-records are never pruned. Deleted rows stay in dead tuples, WAL and backups until PostgreSQL
-reclaims them. One config serves one queue and one search index. The actor and the caller are
-host-vouched, not authenticated. Ingesting grants no authority and prevents no injection.
+including the tenant, source reference, chunk content and encoded vectors. No exactly-once
+Effect: a `:completed_lost` attempt is a second paid call, a throttle or overload may have been
+processed, and an `:unknown` attempt may have been charged; the attempts record keeps that
+visible. With a durable Store each admitted attempt leaves one intent whose arguments are the
+batch's chunk texts, outside the tenant floor; the Piece removes none, and neither a cancel nor
+`delete_source/4` removes them. Under a Memory Store an intent lasts only until a restart, and
+an interrupted attempt whose intent is not found is `:unknown` even when it was never sent. Oban
+job rows carry the tenant and the ingest ID, outside the floor. The step timings are
+observations, not guarantees: a slower host can fail a large document `{:step_failed,
+:prepare}`; a version too large to write within the search binding's `statement_timeout_ms` +
+2,000 ms ends `{:step_failed, :index}`. `new/1` checks the request's model and dimension against
+the index descriptor, not its provider, so a provider mismatch is found only at the index step.
+A rescue of a live embed job, which the Lifeline Need excludes, can classify its in-flight
+attempt as `:unknown` or `:not_dispatched`. `indexed` is not live state. A delete that lands
+while a crashed index run awaits its re-run ends the ingest `superseded`. A stranded ingest
+waits for an equal `submit/3`; there is no sweeper. An older version is embedded in full before
+its index step finds it stale. Batches run one at a time. The index step holds every chunk and
+vector of the version in memory. A `failed` ingest keeps its staged chunks until it is
+cancelled, and ingest and attempt records are never pruned. Deleted rows stay in dead tuples,
+WAL and backups until PostgreSQL reclaims them. One config serves one queue and one search
+index. Two databases that share one effect-intent Store and one embedding binding must not also
+reuse the same schema prefix and index identity: their equal submissions get one ingest ID and
+so one intent per attempt. The actor and the caller are host-vouched, not authenticated.
+Ingesting grants no authority and prevents no injection.

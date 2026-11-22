@@ -26,7 +26,7 @@ defmodule Elzoo.KnowledgeIngest.Steps do
   defp perform(c, %Oban.Job{args: %{"job_key" => key}} = job) do
     case parse(key) do
       {:ok, j} ->
-        j = Map.merge(j, %{attempt: job.attempt, last: job.attempt >= job.max_attempts})
+        j = Map.merge(j, %{key: key, attempt: job.attempt, last: job.attempt >= job.max_attempts})
 
         case bounded(c, j.step, fn -> step(c, j) end) do
           {:ok, :ok} -> :ok
@@ -146,12 +146,17 @@ defmodule Elzoo.KnowledgeIngest.Steps do
 
   defp info(j), do: Map.take(j, [:tenant, :id, :step, :batch, :attempt])
 
-  defp own?(%{state: s}, %{step: :prepare}), do: s in ["requested", "preparing"]
+  # A job owns the ingest only while it is the ingest's current job: a job that an equal
+  # submit or resubmit replaced, and that Oban runs again, stops without writing.
+  defp own?(%{job_key: key} = row, %{key: key} = j), do: own_state?(row, j)
+  defp own?(_, _), do: false
 
-  defp own?(%{state: s, batches_done: d}, %{step: :embed, batch: b}),
+  defp own_state?(%{state: s}, %{step: :prepare}), do: s in ["requested", "preparing"]
+
+  defp own_state?(%{state: s, batches_done: d}, %{step: :embed, batch: b}),
     do: s == "embedding" and d == b
 
-  defp own?(%{state: s}, %{step: :index}), do: s == "indexing"
+  defp own_state?(%{state: s}, %{step: :index}), do: s == "indexing"
 
   # One write transaction that takes the ingest row FOR UPDATE and runs `fun` only when `own`
   # holds. `fun` returns `{:ok, value}`, `{:ok, {:done, result}}` or `{:error, reason}`

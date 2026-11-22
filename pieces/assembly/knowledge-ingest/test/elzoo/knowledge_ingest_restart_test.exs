@@ -10,6 +10,7 @@ defmodule Elzoo.KnowledgeIngestRestartTest do
   use ExUnit.Case, async: false
   @moduletag :capture_log
   import Elzoo.KnowledgeIngest.Cases
+  alias Elzoo.KnowledgeIngest, as: KI
   alias Elzoo.KnowledgeIngest.{Harness, Hooks, Script}
 
   setup_all do
@@ -127,5 +128,106 @@ defmodule Elzoo.KnowledgeIngestRestartTest do
 
     assert [%{outcome: :unknown}] = attempts(env, t, r)
     assert length(Script.calls(env.script)) == 1
+  end
+
+  # The stored reasons, outcomes, usage, parser and vectors, and the closed version 1 reason
+  # set, decoded in a fresh VM that has loaded none of the dependency modules yet.
+  test "6 a fresh VM decodes every stored term before any dependency module is loaded", ctx do
+    env = env(ctx)
+    t = tenant()
+    many = submit!(env, t, doc(env, t, xs(2), source_ref: "many", chunking: [max_chunks: 1]))
+    r = submit!(env, t, doc(env, t, "fresh"))
+    # prepare, then the one batch: the vectors are still staged before the index step
+    Harness.drain_once(env)
+    Harness.drain_once(env)
+    assert %{state: :failed, reason: {:chunk, :too_many_chunks}} = status(env, t, many)
+    assert %{state: :indexing} = status(env, t, r)
+
+    stored =
+      Harness.scoped!(
+        t,
+        "SELECT reason FROM #{KI.table(env.c, :ingests)} WHERE tenant = $1 AND reason IS NOT NULL"
+      ) ++
+        Harness.scoped!(
+          t,
+          "SELECT parser FROM #{KI.table(env.c, :ingests)} WHERE tenant = $1 AND parser IS NOT NULL"
+        ) ++
+        Harness.scoped!(t, "SELECT outcome FROM #{KI.table(env.c, :attempts)} WHERE tenant = $1") ++
+        Harness.scoped!(t, "SELECT usage FROM #{KI.table(env.c, :attempts)} WHERE tenant = $1") ++
+        Harness.scoped!(t, "SELECT embedding FROM #{KI.table(env.c, :chunks)} WHERE tenant = $1")
+
+    stored = List.flatten(stored)
+    assert length(stored) == 5
+
+    reasons =
+      Enum.map(
+        ~w(not_found access_denied expired deleted too_large invalid integrity_mismatch
+           commit_failed staging_expired store_unavailable caller_transaction store_damaged
+           object_store_refused object_store_absent object_store_unknown)a,
+        &{:artifact, &1}
+      ) ++
+        Enum.map(
+          [{:invalid_option, :bytes}, {:invalid_option, :opts}, {:invalid_option, :unknown_option}] ++
+            [{:invalid_option, :max_bytes}] ++
+            ~w(unsupported_media_type too_large invalid_utf8 parse_failed unsupported_charset
+               empty_text text_too_large)a,
+          &{:parse, &1}
+        ) ++
+        Enum.map(
+          [{:invalid_option, :max_chunks}] ++
+            ~w(source_too_large empty_source digest_mismatch invalid_utf8 too_many_chunks
+               chunker_invariant)a,
+          &{:chunk, &1}
+        ) ++
+        Enum.map(
+          ~w(credentials_unavailable invalid_request unsupported_feature too_large
+             authentication_failed permission_denied throttled overloaded not_found)a,
+          &{:embedding_refused, &1}
+        ) ++
+        Enum.map(
+          ~w(invalid_request invalid_chunk source_too_large incompatible_embedding
+             extension_missing text_search_too_large isolation)a,
+          &{:index, &1}
+        ) ++
+        [:chunk_too_large, :embedding_exhausted, :embedding_unknown, :index_mismatch] ++
+        [{:step_failed, :prepare}, {:step_failed, :embed}, {:step_failed, :index}] ++
+        [:pending, :completed, :completed_lost, :not_dispatched, :unknown] ++
+        [{:refused, :throttled}, {:refused, :overloaded}, {:refused, :credentials_unavailable}]
+
+    bytes = stored ++ Enum.map(reasons, &KI.encode/1)
+    assert fresh_decode(bytes) == Enum.map(bytes, &{:ok, KI.decode(&1)})
+  end
+
+  defp fresh_decode(bytes) do
+    file = Path.join(System.tmp_dir!(), "ki-fresh-#{System.unique_integer([:positive])}")
+    File.write!(file, Enum.map_join(bytes, "\n", &Base.encode16/1))
+
+    paths =
+      for p <- :code.get_path(), p = List.to_string(p), p =~ "_build", do: ["-pa", p]
+
+    # names no atom of the stored terms, so only the Piece's own loading can create them
+    code = ~S"""
+    [file] = System.argv()
+
+    file
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Enum.map(fn hex ->
+      try do
+        {:ok, Elzoo.KnowledgeIngest.decode(Base.decode16!(hex))}
+      rescue
+        _ -> :error
+      end
+    end)
+    |> :erlang.term_to_binary()
+    |> Base.encode16()
+    |> IO.write()
+    """
+
+    {out, 0} =
+      System.cmd(System.find_executable("elixir"), List.flatten(paths) ++ ["-e", code, file])
+
+    File.rm!(file)
+    out |> Base.decode16!() |> :erlang.binary_to_term()
   end
 end

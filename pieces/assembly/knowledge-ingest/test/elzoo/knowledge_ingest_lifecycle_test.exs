@@ -352,6 +352,33 @@ defmodule Elzoo.KnowledgeIngestLifecycleTest do
     assert %{state: :indexed} = status(env, t, r)
   end
 
+  test "7 a replaced embed job retried while its successor is snoozed writes nothing", ctx do
+    env = env(ctx)
+    t = tenant()
+    r = submit!(env, t, doc(env, t, "replaced"))
+    until(env, t, r, :embedding)
+    # strand the embed job, and let an equal submit replace it with a new job key
+    [[old, "available", old_key, _]] = jobs(env, "embed")
+    :ok = Oban.cancel_job(env.oban, old)
+    assert {:ok, %{state: :embedding}} = KI.submit(env.c, caller(t), r)
+    [_, [_, "available", new_key, _]] = jobs(env, "embed")
+    assert new_key != old_key
+    # the successor's attempt 1 is throttled and snoozes 60 s
+    Script.script(env.script, [{:status, :throttled, %{retry_after: 60}}])
+    Harness.drain_once(env)
+    assert [[_, "cancelled", _, _], [_, "scheduled", _, _]] = jobs(env, "embed")
+    # an operator retries the replaced job: it is not the ingest's current job
+    :ok = Oban.retry_job(env.oban, old)
+    Harness.drain_once(env)
+    assert [[_, "completed", _, _], [_, "scheduled", _, _]] = jobs(env, "embed")
+    assert length(Script.calls(env.script)) == 1
+    assert [%{number: 1, outcome: {:refused, :throttled}}] = attempts(env, t, r)
+    assert %{state: :embedding, reason: nil} = status(env, t, r)
+    Harness.drain(env)
+    assert %{state: :indexed, attempts: 2} = status(env, t, r)
+    assert length(Script.calls(env.script)) == 2
+  end
+
   test "7 the step deadlines, job attempts and backoff are the version 1 values", ctx do
     env = env(ctx)
     assert KI.__deadlines__(env.c) == %{prepare: 120_000, embed: 90_000, index: 120_000}

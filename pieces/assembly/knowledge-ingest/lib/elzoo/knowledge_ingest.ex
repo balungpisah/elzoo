@@ -14,7 +14,8 @@ defmodule Elzoo.KnowledgeIngest do
   source reference, content or vector. The Contract is in the Piece README.
   """
   alias Ecto.Adapters.SQL
-  alias Elzoo.{AiEmbedding, Jobs, SearchData, TenantIsolation}
+  alias Elzoo.{AiEmbedding, AiModel, Artifact, DocumentParse, Jobs, SearchData}
+  alias Elzoo.{TenantIsolation, TextChunking}
   alias Elzoo.AiEmbedding.Request
   alias Elzoo.KnowledgeIngest.{Migration, Steps}
 
@@ -821,7 +822,28 @@ defmodule Elzoo.KnowledgeIngest do
   def encode(nil), do: nil
   def encode(term), do: :erlang.term_to_binary(term, [:deterministic])
 
+  # `:safe` refuses an atom that the VM does not hold yet, so before decoding, the modules
+  # whose code names the stored atoms are loaded: on a fresh node in interactive mode, a read
+  # can come before any step has run.
+  @atom_modules [
+    Steps,
+    Artifact,
+    DocumentParse,
+    TextChunking,
+    SearchData,
+    AiEmbedding,
+    AiEmbedding.Outcome,
+    AiEmbedding.Descriptor,
+    AiModel.Usage,
+    AiModel.Provenance,
+    AiModel.ModelRef
+  ]
+
   @doc false
   def decode(nil), do: nil
-  def decode(bytes), do: :erlang.binary_to_term(bytes, [:safe])
+
+  def decode(bytes) do
+    Enum.each(@atom_modules, &Code.ensure_loaded!/1)
+    :erlang.binary_to_term(bytes, [:safe])
+  end
 end
