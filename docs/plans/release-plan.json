@@ -8780,7 +8780,7 @@
       ],
       "issue": 772,
       "url": "https://github.com/balungpisah/elzoo/issues/772",
-      "issue_body_sha256": "74728899a71c607faf406d4d0a256b5ff31fd573685a2e4874747a1fa87a2501"
+      "issue_body_sha256": "536eed8fe7f28cebad0d2543679fd4671610863c6c4452fd44b068142710e512"
     }
   ],
   "entries": [
@@ -9704,7 +9704,7 @@
     {
       "id": "integration/document-parse",
       "job": "ELZ-333",
-      "note": "Planned pure parse of untrusted document bytes of the closed media-type set text/plain, text/markdown and text/html (owner Q1 A) into valid UTF-8 text of 1..1 MiB that integration/text-chunking takes, with the raw SHA-256 of source and text and a parser identity; HTML through floki 0.38.5's bundled parser, leaving out script, style, template, noscript, head except title, comments and attributes, with paragraph breaks for a closed block set; no transcoding, fetch, entity resolution or script; fixed refusals that echo nothing. Its output is untrusted content that the caller marks.",
+      "note": "Planned pure parse of untrusted document bytes of the closed media-type set text/plain, text/markdown and text/html (owner Q1 A) into valid UTF-8 text of 1..1 MiB that integration/text-chunking takes, with the raw SHA-256 of source and text and a parser identity; HTML through floki 0.38.5's bundled parser, leaving out script, style, template, noscript, head except title, comments and attributes, with paragraph breaks for a closed block set; no transcoding, fetch, external entity resolution or script; fixed refusals that echo nothing. Its output is untrusted content that the caller marks.",
       "baseline_status": "planned",
       "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"

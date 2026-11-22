@@ -145,8 +145,8 @@
   section's reading and citation rule. A recheck reads the pull request's
   own commits in the range (`git log --first-parent --no-merges <range>`,
   the same filter that `AGENTS.md` section 8 uses) and each merge of `main`
-  into the branch in the range whose `git show --remerge-diff` is not
-  empty; a merge with an empty remerge diff is not reviewed again. Each finding becomes its own task, and
+  into the branch in the range whose `git show --remerge-diff --format=
+  <merge>` is not empty; a merge with an empty remerge diff is not reviewed again. Each finding becomes its own task, and
   the row is removed only after the automated reviewer or that reviewer posts
   findings or an explicit no-findings result for the range, as a review on
   the recheck pull request or, for that reviewer, a five-line record on the
