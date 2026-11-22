@@ -1178,6 +1178,14 @@
       "reason": "Bot platform wave 2 (P13). A pure step in the shape of workflow/pattern-step, used to pick a branch, check a result or pick a speaker."
     },
     {
+      "id": "workflow/citation",
+      "summary": "Check a model's cited answer against the exact items it was given",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-329: Wave 7 (P13). Pure exact-byte check of each quote against the cited item and resolution to source, version and byte range; no retrieval, model call or truth claim."
+    },
+    {
       "id": "workflow/agent-loop",
       "summary": "Pattern step: a model picks tools until it has an answer",
       "disposition": "own",

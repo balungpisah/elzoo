@@ -51,7 +51,7 @@ Open items, none blocking:
 - The skip-list rows #719 to #753 in the [coordinator guide](../development/13-coordinator.md) stay until their ranges are rechecked.
 - Timing flakes carried from earlier waves: [#670](https://github.com/balungpisah/elzoo/issues/670) (ELZ-176 `bounded_time`, owner decision of 2026-11-21 in force), [#669](https://github.com/balungpisah/elzoo/issues/669) and [#547](https://github.com/balungpisah/elzoo/issues/547).
 
-Wave 7 is not admitted. It waits for the owner's go; no Wave 7 task, row or plan is registered.
+Wave 7 is admitted: the owner approved it for planning (2026-11-22), and it is planned in [the Wave 7 plan](bot-platform-wave7.md) ([ELZ-328](../../tasks/ELZ-328-wave7-plan.md), [PR #763](https://github.com/balungpisah/elzoo/pull/763)).
 
 ## Source boundaries checked (at `main` `bd1fffb8`)
 
