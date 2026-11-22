@@ -1,20 +1,35 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.SearchData.Migration do
-  @moduledoc "Install an immutable index declaration and fixed-dimension vector table; never creates the extension."
+  @moduledoc """
+  Install an immutable index declaration, its fixed-dimension vector table and its delete-mark
+  table; never creates the extension. `protect/1` puts both tables under the
+  `state/tenant-isolation` floor from a consumer's Ecto migration.
+  """
   alias Elzoo.SearchData, as: Store
+  alias Elzoo.TenantIsolation.Migration, as: Floor
+
+  @protect_message "search data binding has no tenant_isolation option"
+  @scope_message "search data index holds tenant IDs outside the tenant isolation scope"
 
   def install(binding) do
-    with {:ok, ^binding} <-
-           Store.new(binding.repo, binding.declaration,
-             prefix: binding.prefix,
-             statement_timeout_ms: binding.statement_timeout_ms
-           ) do
-      Store.transaction(binding, :install, fn ->
+    with :ok <- Store.validate_binding(binding) do
+      Store.transaction(binding, :install, nil, fn ->
         # Prefix-wide serialization also protects first creation of the registry.
         Store.lock!(
           %{binding | declaration: %{binding.declaration | index_identity: "registry"}},
           :migration
         )
+
+        # An identity already installed with other bytes is incompatible, whatever else it names.
+        stored = stored_declaration(binding)
+
+        if stored != nil and stored != Store.declaration_bytes(binding.declaration),
+          do: binding.repo.rollback({:refused, :incompatible_embedding})
+
+        # Before anything is created: a text-search index needs a UTF-8 database and a
+        # pg_catalog configuration of the declared name.
+        text_search = Map.get(binding.declaration, :text_search)
+        if text_search, do: check_text_search!(binding, text_search.config)
 
         Store.sql!(
           binding,
@@ -25,27 +40,17 @@ defmodule Elzoo.SearchData.Migration do
           []
         )
 
-        result =
-          Store.sql!(
-            binding,
-            "SELECT descriptor FROM #{Store.registry(binding)} WHERE index_identity=$1",
-            [binding.declaration.index_identity]
-          )
-
-        case result.rows do
-          [[bytes]] ->
-            if bytes != Store.declaration_bytes(binding.declaration),
-              do: binding.repo.rollback({:refused, :incompatible_embedding})
-
-          [] ->
-            Store.sql!(binding, "INSERT INTO #{Store.registry(binding)} VALUES($1,$2,$3)", [
-              binding.declaration.index_identity,
-              Store.declaration_bytes(binding.declaration),
-              Store.table_name(binding.declaration.index_identity)
-            ])
+        if stored == nil do
+          Store.sql!(binding, "INSERT INTO #{Store.registry(binding)} VALUES($1,$2,$3)", [
+            binding.declaration.index_identity,
+            Store.declaration_bytes(binding.declaration),
+            Store.table_name(binding.declaration.index_identity)
+          ])
         end
 
         dimensions = binding.declaration.descriptor.dimensions
+        # convert_from is not immutable, so the tsvector is a plain column filled by the INSERT.
+        text_column = if text_search, do: "text_vector tsvector NOT NULL,", else: ""
 
         Store.sql!(
           binding,
@@ -55,12 +60,34 @@ defmodule Elzoo.SearchData.Migration do
             chunk_index integer NOT NULL, content bytea NOT NULL, content_digest bytea NOT NULL,
             source_digest bytea NOT NULL, start_byte bigint NOT NULL, end_byte bigint NOT NULL,
             embedding vector(#{dimensions}) NOT NULL, embedding_descriptor bytea NOT NULL,
-            embedding_provenance bytea NOT NULL, batch_index integer NOT NULL,
+            embedding_provenance bytea NOT NULL, batch_index integer NOT NULL, #{text_column}
             PRIMARY KEY(tenant,source_ref,version,chunk_index),
             CHECK(version > 0 AND chunk_index >= 0 AND start_byte >= 0 AND end_byte > start_byte),
             CHECK(octet_length(content_digest)=32 AND octet_length(source_digest)=32),
             CHECK(octet_length(content)>0 AND octet_length(content)<=1048576),
             CHECK(end_byte-start_byte=octet_length(content))
+          )
+          """,
+          []
+        )
+
+        if text_search do
+          name = Store.identifier(Store.table_name(binding.declaration.index_identity) <> "_text")
+
+          Store.sql!(
+            binding,
+            "CREATE INDEX IF NOT EXISTS #{name} ON #{Store.table(binding)} USING gin (text_vector)",
+            []
+          )
+        end
+
+        # Also created by a re-run over an index installed before delete marks existed.
+        Store.sql!(
+          binding,
+          """
+          CREATE TABLE IF NOT EXISTS #{Store.marks(binding)} (
+            tenant text NOT NULL, source_ref text NOT NULL, version bigint NOT NULL,
+            PRIMARY KEY(tenant,source_ref), CHECK(version > 0)
           )
           """,
           []
@@ -73,5 +100,106 @@ defmodule Elzoo.SearchData.Migration do
     end
   rescue
     _ -> {:error, :invalid_request}
+  end
+
+  # The stored declaration bytes of the identity, or nil when the registry or its row is absent.
+  defp stored_declaration(binding) do
+    %{rows: [[exists]]} =
+      Store.sql!(binding, "SELECT pg_catalog.to_regclass($1) IS NOT NULL", [
+        Store.registry(binding)
+      ])
+
+    if exists do
+      case Store.sql!(
+             binding,
+             "SELECT descriptor FROM #{Store.registry(binding)} WHERE index_identity=$1",
+             [binding.declaration.index_identity]
+           ).rows do
+        [[bytes]] -> bytes
+        [] -> nil
+      end
+    end
+  end
+
+  # Every distinct stored tenant, in pages of 1000 by key, decided in Elixir by the scope rule
+  # that scoped calls use, so the database encoding cannot change the decision.
+  defp scope!(repo, table, after_tenant) do
+    %{rows: rows} =
+      query!(
+        repo,
+        "SELECT DISTINCT tenant FROM #{table} WHERE $1::text IS NULL OR tenant > $1 ORDER BY tenant LIMIT 1000",
+        [after_tenant]
+      )
+
+    if Enum.any?(rows, fn [tenant] -> not Store.scope_tenant?(tenant) end),
+      do: raise(@scope_message)
+
+    if length(rows) == 1000, do: scope!(repo, table, rows |> List.last() |> hd())
+  end
+
+  defp query!(repo, sql, params), do: repo.query!(sql, params, log: false)
+
+  defp check_text_search!(binding, config) do
+    %{rows: [[encoding, found]]} =
+      Store.sql!(
+        binding,
+        """
+        SELECT pg_catalog.getdatabaseencoding(),
+               EXISTS(SELECT 1 FROM pg_catalog.pg_ts_config c
+                      JOIN pg_catalog.pg_namespace n ON n.oid=c.cfgnamespace
+                      WHERE n.nspname='pg_catalog' AND c.cfgname=$1)
+        """,
+        [config]
+      )
+
+    cond do
+      encoding != "UTF8" -> binding.repo.rollback({:refused, :database_encoding})
+      not found -> binding.repo.rollback({:refused, :unknown_text_search_config})
+      true -> :ok
+    end
+  end
+
+  @doc """
+  From the `up/0` of a consumer Ecto migration, after the run-time `install/1` of the index:
+  install the `state/tenant-isolation` readers in the binding's `tenant_isolation` prefix and
+  protect the vector table and the delete-mark table (`tenant_column: "tenant"`,
+  `space_column: nil`). A binding without `tenant_isolation` raises `ArgumentError` before any DDL.
+  When either table holds a tenant ID outside tenant-isolation's scope rule (1..128 bytes, no C0
+  or C1 control character), which no scoped call could reach, it raises a `RuntimeError` with a
+  fixed message naming no tenant, before any DDL.
+  """
+  def protect(binding) do
+    p =
+      case {Store.validate_binding(binding), binding} do
+        {:ok, %{tenant_isolation: %{prefix: p}}} -> p
+        _ -> raise ArgumentError, @protect_message
+      end
+
+    id = binding.declaration.index_identity
+
+    tables =
+      for name <- [Store.table_name(id), Store.mark_name(id)],
+          do: Store.identifier(binding.prefix) <> "." <> Store.identifier(name)
+
+    # Runs now on the migration's connection, inside its transaction; the DDL below is queued
+    # after it. ACCESS EXCLUSIVE on both tables, in the order that the floor DDL and the writers
+    # use, before the scan: no row committed after the scan escapes it, and the floor DDL never
+    # upgrades a weaker lock, so a writer that reads a table meanwhile waits instead of
+    # deadlocking. Each scan statement reads a snapshot taken after the lock (READ COMMITTED).
+    repo = Ecto.Migration.repo()
+    query!(repo, "LOCK TABLE #{Enum.join(tables, ", ")} IN ACCESS EXCLUSIVE MODE", [])
+    for table <- tables, do: scope!(repo, table, nil)
+
+    Floor.install(p)
+
+    for name <- [Store.table_name(id), Store.mark_name(id)],
+        do:
+          Floor.protect({binding.prefix, name},
+            prefix: p,
+            tenant_column: "tenant",
+            space_column: nil
+          )
+
+    :ok
   end
 end
