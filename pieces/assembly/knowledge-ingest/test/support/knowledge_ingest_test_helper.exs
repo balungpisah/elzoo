@@ -416,7 +416,9 @@ defmodule Elzoo.KnowledgeIngest.Harness do
     name = String.to_atom("ki_oban_" <> p)
     queue = "ki_" <> binary_part(p, 7, 12)
     # run: true runs the queue (group 6) with a short shutdown grace; otherwise tests drain.
-    running = if opts[:run], do: [queues: [{String.to_atom(queue), 2}], shutdown_grace_period: 50], else: []
+    running =
+      if opts[:run], do: [queues: [{String.to_atom(queue), 2}], shutdown_grace_period: 50], else: []
+
     oban = oban!(name, p, running ++ Keyword.get(opts, :oban, []))
     ExUnit.Callbacks.on_exit(fn -> stop_oban(name) end)
     ExUnit.Callbacks.on_exit(fn -> Elzoo.Jobs.unregister(queue) end)
