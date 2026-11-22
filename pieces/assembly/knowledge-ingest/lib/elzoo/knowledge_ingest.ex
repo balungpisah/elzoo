@@ -76,10 +76,33 @@ defmodule Elzoo.KnowledgeIngest do
     :not_failed,
     :unavailable
   ]
-  @columns "tenant, ingest_id, source_ref, version, request_digest, index_identity, actor, " <>
-             "artifact_id, artifact_version, media_type, chunk_size, chunk_overlap, max_chunks, " <>
-             "state, reason, failed_step, job_key, jobs, text_sha256, parser, chunk_count, " <>
-             "batch_count, batches_done"
+  # The ingest row's columns, in table order; a fetched row is a map of these keys.
+  @fields [
+    :tenant,
+    :ingest_id,
+    :source_ref,
+    :version,
+    :request_digest,
+    :index_identity,
+    :actor,
+    :artifact_id,
+    :artifact_version,
+    :media_type,
+    :chunk_size,
+    :chunk_overlap,
+    :max_chunks,
+    :state,
+    :reason,
+    :failed_step,
+    :job_key,
+    :jobs,
+    :text_sha256,
+    :parser,
+    :chunk_count,
+    :batch_count,
+    :batches_done
+  ]
+  @columns Enum.map_join(@fields, ", ", &Atom.to_string/1)
 
   ## Construction
 
@@ -724,8 +747,8 @@ defmodule Elzoo.KnowledgeIngest do
         if(lock?, do: " FOR UPDATE", else: "")
 
     case q(c, sql, [tenant, id]) do
-      %{rows: [values], columns: columns} ->
-        Map.new(Enum.zip(Enum.map(columns, &String.to_existing_atom/1), values))
+      %{rows: [values]} ->
+        Map.new(Enum.zip(@fields, values))
 
       %{rows: []} ->
         nil
