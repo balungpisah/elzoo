@@ -137,18 +137,19 @@
 - **Skipped automated reviews.** When `AGENTS.md` section 6 lets the
   coordinator skip the automated reviewer, add a row here. Each listed range
   is rechecked once, by the automated reviewer when it is available again or
-  by the reviewer of another model family in `AGENTS.md` section 6, under
-  that section's reading and citation rule. A recheck reads the pull
+  by the reviewer of another model family in `AGENTS.md` section 6; that
+  reviewer works under that section's reading and citation rule. A recheck reads the pull
   request's own commits in the range (`git log --first-parent --no-merges
   <range>`, the same filter that `AGENTS.md` section 8 uses) and each merge
   of `main` into the branch in the range whose `git show --remerge-diff
   --format= <merge>` is not empty (a conflict resolution or an evil merge);
   a merge with an empty remerge diff is not reviewed again.
-  - For the automated reviewer, push a branch `recheck/<PR>-base` at the
-    range's first SHA. Build `recheck/<PR>` from it: cherry-pick the pull
-    request's own commits in order (`git log --first-parent --no-merges
-    --reverse --format=%H <range>`), and add each non-empty remerge diff as
-    its own commit after the commits before it. Open a pull request from
+  - For the automated reviewer, build a branch `recheck/<PR>-base` at the
+    range's first SHA, and build `recheck/<PR>` from it locally: cherry-pick
+    the pull request's own commits in order (`git log --first-parent
+    --no-merges --reverse --format=%H <range>`), and add each non-empty
+    remerge diff as its own commit after the commits before it. Push both
+    branches only when the build succeeds. Open a pull request from
     `recheck/<PR>` to `recheck/<PR>-base`, mark it ready so the automated
     reviewer passes, then close it unmerged and delete both branches.
   - If a cherry-pick conflicts because a commit depends on a merge of
