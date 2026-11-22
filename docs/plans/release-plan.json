@@ -9618,11 +9618,11 @@
     {
       "id": "integration/search-data",
       "job": "ELZ-082",
-      "note": "Consumer-Repo PostgreSQL/pgvector exact cosine chunk store: immutable per-index descriptor, atomic serialized source replacement, tenant and allowed-source SQL filtering before bounded distance ranking, non-null provenance and caller-snapshot retrieval candidates for current context-selection recheck; no provider calls or permission decision.",
+      "note": "Consumer-Repo PostgreSQL/pgvector exact cosine chunk store: immutable per-index descriptor with an optional pg_catalog text search configuration, atomic serialized source replacement with an optional if_newer version guard and a serialized source delete with delete marks, tenant and allowed-source SQL filtering before bounded cosine or ts_rank_cd lexical ranking, an optional state/tenant-isolation row-security floor with verify/1, non-null provenance and caller-snapshot retrieval candidates for current context-selection recheck; no provider calls or permission decision.",
       "baseline_status": "deferred",
-      "disposition": "admitted-subset",
+      "disposition": "ready-contract",
       "manifest": "pieces/integration/search-data/piece.json",
-      "manifest_sha256": "85565e83a70bee1e4e781d38de8e14e20e51f121e62c891ce8cb132b2ac5ce2d"
+      "manifest_sha256": "2025752a7c8be3f7a9a02661175aa8f775df20098b468d0231e0a504dbf86c04"
     },
     {
       "id": "integration/secrets",
