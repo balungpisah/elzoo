@@ -144,8 +144,9 @@
   of `main` into the branch in the range whose `git show --remerge-diff
   --format= <merge>` is not empty (a conflict resolution or an evil merge);
   a merge with an empty remerge diff is not reviewed again.
-  - For the automated reviewer, build a branch `recheck/<PR>-base` at the
-    range's first SHA, and build `recheck/<PR>` from it locally: cherry-pick
+  - Recheck a row only after its pull request has merged, so that the
+    range's first SHA is on `main`. For the automated reviewer, build a
+    branch `recheck/<PR>-base` at that SHA, and build `recheck/<PR>` from it locally: cherry-pick
     the pull request's own commits in order (`git log --first-parent
     --no-merges --reverse --format=%H <range>`), and add each non-empty
     remerge diff as its own commit after the commits before it. Push both
