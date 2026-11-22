@@ -761,6 +761,42 @@ publication, and each task lists the options it keeps open.
   or several sets.
 - **To change.** Recall by meaning inside `state/memory-record` is additive.
 
+## Wave 7 coordinator decisions
+
+These are set in the published task texts
+([wave plan](plans/bot-platform-wave7.md#status-and-scope)).
+
+### Each knowledge-ingest step bounds itself
+
+- **Chosen.** In `assembly/knowledge-ingest`, each Oban job keeps Oban's
+  timeout `:infinity`: `Elzoo.Jobs.Worker` defines none and traps exits, so an
+  Oban timeout could not stop it. Each step kills its own work at a fixed
+  deadline instead: prepare 120 s, embed the embedding receive timeout plus
+  30 s, index 120 s. The prepare deadline is about five times the observed
+  worst parse and chunk times (7.0 s and 10.0 s for 8 MiB of nested HTML,
+  14.3 s for 1 MiB of emoji), which are observations, not guarantees. Oban's
+  Lifeline `rescue_after` must exceed the largest deadline plus 60 s; its
+  default of 60 minutes does
+  ([ELZ-334](../tasks/ELZ-334-knowledge-ingest.md)).
+- **Why.** A deadline that the Piece owns holds whatever the host's Oban
+  configuration; Lifeline then rescues only jobs whose node died.
+- **For you.** Keep Lifeline's `rescue_after` above the stated bound. On a slow
+  host a very large document can fail `{:step_failed, :prepare}`.
+- **To change.** A configurable deadline per step is additive.
+
+### Knowledge ingest embeds one batch at a time, from a pinned artifact version
+
+- **Chosen.** One ingest has at most one live embedding call; the job of a
+  completed batch enqueues the next. `submit/3` names an artifact version, not
+  `:head`. A cancel while the index write runs is refused `:indexing`
+  ([ELZ-334](../tasks/ELZ-334-knowledge-ingest.md)).
+- **Why.** One call at a time keeps the provider's load and the attempt record
+  simple; a pinned version makes every re-run read the same bytes; the index
+  write cannot be taken back.
+- **For you.** Remove a document that was indexed after a refused cancel with
+  `delete_source/4`.
+- **To change.** Parallel batches and a `:head` reference are additive.
+
 ## Request charge and payload caps of `assembly/run-engine` (RC-50)
 
 Sources: the [piece.json](../pieces/assembly/run-engine/piece.json) contract

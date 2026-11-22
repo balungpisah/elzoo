@@ -8781,6 +8781,39 @@
       "issue": 772,
       "url": "https://github.com/balungpisah/elzoo/issues/772",
       "issue_body_sha256": "40831629e0955cc0908332ba799b6388d94dcf3423a8ea4c9768f9e4b40f6cfb"
+    },
+    {
+      "id": "ELZ-334",
+      "title": "ELZ-334 — Ingest a tenant's document durably: parse, chunk, embed and index it as bounded jobs with counted attempts, cancellation and a version guard",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-333",
+        "ELZ-331",
+        "ELZ-010",
+        "ELZ-023",
+        "ELZ-080",
+        "ELZ-081",
+        "ELZ-096",
+        "ELZ-270",
+        "ELZ-285"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-334-knowledge-ingest.md"
+      ],
+      "outputs": [
+        "assembly/knowledge-ingest"
+      ],
+      "acceptance": "Durable Assembly under the owner's Q1 A, Q8 A and Q9 A: submit/3 of one pinned state/artifact version for (tenant, source_ref, version), idempotent by a canonical request (equal existing, other conflict), the ingest row and its prepare job in one transaction; prepare (artifact get, document-parse parse/3, text-chunking chunk/4, chunk and batch sizing against the ai-embedding Config bounds, chunk_size at most a quarter of max_input_bytes), embed (one batch at a time, one ai-embedding call per attempt through a delivery/effect-intent owner, an attempt recorded pending before admission, a recovered pending attempt classified by status only: Confirmed completed_lost, Intended not_dispatched, otherwise unknown; throttled, overloaded, credentials_unavailable, not_dispatched and completed_lost start a new counted attempt up to max_attempts 1..5, unknown never retried until resubmit/3) and index (put_source/5 with if_newer and the parsed text's SHA-256; nothing on an indexed ingest; indexed and the staged-chunk delete in one transaction; stale_version superseded); cancel/3 refused while indexing, resubmit/3 of a failed ingest, paged attempts/3 with usage for metering; each step bounds itself (Oban timeout infinity under Elzoo.Jobs.Worker; prepare 120 s against observed parse and chunk times, embed receive_timeout + 30 s, index 120 s; Lifeline rescue_after Need); tenant floor as elzoo_app; negative controls on if_newer, the prepare state check, an automatic unknown retry, the shared indexed transaction and the indexed check. Durable, effects, unknown outcomes, concurrency and untrusted input: local small gate and full review.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 797,
+      "url": "https://github.com/balungpisah/elzoo/issues/797",
+      "issue_body_sha256": "c4ad161e958747151b6652dc53c07a8dfaba825d1f39022750df6b6ce6ea3660"
     }
   ],
   "entries": [
@@ -8816,6 +8849,14 @@
       "note": "Deferred until a real data workload justifies it",
       "baseline_status": "deferred",
       "disposition": "deferred-example",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "assembly/knowledge-ingest",
+      "job": "ELZ-334",
+      "note": "Planned durable ingest of one pinned state/artifact version of a tenant's document (owner Q1 A, Q8 A, Q9 A): an ingest record, staged chunks and counted embedding attempts in Piece-owned tables under the state/tenant-isolation floor; bounded integration/jobs steps prepare (artifact get, document-parse, text-chunking, batches sized by the ai-embedding canonical request), embed (one batch at a time, one ai-embedding call per attempt through delivery/effect-intent; throttles and lost completions get new counted attempts up to max_attempts, an unknown outcome waits for resubmit/3) and index (search-data put_source/5 with if_newer and the parsed text's SHA-256, indexed and the staged-chunk delete in one transaction, stale_version superseded); cancel/3, resubmit/3, status/3 and paged attempts/3 with usage for the host's metering. Each step bounds itself; no exactly-once Effect, no RunEngine Run.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
