@@ -9643,7 +9643,7 @@
       "baseline_status": "deferred",
       "disposition": "ready-contract",
       "manifest": "pieces/integration/search-data/piece.json",
-      "manifest_sha256": "111e6d19b3c372a3d4c3912b3c3b090abfc96742b8f180bec7e096062f488552"
+      "manifest_sha256": "3b3a80b4df931a145b662c71c2204781a232e1acf0d5cb493e9f0544f5f65db0"
     },
     {
       "id": "integration/secrets",
