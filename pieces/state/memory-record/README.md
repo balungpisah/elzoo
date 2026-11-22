@@ -24,7 +24,7 @@ consuming application. See [consuming](../../../docs/consuming.md). Piece depend
 tests: they pass the recall candidates through `Elzoo.ContextSelection.select/2`, and the
 library code does not call it. Cure source: [cure/elzoo/memory_record.cure](cure/elzoo/memory_record.cure)
 owns the policy decision. Providers: `cure`, `ecto_sql` 3.14.0 and `postgrex` 0.22.4, `elixir`,
-`otp` (`:crypto` SHA-256); the tests also use `telemetry`. Exact versions and claim-level
+`otp` (`:crypto` SHA-256); the tests also use `telemetry` and `jason`. Exact versions and claim-level
 grounding are in [piece.json](piece.json).
 
 ## Migration
@@ -280,6 +280,11 @@ duplicates they decide and the approvals that name them stay equal.
   from `cursor: nil`.
 - No embedding, search, extraction, model call, TTL sweep or per-record access label. Expired
   records stay stored until forgotten.
+- An `erase_subject/3` batch reads at most `max_batch + 1` rows of each table when PostgreSQL
+  plans its statement for the given cursor, as it does by default for the Piece's unnamed
+  statements. Under a generic plan (`plan_cache_mode = force_generic_plan`) the forced row
+  security leaves the cursor comparison a filter, so one batch reads the subject's IDs up to
+  the cursor.
 - The Repo must be a started Ecto Repo: an unstarted Repo or another module raises from
   `in_transaction?/0` instead of returning an error atom.
 - The Piece emits no telemetry and no log, and its queries pass `log: false`; the consumer

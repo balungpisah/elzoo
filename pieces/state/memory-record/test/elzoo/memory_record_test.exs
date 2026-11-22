@@ -863,6 +863,8 @@ defmodule Elzoo.MemoryRecordTest do
         [{sql, params}] =
           for {sql, params} <- received_statements([]), sql =~ "UNION", do: {sql, params}
 
+        # The plan that PostgreSQL makes for the statement and its parameters, as for the
+        # Piece's own unnamed statements (a generic plan is a stated limit, see README).
         {:ok, [[plan]]} =
           TI.transact(AppRepo, %{tenant: "T1"}, fn ->
             {:ok,
@@ -870,11 +872,18 @@ defmodule Elzoo.MemoryRecordTest do
           end)
 
         plan = if is_binary(plan), do: Jason.decode!(plan), else: plan
-        read = scans(hd(plan)["Plan"])
+        nodes = scans(hd(plan)["Plan"])
 
-        # Each table's scan reads at most max_batch + 1 = 3 rows.
-        assert Enum.sort(Map.keys(read)) == [@rec, @tomb], inspect({cursor, read})
-        assert Enum.all?(read, fn {_, rows} -> rows <= 3 end), inspect({cursor, read})
+        # Each table is read by one index scan that reads at most max_batch + 1 = 3 rows,
+        # counting the rows a filter or recheck discards, and the cursor is part of its
+        # Index Cond, so the scan starts after the cursor instead of skipping up to it.
+        assert Enum.sort(Enum.map(nodes, & &1.table)) == [@rec, @tomb], inspect({cursor, nodes})
+
+        for n <- nodes do
+          assert n.type in ["Index Scan", "Index Only Scan"], inspect({cursor, n})
+          assert n.read <= 3, inspect({cursor, n})
+          if cursor, do: assert(n.cond =~ "memory_id >", inspect({cursor, n}))
+        end
       end
     after
       :telemetry.detach(handler)
@@ -900,21 +909,34 @@ defmodule Elzoo.MemoryRecordTest do
     end
   end
 
-  # The rows that the scans of each Piece table read in an EXPLAIN ANALYZE plan.
+  # The scan nodes of the Piece tables in an EXPLAIN ANALYZE plan, by table: each node's type,
+  # its Index Cond and the rows it read, those it returned plus those its filter or index
+  # recheck discarded, over all loops. A bitmap index scan names only its index, whose name
+  # starts with its table's.
   defp scans(node) do
+    table =
+      Enum.find([@rec, @tomb], fn t ->
+        node["Relation Name"] == t or String.starts_with?(node["Index Name"] || "", t <> "_")
+      end)
+
+    read =
+      (node["Actual Rows"] + (node["Rows Removed by Filter"] || 0) +
+         (node["Rows Removed by Index Recheck"] || 0)) * node["Actual Loops"]
+
     own =
-      case node do
-        %{"Relation Name" => table} when table in [@rec, @tomb] ->
-          %{table => node["Actual Rows"] * node["Actual Loops"]}
+      if table,
+        do: [
+          %{
+            table: table,
+            type: node["Node Type"],
+            cond: node["Index Cond"] || "",
+            filter: node["Filter"],
+            read: read
+          }
+        ],
+        else: []
 
-        _ ->
-          %{}
-      end
-
-    node
-    |> Map.get("Plans", [])
-    |> Enum.map(&scans/1)
-    |> Enum.reduce(own, &Map.merge(&1, &2, fn _, a, b -> a + b end))
+    own ++ Enum.flat_map(Map.get(node, "Plans", []), &scans/1)
   end
 
   defp walk(m, cursor, acc) do
