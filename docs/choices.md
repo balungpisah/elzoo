@@ -772,9 +772,13 @@ These are set in the published task texts
   timeout `:infinity`: `Elzoo.Jobs.Worker` defines none and traps exits, so an
   Oban timeout could not stop it. Each step kills its own work at a fixed
   deadline instead: prepare 120 s, embed the embedding receive timeout plus
-  30 s, index 120 s. The prepare deadline is about five times the observed
-  worst parse and chunk times (7.0 s and 10.0 s for 8 MiB of nested HTML,
-  14.3 s for 1 MiB of emoji), which are observations, not guarantees. Oban's
+  30 s, index 120 s. Chunking options are bounded to `chunk_size`
+  2,000..8,192 and `chunk_overlap` 0..200, so text-chunking's defaults are the
+  slowest accepted options; the prepare deadline is over four times the
+  observed worst parse and chunk times at those options (10.0 s for 8 MiB of
+  nested HTML, 16.9 s for 1 MiB of emoji), which are observations, not
+  guarantees. A job acts only while the ingest is in its own step's state, so
+  a late job never moves an ingest that another job has moved on. Oban's
   Lifeline `rescue_after` must exceed the largest deadline plus 60 s; its
   default of 60 minutes does
   ([ELZ-334](../tasks/ELZ-334-knowledge-ingest.md)).
@@ -782,7 +786,8 @@ These are set in the published task texts
   configuration; Lifeline then rescues only jobs whose node died.
 - **For you.** Keep Lifeline's `rescue_after` above the stated bound. On a slow
   host a very large document can fail `{:step_failed, :prepare}`.
-- **To change.** A configurable deadline per step is additive.
+- **To change.** A configurable deadline per step, and smaller chunks with a
+  longer prepare deadline, are additive.
 
 ### Knowledge ingest embeds one batch at a time, from a pinned artifact version
 
