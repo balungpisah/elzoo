@@ -389,8 +389,9 @@ exact-head requirements, or hosted checks on a new head.
   before the queue starts again.
 - Do not wait on an unavailable automated reviewer (owner decision). It posts
   nothing when it starts, and on a later head it may post nothing at all. So
-  when it has posted nothing for the exact head 30 minutes after the later
-  of the ready mark and that head's push, or says that it is out of quota or
+  when it has posted nothing for the exact head 10 minutes after the later
+  of the ready mark and that head's push (owner decision, 2026-11-22), or
+  says that it is out of quota or
   unavailable, one extra independent review in a fresh session replaces its
   pass. A reviewer of another model family does it: GPT-6.1 Terra
   (`openai/gpt-6.1-terra`) at high effort (owner decision). A fresh session
@@ -410,7 +411,15 @@ exact-head requirements, or hosted checks on a new head.
   Findings line. The coordinator records on the pull request that the
   automated reviewer was skipped and why, and adds the pull request and the
   skipped range to "Skipped automated reviews" in the
-  [coordinator guide](docs/development/13-coordinator.md). A Piece with any
+  [coordinator guide](docs/development/13-coordinator.md). The coordinator
+  may start the extra review at once, at the ready mark or the push, without
+  waiting; it still replaces the automated reviewer's pass only once those
+  10 minutes have passed with nothing posted for the exact head, or once that
+  reviewer says that it is out of quota or unavailable (owner decision,
+  2026-11-22). If the automated reviewer posts a pass on the exact head
+  before the queue starts, that pass and its threads gate as the bullet
+  above says, even when the pass comes after the 10 minutes or after the
+  extra review is done (owner decision, 2026-11-22). A Piece with any
   weight listed in section 5 keeps its full review; the extra review does
   not replace it.
 - The same reviewer of another model family rechecks `domain/journal`,
