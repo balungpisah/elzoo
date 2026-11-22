@@ -8781,6 +8781,29 @@
       "issue": 772,
       "url": "https://github.com/balungpisah/elzoo/issues/772",
       "issue_body_sha256": "40831629e0955cc0908332ba799b6388d94dcf3423a8ea4c9768f9e4b40f6cfb"
+    },
+    {
+      "id": "ELZ-335",
+      "title": "ELZ-335 — Skip list: clear the rechecked rows, state the recheck rule",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-325"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "coordinator; one-PR path for a documents change; merge queue",
+      "paths": [
+        "tasks/ELZ-335-skip-list-recheck-clear.md"
+      ],
+      "outputs": [],
+      "acceptance": "The Skipped automated reviews list in docs/development/13-coordinator.md removes the rows of #719, #723, #725, #729, #737, #741, #747, #750, #753, #759, #761, #770 and #771, each rechecked with a posted result, and adds no row for #773, #774, #775 or #776, each also rechecked with a posted result; the recheck paragraph states the reading rule (own first-parent non-merge commits plus non-empty remerge diffs of merges of main), the cherry-pick build of recheck/<PR> from recheck/<PR>-base, and the other-family recheck of a row that does not apply; the removal rule, other rules, Contracts, Pieces and catalogue unchanged. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 795,
+      "url": "https://github.com/balungpisah/elzoo/issues/795",
+      "issue_body_sha256": "5f65aba35a3e2ca15a636327621ffab6c397d692f30b2e16cd80148cfff1149a"
     }
   ],
   "entries": [
