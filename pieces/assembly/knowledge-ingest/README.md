@@ -186,13 +186,13 @@ whether `Oban.retry_job/2` runs it again or a second run of it is still under wa
 nothing, with two exceptions. An embed job writes the outcome of an attempt that is still
 `:pending` before either check, so a late outcome is kept for metering; the transition that the
 outcome drives runs only under both checks. And an index job's `put_source` runs outside the row
-lock, after the transaction that checked both and read the staged chunks, so a job replaced in
-between still makes it: it writes this version's whole source from the same staged rows (once an
-ingest is `indexing` only `finish` and a cancel of a `failed` ingest change them, by deleting
-them, and `resubmit/3` returns it to `indexing` with them unchanged), a repeat that replaces the
-same version, while `if_newer` refuses it over a newer version or a delete mark; its `indexed`
-or `superseded` transaction then writes nothing. So a cancel of an ingest that failed at index
-can leave its version stored. Every step first checks that the config's search binding has the
+lock, after the transaction that checked both and read the staged chunks. Its job can be
+replaced in between only when a second live run of the same key fails the ingest and
+`resubmit/3` or `cancel/3` follows, which the Lifeline Need excludes (see Limits). The write
+then still lands, from staged rows that no write changes once an ingest is `indexing` (`finish`
+and a cancel of a `failed` ingest only delete them), while `if_newer` refuses it under a newer
+stored version or a delete mark at this version or higher; its `indexed` or `superseded`
+transaction writes nothing. Every step first checks that the config's search binding has the
 `index_identity` recorded at submit (else `:index_mismatch`).
 
 1. **Prepare**: `Artifact.get/4` (`:store_unavailable` and `{:object_store_unknown, _}` are a
@@ -286,14 +286,18 @@ observations, not guarantees: a slower host can fail a large document `{:step_fa
 2,000 ms ends `{:step_failed, :index}`. `new/1` checks the request's model and dimension against
 the index descriptor, not its provider, so a provider mismatch is found only at the index step.
 A rescue of a live embed job, which the Lifeline Need excludes, can classify its in-flight
-attempt as `:unknown` or `:not_dispatched`. `indexed` is not live state. A delete that lands
-while a crashed index run awaits its re-run ends the ingest `superseded`. A stranded ingest
-waits for an equal `submit/3`; there is no sweeper. An older version is embedded in full before
-its index step finds it stale. Batches run one at a time. The index step holds every chunk and
-vector of the version in memory. A `failed` ingest keeps its staged chunks until it is
-cancelled, and ingest and attempt records are never pruned. Deleted rows stay in dead tuples,
-WAL and backups until PostgreSQL reclaims them. One config serves one queue and one search
-index. Two databases that share one effect-intent Store and one embedding binding must not also
-reuse the same schema prefix and index identity: their equal submissions get one ingest ID and
-so one intent per attempt. The actor and the caller are host-vouched, not authenticated.
-Ingesting grants no authority and prevents no injection.
+attempt as `:unknown` or `:not_dispatched`. A `rescue_after` below the Lifeline Need, or a host
+that runs the worker outside Oban, can leave two live runs of one index job key: the second can
+fail the ingest while the first still writes, so a version can be stored for the first time
+after its ingest was cancelled. A cancel of an ingest that failed at index can also leave the
+version that its index step wrote stored. `indexed` is not live state. A delete that lands while
+a crashed index run awaits its re-run ends the ingest `superseded`. A stranded ingest waits for
+an equal `submit/3`; there is no sweeper. An older version is embedded in full before its index
+step finds it stale. Batches run one at a time. The index step holds every chunk and vector of
+the version in memory. A `failed` ingest keeps its staged chunks until it is cancelled, and
+ingest and attempt records are never pruned. Deleted rows stay in dead tuples, WAL and backups
+until PostgreSQL reclaims them. One config serves one queue and one search index. Two databases
+that share one effect-intent Store and one embedding binding must not also reuse the same schema
+prefix and index identity: their equal submissions get one ingest ID and so one intent per
+attempt. The actor and the caller are host-vouched, not authenticated. Ingesting grants no
+authority and prevents no injection.
