@@ -275,7 +275,8 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
     [id, _, _, _] =
       Enum.filter(H.jobs(fx), fn [_, _, key, _] -> key =~ "/embed/" end) |> List.last()
 
-    Worker.perform(H.job!(fx, id))
+    # The replay reaches the ingest runner (no snooze) and returns :ok.
+    assert Worker.perform(H.job!(fx, id)) == :ok
     assert %{state: :failed, reason: :embedding_unknown} = H.status(fx, "T1", refunds)
     assert [%{number: 1, outcome: :unknown}] = H.attempts(fx, "T1", refunds)
 
@@ -318,7 +319,7 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
 
     # A new version: only version 2 is returned by both queries; version 1 stays indexed.
     v2 = H.put_doc!(fx, "T1", "shipping-doc", shipping_t1("v2"), "text/markdown")
-    assert {"shipping-doc", 2} = v2
+    assert {"shipping-doc-" <> _, 2} = v2
     ship2 = H.submit!(fx, "T1", H.request(v2, "shipping", 2, "text/markdown"))
     H.drain(fx)
     assert %{state: :indexed} = H.status(fx, "T1", ship2)
@@ -576,11 +577,16 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
         answer
       end)
 
-    texts = for m <- run.payload["messages"], do: m["text"]
+    # Each item's rendered block is its own non-system message, before the question.
+    messages = run.payload["messages"]
+    question = Enum.find_index(messages, &(&1["text"] =~ "How long does a refund take?"))
+    assert is_integer(question)
 
     for i <- items do
       {:ok, block} = UntrustedContent.render(marked_item(i))
-      assert block in texts
+      at = Enum.find_index(messages, &(&1["text"] == block))
+      assert is_integer(at) and at < question
+      assert Enum.at(messages, at)["role"] != "system"
     end
 
     assert %{"status" => "decided", "value" => ^answer} = run.finish
@@ -611,6 +617,8 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
       {"refunds", 1} => elem(H.parsed(@refunds_t1, "text/html", "refunds"), 0),
       {"shipping", 2} => elem(H.parsed(shipping_t1("v2"), "text/markdown", "shipping"), 0)
     }
+
+    assert Enum.map(citations, & &1.item_id) == Enum.map(good["citations"], & &1["item_id"])
 
     for {c, cited} <- Enum.zip(citations, good["citations"]) do
       doc = parsed[{c.source, c.version}]

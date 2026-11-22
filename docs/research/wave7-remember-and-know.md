@@ -12,8 +12,10 @@ together with the ready `state/artifact`, `integration/text-chunking`, `integrat
 `workflow/prompt-assembly`, `workflow/untrusted-content`, `workflow/typed-decision`,
 `assembly/run-engine`, `domain/authorization` with `workflow/approval`, `domain/principal`,
 `integration/pii-redaction`, `state/retention-erasure`, `state/tenant-isolation` and
-`domain/metering`. No Piece was edited, and no Piece finding was raised: every grant the
-application role needed is in the owning Piece's README.
+`domain/metering`. No Piece was edited, and no Piece finding was raised: every Piece-table
+grant the application role needed is in the owning Piece's README. The Store grants follow
+ELZ-323's `grant_store!/2` and the vault grants (`state/retention-erasure` states no list) follow
+ELZ-286, as the task states.
 
 Files: [test/wave7_remember_and_know_test.exs](../../test/wave7_remember_and_know_test.exs) and
 the bounded fixture

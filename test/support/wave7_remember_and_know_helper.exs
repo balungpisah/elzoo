@@ -635,6 +635,7 @@ defmodule Elzoo.Wave7.Helper do
 
     for agent <- [fx.script, fx.counter, fx.kek, fx.docs], do: Agent.stop(agent)
     for s <- [fx.prefix, fx.art_prefix], do: owner!("DROP SCHEMA IF EXISTS #{s} CASCADE")
+    :persistent_term.erase({Elzoo.Wave7.FloorMigration, fx.prefix})
   end
 
   # ------------------------------------------------------------ artifact, intent, embedding
@@ -838,7 +839,11 @@ defmodule Elzoo.Wave7.Helper do
   def caller(tenant), do: %{tenant: tenant, actor: service(tenant)}
 
   @doc "Puts `bytes` as a new artifact (or a new version of `id`); its `{id, version}`."
-  def put_doc!(fx, tenant, id, bytes, media_type) do
+  # The artifact ID carries the fixture's random schema, so two runs on one bucket never share
+  # an object key.
+  def put_doc!(fx, tenant, name, bytes, media_type) do
+    id = name <> "-" <> fx.prefix
+
     input = %{
       bytes: bytes,
       media_type: media_type,
