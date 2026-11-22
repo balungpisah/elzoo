@@ -246,8 +246,11 @@ an observation).
      `:unknown` and the ingest `failed` with `:embedding_unknown`. The
      harness then stops that instance and starts one with Lifeline's
      default `rescue_after` (60 minutes, which meets the Lifeline Need)
-     before the host calls `resubmit/3`, so no live job runs under the short
-     value; the next attempt completes, and the ingest ends
+     before the host calls `resubmit/3`, so no job other than the rescued
+     recovery run executes under the short value (that run only classifies
+     the pending attempt, read-only, and a second rescue of it writes
+     nothing, since the first recorded outcome wins); the next attempt
+     completes, and the ingest ends
      `indexed` with one version stored.
    - *Throttle.* One call is throttled once; the next attempt has a new
      `ref` and completes.
@@ -284,12 +287,14 @@ an observation).
    check from the host's permission snapshot. The selected order equals a
    hand-computed order. A lexical query of stop words only returns `{:ok, []}`, and
    the fused order is then the vector order.
-   - *Revocation.* The baseline run, with `refunds` and `shipping` both
-     permitted, selects at least one chunk of each. With `shipping` revoked
-     in the snapshot before the query, it is not in `allowed_sources`, and
+   - *Revocation.* Three separate runs, each from its own snapshot and with
+     its own queries and selection. The baseline run, with `refunds` and
+     `shipping` both permitted, selects at least one chunk of each. In the
+     second run, with `shipping` revoked in the snapshot before the query, it is not in `allowed_sources`, and
      neither query returns a chunk of it while `refunds` chunks are still
-     returned. With `refunds` revoked after the query and before the
-     selection, its candidates (returned by the queries) get a `:denied`
+     returned. In the third run, starting again from the baseline snapshot
+     with both permitted, `refunds` is revoked after the query and before
+     the selection: its candidates (returned by the queries) get a `:denied`
      check and are dropped `access_denied` with detail `denied`, while the
      `shipping` candidates of that run are selected.
    - *Tenants.* No T1 result of either query holds a candidate of version
