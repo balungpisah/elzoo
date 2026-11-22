@@ -375,7 +375,7 @@ exact-head requirements, or hosted checks on a new head.
 - The record is one pull request comment for each pass. Write no review file.
   Use these five lines:
 
-      Reviewer: <role>; <model> | same model, different session (no other model family available)
+      Reviewer: <role>; <model>[, same model, different session (no other model family available)]
       Reviewed: <SHA> | second pass <first reviewed SHA>..<head>
       Findings: <BLOCKER or NOTE, each with file and line> | none
       Tests: <commands that the reviewer ran, and exit codes> | reviewer could not run tests; worker ran <command>: exit <code>
@@ -395,8 +395,9 @@ exact-head requirements, or hosted checks on a new head.
   pass. A reviewer of another model family does it: GPT-6.1 Terra
   (`openai/gpt-6.1-terra`) at high effort (owner decision). A fresh session
   of the same model does it only when that reviewer cannot run; its Reviewer
-  line then reads `same model, different session (<why the other-family
-  reviewer could not run>)` instead of the template's parenthesis. This
+  line then reads `<role>; <model>, same model, different session (<why the
+  other-family reviewer could not run>)` instead of the template's
+  parenthesis. This
   choice covers only this extra review and the recheck below; the reviewer of
   the main review is chosen as before. That review reads the commits since the automated reviewer's last posted pass (the
   whole diff when it posted none), looks for edge cases, races, bounds and
