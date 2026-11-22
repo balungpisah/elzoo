@@ -152,7 +152,7 @@ defmodule Elzoo.SearchData do
             source_ref
           ])
 
-        sql!(
+        marks!(
           binding,
           """
           INSERT INTO #{marks(binding)} AS m (tenant,source_ref,version) VALUES ($1,$2,$3)
@@ -189,13 +189,23 @@ defmodule Elzoo.SearchData do
   end
 
   defp delete_mark(b, tenant, ref) do
-    case sql!(b, "SELECT version FROM #{marks(b)} WHERE tenant=$1 AND source_ref=$2", [
+    case marks!(b, "SELECT version FROM #{marks(b)} WHERE tenant=$1 AND source_ref=$2", [
            tenant,
            ref
          ]).rows do
       [[version]] -> version
       [] -> nil
     end
+  end
+
+  # An index installed before delete marks existed has no mark table until install/1 runs again.
+  defp marks!(b, sql, params) do
+    sql!(b, sql, params)
+  rescue
+    e in Postgrex.Error ->
+      if match?(%{code: :undefined_table}, e.postgres),
+        do: b.repo.rollback({:refused, :invalid_request}),
+        else: reraise(e, __STACKTRACE__)
   end
 
   def query(binding, request) do
@@ -272,8 +282,9 @@ defmodule Elzoo.SearchData do
           {:ok, []}
         else
           result =
-            sql!(
+            ranked!(
               binding,
+              key,
               """
               WITH ranked AS MATERIALIZED (
                 #{ranked}
@@ -316,6 +327,19 @@ defmodule Elzoo.SearchData do
       end
     )
   end
+
+  # websearch_to_tsquery raises 54000 ("tsquery is too complex") for some in-bounds texts, such
+  # as a long run of '-': a refusal of the input, not unavailability.
+  defp ranked!(b, :rank, sql, params) do
+    sql!(b, sql, params)
+  rescue
+    e in Postgrex.Error ->
+      if match?(%{code: :program_limit_exceeded}, e.postgres),
+        do: b.repo.rollback({:refused, :invalid_request}),
+        else: reraise(e, __STACKTRACE__)
+  end
+
+  defp ranked!(b, :distance, sql, params), do: sql!(b, sql, params)
 
   @doc """
   The startup check of a floor binding: `Elzoo.TenantIsolation.verify/3` over the vector table,
@@ -538,8 +562,15 @@ defmodule Elzoo.SearchData do
 
       result =
         case b do
+          # transact/3 takes no options, so the checkout carries the transaction's deadline.
           %{tenant_isolation: _} when tenant != nil ->
-            TenantIsolation.transact(b.repo, %{tenant: tenant}, fn -> {:ok, body.()} end)
+            b.repo.checkout(
+              fn ->
+                TenantIsolation.transact(b.repo, %{tenant: tenant}, fn -> {:ok, body.()} end)
+              end,
+              timeout: b.statement_timeout_ms + 2000,
+              log: false
+            )
 
           _ ->
             b.repo.transaction(body, timeout: b.statement_timeout_ms + 2000, log: false)

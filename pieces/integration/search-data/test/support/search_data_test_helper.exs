@@ -25,6 +25,10 @@ defmodule Elzoo.SearchData.RepeatableRepo do
   use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
 end
 
+defmodule Elzoo.SearchData.ShortRepo do
+  use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
+end
+
 defmodule Elzoo.SearchData.AppRepo do
   use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
 end

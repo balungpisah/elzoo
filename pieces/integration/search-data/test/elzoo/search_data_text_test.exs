@@ -10,7 +10,7 @@ defmodule Elzoo.SearchDataTextTest do
   alias Ecto.Adapters.SQL
   alias Elzoo.SearchData, as: Store
   alias Elzoo.SearchData.{AppRepo, AppRole, DownRepo, FloorMigration, Migration}
-  alias Elzoo.SearchData.{QualifiedRepo, RepeatableRepo, TextRepo}
+  alias Elzoo.SearchData.{QualifiedRepo, RepeatableRepo, ShortRepo, TextRepo}
   alias Elzoo.TenantIsolation, as: TI
 
   @floor_message "search data binding has no tenant_isolation option"
@@ -56,6 +56,10 @@ defmodule Elzoo.SearchDataTextTest do
       {AppRepo,
        base ++
          [pool_size: 4, telemetry_prefix: @app_prefix, after_connect: {AppRole, :set, [role]}]}
+    )
+
+    start_supervised!(
+      {ShortRepo, base ++ [pool_size: 2, timeout: 1000, after_connect: {AppRole, :set, [role]}]}
     )
 
     on_exit(fn ->
@@ -278,6 +282,16 @@ defmodule Elzoo.SearchDataTextTest do
 
       assert {:error, :invalid_request} =
                Store.query_text(t, Map.put(text_request("fox"), :extra, 1))
+
+      # websearch_to_tsquery finds a long run of '-' "too complex" (54000): the input is refused,
+      # the database is not unavailable.
+      dashes = String.duplicate("-", 64)
+
+      for text <- [dashes, "foo " <> dashes <> " bar", String.duplicate("-", 4096)] do
+        assert {:error, :invalid_request} = Store.query_text(t, text_request(text))
+      end
+
+      assert {:ok, _} = Store.query_text(t, text_request(String.duplicate("-", 32)))
     end
   end
 
@@ -345,6 +359,13 @@ defmodule Elzoo.SearchDataTextTest do
 
       # A re-run over an index installed before delete marks existed creates its mark table.
       q!(TextRepo, "DROP TABLE #{Store.marks(b)}")
+      assert {:committed, 1} = put(b, "legacy", 1, ["v1"])
+      assert {:refused, :invalid_request} = Store.delete_source(b, "tenant", "legacy", 1)
+      assert {:refused, :invalid_request} = put(b, "legacy", 2, ["v2"], if_newer: true)
+
+      assert [[1, 1]] =
+               q!(TextRepo, "SELECT version, count(*)::int FROM #{Store.table(b)} GROUP BY 1").rows
+
       assert {:ok, ^b} = Migration.install(b)
       assert [[true]] = q!(TextRepo, "SELECT to_regclass($1) IS NOT NULL", [Store.marks(b)]).rows
     end
@@ -562,10 +583,15 @@ defmodule Elzoo.SearchDataTextTest do
 
   describe "11 tenant floor as the application role" do
     setup %{p: p, role: role} do
+      # The readers live in their own schema, so both USAGE grants are exercised.
+      ti = p <> "_ti"
+      q!(TextRepo, "CREATE SCHEMA #{ti}")
+      on_exit(fn -> q!(TextRepo, "DROP SCHEMA #{ti} CASCADE") end)
+
       {:ok, admin} =
         Store.new(TextRepo, declaration("floor", "simple"),
           prefix: p,
-          tenant_isolation: %{prefix: p}
+          tenant_isolation: %{prefix: ti}
         )
 
       assert {:ok, ^admin} = Migration.install(admin)
@@ -575,6 +601,7 @@ defmodule Elzoo.SearchDataTextTest do
       # Only the README grants.
       for sql <- [
             ~s(GRANT USAGE ON SCHEMA "#{p}" TO "#{role}"),
+            ~s(GRANT USAGE ON SCHEMA "#{ti}" TO "#{role}"),
             ~s(GRANT SELECT ON #{Store.registry(admin)} TO "#{role}"),
             ~s(GRANT SELECT, INSERT, DELETE ON #{Store.table(admin)} TO "#{role}"),
             ~s(GRANT SELECT, INSERT, UPDATE ON #{Store.marks(admin)} TO "#{role}")
@@ -582,6 +609,19 @@ defmodule Elzoo.SearchDataTextTest do
           do: q!(TextRepo, sql)
 
       {:ok, admin: admin, app: %{admin | repo: AppRepo}}
+    end
+
+    test "the floor transaction keeps the binding's deadline, not the Repo's timeout", %{app: app} do
+      # ShortRepo's own :timeout is 1000 ms; the binding allows 3000 ms of statements.
+      short = %{app | repo: ShortRepo, statement_timeout_ms: 3000}
+      key = source_key(short, "T1", "slow")
+      {holder, pid} = hold(key)
+      writer = Task.async(fn -> put(short, "slow", 1, ["fox"], [], "T1") end)
+      wait_until(fn -> waiting(key) == 1 end)
+      Process.sleep(1500)
+      send(pid, :release)
+      Task.await(holder)
+      assert {:committed, 1} = Task.await(writer)
     end
 
     test "every operation is tenant-scoped and the database refuses another tenant", %{
