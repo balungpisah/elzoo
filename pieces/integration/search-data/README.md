@@ -49,7 +49,8 @@ Physical table names are generated from the identity; registry uniqueness
 prevents two declared identities from sharing a physical table. `install/1` also creates
 the index's delete-mark table (`elzoo_deletes_<40 hex>`, `PRIMARY KEY (tenant, source_ref)`)
 with `CREATE TABLE IF NOT EXISTS`: re-run `install/1` once for an index installed before
-delete marks existed (a Need of `delete_source/4` and the version guard).
+delete marks existed (a Need of `delete_source/4` and the version guard; until then both
+refuse `invalid_request` with nothing changed).
 
 Every store operation checks the persisted declaration again. A binding cannot
 silently switch the model/dimension/normalization of an existing index. The five
@@ -93,7 +94,9 @@ request = %{tenant: tenant, text: "quick \"brown fox\" -dog", k: 20,
 ```
 
 `text` is 1..4096 bytes of valid UTF-8 without NUL, parsed with `websearch_to_tsquery`, so no
-query syntax error is possible. The other keys and bounds are those of `query/2`. Tenant and
+query syntax error is possible. A text that PostgreSQL finds too complex to parse (SQLSTATE
+54000, for example a run of 33 or more `-`) is `{:error, :invalid_request}`, not
+`unavailable`, so a host does not retry it. The other keys and bounds are those of `query/2`. Tenant and
 permitted sources apply in the `WHERE` before ranking; rows match by `@@` and order by
 `ts_rank_cd` descending, then source reference in C collation, version and chunk index. The
 content bound and its overflow refusal are those of `query/2`. A candidate has the keys of a
@@ -234,7 +237,11 @@ message `"search data binding has no tenant_isolation option"` before any DDL.
 With the option, `put_source`, `delete_source/4`, `query/2` and `query_text/2` run their whole
 transaction through `Elzoo.TenantIsolation.transact/3` with scope `%{tenant: tenant}`; a tenant
 that fails its scope rule (1..128 bytes, no C0 or C1 control character) is `invalid_request`
-before any query. The caller-transaction refusal comes first, as before. `verify/1` runs
+before any query. The caller-transaction refusal comes first, as before. `transact/3` takes no
+options, so the store checks the connection out with `repo.checkout/2` and the deadline
+`statement_timeout_ms + 2000` before it calls `transact/3`: the binding's 1..60000 ms holds
+under the floor, not the Repo's `:timeout`. `transact/3`'s `BEGIN` and `COMMIT` are not
+`log: false`, so the Repo's logger may print those two statements (no parameters). `verify/1` runs
 `Elzoo.TenantIsolation.verify/3` over the vector table, then the delete-mark table, and returns
 `:ok` or the first `{:error, reason}`; a binding without the option is
 `{:error, :invalid_request}`. The host calls it before serving: a binding is a plain value
@@ -279,8 +286,10 @@ using Sandbox must not interpret these replies as independent durable commits.
 ## Operations and evidence
 
 Telemetry is inherited from ecto_sql; query metadata can include vectors,
-contents and source lists. Consumers own telemetry handling and parameter privacy.
-Elzoo disables SQL log output and returns finite errors, adds no telemetry event.
+contents, lexical query text, tenants and source lists (under the floor, also
+tenant-isolation's `set_config` of the tenant). Consumers own telemetry handling and parameter privacy.
+Elzoo disables SQL log output of its own statements (see the floor's `BEGIN`/`COMMIT` above)
+and returns finite errors, adds no telemetry event.
 Config is supported at binding creation and per call with the bounds above.
 Control is not applicable: no Elzoo process or lifecycle; consumer owns Repo.
 
