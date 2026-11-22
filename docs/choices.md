@@ -412,7 +412,10 @@ the ID rule.
   table that `state/audit-log` audits.
 - **For you.** A journal post, a reservation or a usage row has no Carbonite
   transaction of its own; send the admin change through a checked command
-  when you need its audit record.
+  when you need its audit record. Attribution is per binding, as
+  `state/audit-log` states, and the acceptance binds one session per command:
+  on a reused binding, a checked command alone does not give each change its
+  own actor and action.
 - **To change.** Auditing a Piece-owned table would change `state/audit-log`:
   under the ID rule.
 
@@ -440,10 +443,12 @@ the ID rule.
 ### No invoice, payment or settlement
 
 - **Chosen.** Charges post to `domain/journal`; there is no invoice, payment
-  or settlement (Wave 9).
-- **Why.** Wave 6 counts and prices; money leaves in Wave 9.
+  or settlement.
+- **Why.** Wave 6 counts and prices. The Wave 9 baseline plans
+  `domain/payment-lifecycle` and `integration/payments`; `domain/invoice`
+  stays deferred there.
 - **For you.** A balanced journal does not prove external settlement.
-- **To change.** Wave 9 (`domain/invoice`, `domain/payment-lifecycle`).
+- **To change.** A later payment or invoice task; none is admitted.
 
 ### RunEngine stores on the owner connection, until ELZ-327
 
@@ -470,8 +475,8 @@ the ID rule.
 
 ### The spend alert is committed, not sent
 
-- **Chosen.** Crossing a threshold commits one outbox notice; the acceptance
-  does not deliver it.
+- **Chosen.** Reaching a threshold commits one outbox notice (the acceptance
+  reaches exactly 80%); the acceptance does not deliver it.
 - **Why.** The acceptance does not compose `integration/notification`.
 - **For you.** Deliver the notice from the outbox yourself.
 - **To change.** Compose `integration/notification` in your test.
