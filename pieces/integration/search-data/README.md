@@ -158,7 +158,10 @@ keyword list whose only key is `if_newer` (a boolean); anything else is `invalid
 Under the same advisory lock as a put, in one transaction, it removes every row of the tenant
 and source when the stored version is equal to or lower than `version`, raises the source's
 delete mark to `max(mark, version)` and returns the row count (0 for an absent source, so a
-repeat is idempotent). A higher stored version is `stale_version` and stays. Other results are
+repeat is idempotent). A higher stored version is `stale_version` and stays. A delete of
+version v covers every stored version up to v, so a replay of it after an unguarded
+`put_source` of version v removes that restored source; a host that restores a deleted source
+writes it at a version higher than the delete. Other results are
 those of `put_source/4`. A delete removes rows, not dead tuples, WAL or backups, which keep
 content until PostgreSQL reclaims them; there is no expiry or retention schedule.
 
