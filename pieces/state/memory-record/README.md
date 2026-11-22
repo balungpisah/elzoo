@@ -280,11 +280,11 @@ duplicates they decide and the approvals that name them stay equal.
   from `cursor: nil`.
 - No embedding, search, extraction, model call, TTL sweep or per-record access label. Expired
   records stay stored until forgotten.
-- An `erase_subject/3` batch reads at most `max_batch + 1` rows of each table when PostgreSQL
-  plans its statement for the given cursor, as it does by default for the Piece's unnamed
-  statements. Under a generic plan (`plan_cache_mode = force_generic_plan`) the forced row
-  security leaves the cursor comparison a filter, so one batch reads the subject's IDs up to
-  the cursor.
+- `erase_subject/3` bounds the IDs a batch returns, not the rows PostgreSQL reads. In the
+  tested plan (an index scan on `memory_id` per table, on the fixture of case 8) each branch
+  reads at most `max_batch + 1` rows past the cursor; a planner may choose another plan (for
+  example under other statistics, or a generic plan, where the forced row security leaves the
+  cursor comparison a filter), so this is an observed bound, not a guarantee.
 - The Repo must be a started Ecto Repo: an unstarted Repo or another module raises from
   `in_transaction?/0` instead of returning an error atom.
 - The Piece emits no telemetry and no log, and its queries pass `log: false`; the consumer

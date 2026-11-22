@@ -863,8 +863,8 @@ defmodule Elzoo.MemoryRecordTest do
         [{sql, params}] =
           for {sql, params} <- received_statements([]), sql =~ "UNION", do: {sql, params}
 
-        # The plan that PostgreSQL makes for the statement and its parameters, as for the
-        # Piece's own unnamed statements (a generic plan is a stated limit, see README).
+        # The plan that PostgreSQL chooses for the statement and its parameters on this
+        # fixture; other plans are a stated limit (README, Limits).
         {:ok, [[plan]]} =
           TI.transact(AppRepo, %{tenant: "T1"}, fn ->
             {:ok,
