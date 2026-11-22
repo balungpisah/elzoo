@@ -278,9 +278,12 @@ an observation).
      `access_denied` with detail `denied`.
    - *Tenants.* No T1 result of either query holds a candidate of version
      7, the word `cara-only` or a T2 `source_digest`, although T2's chunks
-     rank better; the same queries in T2's scope return them.
-   - *Table floor, run after group 6*, when every table below holds rows
-     of both tenants. A table read (see "Table reads") without a tenant
+     rank better; the same queries in T2's scope return them. As
+     `elzoo_app`, `ALTER TABLE ... NO FORCE ROW LEVEL SECURITY` and `DROP
+     POLICY elzoo_tenant_floor ...` on the knowledge index's vector table
+     and on `elzoo_memory_records` are refused (owner only).
+   - *Table floor, run after group 6*, when every table below except
+     `elzoo_knowledge_chunks` holds rows of both tenants. A table read (see "Table reads") without a tenant
      predicate, first in T2's scope and then in T1's, of each protected
      Wave 7 table that holds a T2 row (the vector and delete-mark tables of
      both search-data indexes, the four knowledge-ingest tables,
@@ -292,10 +295,7 @@ an observation).
      so T1 has none left, and that read passes on finding no T2 row while
      T2's scope shows the `old-faq` staged chunks are there. In T1's scope
      an insert of a T2 row into each of those tables and into
-     `elzoo_metering_corrections` is refused with SQLSTATE 42501. As `elzoo_app`, `ALTER TABLE ... NO FORCE ROW LEVEL
-     SECURITY` and `DROP POLICY elzoo_tenant_floor ...` on the knowledge
-     index's vector table and on `elzoo_memory_records` are refused (owner
-     only).
+     `elzoo_metering_corrections` is refused with SQLSTATE 42501.
 3. **Answer with citations.** The selected T1 chunks become citation items
    `%{item_id, source, version, content, start_byte}` (`start_byte` from the
    search-data candidate). `PromptAssembly.build/2` puts each item as a
