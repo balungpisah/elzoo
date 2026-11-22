@@ -1281,8 +1281,7 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
   # ------------------------------------------------------------ 6
 
   # Group 6's forget and subject erasure; returns what the checks need.
-  defp forget_and_erase!(fx, m, opts \\ []) do
-    delete? = Keyword.get(opts, :delete_sources, true)
+  defp forget_and_erase!(fx, m) do
     p = fx.prefix
     ps = m.ps
     %{put: {:committed, 1}} = m.retry.()
@@ -1296,8 +1295,7 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
              forgotten_at_ms: @next_now
            }) == {:ok, :applied}
 
-    if delete?,
-      do: assert(SearchData.delete_source(fx.search.memory, "T1", source, 1) == {:committed, 1})
+    assert SearchData.delete_source(fx.search.memory, "T1", source, 1) == {:committed, 1}
 
     refute gone in Enum.map(
              recall!(fx, "T1", "ann-agent-2", @ann_scopes).entries,
@@ -1374,13 +1372,8 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
       |> Enum.flat_map(& &1)
 
     deletes =
-      if delete?,
-        do:
-          for(
-            id <- erased,
-            do: {id, SearchData.delete_source(fx.search.memory, "T1", "memory:" <> id, 1)}
-          ),
-        else: []
+      for id <- erased,
+          do: {id, SearchData.delete_source(fx.search.memory, "T1", "memory:" <> id, 1)}
 
     assert :ok = RetentionErasure.erase(fx.vault, "principal:ann")
     %{erased: erased, deletes: deletes}
