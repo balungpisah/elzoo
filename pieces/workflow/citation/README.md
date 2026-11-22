@@ -95,7 +95,8 @@ names which citation failed.
 
 ```elixir
 # 1. workflow/context-selection selects the items for the model.
-{:ok, %{selected: selected}} = Elzoo.ContextSelection.select(request, context)
+{:ok, %{selected: selected}} =
+  Elzoo.ContextSelection.select(%{candidates: candidates}, context)
 
 # 2. The host builds each item from a selected candidate, adding start_byte
 #    from the integration/search-data candidate with the same item_id
@@ -107,9 +108,13 @@ items =
   end
 
 # 3. workflow/typed-decision asks for an answer of the cited-answer schema on an
-#    output Port with schema_id "elzoo.citation.answer", version 1.
+#    output Port with schema_id "elzoo.citation.answer", version 1. Its request
+#    is the base ai-text request, whose "messages" show the model the items.
+model_request = %{"version" => 1, "model" => model, "max_output_tokens" => 1024,
+                  "messages" => messages_showing(items)}
+
 {:ok, step} =
-  Elzoo.TypedDecision.new(%{id: "answer", request: request, port: port,
+  Elzoo.TypedDecision.new(%{id: "answer", request: model_request, port: port,
                             answer: {:schema, Elzoo.Citation.schema()}, repairs: 1})
 
 # 4. check/3 checks the decided value against the same items.
