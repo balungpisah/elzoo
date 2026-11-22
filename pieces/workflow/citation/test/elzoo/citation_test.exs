@@ -115,7 +115,12 @@ defmodule Elzoo.CitationTest do
       end
     end
 
-    test "item_id of 0 or 1,025 bytes or invalid UTF-8 is malformed" do
+    test "item_id of 1,024 bytes is accepted; 0 or 1,025 bytes or invalid UTF-8 is malformed" do
+      id = String.duplicate("i", 1024)
+
+      assert {:ok, %{citations: [%{item_id: ^id, start_byte: 0, end_byte: 1}]}} =
+               Citation.check(answer([cite(id, "a")]), [item(id, "a", %{source: "s"})], @open)
+
       for id <- ["", String.duplicate("i", 1025), <<0xFF>>] do
         assert {:error, :malformed} = Citation.check(answer([cite(id, "a")]), [abc()], @open)
       end
@@ -160,6 +165,14 @@ defmodule Elzoo.CitationTest do
 
       assert {:error, :duplicate} =
                Citation.check(answer([cite("a", "same"), cite("a", "same")]), items, @open)
+
+      # The repeat need not be adjacent.
+      assert {:error, :duplicate} =
+               Citation.check(
+                 answer([cite("a", "same"), cite("b", "words"), cite("a", "same")]),
+                 items,
+                 @open
+               )
 
       assert {:ok, %{citations: [%{item_id: "a"}, %{item_id: "b"}]}} =
                Citation.check(answer([cite("a", "same"), cite("b", "same")]), items, @open)
@@ -317,6 +330,7 @@ defmodule Elzoo.CitationTest do
         [item(<<0xFF>>, "x")],
         [item("a", "x", %{source: ""})],
         [item("a", "x", %{source: String.duplicate("s", 1025)})],
+        [item("a", "x", %{source: <<0xFF>>})],
         [item("a", "x", %{version: 0})],
         [item("a", "x", %{version: 2 ** 31})],
         [item("a", "x", %{version: 1.0})],

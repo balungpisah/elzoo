@@ -125,7 +125,7 @@ The checked example `examples/citation.exs` checks two items, one a chunk with
 
 ## Dependencies
 
-The library code depends on no Piece and calls no other module. `core/payload-schema`
+The library code depends on no Piece and calls no other Piece. `core/payload-schema`
 (with its closure `core/port`) is declared in `piece.json` only because the
 tests build `schema/0` through `Elzoo.PayloadSchema.build/2` and check answers
 with `Elzoo.PayloadSchema.check/3`; the library code does not call it.
