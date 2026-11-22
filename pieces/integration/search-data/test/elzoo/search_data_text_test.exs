@@ -180,6 +180,16 @@ defmodule Elzoo.SearchDataTextTest do
     handler
   end
 
+  # SQLSTATEs of the failed statements seen on the Repo's telemetry so far.
+  defp error_codes do
+    receive do
+      {:query, _, {:error, %Postgrex.Error{postgres: %{code: code}}}} -> [code | error_codes()]
+      {:query, _, _} -> error_codes()
+    after
+      0 -> []
+    end
+  end
+
   defp statements do
     receive do
       {:query, query, _} ->
@@ -670,10 +680,8 @@ defmodule Elzoo.SearchDataTextTest do
     end
 
     @tag :race
-    test "protect locks both tables: a concurrent legacy write is seen or refused", %{
-      p: p,
-      admin: admin
-    } do
+    test "protect locks both tables: concurrent writes are seen or wait for the floor, no deadlock",
+         %{p: p, admin: admin} do
       {:ok, legacy} = Store.new(TextRepo, declaration("race-floor"), prefix: p)
       assert {:ok, ^legacy} = Migration.install(legacy)
 
@@ -684,12 +692,16 @@ defmodule Elzoo.SearchDataTextTest do
 
       long = String.duplicate("t", 129)
       table = Store.table(legacy)
+      marks = Store.marks(legacy)
 
+      # Lock requests on either table that wait.
       ungranted = fn ->
         length(
-          q!(TextRepo, "SELECT 1 FROM pg_locks WHERE relation=to_regclass($1) AND NOT granted", [
-            table
-          ]).rows
+          q!(
+            TextRepo,
+            "SELECT 1 FROM pg_locks WHERE relation IN (to_regclass($1), to_regclass($2)) AND NOT granted",
+            [table, marks]
+          ).rows
         )
       end
 
@@ -699,6 +711,7 @@ defmodule Elzoo.SearchDataTextTest do
             Ecto.Migrator.up(TextRepo, version, FloorMigration, prefix: p, log: false)
           rescue
             e in RuntimeError -> {:raised, e.message}
+            e in Postgrex.Error -> {:error, e.postgres.code}
           end
         end)
       end
@@ -741,18 +754,33 @@ defmodule Elzoo.SearchDataTextTest do
 
       q!(TextRepo, "DELETE FROM #{table}")
 
-      # 2. protect/1 holds its lock (its ALTER TABLE waits behind a reader); a legacy put
-      # arriving then waits, and after protect/1 commits the floor refuses it.
-      {reader, pid} = open.("SELECT count(*) FROM #{table}", [])
+      # 2. protect/1 holds its lock on the vector table and waits for the mark table behind a
+      # holder. A guarded put and a delete_source then start, each about to read the stored
+      # version of its source. Neither side may deadlock (40P01): the writers wait for protect/1
+      # and then get the floor's refusal, with nothing changed.
+      assert {:committed, 1} = put(legacy, "a", 1, ["fox"], [], "T1")
+      assert {:committed, 1} = put(legacy, "b", 1, ["fox"], [], "T1")
+      listen(@text_prefix)
+      {holder, pid} = open.("LOCK TABLE #{marks} IN ACCESS EXCLUSIVE MODE", [])
       migration = migrate.(2)
       wait_until(fn -> ungranted.() == 1 end)
-      writer = Task.async(fn -> put(legacy, "late", 1, ["fox"], [], long) end)
+      guarded = Task.async(fn -> put(legacy, "a", 2, ["fox"], [if_newer: true], "T1") end)
       wait_until(fn -> ungranted.() == 2 end)
+      delete = Task.async(fn -> Store.delete_source(legacy, "T1", "b", 1) end)
+      wait_until(fn -> ungranted.() == 3 end)
       send(pid, :release)
-      Task.await(reader)
-      assert :ok = Task.await(migration)
-      assert {:indeterminate, :unavailable} = Task.await(writer)
-      assert truth(legacy, "SELECT count(*)::int FROM #{table}") == [[0]]
+      Task.await(holder)
+      assert :ok = Task.await(migration, 20_000)
+
+      assert [{:indeterminate, :unavailable}, {:indeterminate, :unavailable}] =
+               Enum.map([guarded, delete], &Task.await(&1, 20_000))
+
+      codes = error_codes()
+      refute :deadlock_detected in codes
+      assert Enum.count(codes, &(&1 == :insufficient_privilege)) == 2
+      assert versions(legacy, "a") == [[1, 1]]
+      assert versions(legacy, "b") == [[1, 1]]
+      assert truth(legacy, "SELECT count(*)::int FROM #{marks}") == [[0]]
     end
 
     test "the floor transaction keeps the binding's deadline, not the Repo's timeout", %{app: app} do

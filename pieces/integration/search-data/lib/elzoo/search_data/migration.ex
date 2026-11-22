@@ -182,11 +182,12 @@ defmodule Elzoo.SearchData.Migration do
           do: Store.identifier(binding.prefix) <> "." <> Store.identifier(name)
 
     # Runs now on the migration's connection, inside its transaction; the DDL below is queued
-    # after it. The lock blocks writers of both tables, in one order, until the migration
-    # commits, so no row committed after the scan escapes it; each scan statement then reads a
-    # snapshot taken after the lock (READ COMMITTED).
+    # after it. ACCESS EXCLUSIVE on both tables, in the order that the floor DDL and the writers
+    # use, before the scan: no row committed after the scan escapes it, and the floor DDL never
+    # upgrades a weaker lock, so a writer that reads a table meanwhile waits instead of
+    # deadlocking. Each scan statement reads a snapshot taken after the lock (READ COMMITTED).
     repo = Ecto.Migration.repo()
-    query!(repo, "LOCK TABLE #{Enum.join(tables, ", ")} IN SHARE ROW EXCLUSIVE MODE", [])
+    query!(repo, "LOCK TABLE #{Enum.join(tables, ", ")} IN ACCESS EXCLUSIVE MODE", [])
     for table <- tables, do: scope!(repo, table, nil)
 
     Floor.install(p)
