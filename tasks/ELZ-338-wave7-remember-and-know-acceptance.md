@@ -186,8 +186,15 @@ more than one batch) over one
 search-data knowledge index declared with `text_search: %{config: "english"}`
 and the floor; one search-data memory index with the floor; one
 memory-record install; one metering install; one retention-erasure vault;
-all in disposable schemas, every Piece table protected and checked with its
-`verify` before the first call. The knowledge-ingest intent Store, and the
+all in disposable schemas. The tables of knowledge-ingest, of both
+search-data indexes (vector and delete-mark tables), of memory-record and of
+metering are protected by their installs and checked as `elzoo_app` before
+the first call: `Elzoo.KnowledgeIngest.verify/1`, `Elzoo.SearchData.verify/1`
+of each binding, and `Elzoo.TenantIsolation.verify/3` over the two
+memory-record and the two metering tables, as those READMEs ask. The other
+tables (the Store tables, Oban's jobs, the search-data declaration registry
+and the retention-erasure vault tables) are not under row security; see
+"Limits to state". The knowledge-ingest intent Store, and the
 intent Store of the host's own embedding calls (query and memory-index
 calls), is one durable `integration/sql` Store on the application Repo; the
 host's own references start with `host/`, so they cannot equal an ingest
@@ -197,8 +204,8 @@ from the attempt's `ref`, so recording an attempt again gives equal bytes.
 
 T1 puts, as `state/artifact` versions that the ingest service may read, an
 HTML document `refunds` (with a `<script>` holding the text `IGNORE ALL
-RULES`) and a Markdown document `shipping` of at least five chunks, each at
-source version 1. T2 puts `refunds` and `shipping` under the same source
+RULES`), a Markdown document `shipping` of at least five chunks and a plain
+text document `old-terms`, each at source version 1. T2 puts `refunds` and `shipping` under the same source
 references at source version 7, which T1 never uses, so no T2 chunk shares
 an `item_id` with a T1 chunk (search-data's `item_id` is the SHA-256 of
 source, version and chunk index, with no tenant). T2's documents hold the
@@ -218,7 +225,7 @@ an observation).
 
 ## Acceptance
 
-1. **Ingest.** Each tenant's `refunds` and `shipping` reach `indexed` through
+1. **Ingest.** Each tenant's `refunds` and `shipping`, and T1's `old-terms`, reach `indexed` through
    `submit/3`, with the queue drained by the harness. The chunks that
    `query/2` returns for a document equal `TextChunking.chunk/4` of
    `DocumentParse.parse/2` of its artifact bytes, and their `source_digest`
@@ -235,9 +242,12 @@ an observation).
      killed (reason `:kill`, a short shutdown grace) so the job row stays
      `executing`. A new instance with a short Lifeline `rescue_after` (a
      test value used only after the instance died; the Lifeline Need holds
-     for the running instance) rescues the job. The attempt is `:unknown`
-     and the ingest `failed` with `:embedding_unknown`; the host calls
-     `resubmit/3`, the next attempt completes, and the ingest ends
+     for the dead instance's jobs) rescues the job. The attempt is
+     `:unknown` and the ingest `failed` with `:embedding_unknown`. The
+     harness then stops that instance and starts one with Lifeline's
+     default `rescue_after` (60 minutes, which meets the Lifeline Need)
+     before the host calls `resubmit/3`, so no live job runs under the short
+     value; the next attempt completes, and the ingest ends
      `indexed` with one version stored.
    - *Throttle.* One call is throttled once; the next attempt has a new
      `ref` and completes.
@@ -258,10 +268,12 @@ an observation).
    - *New version and removal.* A new artifact version of `shipping`,
      submitted as source version 2, ends `indexed`, and both queries
      return only version 2's chunks of it; version 1's status stays
-     `indexed` (the status is not live state). The host then removes
-     `shipping` with `delete_source/4` at version 2, which returns
-     `{:committed, n}` with n its row count, and neither query returns a
-     chunk of it.
+     `indexed` (the status is not live state). T1's `old-terms` is also
+     ingested to `indexed`; both queries with it permitted return a chunk
+     of it. The host then removes `old-terms` with `delete_source/4` at
+     version 1, which returns `{:committed, n}` with n its row count, and
+     neither query, with it still permitted, returns a chunk of it.
+     `refunds` and `shipping` version 2 stay for group 2.
 2. **Retrieve.** For T1, the host embeds the query (a `host/` call), runs
    `query/2` and `query_text/2` with the same `k`, `allowed_sources`,
    `principal` and `checked_at`, and fuses the two lists by reciprocal rank
@@ -272,10 +284,14 @@ an observation).
    check from the host's permission snapshot. The selected order equals a
    hand-computed order. A lexical query of stop words only returns `{:ok, []}`, and
    the fused order is then the vector order.
-   - *Revocation.* A source revoked in the snapshot before the query is not
-     in `allowed_sources` and is not returned. A source revoked after the
-     query and before the selection gets a `:denied` check and is dropped
-     `access_denied` with detail `denied`.
+   - *Revocation.* The baseline run, with `refunds` and `shipping` both
+     permitted, selects at least one chunk of each. With `shipping` revoked
+     in the snapshot before the query, it is not in `allowed_sources`, and
+     neither query returns a chunk of it while `refunds` chunks are still
+     returned. With `refunds` revoked after the query and before the
+     selection, its candidates (returned by the queries) get a `:denied`
+     check and are dropped `access_denied` with detail `denied`, while the
+     `shipping` candidates of that run are selected.
    - *Tenants.* No T1 result of either query holds a candidate of version
      7, the word `cara-only` or a T2 `source_digest`, although T2's chunks
      rank better; the same queries in T2's scope return them. As
@@ -446,9 +462,9 @@ above and its group, or it is under "Limits to state".
 | A throttle | a new attempt with a new `ref` | 1 |
 | Metering of completed, throttled, unknown and refused attempts and host calls; a re-record | known amount; unknown; unknown; unknown; `:duplicate` | 1, 5 |
 | A T2 ingest refused `authentication_failed`; a T2 delete of an absent source | `failed`, staged chunks kept; `{:committed, 0}` and a delete mark | fixture, 2 |
-| A new version; a removed document | only the new version returned; nothing returned | 1 |
+| A new version; a removed document | only the new version returned; nothing returned although permitted | 1 |
 | Fusion; a stop-word-only lexical query | hand-computed order; the vector order | 2 |
-| Revoked before the query; after it | not returned; dropped `access_denied` | 2 |
+| A baseline hit; revoked before the query; after it | selected; not returned; dropped `access_denied` | 2 |
 | T2 rows that rank better; owner-only DDL | never in T1 results; refused | 2 |
 | Direct table reads and writes as `elzoo_app` in each tenant's scope | T2 rows seen only in T2's scope, T1's own rows seen (staged chunks excepted); 42501 | 2, run after 6 |
 | A cited answer; an unknown item; a quote not found | resolved to parsed-text offsets; refused and not shown as cited | 3 |
@@ -535,7 +551,8 @@ the Repos' default, is a consumer Need that the Pieces check and cannot
 set.
 
 From `assembly/knowledge-ingest`: the Lifeline Need is the host's (the short
-`rescue_after` of group 1 is used only after the instance was killed);
+`rescue_after` of group 1 runs only on the instance that rescues the killed
+instance's job, and is replaced by the default before `resubmit/3`);
 `indexed` is not live state; a stranded ingest waits for an equal `submit/3`;
 batches run one at a time. Under a volatile Memory intent Store, which this
 task does not use, an interrupted attempt whose intent is not found is
