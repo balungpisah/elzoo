@@ -263,8 +263,9 @@ consumer acceptance `ELZ-323` are merged on `main`; see
 [bot-platform-wave6.md](bot-platform-wave6.md) for its dispositions, its
 closure section and its open handoff. Wave 7 is planned in
 [bot-platform-wave7.md](bot-platform-wave7.md), with one disposition for each
-of its handles and its open owner questions; its tasks are published from that
-page after the owner answers them. Waves 7 to 9
+of its handles; the owner answered its questions on 2026-11-22, and its tasks
+are published from that page level by level (Level 1: ELZ-329, ELZ-331 and
+ELZ-332). Waves 7 to 9
 retain the existing serial rule: a wave is registered when the preceding wave
 and its pre-registration gates are accepted. A handle with a job in brackets
 is an existing catalogue row that the job owns; the one exception is
