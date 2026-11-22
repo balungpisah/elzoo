@@ -8906,6 +8906,29 @@
       "issue": 806,
       "url": "https://github.com/balungpisah/elzoo/issues/806",
       "issue_body_sha256": "bb52482370985389c16e6a41300125c926675e009775b2a50d2ea19ec704301a"
+    },
+    {
+      "id": "ELZ-340",
+      "title": "ELZ-340 — assembly/knowledge-ingest: clamp the backoff without retry_after to at most 3,600 s",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-334"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "coordinator; published Piece task; local small gate, independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-340-knowledge-ingest-backoff-clamp.md"
+      ],
+      "outputs": [],
+      "acceptance": "assembly/knowledge-ingest: a retryable embedding outcome without retry_after snoozes min(5 x 2^(n-1), 3,600) s after the n-th attempt, computed with a capped exponent so no attempt number builds a large integer or passes the PostgreSQL timestamp range; the retry_after clamp 1..3,600 s, the attempt budget and numbering, the job backoff, the step deadlines and every error atom unchanged. README Embed step and piece.json (contract and the group 1-3 test claim) state the clamp. One public-flow regression test: through resubmits attempt 10 snoozes 2,560 s and attempt 11 snoozes 3,600 s (unclamped 5,120 s), hand-written values, with a reverted negative control that removes the clamp; new manifest_sha256, note equal to contract; Piece tests and local small gate on the worker's own PostgreSQL 16 with pgvector and MinIO as elzoo_app, independent review; closes #805.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 808,
+      "url": "https://github.com/balungpisah/elzoo/issues/808",
+      "issue_body_sha256": "efe1e060d6d674352615b4a8afac35d07029c30a6da61541db42e2efa7a24463"
     }
   ],
   "entries": [
