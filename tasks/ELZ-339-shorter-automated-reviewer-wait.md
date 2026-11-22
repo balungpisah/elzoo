@@ -15,12 +15,14 @@ posts within about 3 minutes of the ready mark or the push (2 minutes or
 less on #776, #801 and #803; 3 minutes and 2 minutes on #804). A head that it
 skips stays silent for more than an hour (#776 at 9850bdb1, #798 at
 fa99ba68, #804 at 25268533). The automated reviewer reports no check run.
-On the head 977431bc of #807 it set a commit status with context
-`Devin Review`: `pending` ("Analyzing your changes") 4 seconds after the
-ready mark, then `success` ("Completed analysis in 43s"), and it posted one
-finding. So `success` means that the pass finished, not that it is clean.
-It posts no comment when it finds nothing, so a silent reviewer can be a
-clean pass.
+On the heads 977431bc and 12bc0553 of #807 it set a commit status with
+context `Devin Review`, set by `devin-ai-integration[bot]`: `pending`
+("Analyzing your changes") within seconds of the ready mark or the push,
+then `success` 2 to 3 seconds after it posted a review with one finding. So
+`success` means that the pass finished, not that it is clean. On #801 at
+4f07b12f, before it set statuses, it posted a "No Issues Found" review with
+no thread. A `success` status with no review at all has not been observed;
+by the owner's decision, a `success` status with no thread is a clean pass.
 
 This is a coordinator one-PR documents change. Owned paths: `AGENTS.md`
 section 6 (the bullet "Do not wait on an unavailable automated reviewer"),
@@ -41,15 +43,16 @@ change. No other rule, Contract, Piece or catalogue entry changes.
 3. If the automated reviewer posts a pass on the exact head before the queue
    starts, that pass and its threads gate as before, even when the pass comes
    after the 10 minutes or after the extra review is done.
-4. A `Devin Review` commit status of `success` on the exact head means that
-   the automated pass on that head has finished. Its threads are answered
-   and resolved before the queue starts. If it posted none, the pass is
-   clean. No wait and no extra review is needed.
+4. A `Devin Review` commit status set by `devin-ai-integration[bot]` (from
+   no other setter) of `success` on the exact head means that the automated
+   pass on that head has finished. Its threads are answered and resolved
+   before the queue starts. If it posted none, the pass is clean. No wait
+   and no extra review is needed.
 5. While that status is `pending`, wait for it. If it is still `pending` 10
    minutes after the later of the ready mark and that head's push, or if it
    shows any state other than `pending` or `success`, the extra review
-   applies as before.
-6. With no `Devin Review` status on the exact head 10 minutes after the
+   applies as before; any thread that the reviewer posted still gates.
+6. With no such `Devin Review` status on the exact head 10 minutes after the
    later of the ready mark and that head's push, the 10-minute rule of items
    1 and 2 applies unchanged.
 7. The coordinator posts the skip comment and adds the skip row only when the
