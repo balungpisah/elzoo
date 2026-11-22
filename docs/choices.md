@@ -231,15 +231,19 @@ the ID rule.
   it yourself.
 - **To change.** Add `state/audit-log` with its audit-owner role in your test.
 
-### RunEngine Runs on the owner connection
+### RunEngine Store tables without row security
 
-- **Chosen.** The RunEngine Runs, their Run owner and Unit stores use the owner
-  connection; only CheckedCommand, the vault and the consumer tables run as the
-  application role. The ready Store tables are not protected by
-  `state/tenant-isolation`.
-- **Why.** The acceptance reuses the RunEngine test fixture.
+- **Chosen.** The RunEngine Run, Unit, Effect intent, evidence and transcript
+  stores run as the application role, as do CheckedCommand, the vault and the
+  consumer tables
+  ([ELZ-327](../tasks/ELZ-327-run-engine-stores-as-app-role.md); until it, the
+  RunEngine stores ran on the RunEngine fixture's owner connection). The owner
+  keeps the engine schema and its migration and grants the role only the
+  Store-table privileges the Store needs, with no `DELETE` or `TRUNCATE`. The
+  ready Store tables are not protected by `state/tenant-isolation`.
+- **Why.** The acceptance uses the ready Store tables as they are.
 - **For you.** In this composition, row security does not protect the Store
-  tables.
+  tables; grant your application role only the Store-table privileges.
 - **To change.** Composing the Store tables with `state/tenant-isolation` would
   be a task of its own.
 
@@ -452,16 +456,19 @@ the ID rule.
 - **For you.** A balanced journal does not prove external settlement.
 - **To change.** A later payment or invoice task; none is admitted.
 
-### RunEngine stores on the owner connection, until ELZ-327
+### RunEngine Store tables without row security
 
-- **Chosen.** The RunEngine Run, Unit, evidence and transcript stores run on
-  the RunEngine fixture's owner connection, not as `elzoo_app`, and the ready
-  Store tables are not under row security: the same arrangement as
-  [RunEngine Runs on the owner connection](#runengine-runs-on-the-owner-connection)
+- **Chosen.** The RunEngine Run, Unit, evidence and transcript stores run as
+  `elzoo_app`, and the ready Store tables are not under row security: the same
+  arrangement as
+  [RunEngine Store tables without row security](#runengine-store-tables-without-row-security)
   of Wave 5, which states the reason, what it means for you and how to change
-  it. The coordinator accepted it for ELZ-323 (review blocker B1).
-- **To change.** ELZ-327 is filed to move the RunEngine stores off the owner
-  connection; this entry holds until it lands.
+  it. ELZ-323 merged with those stores on the RunEngine fixture's owner
+  connection, a limit the coordinator accepted (review blocker B1);
+  [ELZ-327](../tasks/ELZ-327-run-engine-stores-as-app-role.md) moved them to
+  `elzoo_app`.
+- **To change.** Composing the Store tables with `state/tenant-isolation` would
+  be a task of its own.
 
 ### The counted gate is harness code
 
