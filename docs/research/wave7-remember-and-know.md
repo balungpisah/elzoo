@@ -216,14 +216,17 @@ Toolchain: Elixir 1.20.4 / Erlang-OTP 29. The orb's disposable PostgreSQL 16.16 
 3.14.0, postgrex 0.22.4, floki 0.38.5.
 
 ```sh
-ELZOO_TEST_APP_ROLE=elzoo_app mix test test/wave7_remember_and_know_test.exs --warnings-as-errors --repeat-until-failure 5
-ELZOO_TEST_APP_ROLE=elzoo_app mix test test/wave7_remember_and_know_test.exs:209 --repeat-until-failure 10
+ELZOO_TEST_APP_ROLE=elzoo_app mix test test/wave7_remember_and_know_test.exs --warnings-as-errors --repeat-until-failure 20
 ```
 
 ```text
-Result: 8 passed   (6 consecutive runs, exit 0)
-Result: 1 passed   (group 1, both restarts: 11 consecutive runs, exit 0)
+Result: 8 passed   (21 consecutive runs, exit 0)
 ```
+
+Before the `:pg` scope precondition of the harness's Oban start (copied from the durable-job
+test helper, DJ11), the review saw group 1's Oban restart fail in 2 of 9 full runs: the new
+notifier found the dying `Oban.Notifiers.PG` scope of the stopped instance and exited
+`:noproc`.
 
 The affected gate (`mix check --affected origin/main`), the roadmap and claims checks and `git
 diff --check` are recorded with their exit codes in the pull request.
@@ -245,11 +248,13 @@ none was committed. Each run exited 2.
 3. A host policy that allows every `:agent` triple: group 4 failed at `assert write(fx, "T1",
    tenant_fact) == {:error, :approval_required}` (`left: {:ok, :applied}`).
 4. `delete_source/4` skipped, in two runs:
-   - after `forget/3`: group 6 failed at the meaning query over the forgotten source, which
-     returned `memory:<run>/m5`;
+   - after `forget/3`: group 6 failed at the meaning query that permits the forgotten source and
+     the email memory's, `left: ["memory:<run>/m0", "memory:<run>/m5"]`, `right:
+     ["memory:<run>/m0"]`;
    - in the erasure only, with the deletes' result list faked to the expected shape so that only
-     the reads can fail: group 6 failed at the meaning query over Ann's sources, which returned
-     `memory:<run>/m6` (`Allergic to peanuts.`).
+     the reads can fail: group 6 failed at the meaning query that permits Ann's sources and
+     Bob's, `left: ["memory:<run>/m6", "memory:<run>-later/m0", "memory:<run>/m3", ...]`,
+     `right: ["memory:bob-1"]`.
 
 These validate the harness; they do not replace the Pieces' own controls.
 
