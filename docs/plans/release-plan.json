@@ -8885,6 +8885,54 @@
       "issue_body_sha256": "f6797cd5bf59a3c1de36f5199f9e7272818c20dd56ef8a4140a777d27280f565"
     },
     {
+      "id": "ELZ-338",
+      "title": "ELZ-338 — Remember and know end to end on PostgreSQL as a non-owner application role",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-009",
+        "ELZ-010",
+        "ELZ-023",
+        "ELZ-024",
+        "ELZ-030",
+        "ELZ-079",
+        "ELZ-080",
+        "ELZ-081",
+        "ELZ-082",
+        "ELZ-096",
+        "ELZ-127",
+        "ELZ-137",
+        "ELZ-140",
+        "ELZ-141",
+        "ELZ-267",
+        "ELZ-270",
+        "ELZ-278",
+        "ELZ-279",
+        "ELZ-285",
+        "ELZ-299",
+        "ELZ-329",
+        "ELZ-330",
+        "ELZ-331",
+        "ELZ-332",
+        "ELZ-333",
+        "ELZ-334"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-338-wave7-remember-and-know-acceptance.md"
+      ],
+      "outputs": [],
+      "acceptance": "Real PostgreSQL 16 with pgvector and MinIO, every Piece call and every RunEngine Store binding on the elzoo_app role (the test fails, not skips, when the role is missing, privileged or bypasses row security): two tenants' HTML and Markdown artifact versions ingested by assembly/knowledge-ingest with a scripted provider, a stop between steps and a kill during a call (unknown, resubmit, indexed once), a throttle, every attempt metered in domain/metering (unknown when it may have been paid), a new version and a removal with delete_source/4; vector and lexical queries fused by reciprocal rank into context-selection priorities, revocation before and after the query, no T2 row visible and 42501 on a T2 write as elzoo_app across the Wave 7 tables, owner-only DDL refused; a RunEngine typed-decision Run answering with citations resolved to parsed-text offsets, unknown item and quote not found not shown as cited; tokenized memory proposals written under the Q6 A policy, an ask approved through domain/authorization and workflow/approval naming the exact digest, an edited proposal needing a new approval, supersede, expiry, a denied check, recall into the prompt-assembly memory block with an instruction-like memory inside its block; recall by meaning through a search-data memory index (Q10 B); forget and paged subject erasure with delete_source/4 and crypto-shredding of the redacted values; four harness negative controls. Full gate (mix check --affected origin/main), full review, merge queue.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 810,
+      "url": "https://github.com/balungpisah/elzoo/issues/810",
+      "issue_body_sha256": "1271673e0bd43553e3ba47ccdd615a09f72774fea924f09f34fc2ce33e25e8e3"
+    },
+    {
       "id": "ELZ-339",
       "title": "ELZ-339 — A shorter wait on the automated reviewer",
       "kind": "published",
