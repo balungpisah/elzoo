@@ -384,6 +384,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-332](https://github.com/balungpisah/elzoo/issues/769) | V1B / pieces | ELZ-033, ELZ-030, ELZ-137, ELZ-270, ELZ-285 | published 2026-11-22 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-333](https://github.com/balungpisah/elzoo/issues/772) | V1B / pieces | ELZ-330, ELZ-081 | published 2026-11-22 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-335](https://github.com/balungpisah/elzoo/issues/795) | V1B / pieces | ELZ-325 | published 2026-11-22 | coordinator; one-PR path for a documents change; merge queue |
+| [ELZ-336](https://github.com/balungpisah/elzoo/issues/799) | V2 / pieces | ELZ-324 | published 2026-11-22 | worker; published Piece task; local small gate, light review and merge queue |
 
 ## Catalogue accounting
 
@@ -581,7 +582,7 @@ Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336.
 
 Prior release gate: V1-ACCEPT.
 
@@ -4695,3 +4696,13 @@ Publication copy: [tasks/ELZ-335-skip-list-recheck-clear.md](../../tasks/ELZ-335
 **Product aims:** P13.
 
 **Acceptance:** The Skipped automated reviews list in docs/development/13-coordinator.md removes the rows of #719, #723, #725, #729, #737, #741, #747, #750, #753, #759, #761, #770 and #771, each rechecked with a posted result, and adds no row for #773, #774, #775 or #776, each also rechecked with a posted result; the recheck paragraph states the reading rule (own first-parent non-merge commits plus non-empty remerge diffs of merges of main), the cherry-pick build of recheck/<PR> from recheck/<PR>-base, and the other-family recheck of a row that does not apply; the removal rule, other rules, Contracts, Pieces and catalogue unchanged. Documents-only classification, live roadmap, claims and diff checks.
+
+### ELZ-336
+
+ELZ-336 — domain/pricing: state that at most 3072 rows can be priced
+
+Publication copy: [tasks/ELZ-336-pricing-priced-row-limit.md](../../tasks/ELZ-336-pricing-priced-row-limit.md).
+
+**Product aims:** P09.
+
+**Acceptance:** domain/pricing README (Usage section and limits paragraph) and piece.json (contract, the limit ending up to 4096 rows, operations.config) state next to the 0..4096 row bound that a usage prices only when each row's key {provider_id, model_id, unit} has a card line, so at most 3 x the card's lines rows (3072 with the 1024-line ceiling), a larger usage unpriced_unit; no code, bound, Cure or example change. One public-API regression test: 3072 valid rows on a full 1024-line card price with hand-written amounts and 3073 rows give unpriced_unit, with a reverted negative control; new manifest_sha256, note equal to contract; Piece tests, local small gate, light review; closes #794.
