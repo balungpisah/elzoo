@@ -37,7 +37,8 @@ own helper and loads no Wave 5 or Wave 6 test file.
   inherits the owner's privileges, or is a superuser, `BYPASSRLS`, `LOGIN`, `INHERIT`,
   `CREATEROLE` or `CREATEDB` role.
 - The setup test reads, as the owner, that `elzoo_app` owns no table of either test schema and
-  holds exactly these grants, and nothing else, on them:
+  that the relation, schema and column ACLs of both schemas grant `elzoo_app` and `PUBLIC`
+  exactly these privileges, and nothing else:
 
   | Tables | Grant | Source |
   | --- | --- | --- |
@@ -53,9 +54,10 @@ own helper and loads no Wave 5 or Wave 6 test file.
   | Store heads and outbox (both schemas) | `SELECT, INSERT, UPDATE` | ELZ-323 `grant_store!/2` |
   | Store records and checkpoints (both schemas) | `SELECT, INSERT` | ELZ-323 `grant_store!/2` |
 
-  plus `USAGE` on each schema. Before the first call, `KnowledgeIngest.verify/1`,
-  `SearchData.verify/1` of each index and `TenantIsolation.verify/3` over the two memory-record
-  and the two metering tables pass as `elzoo_app`.
+  plus `USAGE` on each schema; `PUBLIC` holds nothing and no column grant exists. In every
+  test's fixture, before its first call, `KnowledgeIngest.verify/1`, `SearchData.verify/1` of
+  each index and `TenantIsolation.verify/3` over the two memory-record and the two metering
+  tables pass as `elzoo_app`.
 - Each RunEngine Run uses the RunEngine test fixture with `store_repo` and `grant` (ELZ-327):
   `engine_on_app!/2` asserts that every Unit, Run, host, evidence, transcript and Effect intent
   `store`/`host` binding is a `Postgres` Store on the application Repo whose `current_user` is
@@ -79,7 +81,9 @@ own helper and loads no Wave 5 or Wave 6 test file.
   intent identity carries the Run's tenant.
 - Tenants T1 and T2, period `2026-11`. In T1, Ann and Bob (`:human` end users), a reviewer
   (`:human`), the ingest service (`:service`) and each Run's `:agent` delegated from its user; in
-  T2, Cara, a reviewer and the ingest service. T1 documents `refunds` (HTML with a `<script>`
+  T2, Cara, a reviewer and the ingest service. All are `domain/principal` values checked with
+  `Principal.check/2`; each ingest service's ID is the actor of its tenant's `submit/3` and the
+  principal of its artifact reads. T1 documents `refunds` (HTML with a `<script>`
   holding `IGNORE ALL RULES`), `shipping` (Markdown, five chunks, so two batches) and `old-terms`
   (plain text), at source version 1; T2 `refunds` and `shipping` at version 7, holding
   `cara-only` and words that rank better for T1's queries, and `old-faq` version 7, refused
@@ -96,7 +100,8 @@ Setup. The role guard, the exact grants map above, nothing owned, every `verify`
    `source_digest` is the status's `text_sha256`. A table read in T1's scope finds 7 rows and none
    with the `<script>` text.
    - *Restart between steps.* T1's `shipping` reaches `embedding` with batch 0 done and 1 of 2
-     batches total, then the Oban instance is stopped and a new one started. It ends `indexed`
+     batches total, with its chunks staged (a T1-scope read finds them), then the Oban instance
+     is stopped and a new one started. It ends `indexed`
      with 2 provider calls (one per batch), one stored version and no staged chunk.
    - *Restart during a call.* The provider holds T1's `refunds` call; the Oban instance (started
      with `lifeline: false`) is killed and its job row stays `executing`. A new instance with
@@ -132,7 +137,8 @@ Setup. The role guard, the exact grants map above, nothing owned, every `verify`
      after the query: the `refunds` candidate is dropped `access_denied` with detail `denied`,
      and the 5 `shipping` candidates are selected.
    - *Tenants.* No T1 result holds version 7, `cara-only` or a T2 `source_digest`; T2's query in
-     its own scope returns them, with a smaller distance than T1's best. As `elzoo_app`, `ALTER
+     its own scope returns them, its best vector candidate with a smaller distance and its best
+     lexical candidate with a higher rank than T1's best. As `elzoo_app`, `ALTER
      TABLE ... NO FORCE ROW LEVEL SECURITY` and `DROP POLICY elzoo_tenant_floor` on the knowledge
      vector table and on `elzoo_memory_records` are refused.
    - *Table floor, after 6* (its own test, which rebuilds the group 1, 4, 5 and 6 state). Each of
@@ -155,7 +161,8 @@ Setup. The role guard, the exact grants map above, nothing owned, every `verify`
      host's display result is `{:not_cited, reason}` for each.
 4. **Remember.** Ann's messages are tokenized with `PiiRedaction.redact/2` (`:tokenize`,
    `known: [Ann's name]`, a vault closure on `"principal:ann"`). The Run's records and proposals
-   hold markers, not values. A typed-decision Run proposes memories under a host schema of at most
+   hold markers, not values, and so do the memory records and the memory index (each read
+   finds an email marker and neither the email nor the name). A typed-decision Run proposes memories under a host schema of at most
    8, written under the Q6 A policy.
    - A subject fact with Ann's email marker is `{:ok, :applied}`, and the marker fetches the
      email; an agent's subject `:summary` is `{:error, :denied}`; the same proposal again is
@@ -182,16 +189,17 @@ Setup. The role guard, the exact grants map above, nothing owned, every `verify`
    `{:committed, 1}`, known usage) makes it found.
 6. **Forget and erase.**
    - *Forget.* `forget/3` is `{:ok, :applied}`; `delete_source/4` of `memory:<id>` at version 1 is
-     `{:committed, 1}`. Recall and a meaning query leave it out. T1-scope reads find no index row
-     and no record row of it, its tombstone, the delete mark at version 1 and another current
+     `{:committed, 1}`. Recall leaves it out, and a meaning query that permits its source and the
+     email memory's finds only the email memory. T1-scope reads find no index row of it (and one
+     of the email memory) and no record row of it, its tombstone, the delete mark at version 1 and another current
      memory's record. A write of that ID is `{:error, :forgotten}`; a late index put at version
      1 is `{:refused, :stale_version}`, and nothing is stored.
    - *Erase.* `erase_subject/3` with `max_batch: 2` is stopped after the first batch (two IDs, a
      cursor), then repeated from `cursor: nil` until the cursor is `nil`: it returns all 7 of
      Ann's IDs. The host deletes each source (6 `{:committed, 1}`, and `{:committed, 0}` for the
      one already forgotten) and calls `RetentionErasure.erase(vault, "principal:ann")`. After it:
-     recall holds only the tenant, space and Bob's memories; a meaning query over Ann's sources
-     is empty; T1-scope reads of the records and the memory index find Bob's, and no row with
+     recall holds only the tenant, space and Bob's memories; a meaning query that permits all of
+     Ann's sources and Bob's finds only Bob's; T1-scope reads of the records and the memory index find Bob's, and no row with
      Ann's subject, her plain-text street address or any of her markers. Every marker of Ann
      fetches `{:error, :not_found}`, the status is `{:ok, :erased}`, and Bob's markers fetch his
      name and email. Owner reads of the vault: `elzoo_vault_entries` and `elzoo_vault_keys` hold
@@ -267,18 +275,31 @@ These validate the harness; they do not replace the Pieces' own controls.
   artifact, the intent Store), Oban's job rows and the retention-erasure vault tables. The
   intent Store keeps each admitted embedding call's texts outside the floor, and no forget,
   erasure, cancel or `delete_source/4` removes them; for a memory they hold only the markers of
-  the values redaction found. A value that pii-redaction does not find (such as the street
-  address) stays in plain text in the Run records and the intent Store; the Run records are not
-  erased with a subject, and the markers in them stop opening. The host redacts once: a new
-  redaction gives new markers. Tombstones keep opaque IDs. Dead tuples, WAL and backups keep
-  deleted content until PostgreSQL reclaims them. `log: false` silences only the Logger. READ
-  COMMITTED is a consumer Need.
-- The Lifeline Need is the host's: the short `rescue_after` runs only on the instance that
-  rescues the killed instance's job and is replaced before `resubmit/3`. `indexed` is not live
-  state. Batches run one at a time. The Runs' model calls are not metered here. The restarts are
-  an Oban instance stopped or killed in one VM, not a database restart.
+  the values redaction found. A value that pii-redaction does not find (listed patterns only,
+  such as the street address) stays in plain text in the Run records and the intent Store and,
+  until forgotten, in the memory record and the memory index; the Run records are not erased
+  with a subject, and the markers in them stop opening. The host redacts once: a new redaction
+  of the same text gives new markers (`put/3` mints a new reference each time), so a retry that
+  redacts again writes other bytes (`:conflict` for the same memory ID). Tombstones keep opaque
+  IDs, including Ann's subject ID. Dead tuples, WAL and backups keep deleted content and
+  wrapped keys until PostgreSQL reclaims them. `log: false` silences only the Logger: the
+  application Repo's query telemetry still receives tenants, IDs, content and vectors as
+  parameters. READ COMMITTED, the Repos' default, is a consumer Need that the Pieces check and
+  cannot set.
+- From `assembly/knowledge-ingest`: the Lifeline Need is the host's (the short `rescue_after`
+  runs only on the instance that rescues the killed instance's job and is replaced before
+  `resubmit/3`); `indexed` is not live state; a stranded ingest waits for an equal `submit/3`;
+  batches run one at a time. Under a volatile Memory intent Store, which this task does not use,
+  an interrupted attempt whose intent is not found is `:unknown` even when it was never sent.
+  Two databases that share one intent Store and one embedding binding must not also reuse the
+  same schema prefix and index identity. A throttled or unknown attempt may have been charged:
+  the host records it as unknown, and whether the provider charged it is not known. The Runs'
+  model calls are not metered here (the Wave 6 acceptance covers Run metering). The restarts
+  are an Oban instance stopped or killed in one VM, not a database restart.
 - Outcomes the host maps but this task does not reach (`:completed_lost`, `:not_dispatched`,
   `credentials_unavailable`, other refusals, a Memory intent Store) and races inside one Piece
   are the owning Piece's tests.
-- A meaning query covers at most 256 sources; expired memories stay stored until forgotten.
+- A meaning query covers at most 256 permitted sources, so one query covers at most 256
+  memories; a tenant with more queries several sets, which this task does not exercise.
+  Expired memories stay stored until forgotten.
 - Finite scenarios, not proofs. No complete-Wave claim.

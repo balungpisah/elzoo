@@ -532,6 +532,20 @@ defmodule Elzoo.Wave7.Helper do
         max_attempts: 3
       )
 
+    # Every floor, checked as elzoo_app before the first call of each test.
+    :ok = KnowledgeIngest.verify(c)
+    for {_, b} <- search, do: :ok = SearchData.verify(b)
+
+    for t <-
+          ~w(elzoo_memory_records elzoo_memory_tombstones elzoo_metering_observations elzoo_metering_corrections),
+        do:
+          :ok =
+            TenantIsolation.verify(AppRepo, {p, t},
+              prefix: p,
+              tenant_column: "tenant",
+              space_column: nil
+            )
+
     :ok = Elzoo.Jobs.register(queue, KnowledgeIngest.runner(c))
     Map.put(fx, :ki, c)
   end
@@ -576,10 +590,24 @@ defmodule Elzoo.Wave7.Helper do
     rows =
       owner!(
         """
-        SELECT n.nspname || '.' || c.relname, string_agg(a.privilege_type, ',' ORDER BY a.privilege_type)
-        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-        CROSS JOIN LATERAL aclexplode(c.relacl) a
-        WHERE n.nspname = ANY($1) AND a.grantee = (SELECT oid FROM pg_roles WHERE rolname = $2)
+        WITH g AS (
+          SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC ' ELSE '' END || n.nspname || '.' || c.relname AS k,
+                 a.privilege_type AS p, a.grantee
+          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          CROSS JOIN LATERAL aclexplode(c.relacl) a WHERE n.nspname = ANY($1)
+          UNION ALL
+          SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC ' ELSE '' END || 'schema ' || n.nspname,
+                 a.privilege_type, a.grantee
+          FROM pg_namespace n CROSS JOIN LATERAL aclexplode(n.nspacl) a WHERE n.nspname = ANY($1)
+          UNION ALL
+          SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC ' ELSE '' END || 'column ' || n.nspname || '.' || c.relname || '.' || t.attname,
+                 a.privilege_type, a.grantee
+          FROM pg_attribute t JOIN pg_class c ON c.oid = t.attrelid
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          CROSS JOIN LATERAL aclexplode(t.attacl) a WHERE n.nspname = ANY($1)
+        )
+        SELECT k, string_agg(p, ',' ORDER BY p) FROM g
+        WHERE grantee IN (0, (SELECT oid FROM pg_roles WHERE rolname = $2))
         GROUP BY 1 ORDER BY 1
         """,
         [[fx.prefix, fx.art_prefix], fx.role]
@@ -711,9 +739,42 @@ defmodule Elzoo.Wave7.Helper do
       ]
       |> Keyword.merge(extra)
 
+    ensure_pg_scope!()
     {:ok, pid} = Oban.start_link(opts)
     Process.unlink(pid)
     pid
+  end
+
+  # Copied from the durable-job test helper (DJ11): Oban.Notifiers.PG (2.24.2) calls
+  # `:pg.start_link(Oban.Notifiers.PG)` in its init/1, so the first notifier owns the scope and
+  # the scope dies with it; a notifier started right after that Oban stops can find the dying
+  # scope and exit :noproc. Before each start the scope is registered and unlinked.
+  @pg_scope Oban.Notifiers.PG
+
+  defp ensure_pg_scope! do
+    case Process.whereis(@pg_scope) do
+      nil ->
+        case :pg.start(@pg_scope) do
+          {:ok, _} -> :ok
+          {:error, {:already_started, _}} -> ensure_pg_scope!()
+        end
+
+      pid ->
+        case Process.info(pid, :links) do
+          {:links, []} -> :ok
+          _linked_or_exited -> await_scope_exit!(pid)
+        end
+    end
+  end
+
+  defp await_scope_exit!(pid) do
+    ref = Process.monitor(pid)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _} -> ensure_pg_scope!()
+    after
+      5_000 -> raise "#{inspect(@pg_scope)} scope #{inspect(pid)} is still linked to a live owner"
+    end
   end
 
   @doc "The queue running two jobs at a time with a short shutdown grace, and `lifeline`."

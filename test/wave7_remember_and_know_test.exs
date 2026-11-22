@@ -18,7 +18,6 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
     Principal,
     RetentionErasure,
     SearchData,
-    TenantIsolation,
     UntrustedContent
   }
 
@@ -80,7 +79,9 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
 
   # T2's documents rank better for T1's topics and words, and hold cara-only.
   @refunds_t2 "<p>Refund refund refund: cara-only refunds for every refund.</p>"
-  @shipping_t2 "# Shipping\n\nShipping shipping delivery: cara-only shipping and delivery."
+  # "courier" (no topic word) 20 times, against 16 in each T1 shipping chunk.
+  @shipping_t2 "# Shipping\n\nShipping shipping delivery: cara-only shipping and delivery. " <>
+                 String.duplicate("Courier ", 20)
   @old_faq_t2 "FAQ question: cara-only faq."
 
   defp docs do
@@ -146,18 +147,7 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
     assert %{current: ^role, super: false, bypass: false, login: false, inherit: false} =
              H.role_guard!(role)
 
-    assert :ok = KnowledgeIngest.verify(fx.ki)
-    for {_, b} <- fx.search, do: assert(:ok = SearchData.verify(b))
-
-    for t <-
-          ~w(elzoo_memory_records elzoo_memory_tombstones elzoo_metering_observations elzoo_metering_corrections) do
-      assert :ok =
-               TenantIsolation.verify(AppRepo, {p, t},
-                 prefix: p,
-                 tenant_column: "tenant",
-                 space_column: nil
-               )
-    end
+    # Every floor verify ran as elzoo_app in H.fixture!/1, before this test's first call.
 
     strip = fn rel -> rel |> String.split(".") |> List.last() |> String.trim("\"") end
     a = fx.art_prefix
@@ -166,7 +156,10 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
     km = strip.(marks(fx, :knowledge))
     mm = strip.(marks(fx, :memory))
 
+    # Relation, schema and column grants to elzoo_app or PUBLIC, on both test schemas.
     expected = %{
+      "schema #{p}" => "USAGE",
+      "schema #{a}" => "USAGE",
       # knowledge-ingest
       "#{p}.elzoo_knowledge_ingests" => "INSERT,SELECT,UPDATE",
       "#{p}.elzoo_knowledge_batches" => "INSERT,SELECT,UPDATE",
@@ -225,6 +218,7 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
     assert %{state: :embedding, batches: %{done: 0, total: 2}} = H.status(fx, "T1", ship)
     H.drain_once(fx)
     assert %{state: :embedding, batches: %{done: 1, total: 2}} = H.status(fx, "T1", ship)
+    assert staged(fx, "T1") > 0
     H.restart_oban!(fx, [])
     H.drain(fx)
     assert %{state: :indexed, batches: %{done: 2, total: 2}} = H.status(fx, "T1", ship)
@@ -528,7 +522,9 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
     assert [%{version: 7, source: "refunds"} = top | _] = t2_vector
     assert top.content =~ "cara-only" and top.source_digest in t2_digests
     assert top.distance < hd(base.vector).distance
-    assert Enum.any?(t2_lexical, &(&1.version == 7 and &1.content =~ "cara-only"))
+    assert [%{version: 7} = top_lexical | _] = t2_lexical
+    assert top_lexical.content =~ "cara-only"
+    assert top_lexical.rank > hd(base.lexical).rank
 
     # Owner-only: elzoo_app cannot lift the floor.
     for table <- [vectors(fx, :knowledge), "#{p}.elzoo_memory_records"],
@@ -689,28 +685,37 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
     {:ok, next} =
       Principal.delegate(ann, %{id: "ann-agent-2", allowed_scopes: ["memory"], allowed_spaces: []})
 
-    {:ok, service} =
-      Principal.new(%{
-        kind: :service,
-        id: "t1-ingest",
-        tenant: "T1",
-        auth_epoch: 1,
-        allowed_scopes: ["read"],
-        allowed_spaces: []
-      })
+    # The ingest service of each tenant: its ID is the actor of every submit/3 and the
+    # principal of every artifact read (H.caller/1, H.art_caller/1).
+    service = fn tenant ->
+      {:ok, p} =
+        Principal.new(%{
+          kind: :service,
+          id: H.service(tenant),
+          tenant: tenant,
+          auth_epoch: 1,
+          allowed_scopes: ["read"],
+          allowed_spaces: []
+        })
 
-    for p <- [ann, agent, next, service],
-        do: assert(:ok = Principal.check(p, %{current_epoch: 1, revoked_ids: []}))
+      assert H.caller(tenant).actor == p.id and H.art_caller(tenant).principal == p.id
+      p
+    end
 
-    %{
+    who = %{
       ann: ann,
       agent: agent,
       next: next,
       bob: human.("bob", "T1"),
       reviewer: human.("t1-reviewer", "T1"),
-      service: service,
-      cara: human.("cara", "T2")
+      service: service.("T1"),
+      cara: human.("cara", "T2"),
+      t2_reviewer: human.("t2-reviewer", "T2"),
+      t2_service: service.("T2")
     }
+
+    for {_, p} <- who, do: assert(:ok = Principal.check(p, %{current_epoch: 1, revoked_ids: []}))
+    who
   end
 
   defp proposal(id, scope, kind, content, by, opts) do
@@ -1143,6 +1148,14 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
     refute Enum.any?(rows, &(&1 =~ "ann.lee@example.com" or &1 =~ "Ann Lee"))
     assert Enum.any?(rows, &(&1 =~ "[pii:email:"))
 
+    index =
+      H.read_as("T1", "SELECT convert_from(content, 'UTF8') FROM #{vectors(fx, :memory)}")
+      |> List.flatten()
+
+    assert index != []
+    refute Enum.any?(index, &(&1 =~ "ann.lee@example.com" or &1 =~ "Ann Lee"))
+    assert Enum.any?(index, &(&1 =~ "[pii:email:"))
+
     # The first version of the tenant fact was never written.
     assert [["Refunds need a receipt or an order number.", "ev-2"]] =
              H.read_as(
@@ -1307,13 +1320,16 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
              & &1.candidate.item_id
            )
 
-    assert meaning(fx, "T1", [source], "system message tenant facts") == []
+    email = "memory:" <> ps.email.memory_id
+
+    assert meaning(fx, "T1", [source, email], "system message tenant facts")
+           |> Enum.map(& &1.source) == [email]
 
     assert H.read_as(
              "T1",
-             "SELECT count(*)::int FROM #{vectors(fx, :memory)} WHERE source_ref = $1",
-             [source]
-           ) == [[0]]
+             "SELECT count(*) FILTER (WHERE source_ref = $1)::int, count(*) FILTER (WHERE source_ref = $2)::int FROM #{vectors(fx, :memory)}",
+             [source, email]
+           ) == [[0, 1]]
 
     assert H.read_as(
              "T1",
@@ -1346,9 +1362,9 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
 
     assert H.read_as(
              "T1",
-             "SELECT count(*)::int FROM #{vectors(fx, :memory)} WHERE source_ref = $1",
-             [source]
-           ) == [[0]]
+             "SELECT count(*) FILTER (WHERE source_ref = $1)::int, count(*) FILTER (WHERE source_ref = $2)::int FROM #{vectors(fx, :memory)}",
+             [source, email]
+           ) == [[0, 1]]
 
     # Erase Ann: the host stops after the first batch and before its deletes, then repeats
     # from cursor: nil until the cursor is nil, deleting each returned memory's source.
@@ -1406,12 +1422,14 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
     assert Enum.sort(for e <- r.entries, do: e.candidate.item_id) ==
              Enum.sort([ps.tenant.memory_id, ps.space.memory_id, "bob-1"])
 
+    # The same query also permits Bob's source and finds only his.
     assert meaning(
              fx,
              "T1",
-             Enum.map(ann_ids, &("memory:" <> &1)),
+             Enum.map(ann_ids, &("memory:" <> &1)) ++ ["memory:bob-1"],
              "peanuts allergy street language"
-           ) == []
+           )
+           |> Enum.map(& &1.source) == ["memory:bob-1"]
 
     records =
       H.read_as(
