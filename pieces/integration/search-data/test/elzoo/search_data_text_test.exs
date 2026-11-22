@@ -650,6 +650,21 @@ defmodule Elzoo.SearchDataTextTest do
         q!(TextRepo, "DELETE FROM #{table} WHERE tenant=$1", [fix])
       end
 
+      # The scan reads pages of 1000 tenants: a bad one that sorts after 1000 valid ones is on
+      # the second page.
+      q!(
+        TextRepo,
+        "INSERT INTO #{Store.marks(legacy)} SELECT 'p' || lpad(i::text, 4, '0'), 'gone', 1 FROM generate_series(1, 1000) i"
+      )
+
+      q!(TextRepo, "INSERT INTO #{Store.marks(legacy)} VALUES ($1, 'gone', 1)", ["q" <> long])
+
+      assert_raise RuntimeError, fn ->
+        Ecto.Migrator.up(TextRepo, 2, FloorMigration, prefix: p, log: false)
+      end
+
+      assert protected.() == [[false]]
+      q!(TextRepo, "DELETE FROM #{Store.marks(legacy)} WHERE tenant=$1", ["q" <> long])
       assert :ok = Ecto.Migrator.up(TextRepo, 2, FloorMigration, prefix: p, log: false)
       assert protected.() == [[true]]
     end
