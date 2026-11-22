@@ -639,6 +639,31 @@ defmodule Elzoo.KnowledgeIngestTest do
     assert length(Script.calls(env.script)) == 8
   end
 
+  test "3 the backoff without retry_after is clamped: attempt 10 snoozes 2,560 s, 11 3,600 s",
+       ctx do
+    env = env(ctx)
+    t = tenant()
+    r = submit!(env, t, doc(env, t, "clamped"))
+    # max_attempts 3: attempts 1-3, 4-6 and 7-9 overloaded fail :embedding_exhausted, and each
+    # resubmit/3 continues the numbers; 10 and 11 overloaded snooze, 12 completes
+    Script.script(env.script, List.duplicate({:status, :overloaded}, 11))
+
+    for last <- [3, 6, 9] do
+      Harness.drain(env)
+      assert %{state: :failed, reason: :embedding_exhausted, attempts: ^last} = status(env, t, r)
+      assert {:ok, _} = KI.resubmit(env.c, caller(t), key(r))
+    end
+
+    Harness.drain_once(env)
+    # attempt 10: 5 × 2^9 = 2,560 s, below the cap
+    assert snooze(env) == 2_560
+    Oban.drain_queue(env.oban, queue: env.queue, with_scheduled: true)
+    # attempt 11: 5 × 2^10 = 5,120 s unclamped, clamped to 3,600 s
+    assert snooze(env) == 3_600
+    Harness.drain(env)
+    assert %{state: :indexed, attempts: 12} = status(env, t, r)
+  end
+
   defp snooze(env) do
     [[s]] =
       Harness.query!(
