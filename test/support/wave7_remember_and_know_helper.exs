@@ -1183,7 +1183,14 @@ defmodule Elzoo.Wave7.Helper do
         repairs: 0
       })
 
-    model_binding = %{c.opts[:bindings]["model_call"] | result: {"elzoo.ai-text.result", 1}}
+    # The model call's Effect intent identity names the Run's tenant (as ELZ-323's in_unit/2).
+    base = c.opts[:bindings]["model_call"]
+
+    model_binding = %{
+      base
+      | result: {"elzoo.ai-text.result", 1},
+        facts: fn a -> update_in(base.facts.(a), [:intent, :identity], &[tenant | tl(&1)]) end
+    }
 
     engine =
       TestHelper.start(c,
