@@ -792,14 +792,18 @@ These are set in the published task texts
 ### Knowledge ingest embeds one batch at a time, from a pinned artifact version
 
 - **Chosen.** One ingest has at most one live embedding call; the job of a
-  completed batch enqueues the next. `submit/3` names an artifact version, not
-  `:head`. A cancel while the index write runs is refused `:indexing`
+  completed batch enqueues the next, and the embed step runs the send under
+  its own task supervisor, which stops with the step, so no send outlives it.
+  Under a volatile Memory Store an interrupted attempt is `:unknown`, never
+  `:not_dispatched`. `submit/3` names an artifact version, not `:head`. A
+  cancel while the index write runs is refused `:indexing`
   ([ELZ-334](../tasks/ELZ-334-knowledge-ingest.md)).
 - **Why.** One call at a time keeps the provider's load and the attempt record
-  simple; a pinned version makes every re-run read the same bytes; the index
-  write cannot be taken back.
-- **For you.** Remove a document that was indexed after a refused cancel with
-  `delete_source/4`.
+  simple; a volatile Store's lost intent is no evidence of no send; a pinned
+  version makes every re-run read the same bytes; the index write cannot be
+  taken back.
+- **For you.** Use a durable intent Store in production. Remove a document
+  that was indexed after a refused cancel with `delete_source/4`.
 - **To change.** Parallel batches and a `:head` reference are additive.
 
 ## Request charge and payload caps of `assembly/run-engine` (RC-50)
