@@ -794,8 +794,9 @@ These are set in the published task texts
 - **Chosen.** One ingest has at most one live embedding call; the job of a
   completed batch enqueues the next, and the embed step runs the send under
   its own task supervisor, which stops with the step, so no send outlives it.
-  Under a volatile Memory Store an interrupted attempt is `:unknown`, never
-  `:not_dispatched`. `submit/3` names an artifact version, not `:head`. A
+  A recovering run reads an attempt's intent through a read-only owner, which
+  admits nothing; under a volatile Memory Store an intent that is not found is
+  `:unknown`, not `:not_dispatched`. `submit/3` names an artifact version, not `:head`. A
   cancel while the index write runs is refused `:indexing`
   ([ELZ-334](../tasks/ELZ-334-knowledge-ingest.md)).
 - **Why.** One call at a time keeps the provider's load and the attempt record
