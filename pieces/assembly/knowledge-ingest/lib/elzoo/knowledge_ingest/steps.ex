@@ -357,11 +357,15 @@ defmodule Elzoo.KnowledgeIngest.Steps do
   # Each chunk must fit one input and its own one-input request; under text_search no chunk
   # may hold a NUL. Then greedy batches in chunk order within max_inputs and max_request_bytes.
   # The canonical request of k inputs is base + the inputs' JSON strings + (k - 1) commas,
-  # where base is the canonical request with `"inputs":[]`.
+  # where base is the canonical request with `"inputs":[]`, so a one-input request is base + enc.
   defp batches(c, j, chunks) do
     l = c.limits
     base = byte_size(Request.canonical(KI.request_json(c.request, [])))
-    sized = Enum.map(chunks, &{&1, byte_size(Jason.encode!(&1.content))})
+    # enc: the bytes one input adds, from the chunk's own one-input canonical request
+    sized =
+      Enum.map(chunks, fn ch ->
+        {ch, byte_size(Request.canonical(KI.request_json(c.request, [ch.content]))) - base}
+      end)
 
     cond do
       Enum.any?(sized, fn {ch, enc} ->

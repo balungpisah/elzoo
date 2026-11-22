@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "id": "assembly/knowledge-ingest",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["oban", "ecto_sql", "postgrex", "elixir", "otp"],
+  "dependencies": [
+    "integration/jobs",
+    "delivery/effect-intent",
+    "integration/ai-embedding",
+    "integration/ai-model",
+    "integration/search-data",
+    "integration/document-parse",
+    "integration/text-chunking",
+    "integration/sql",
+    "state/artifact",
+    "state/tenant-isolation"
+  ],
+  "applications": ["crypto"],
+  "contract": "Durable ingest of one pinned state/artifact version of a tenant's document over a consumer-owned Ecto Repo on PostgreSQL 16: an ingest record, its batches, counted embedding attempts and staged chunks in four Piece-owned tables that Migration.install/1 creates under the state/tenant-isolation floor. submit/3 inserts the ingest (identity tenant, source_ref, version; equal canonical request returns it, another is conflict) and its prepare job in one transaction and re-enqueues a stranded one; bounded integration/jobs steps, each acting only in its own state under the ingest row lock and each killed at its fixed deadline: prepare (artifact get, document-parse, text-chunking with chunk_size 2,000..8,192 and overlap 0..200, chunk and request bounds, NUL under text_search, greedy batches by the ai-embedding canonical request), embed (one batch at a time; each attempt recorded pending before admission, dispatched through delivery/effect-intent under the step's own Task.Supervisor, classified by status when recovered; throttled, overloaded, credentials_unavailable, not_dispatched and completed_lost get new counted attempts up to max_attempts 1..5, an unknown outcome fails until resubmit/3) and index (search-data put_source/5 with if_newer and the parsed text's SHA-256; indexed or superseded with the staged-chunk delete in one transaction). status/3, paged attempts/3 with usage for the host's metering, cancel/3, resubmit/3 and verify/1; fixed error atoms, READ COMMITTED writes, no exactly-once Effect, no RunEngine Run.",
+  "limits": [
+    "Scripted providers only: no claim about embedding, retrieval or ranking quality, and no live provider.",
+    "No exactly-once Effect: a completed_lost attempt is a second paid call, a throttle or overload may have been processed and an unknown attempt may have been charged; the attempts record keeps that visible but cannot prevent it.",
+    "With a durable Store each admitted attempt leaves one intent whose arguments are the batch's chunk texts, outside the tenant floor; the Piece removes none, and neither cancel/3 nor delete_source/4 removes them. Under a Memory Store an intent lasts only until a restart, and an interrupted attempt whose intent is not found is unknown even when it was never sent.",
+    "Oban job rows carry the tenant and the ingest ID, outside the floor.",
+    "Step timings are observations on this host, not guarantees: a slower host can fail a large document {:step_failed, :prepare}; a version too large to write within statement_timeout_ms + 2,000 ms ends {:step_failed, :index}, and a cancel of it can leave the version stored.",
+    "new/1 checks the request's model and dimension against the index descriptor, not its provider, so a provider mismatch is found only at the index step, after the paid calls.",
+    "Oban's job timeout is not used; the bound is the step's own deadline, and the Lifeline Need (rescue_after over the largest step deadline plus 60 s) is the host's. A rescue of a live embed job, which the Need excludes, can classify its in-flight attempt as unknown or not_dispatched.",
+    "indexed is not live state: a later delete_source/4 or higher version leaves it indexed; a delete that lands while a crashed index run awaits its re-run ends the ingest superseded although its first write committed.",
+    "A stranded ingest waits for an equal submit/3; there is no sweeper. An older version is embedded in full before its index step finds it stale. Batches run one at a time. The index step holds every chunk and vector of the version in memory.",
+    "A failed ingest keeps its staged chunks until it is cancelled; ingest and attempt records are never pruned; deleted rows stay in dead tuples, WAL and backups until PostgreSQL reclaims them.",
+    "One config serves one queue and one search index. The actor and the caller are host-vouched, not authenticated. The parsed text is untrusted content that the Piece does not mark; ingesting grants no authority and prevents no injection.",
+    "The state/tenant-isolation limits apply: the table owner can turn forcing off or drop the policies, and a superuser or BYPASSRLS role ignores them."
+  ],
+  "files": [
+    "lib/elzoo/knowledge_ingest.ex",
+    "lib/elzoo/knowledge_ingest/migration.ex",
+    "lib/elzoo/knowledge_ingest/steps.ex",
+    "test/elzoo/knowledge_ingest_test.exs",
+    "test/elzoo/knowledge_ingest_lifecycle_test.exs",
+    "test/elzoo/knowledge_ingest_restart_test.exs",
+    "test/elzoo/knowledge_ingest_isolation_test.exs",
+    "test/support/knowledge_ingest_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/knowledge_ingest_test.exs",
+      "claim": "Listed scenarios of groups 1-3 on the worker's own PostgreSQL 16 with pgvector, a real Oban 2.24.2 instance drained in the test, a scripted provider that counts its calls and a real state/artifact store over the disposable MinIO, the intent Store on integration/sql except the Memory cases: 1 each bad field of new/1 and of every call is invalid before any query (counted on the Repo's telemetry), the 64/65-byte tenant, U+0085 actor, :head, chunk_size 1,999/2,000/8,192/8,193, overlap 200/201, max_input_bytes 7,999/8,000, model and dimension against the descriptor; equal, other-actor, conflicting and versioned submits; two equal submits behind a barrier store one ingest and one job; an injected enqueue failure, a caller transaction and REPEATABLE READ write nothing; index_mismatch; 2 HTML and Markdown staged chunks equal TextChunking.chunk/4 of the parsed text with text_sha256 and parser; artifact integrity mismatch, deleted and access denied; store_unavailable retried and failing on the last attempt; parse, chunk, combining-mark and escaped-quote oversize and NUL failures with no provider call; hand-counted greedy batches (32 ASCII, 10 three-byte, 8 four-byte, 16 newline chunks per call, max_inputs 4); two prepare runs (sequential and behind a barrier) leave one set of staged chunks and one batch-0 job; a committed-then-erroring last attempt writes nothing; 1 MiB of four-byte emoji prepares within the real 120,000 ms deadline (observation printed); 3 vectors reach put_source element for element; retry_after 7, overload 5 s and 5 × 2^(k-1) backoff; exhaustion at max_attempts 1 and 5; credentials_unavailable, authentication_failed; unknown and a hanging provider with one call and the call dead before the job returns; resubmit after unknown and exhausted with continued numbers and no re-embedding of completed batches; completed_lost re-embedding with a new ref and exhaustion on the last attempt; a crash after pending gives not_dispatched with no intent in the Store, and under an emptied Memory Store unknown with no call; a deadline kill takes the send down and the next run records unknown, never two live calls; task_start after the dispatched barrier is unknown; two runs holding one completed outcome record one and enqueue one next or index job; a stale embed job erroring on its last attempt writes nothing; attempts/3 pages at limit 1, 2 and 256. Finite scenarios, not proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/knowledge_ingest_lifecycle_test.exs",
+      "claim": "Listed scenarios of groups 4, 5, 7 and 9 on the same stack: an indexed ingest's query/2 candidates carry source_digest equal to text_sha256; an index job run again after indexed and a host delete makes no put_source call; a crash after the committed write and a re-run end indexed with no staged chunk; index steps of versions 1 and 2 at once in both commit orders keep version 2 (version 1 indexed or superseded); version 1 after version 2 is superseded; delete_source/4 during embedding, between the write and the indexed transaction, and after a crash there give superseded, indexed and superseded with the source deleted; non-unit vectors fail {:index, :incompatible_embedding}; an injected indeterminate is retried; cancel in requested, preparing, embedding and failed, a late outcome recorded with no vector, indexing, terminal and not_failed results; a deadline passed on attempts 1-2 retried and on all three step_failed; raising prepare, embed and index steps fail step_failed and resubmit restarts the step; a killed step process is retried; a stranded ingest is re-enqueued by an equal submit and a live one is not; the deadline, job attempt and backoff values; status at each state. Finite scenarios, not proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/knowledge_ingest_restart_test.exs",
+      "claim": "Group 6: the whole Oban instance killed with reason :kill and a 50 ms shutdown grace while the step is held at its seam (job row left executing) during prepare, between two batches and after the index write; a new instance on the same Repo with Lifeline rescue_after 200 ms rescues the job and the ingest ends indexed with one version stored and no staged chunk; the same kill during an in-flight provider call leaves the intent Dispatched in the integration/sql Store and the ingest ends embedding_unknown with one call. Finite scenarios, not proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/knowledge_ingest_isolation_test.exs",
+      "claim": "Group 8 as the ELZ-285 application role (ELZOO_TEST_APP_ROLE; fails, not skips, without it or when it is superuser or BYPASSRLS) with only the README grants, the Piece and its Oban instance on that role: verify/1 passes; without a tenant filter a T1 scope sees no T2 ingest, batch, attempt or staged chunk; a direct T2 insert fails 42501; status/3, cancel/3 and resubmit/3 of T2's ingest from T1 are not_found; verify/1 reports floor_missing after the floor of one table is dropped. Finite scenarios, not proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/knowledge_ingest_test.exs",
+      "claim": "Negative controls (temporary edits, reverted, never committed): writing without if_newer fails the version race where version 2 commits first; dropping the preparing check of prepare's commit makes the second barrier run a job error on the staged-chunk constraint; dropping the own-state check of the last-attempt failure write ends the committed-then-error ingest failed; retrying an unknown outcome makes a second provider call; a staged-chunk delete in its own transaction after the indexed write with the crash seam between leaves staged chunks; dropping the indexed check of the index step makes a put_source call."
+    },
+    {
+      "kind": "upstream",
+      "provider": "oban",
+      "reference": "https://hexdocs.pm/oban/2.24.2/Oban.html",
+      "claim": "Oban 2.24.2 unique insert per (queue, job_key) with period :infinity and states :all, snooze with attempt - 1 in the Basic engine (no attempt consumed), backoff on {:error, _} and {:cancel, _} on the last attempt, the default :infinity job timeout (enforced only by :timer.exit_after/2, which an exit-trapping worker receives as a message), Lifeline rescue of executing jobs older than rescue_after (to available, or discarded when attempts are exhausted; it can re-run a live job) and drain_queue/2 are upstream contracts."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "Ecto SQL 3.14.0 Repo.transact/2, in_transaction?/0, Ecto.Adapters.SQL.query!/4 with log: false and migration execute/1 are upstream behavior; a dying connection owner rolls its transaction back (DBConnection)."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/16/explicit-locking.html#LOCKING-ROWS",
+      "claim": "PostgreSQL 16 SELECT ... FOR UPDATE row locks, READ COMMITTED statement snapshots after a lock wait, INSERT ... ON CONFLICT DO NOTHING waiting for a concurrent insert, primary-key uniqueness, row-level security with 42501 and table privileges are upstream server contracts reached through Postgrex 0.22.4."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir String.valid?/1, Regex, Task.Supervisor and :erlang.term_to_binary/2 with :deterministic and binary_to_term/2 with :safe for stored outcomes are upstream contracts."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.2 links, monitors, exit trapping and Process.exit/2 with :kill (the deadline kill), supervisor shutdown of linked children and crypto:hash(sha256) for the ingest ID and request digest are upstream contracts."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host runs the migration as the table owner, connects the application as a non-owner, non-bypass role with the README grants and READ COMMITTED transactions, calls verify/1 before serving, registers one config per queue, keeps the prefix, search binding, embedding binding, provider account and request of a config while any of its ingests is not terminal, sets Oban Lifeline rescue_after above the largest step deadline plus 60 s, and uses a durable intent Store for the no-send classification."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "inherited",
+      "from": "oban",
+      "contract": "Oban [:oban, :job, ...] and Ecto query events of the consumer's Oban instance and Repo; the Piece emits no Elzoo event and its queries pass log: false."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time only (new/1, fixed for the value's life): repo, prefix, oban, queue (1..64 bytes), search, artifact, artifact_scopes (0..16), embedding (max_input_bytes at least 8,000), request (model and dimension of the index descriptor), intent and max_attempts 1..5 (default 3); per-request chunking chunk_size 2,000..8,192, chunk_overlap 0..200, max_chunks 1..65,536; fixed version 1 step deadlines 120,000 ms, receive_timeout_ms + 30,000 ms and 120,000 ms.",
+      "evidence": ["test/elzoo/knowledge_ingest_test.exs", "test/elzoo/knowledge_ingest_lifecycle_test.exs"]
+    },
+    "control": {
+      "status": "supported",
+      "contract": "cancel/3 and resubmit/3 per ingest; Oban queue pause and resume are inherited from the consumer's Oban instance.",
+      "evidence": ["test/elzoo/knowledge_ingest_lifecycle_test.exs"]
+    }
+  }
+}
