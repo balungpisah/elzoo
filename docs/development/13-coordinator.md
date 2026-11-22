@@ -135,42 +135,45 @@
   review is owed, do it when the stronger model is available, and make each
   finding its own task.
 - **Skipped automated reviews.** When `AGENTS.md` section 6 lets the
-  coordinator skip the automated reviewer, add a row here. When the
-  automated reviewer is available again, it rechecks each listed range once:
-  push a branch `recheck/<PR>-base` at the range's first SHA and a branch
-  `recheck/<PR>` at its last SHA, open a pull request from the second to the
-  first, mark it ready so the automated reviewer passes, then close it
-  unmerged and delete both branches. The reviewer of another model family in
-  `AGENTS.md` section 6 may recheck a listed range instead, under that
-  section's reading and citation rule. A recheck reads the pull request's
-  own commits in the range (`git log --first-parent --no-merges <range>`,
-  the same filter that `AGENTS.md` section 8 uses) and each merge of `main`
-  into the branch in the range whose `git show --remerge-diff --format=
-  <merge>` is not empty; a merge with an empty remerge diff is not reviewed again. Each finding becomes its own task, and
-  the row is removed only after the automated reviewer or that reviewer posts
-  findings or an explicit no-findings result for the range, as a review on
-  the recheck pull request or, for that reviewer, a five-line record on the
-  skipped pull request that is posted after the row was added and whose
-  Reviewer role begins `recheck of a skipped automated review`. The record
-  that was the gate does not count. If neither posts
-  a review result, including when the automated reviewer reports that it is
-  unavailable or out of quota, the row stays.
+  coordinator skip the automated reviewer, add a row here. Each listed range
+  is rechecked once, by the automated reviewer when it is available again or
+  by the reviewer of another model family in `AGENTS.md` section 6; that
+  reviewer works under that section's reading and citation rule. A recheck reads the pull
+  request's own commits in the range (`git log --first-parent --no-merges
+  <range>`, the same filter that `AGENTS.md` section 8 uses) and each merge
+  of `main` into the branch in the range whose `git show --remerge-diff
+  --format= <merge>` is not empty (a conflict resolution or an evil merge);
+  a merge with an empty remerge diff is not reviewed again.
+  - Recheck a row only after its pull request has merged, so that the
+    range's first SHA is on `main`. For the automated reviewer, build a
+    branch `recheck/<PR>-base` at that SHA, and build `recheck/<PR>` from it locally: cherry-pick
+    the pull request's own commits in order (`git log --first-parent
+    --no-merges --reverse --format=%H <range>`), and add each non-empty
+    remerge diff as its own commit after the commits before it. Push both
+    branches only when the build succeeds. Open a pull request from
+    `recheck/<PR>` to `recheck/<PR>-base`, mark it ready so the automated
+    reviewer passes, and close it unmerged. `recheck/<PR>` is not merged,
+    so before you delete it push an archive ref of its exact tip, as
+    `AGENTS.md` section 8 requires (`refs/heads/archive/recheck-<PR>-<UTC
+    time>-<tip>`), and name that ref in a comment on the closed recheck pull
+    request. Then delete both branches.
+  - If a cherry-pick conflicts because a commit depends on a merge of
+    `main`, or a remerge diff does not apply, abort it and push nothing for
+    that row. The reviewer of another model family (`openai/gpt-6.1-terra`
+    at high effort, in a fresh session) rechecks that row: it reads `git log
+    --first-parent --no-merges -p <range>` and those remerge diffs.
+
+  Each finding becomes its own task, and the row is removed only after the
+  automated reviewer or that reviewer posts findings or an explicit
+  no-findings result for the range, as a review on the recheck pull request
+  or, for that reviewer, a five-line record on the skipped pull request that
+  is posted after the row was added and whose Reviewer role begins
+  `recheck of a skipped automated review`. The record that was the gate does
+  not count. If neither posts a review result, including when the automated
+  reviewer reports that it is unavailable or out of quota, the row stays.
 
   | Pull request | Skipped range | Why |
   | --- | --- | --- |
-  | #719 | `3d624ba1..ac2bc431` | nothing posted for the head 30 minutes after its push; the extra review was the gate |
-  | #723 | `b1fa8b9d..cb1385b9` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
-  | #725 | `42910465..d7a0e54b` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
-  | #729 | `d1316117..3390fc53` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
-  | #737 | `4304e053..d8171bde` | nothing posted for `35717057` or the later merge head `d8171bde` 30 minutes after the `35717057` push; the other-family fallback review was the gate |
-  | #741 | `fc3abf63..03f2d744` | nothing posted for the head 30 minutes after its push and the ready mark; the other-family fallback review was the gate |
-  | #747 | `36937f30..e24f4cce` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
-  | #750 | `0c14fd52..5aa596f5` | nothing posted for the head 30 minutes after its push and the ready mark; the other-family fallback review was the gate |
-  | #753 | `a1920865..db617841` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
-  | #759 | `148beb97..76e46c61` and the commit that adds this row | nothing posted for `76e46c61` or for the row commit 30 minutes after its push; the other-family fallback review was the gate |
-  | #761 | `4ee045d6..a153ea56` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
-  | #770 | `fbcffb85..b59f5165` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
-  | #771 | `5571f641..b72ca93a` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
 
 - **Repair of a red `main`.** The full check on `main` is the evidence of the
   small-gate merges. When it is red:
