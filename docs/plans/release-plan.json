@@ -9001,6 +9001,29 @@
       "issue": 815,
       "url": "https://github.com/balungpisah/elzoo/issues/815",
       "issue_body_sha256": "e390f49e95785b30a90cc347368968cac902ff7295eb631c9d72ea3ab60bb3b1"
+    },
+    {
+      "id": "ELZ-342",
+      "title": "ELZ-342 — Plan Wave 8, Bots talk",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-338"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-342-wave8-plan.md"
+      ],
+      "outputs": [],
+      "acceptance": "docs/plans/bot-platform-wave8.md gives the Wave 8 source boundaries, one disposition per candidate handle, the owner's 2026-11-21 decisions carried as settled (the room rollover continuation chain with the closed mailbox input surface, the per-child parent-close rule and pinned-version inheritance), a decision for each deferred item mapped to Wave 8 (RC-11, RC-37, the a2a call shape, the request-cap note, the turn-policy decision, the child-Run exclusions), dependency levels ending in a mandatory root consumer acceptance, a Contract sketch, acceptance with negative controls and the options kept open for each job under the no-corner rule, and numbered owner questions with lettered options and recommendations, the room-life decision among them; no Contract, task, Piece, catalogue, choices or bot-platform.md change. Documents-only classification, roadmap (plain, write, live), claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 817,
+      "url": "https://github.com/balungpisah/elzoo/issues/817",
+      "issue_body_sha256": "030487c37ae3e26c06cdb12d23bf3b8b915457b758b8baa820b7d098f6791dbc"
     }
   ],
   "entries": [
