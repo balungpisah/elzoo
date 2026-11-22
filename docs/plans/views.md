@@ -376,6 +376,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-324](https://github.com/balungpisah/elzoo/issues/752) | V2 / pieces | ELZ-321, ELZ-322 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
 | [ELZ-325](https://github.com/balungpisah/elzoo/issues/754) | V1B / pieces | ELZ-317 | published 2026-11-21 | coordinator; one-PR path for a documents change; merge queue |
 | [ELZ-326](https://github.com/balungpisah/elzoo/issues/758) | V2 / pieces | ELZ-323, ELZ-324 | published 2026-11-22 | coordinator; one-PR path for a documents change; independent review and merge queue |
+| [ELZ-327](https://github.com/balungpisah/elzoo/issues/760) | V2 / pieces | ELZ-285, ELZ-286, ELZ-323 | published 2026-11-22 | coordinator; one-PR path for a shared root test change; full review and merge queue |
 
 ## Catalogue accounting
 
@@ -570,7 +571,7 @@ Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327.
 
 Prior release gate: V1-ACCEPT.
 
@@ -4604,3 +4605,13 @@ Publication copy: [tasks/ELZ-326-wave6-closure-note.md](../../tasks/ELZ-326-wave
 **Product aims:** P09, P10.
 
 **Acceptance:** bot-platform-wave6.md records the Wave 6 closure (every published Wave 6 task merged on a green main, repairs, coordinator decisions, the ELZ-323 limits, the owner-connection handoff to ELZ-327 and the non-blocking open items, Wave 7 not admitted); bot-platform.md no longer calls Wave 6 planned; choices.md gains the Wave 6 acceptance limits; no Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.
+
+### ELZ-327
+
+ELZ-327 — Run the RunEngine stores of the root acceptances as the application role
+
+Publication copy: [tasks/ELZ-327-run-engine-stores-as-app-role.md](../../tasks/ELZ-327-run-engine-stores-as-app-role.md).
+
+**Product aims:** P09.
+
+**Acceptance:** The RunEngine test fixture takes optional store_repo and grant options: its runtime Store calls (Unit, Run and Lease, Effect intent and host, evidence and so the transcript reader, and resource/3) use store_repo, grant runs after the migration; schema, migration and teardown stay on its TestRepo and the defaults keep the Piece's own tests unchanged. test/wave5_tenancy_test.exs and test/wave6_count_and_see_test.exs pass their application Repo and grant only USAGE, SELECT/INSERT/UPDATE on heads and outbox and SELECT/INSERT on records and checkpoints in the engine schema; for every Run fixture they assert each Store binding's connection is the application role (not the session role, no superuser, BYPASSRLS or inherited owner privileges) and that the role holds no TRUNCATE or DELETE on and owns no table of the engine schema. Every existing assertion stays. docs/choices.md and both reports drop the owner-connection limit. Negative controls (stores back on TestRepo; one grant withheld), mix check --affected origin/main, diff check, full review, exact-head full hosted check, merge queue.

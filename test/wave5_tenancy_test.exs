@@ -408,7 +408,7 @@ defmodule Elzoo.Wave5.TenancyTest do
   defp live_run(tenant, read) do
     observer = self()
     gate = %{id: "kill-switch-gate", version: 1, call: H.switch_call(read, %{"action" => nil})}
-    c = TestHelper.fixture(tenant: tenant, gate: gate, pattern: {WorkPattern, :on_input, 0})
+    c = H.engine_fixture(tenant: tenant, gate: gate, pattern: {WorkPattern, :on_input, 0})
 
     bindings =
       Map.update!(c.opts[:bindings], "local_work", fn binding ->
@@ -561,7 +561,7 @@ defmodule Elzoo.Wave5.TenancyTest do
     gate = %{id: "provider-data-gate", version: 1, call: H.provider_call(policy)}
 
     c =
-      TestHelper.fixture(
+      H.engine_fixture(
         tenant: tenant,
         gate: gate,
         pattern: {TestPattern, :step, %{requests: [TestHelper.request(actions)]}}

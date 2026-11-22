@@ -8604,6 +8604,31 @@
       "issue": 758,
       "url": "https://github.com/balungpisah/elzoo/issues/758",
       "issue_body_sha256": "e06875e47eb221a4da6bcaf2b5333e7a8a8a3a96d11eaece12f8ca09cd7c6d39"
+    },
+    {
+      "id": "ELZ-327",
+      "title": "ELZ-327 — Run the RunEngine stores of the root acceptances as the application role",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-285",
+        "ELZ-286",
+        "ELZ-323"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "coordinator; one-PR path for a shared root test change; full review and merge queue",
+      "paths": [
+        "tasks/ELZ-327-run-engine-stores-as-app-role.md"
+      ],
+      "outputs": [],
+      "acceptance": "The RunEngine test fixture takes optional store_repo and grant options: its runtime Store calls (Unit, Run and Lease, Effect intent and host, evidence and so the transcript reader, and resource/3) use store_repo, grant runs after the migration; schema, migration and teardown stay on its TestRepo and the defaults keep the Piece's own tests unchanged. test/wave5_tenancy_test.exs and test/wave6_count_and_see_test.exs pass their application Repo and grant only USAGE, SELECT/INSERT/UPDATE on heads and outbox and SELECT/INSERT on records and checkpoints in the engine schema; for every Run fixture they assert each Store binding's connection is the application role (not the session role, no superuser, BYPASSRLS or inherited owner privileges) and that the role holds no TRUNCATE or DELETE on and owns no table of the engine schema. Every existing assertion stays. docs/choices.md and both reports drop the owner-connection limit. Negative controls (stores back on TestRepo; one grant withheld), mix check --affected origin/main, diff check, full review, exact-head full hosted check, merge queue.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 760,
+      "url": "https://github.com/balungpisah/elzoo/issues/760",
+      "issue_body_sha256": "6db79e5ff6bf861b7c52ebe14c3e9e123b6b96e89579374b37b385a0f7a211be"
     }
   ],
   "entries": [
