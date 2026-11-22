@@ -816,9 +816,10 @@ defmodule Elzoo.KnowledgeIngest.Steps do
   defp kind(_), do: :unknown
 
   # The provider's retry_after clamped to 1..3,600 s, otherwise 5 × 2^(n−1) s after the n-th
-  # attempt (attempt numbers continue across resubmit/3).
+  # attempt clamped to at most 3,600 s (attempt numbers continue across resubmit/3). The exponent
+  # is capped first: from n = 11 on, 5 × 2^10 = 5,120 already exceeds the clamp.
   defp delay(s, _) when is_integer(s), do: s |> max(1) |> min(3_600)
-  defp delay(_, n), do: 5 * Integer.pow(2, n - 1)
+  defp delay(_, n), do: min(5 * Integer.pow(2, min(n, 11) - 1), 3_600)
 
   ## Index
 
