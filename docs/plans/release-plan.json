@@ -8653,6 +8653,27 @@
       "issue": 762,
       "url": "https://github.com/balungpisah/elzoo/issues/762",
       "issue_body_sha256": "9095c0fd01175724ad7b7029ee05bd4c46bc4bba82c5c88c3317a4660e2ff09e"
+    },
+    {
+      "id": "ELZ-330",
+      "title": "ELZ-330 — Adopt floki 0.38.5 as a direct pinned dependency",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-22",
+      "owner_role": "coordinator; one-PR path for a root dependency change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-330-floki-provider.md"
+      ],
+      "outputs": [],
+      "acceptance": "Wave 7 provider prerequisite under the owner's Q1 A: floki == 0.38.5 is a direct dependency in mix.exs, with a Hex provider row (MIT, versioned hexdocs reference) in registry/providers.json and a row in the direct-dependency table of docs/dependencies.md; mix.lock is byte-equal to the base (0.38.5 is already locked through cure's md dependency); no config :floki, Piece, catalogue or entries change and no other dependency or pin. mix check with no flag on a disposable PostgreSQL 16 with pgvector as elzoo_app, diff and roadmap checks, independent review, exact-head full hosted check, merge queue.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 766,
+      "url": "https://github.com/balungpisah/elzoo/issues/766",
+      "issue_body_sha256": "d815547fd98636c491bcbd85d6bd5ec9d6e07736cc425d6f88b39537391c6390"
     }
   ],
   "entries": [
