@@ -34,6 +34,14 @@
       "reason": "Deferred until a real data workload justifies it"
     },
     {
+      "id": "assembly/knowledge-ingest",
+      "summary": "Ingest a tenant's document durably: parse, chunk, embed and index as bounded jobs with counted attempts",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-334: Wave 7 (P13). Durable Assembly of bounded integration/jobs steps over Piece-owned tables under state/tenant-isolation (owner Q1 A, Q8 A, Q9 A); not a RunEngine Run; RC-39 assembly/data-pipeline stays deferred."
+    },
+    {
       "id": "assembly/device-ingest",
       "summary": "IoT dedup/window/alerts/rollout",
       "disposition": "defer",
