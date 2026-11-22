@@ -8682,6 +8682,27 @@
       "issue_body_sha256": "e05b6c06038e5964d91803e92a16ee709423b168e9bb4eaf6ecca96e5afa9780"
     },
     {
+      "id": "ELZ-330",
+      "title": "ELZ-330 — Pin floki 0.38.5 as a direct dependency",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-22",
+      "owner_role": "coordinator; one-PR path for a root dependency change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-330-floki-provider.md"
+      ],
+      "outputs": [],
+      "acceptance": "Wave 7 provider prerequisite under the owner's Q1 A: floki == 0.38.5 is a direct dependency in mix.exs, with a Hex provider row (MIT, versioned hexdocs reference) in registry/providers.json and a row in the direct-dependency table of docs/dependencies.md; mix.lock is byte-equal to the base (0.38.5 is already locked through cure's md dependency); no config :floki, Piece, catalogue or entries change and no other dependency or pin; not adoption in the dependency register's sense (no Elzoo runtime check until integration/document-parse adds one). mix check with no flag on a disposable PostgreSQL 16 with pgvector as elzoo_app, diff and roadmap checks, independent review, exact-head full hosted check, merge queue.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 766,
+      "url": "https://github.com/balungpisah/elzoo/issues/766",
+      "issue_body_sha256": "0f22782f2a7fded2a6656e0404c8f954b40d9f3525043a9c5364cb9744acc630"
+    },
+    {
       "id": "ELZ-331",
       "title": "ELZ-331 — Search the chunk store by words, remove a source, keep the newest version and keep tenants apart in the database",
       "kind": "published",
