@@ -4,7 +4,7 @@
 
 This document is planning input for Wave 7 (`Remember and know`) of the P13 track in [bot-platform.md](bot-platform.md). It promotes nothing to ready and publishes no Piece task. [release-plan.json](release-plan.json) remains the one canonical planning source; handles are provisional until publication, and the coordinator assigns the ELZ IDs then. The coordinator publishes the levels below after the owner answers Q1–Q10, and records the answers.
 
-Wave 6 is accepted: its root consumer acceptance [ELZ-323](../../tasks/ELZ-323-wave6-count-and-see-acceptance.md) is merged on `main`, so the serial rule of [bot-platform.md](bot-platform.md) lets Wave 7 be registered. The coordinator reports that the owner approved Wave 7 for planning (2026-11-22). This plan treats the pruned Wave 7 row of [bot-platform.md](bot-platform.md) ("Subsequent waves (Waves 6–9)") as a proposal, checks each handle against the ready manifests, and keeps a new Piece only for missing policy. Where a ready Piece lacks something that clearly belongs to it, the plan extends it in place under its ID (rule of 2026-11-14; `AGENTS.md` section 4).
+Wave 6 is accepted: its root consumer acceptance [ELZ-323](../../tasks/ELZ-323-wave6-count-and-see-acceptance.md) and its closure record ([ELZ-326](../../tasks/ELZ-326-wave6-closure-note.md), in [the Wave 6 plan](bot-platform-wave6.md)) are merged on `main`, so the serial rule of [bot-platform.md](bot-platform.md) lets Wave 7 be registered. The coordinator reports that the owner approved Wave 7 for planning (2026-11-22). This plan treats the pruned Wave 7 row of [bot-platform.md](bot-platform.md) ("Subsequent waves (Waves 6–9)") as a proposal, checks each handle against the ready manifests, and keeps a new Piece only for missing policy. Where a ready Piece lacks something that clearly belongs to it, the plan extends it in place under its ID (rule of 2026-11-14; `AGENTS.md` section 4).
 
 Wave 7 means two things. A bot **remembers**: facts and preferences about a tenant, a space, an end user or a bot are kept as scoped records with provenance, written only through a declared policy, recalled within bounds, and forgotten or erased on request. And a bot **knows**: a tenant's documents are parsed, chunked, embedded and indexed durably, retrieved by meaning and by words under the tenant's permissions, and an answer cites the exact text it used.
 
@@ -76,7 +76,7 @@ Each deferred item that [bot-platform.md](bot-platform.md), the [Wave 5](bot-pla
 - **The Wave 7 row's deferred and conditional list** (`state/cache`, `state/bot-data`, `integration/ai-rerank`, `integration/connector-web`, `integration/connector-database`, `assembly/data-pipeline`): each is placed in the table above; all stay deferred.
 - **Search-data deletion and expiry** (left out of ELZ-279 and stated as a search-data limit): a source delete is added in place at Level 1, because forgetting a memory, erasing a subject and removing a document need it. Expiry and retention schedules stay deferred; artifact tombstones stay `state/artifact`'s delete and reap.
 - **Wave 6 deferred options** ([choices](../choices.md#deferred-options)): none is mapped to Wave 7.
-- **Open issues:** none of the open issues (#760, #758, #715, #710, #701, #670, #669, #547, #98, #76, #70) maps to Wave 7.
+- **Open issues:** none of the open issues (#760, #715, #710, #701, #670, #669, #547, #98, #76, #70) maps to Wave 7.
 
 ## Dependency levels
 

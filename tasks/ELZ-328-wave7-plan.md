@@ -20,14 +20,15 @@ cannot name it; it is merged on `main`.
 Owned paths:
 
 - `docs/plans/bot-platform-wave7.md`: a new page;
-- `docs/plans/bot-platform.md`: in "Deferred rows", the row for RC-39; in
-  "Waves 4 to 9", the paragraph and the Wave 7 rows of both tables;
-- `docs/development/13-coordinator.md`, only when the automated reviewer is
-  skipped for this pull request (`AGENTS.md` section 6): its row under
-  "Skipped automated reviews", and, when it is not there yet, the approved
-  sentence in the recheck paragraph that a recheck reads only the pull
-  request's own commits (`git log --first-parent --no-merges <range>`), the
-  same filter that `AGENTS.md` section 8 uses.
+- `docs/plans/bot-platform.md`: in "Deferred rows", the row for RC-39 and
+  the Wave 6 row (RC-21, RC-23, RC-08, RC-22, RC-40, RC-31), which says that
+  Wave 6 is accepted; in "Waves 4 to 9", the paragraph and the Wave 7 rows of
+  both tables.
+
+If the automated reviewer is skipped for this pull request (`AGENTS.md`
+section 6), the skip comment is posted on the pull request and the
+coordinator files its row in a later change of the coordinator guide; this
+task does not edit `docs/development/13-coordinator.md`.
 
 Publication owns this task file, its no-output job row in
 `docs/plans/release-plan.json`, and the generated `docs/plans/views.md` and
@@ -63,7 +64,8 @@ Publication owns this task file, its no-output job row in
    new dependency or changed pin is its own task that merges first. A
    Contract sketch that depends on an open question says so.
 7. In `bot-platform.md`, the RC-39 row and the Wave 7 rows point to the new
-   page. The serial rule for later waves and the other rows do not change.
+   page, and the Wave 6 row of "Deferred rows" says that Wave 6 is accepted.
+   The serial rule for later waves and the other rows do not change.
 
 No Contract, task, Piece, catalogue row, `docs/choices.md`,
 `docs/plans/bot-platform-wave6.md` or other plan text changes.
