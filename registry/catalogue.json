@@ -891,7 +891,8 @@
       "summary": "Scoped memory records written through a host policy, recalled within bounds and forgotten on request",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/state/memory-record/piece.json",
       "reason": "ELZ-332: Wave 7 (P13). Plain Ecto/Postgrex tables under state/tenant-isolation (owner Q4, Q5 and Q6 A); absorbs domain/memory-scope and workflow/memory-write-policy; no embedding, search or model call."
     },
     {
