@@ -4,7 +4,7 @@
   "status": "ready",
   "coverage": "subset",
   "license": "Apache-2.0",
-  "kind": "recipe",
+  "kind": "adapter",
   "providers": [
     "floki",
     "elixir",
