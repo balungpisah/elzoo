@@ -94,7 +94,7 @@ defmodule Elzoo.KnowledgeIngestTest do
       put_in(r.artifact.version, :head),
       put_in(r.artifact.version, 0),
       put_in(r.artifact.artifact_id, "a/b"),
-      Map.put(r, :index, "docs"),
+      Map.put(r, :index, "handbook"),
       Map.delete(r, :chunking),
       %{r | version: 0},
       %{r | version: 2_147_483_648},
@@ -290,7 +290,7 @@ defmodule Elzoo.KnowledgeIngestTest do
       assert s.text_sha256 == :crypto.hash(:sha256, parsed.text)
       assert s.parser == %{id: "integration/document-parse", version: 1, library: library}
       assert s.batches.total >= 1 and s.batches.done == 0
-      id = ingest_id(env.p, "docs", t, r.source_ref, 1)
+      id = ingest_id(env.p, "handbook", t, r.source_ref, 1)
 
       staged =
         Harness.scoped!(
@@ -463,7 +463,7 @@ defmodule Elzoo.KnowledgeIngestTest do
   end
 
   defp batch_counts(env, t, ref) do
-    id = ingest_id(env.p, "docs", t, ref, 1)
+    id = ingest_id(env.p, "handbook", t, ref, 1)
 
     Harness.scoped!(
       t,
@@ -571,7 +571,7 @@ defmodule Elzoo.KnowledgeIngestTest do
     assert snooze(env) == 5
     Harness.drain(env)
     assert %{state: :indexed, attempts: 2} = status(env, t, r2)
-    id = ingest_id(env.p, "docs", t, "doc-1", 1)
+    id = ingest_id(env.p, "handbook", t, "doc-1", 1)
 
     assert [
              %{ref: ref1, batch: 0, number: 1, outcome: {:refused, :throttled}, usage: nil},

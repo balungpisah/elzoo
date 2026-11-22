@@ -305,7 +305,7 @@ defmodule Elzoo.KnowledgeIngest.Harness do
   def search!(p, opts \\ []) do
     declaration =
       %{
-        index_identity: Keyword.get(opts, :index_identity, "docs"),
+        index_identity: Keyword.get(opts, :index_identity, "handbook"),
         descriptor: descriptor(),
         metric: :cosine
       }
@@ -685,7 +685,7 @@ defmodule Elzoo.KnowledgeIngest.Cases do
   def stored(env, t, ref) do
     Harness.scoped!(
       t,
-      ~s[SELECT DISTINCT version FROM "#{env.p}".#{SearchData.table_name("docs")} WHERE tenant = $1 AND source_ref = $2],
+      ~s[SELECT DISTINCT version FROM "#{env.p}".#{SearchData.table_name("handbook")} WHERE tenant = $1 AND source_ref = $2],
       [ref]
     )
     |> List.flatten()
