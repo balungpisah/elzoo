@@ -231,15 +231,19 @@ the ID rule.
   it yourself.
 - **To change.** Add `state/audit-log` with its audit-owner role in your test.
 
-### RunEngine Runs on the owner connection
+### RunEngine Store tables without row security
 
-- **Chosen.** The RunEngine Runs, their Run owner and Unit stores use the owner
-  connection; only CheckedCommand, the vault and the consumer tables run as the
-  application role. The ready Store tables are not protected by
-  `state/tenant-isolation`.
-- **Why.** The acceptance reuses the RunEngine test fixture.
+- **Chosen.** The RunEngine Run, Unit, Effect intent, evidence and transcript
+  stores run as the application role, as do CheckedCommand, the vault and the
+  consumer tables
+  ([ELZ-327](../tasks/ELZ-327-run-engine-stores-as-app-role.md); until it, the
+  RunEngine stores ran on the RunEngine fixture's owner connection). The owner
+  keeps the engine schema and its migration and grants the role only the
+  Store-table privileges the Store needs, with no `DELETE` or `TRUNCATE`. The
+  ready Store tables are not protected by `state/tenant-isolation`.
+- **Why.** The acceptance uses the ready Store tables as they are.
 - **For you.** In this composition, row security does not protect the Store
-  tables.
+  tables; grant your application role only the Store-table privileges.
 - **To change.** Composing the Store tables with `state/tenant-isolation` would
   be a task of its own.
 

@@ -243,13 +243,7 @@ defmodule Elzoo.Wave6.CountHelper do
 
     :ok = Ecto.Migrator.up(OwnerRepo, 3, Elzoo.Wave6.AuditMigration, prefix: audit, log: false)
 
-    for s <- [p, aux],
-        sql <- [
-          "GRANT USAGE ON SCHEMA #{s} TO #{role}",
-          "GRANT SELECT, INSERT, UPDATE ON #{s}.elzoo_log_heads, #{s}.elzoo_outbox TO #{role}",
-          "GRANT SELECT, INSERT ON #{s}.elzoo_log_records, #{s}.elzoo_checkpoints TO #{role}"
-        ],
-        do: owner!(sql)
+    for s <- [p, aux], do: :ok = grant_store!(s, role)
 
     for sql <- [
           "GRANT SELECT, INSERT ON #{p}.elzoo_metering_corrections TO #{role}",
@@ -292,6 +286,63 @@ defmodule Elzoo.Wave6.CountHelper do
 
     {:entitled, resolution} = Entitlement.resolve(facts, tenant, @now)
     resolution
+  end
+
+  @doc """
+  The application role's privileges on the four Store tables of schema `s`: `USAGE`, `SELECT,
+  INSERT, UPDATE` on heads and outbox and `SELECT, INSERT` on records and checkpoints. No
+  `DELETE` and no `TRUNCATE`: no Store retention runs here.
+  """
+  def grant_store!(s, role) do
+    for sql <- [
+          "GRANT USAGE ON SCHEMA #{s} TO #{role}",
+          "GRANT SELECT, INSERT, UPDATE ON #{s}.elzoo_log_heads, #{s}.elzoo_outbox TO #{role}",
+          "GRANT SELECT, INSERT ON #{s}.elzoo_log_records, #{s}.elzoo_checkpoints TO #{role}"
+        ],
+        do: owner!(sql)
+
+    :ok
+  end
+
+  @doc """
+  Every Store binding of a RunEngine fixture (Run, Unit, Effect intent, host, evidence and the
+  transcript's reader) runs as the application role, and the owner reads that the role holds no
+  `TRUNCATE` or `DELETE` on, and owns no table of, the engine schema (its four Store tables and
+  Ecto's `schema_migrations`).
+  """
+  def engine_on_app!(c, role) do
+    intents = for {_, o} <- c.opts[:effect_intent], do: [o[:store], elem(o[:host], 1).store]
+
+    stores =
+      [c.store, c.run_store, c.evidence_store, c.postgres_unit_store] ++ List.flatten(intents)
+
+    for store <- Enum.uniq(stores) do
+      assert {Postgres, %{repo: repo}} = store
+
+      assert %{
+               current: ^role,
+               super: false,
+               bypass: false,
+               login: false,
+               inherit: false,
+               createrole: false,
+               createdb: false,
+               inherits_owner: false
+             } = facts = role_facts(repo)
+
+      assert facts.current != facts.session
+    end
+
+    assert owner!(
+             """
+             SELECT bool_or(has_table_privilege($1, c.oid, 'TRUNCATE')),
+                    bool_or(has_table_privilege($1, c.oid, 'DELETE')),
+                    bool_or(pg_get_userbyid(c.relowner) = $1), count(*)
+             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = $2 AND c.relkind IN ('r', 'p')
+             """,
+             [role, c.prefix]
+           ) == [[false, false, false, 5]]
   end
 
   def cleanup!(fx) do
@@ -400,13 +451,19 @@ defmodule Elzoo.Wave6.CountHelper do
 
   @doc """
   Allocates a Run (the RunEngine fixture with its own Run owner and Unit store) without starting
-  it. The host's Run key is the engine identity, unique per Run; the Budget cap is `cap`.
+  it. The host's Run key is the engine identity, unique per Run; the Budget cap is `cap`. The
+  fixture's runtime Store calls run on the application connection (ELZ-327): its schema and
+  migration stay on the fixture's owner Repo, and the owner grants the role that schema's Store
+  tables.
   """
   def prepare_run(tenant, requests, opts \\ []) do
     {nested, opts} = Keyword.pop(opts, :nested)
     cap = Keyword.get(opts, :cap, 50_000)
+    role = app_role!()
 
     overrides = [
+      store_repo: AppRepo,
+      grant: &grant_store!(&1, role),
       tenant: tenant,
       gate: Keyword.get(opts, :gate, allow_gate()),
       budget: %{cap: cap, unit: @unit, id: "budget", incarnation: "sealed"}
@@ -424,6 +481,7 @@ defmodule Elzoo.Wave6.CountHelper do
         {c, c.opts[:bindings]}
       end
 
+    engine_on_app!(c, role)
     %{c: c, tenant: tenant, key: c.prefix, cap: cap, bindings: in_unit(bindings, tenant)}
   end
 

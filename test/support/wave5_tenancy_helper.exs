@@ -99,6 +99,7 @@ defmodule Elzoo.Wave5.TenancyHelper do
   }
 
   alias Elzoo.DurableLog.{Postgres, PostgresHarness, TestMigration}
+  alias Elzoo.RunEngine.TestHelper
   alias Elzoo.Wave5.{AppRepo, DownRepo, OwnerRepo}
 
   @now 1_800_000_000
@@ -193,11 +194,11 @@ defmodule Elzoo.Wave5.TenancyHelper do
           "GRANT SELECT, INSERT, UPDATE ON #{p}.memberships TO #{role}",
           "GRANT SELECT, INSERT ON #{p}.ledger TO #{role}",
           "GRANT USAGE ON ALL SEQUENCES IN SCHEMA #{p} TO #{role}",
-          "GRANT SELECT, INSERT, UPDATE ON #{p}.elzoo_log_heads, #{p}.elzoo_outbox TO #{role}",
-          "GRANT SELECT, INSERT ON #{p}.elzoo_log_records, #{p}.elzoo_checkpoints TO #{role}",
           "GRANT SELECT, INSERT, UPDATE, DELETE ON #{p}.elzoo_vault_subjects, #{p}.elzoo_vault_keys, #{p}.elzoo_vault_entries TO #{role}"
         ],
         do: owner!(sql)
+
+    :ok = grant_store!(p, role)
 
     {:ok, kek} = Agent.start_link(fn -> :crypto.strong_rand_bytes(32) end)
     Process.unlink(kek)
@@ -217,6 +218,66 @@ defmodule Elzoo.Wave5.TenancyHelper do
       )
 
     %{prefix: p, store: store(AppRepo, p), vault: vault, kek: kek}
+  end
+
+  @doc """
+  The application role's privileges on the four Store tables of schema `s`: `USAGE`, `SELECT,
+  INSERT, UPDATE` on heads and outbox and `SELECT, INSERT` on records and checkpoints. No
+  `DELETE` and no `TRUNCATE`: no Store retention runs here.
+  """
+  def grant_store!(s, role) do
+    for sql <- [
+          "GRANT USAGE ON SCHEMA #{s} TO #{role}",
+          "GRANT SELECT, INSERT, UPDATE ON #{s}.elzoo_log_heads, #{s}.elzoo_outbox TO #{role}",
+          "GRANT SELECT, INSERT ON #{s}.elzoo_log_records, #{s}.elzoo_checkpoints TO #{role}"
+        ],
+        do: owner!(sql)
+
+    :ok
+  end
+
+  @doc """
+  The RunEngine fixture (ELZ-327) with its runtime Store calls (Run, Unit, Effect intent, host,
+  evidence and transcript) on the application connection; its schema and migration stay on the
+  fixture's owner Repo, and the owner grants the role the Store tables of that schema.
+  """
+  def engine_fixture(overrides) do
+    role = app_role!()
+    c = TestHelper.fixture([store_repo: AppRepo, grant: &grant_store!(&1, role)] ++ overrides)
+    engine_on_app!(c, role)
+    c
+  end
+
+  @doc """
+  Every Store binding of a RunEngine fixture runs as the application role, and the owner reads
+  that the role holds no `TRUNCATE` or `DELETE` on, and owns no table of, the engine schema (its
+  four Store tables and Ecto's `schema_migrations`).
+  """
+  def engine_on_app!(c, role) do
+    intents = for {_, o} <- c.opts[:effect_intent], do: [o[:store], elem(o[:host], 1).store]
+
+    stores =
+      [c.store, c.run_store, c.evidence_store, c.postgres_unit_store] ++ List.flatten(intents)
+
+    for store <- Enum.uniq(stores) do
+      assert {Postgres, %{repo: repo}} = store
+
+      assert %{current: ^role, super: false, bypass: false, inherits_owner: false} =
+               facts = role_facts(repo)
+
+      assert facts.current != facts.session
+    end
+
+    assert owner!(
+             """
+             SELECT bool_or(has_table_privilege($1, c.oid, 'TRUNCATE')),
+                    bool_or(has_table_privilege($1, c.oid, 'DELETE')),
+                    bool_or(pg_get_userbyid(c.relowner) = $1), count(*)
+             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = $2 AND c.relkind IN ('r', 'p')
+             """,
+             [role, c.prefix]
+           ) == [[false, false, false, 5]]
   end
 
   def cleanup!(fx) do

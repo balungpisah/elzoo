@@ -34,9 +34,13 @@ Files: [test/wave5_tenancy_test.exs](../../test/wave5_tenancy_test.exs) and the 
   digests of random secrets, a digest key as an `Elzoo.Secrets.Credential`). Permissions and
   space lists come from `Elzoo.Membership` over the membership rows the host reads back as the
   application role.
-- RunEngine Runs use the RunEngine test fixture (its own schema on the owner connection) with
-  the Run's tenant set to the test tenant. CheckedCommand commands use the PostgreSQL Store on
-  the application connection.
+- RunEngine Runs use the RunEngine test fixture with the Run's tenant set to the test tenant.
+  The fixture's owner Repo creates its own schema and runs its migration; the owner grants the
+  application role only the Store-table privileges there (no `DELETE`, no `TRUNCATE`), and the
+  Run, Unit, Effect intent, host and evidence stores run on the application connection
+  (ELZ-327). Each Run asserts that every one of its Store bindings connects as the application
+  role and that the role owns no table of, and holds no `TRUNCATE` or `DELETE` on, the engine
+  schema. CheckedCommand commands use the PostgreSQL Store on the application connection.
 
 ## Cases
 
@@ -184,9 +188,10 @@ These validate the harness; they do not replace the Pieces' own controls.
 - The MCP success path over a public endpoint is not shown; group 6 shows only the egress
   refusal path.
 - Identity providers are pinned test keys; no JWT issuer or production key store.
-- The RunEngine Runs, their Run owner and Unit stores are on the owner connection (the RunEngine
-  test fixture); only CheckedCommand, the vault and the consumer tables run as the application
-  role. The ready Store tables are not protected by `state/tenant-isolation`.
+- The RunEngine Runs, their Run owner, Unit, Effect intent and evidence stores run as the
+  application role since ELZ-327, as do CheckedCommand, the vault and the consumer tables; the
+  RunEngine fixture's owner Repo keeps only its schema and migration. The ready Store tables are
+  not protected by `state/tenant-isolation`.
 - The host checks (membership resolution, the payment check, invitation application, the
   `vault_erased` fact) are this harness's host code, not Pieces.
 - Durability claims stay those of the reused Pieces; no database crash or failover is tested.

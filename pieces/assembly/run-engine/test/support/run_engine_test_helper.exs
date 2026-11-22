@@ -311,6 +311,11 @@ defmodule Elzoo.RunEngine.TestHelper do
   def fixture(overrides \\ []) do
     {effect_bindings, overrides} = Keyword.pop(overrides, :effect_bindings, %{})
     {unit_store, overrides} = Keyword.pop(overrides, :unit_store)
+    # The schema and its migration stay on TestRepo (the owner). The runtime Store calls use
+    # `store_repo` when the caller supplies one, such as an application-role connection;
+    # `grant` runs on the new schema after the migration, before the first Store call.
+    {repo, overrides} = Keyword.pop(overrides, :store_repo, TestRepo)
+    {grant, overrides} = Keyword.pop(overrides, :grant, fn _prefix -> :ok end)
     protocol_version_set? = Keyword.has_key?(overrides, :protocol_version)
     {protocol_version, overrides} = Keyword.pop(overrides, :protocol_version, 1)
     event_source_set? = Keyword.has_key?(overrides, :event_source)
@@ -336,6 +341,7 @@ defmodule Elzoo.RunEngine.TestHelper do
     )
 
     :ok = Ecto.Migrator.up(TestRepo, 1, TestMigration, prefix: prefix, log: false)
+    :ok = grant.(prefix)
     controller = ExUnit.Callbacks.start_supervised!({PostgresHarness, []}, id: make_ref())
     clock = ExUnit.Callbacks.start_supervised!({Agent, fn -> 2_000 end}, id: make_ref())
     now = fn -> Agent.get(clock, & &1) end
@@ -373,7 +379,7 @@ defmodule Elzoo.RunEngine.TestHelper do
 
     postgres_unit_store =
       PostgresHarness.attach(
-        TestRepo,
+        repo,
         prefix,
         DurableUnit.fold(unit_opts),
         DurableUnit.limits(unit_opts),
@@ -394,12 +400,12 @@ defmodule Elzoo.RunEngine.TestHelper do
         id: make_ref()
       )
 
-    run_store = Postgres.store(TestRepo, prefix: prefix, fold: Run.fold(), limits: Run.limits())
+    run_store = Postgres.store(repo, prefix: prefix, fold: Run.fold(), limits: Run.limits())
     {:ok, lease} = Lease.new(store: run_store, clock: :store)
     {:held, held} = Lease.claim(lease, "runs", "owner", 3_600_000)
 
     host_store =
-      Postgres.store(TestRepo, prefix: prefix, fold: StoreHost.fold(), limits: StoreHost.limits())
+      Postgres.store(repo, prefix: prefix, fold: StoreHost.fold(), limits: StoreHost.limits())
 
     host_mode = ExUnit.Callbacks.start_supervised!({Agent, fn -> :fresh end}, id: make_ref())
 
@@ -412,7 +418,7 @@ defmodule Elzoo.RunEngine.TestHelper do
       [
         binding: module,
         store:
-          Postgres.store(TestRepo,
+          Postgres.store(repo,
             prefix: prefix,
             fold: Elzoo.EffectIntent.fold(module),
             limits: Elzoo.EffectIntent.limits()
@@ -481,7 +487,7 @@ defmodule Elzoo.RunEngine.TestHelper do
     }
 
     evidence_store =
-      Postgres.store(TestRepo, prefix: prefix, fold: evidence_fold, limits: evidence_limits)
+      Postgres.store(repo, prefix: prefix, fold: evidence_fold, limits: evidence_limits)
 
     {:ok, evidence} =
       Writer.start_link(
@@ -650,6 +656,7 @@ defmodule Elzoo.RunEngine.TestHelper do
     c = %{
       opts: opts,
       prefix: prefix,
+      repo: repo,
       controller: controller,
       clock: clock,
       context: context_agent,
@@ -854,7 +861,7 @@ defmodule Elzoo.RunEngine.TestHelper do
     }
 
     limits = %{max_record_bytes: 1_048_576, max_batch_size: 4, max_checkpoint_bytes: 2_097_152}
-    store = Postgres.store(TestRepo, prefix: c.prefix, fold: fold, limits: limits)
+    store = Postgres.store(c.repo, prefix: c.prefix, fold: fold, limits: limits)
     {:ok, lease} = Lease.new(store: store, clock: :store)
     {:held, held} = Lease.claim(lease, "resource", "resource-owner", 3_600_000)
     {:ok, binding} = Binding.load(TestBinding)

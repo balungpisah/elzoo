@@ -34,8 +34,13 @@ bounded fixture
   heads and outbox and `SELECT, INSERT` on records and checkpoints: no `TRUNCATE`, no `DELETE`,
   and nothing on the audit schema. A second schema holds unaudited Store tables for the jobs
   outbox and the eval artifact.
-- Tenants T1 and T2, opaque period `2026-11`. RunEngine Runs use the RunEngine test fixture (its
-  own schema on the owner connection) with the Run's tenant set to the test tenant. Each Run's
+- Tenants T1 and T2, opaque period `2026-11`. RunEngine Runs use the RunEngine test fixture with
+  the Run's tenant set to the test tenant: its owner Repo creates its schema and runs its
+  migration, the owner grants the application role only the Store-table privileges there (no
+  `DELETE`, no `TRUNCATE`), and its Run, Unit, Effect intent, host, evidence and transcript
+  stores run on the application connection (ELZ-327). Each Run asserts that every one of its
+  Store bindings connects as the application role and that the role owns no table of, and
+  holds no `TRUNCATE` or `DELETE` on, the engine schema. Each Run's
   Budget is in `output_tokens`. A model call estimates 20,000 and a nested callable 25,000.
 - The counting scripted provider answers each dispatched model call: it checks that the request's
   arguments are that call's prompt, counts the call, and returns its raw counters (input, cache
@@ -254,14 +259,12 @@ These validate the harness; they do not replace the Pieces' own controls.
 - No invoice, payment or settlement (Wave 9). A balanced journal does not prove external
   settlement.
 - The ready Store tables are not under row security, as in ELZ-286.
-- The RunEngine Run, Unit, evidence and transcript stores run on the RunEngine fixture's owner
-  connection, not as the application role, as in ELZ-286. The fixture
-  (`pieces/assembly/run-engine/test/support/`) creates its schema, runs its migration and then
-  makes those Store calls on one Repo; changing that is outside this task's paths, and granting
-  the application role more would weaken the role this test pins. The coordinator accepted this
-  as a stated limit (review finding B1). The role requirement covers the application connection
-  of the Wave 6 tables: the Wave 6 Piece tables, the checked commands, the jobs outbox and the
-  artifact run as the application role.
+- The RunEngine Run, Unit, evidence and transcript stores ran on the RunEngine fixture's owner
+  connection when ELZ-323 merged; the coordinator accepted that as a stated limit (review
+  finding B1). ELZ-327 removed it: they now run as the application role, with only the
+  Store-table grants in the engine schema, so every Store call of this acceptance runs as the
+  application role. Only the owner's setup, ground-truth and audit reads, and the race's row
+  lock, use the owner connection.
 - Run and model metrics are not shown (Q8 A). The counted gate, the admission and settlement,
   the metering split, the committed actual, the billing decision, the credit apply and the spend
   check are this harness's host code (Q9 A), not Pieces.
