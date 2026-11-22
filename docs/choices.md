@@ -412,7 +412,9 @@ the ID rule.
   table that `state/audit-log` audits.
 - **For you.** A journal post, a reservation or a usage row has no Carbonite
   transaction of its own; send the admin change through a checked command
-  when you need its audit record. Attribution is per binding, as
+  when you need its audit record. That record is of the command, not of its
+  effect: the acceptance audits `credit-3` before its account exists, and the
+  journal posts it only on a later apply. Attribution is per binding, as
   `state/audit-log` states, and the acceptance binds one session per command:
   on a reused binding, a checked command alone does not give each change its
   own actor and action.
