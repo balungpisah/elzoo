@@ -121,6 +121,24 @@ defmodule Elzoo.SearchData.Migration do
     end
   end
 
+  # Every distinct stored tenant, in pages of 1000 by key, decided in Elixir by the scope rule
+  # that scoped calls use, so the database encoding cannot change the decision.
+  defp scope!(repo, table, after_tenant) do
+    %{rows: rows} =
+      query!(
+        repo,
+        "SELECT DISTINCT tenant FROM #{table} WHERE $1::text IS NULL OR tenant > $1 ORDER BY tenant LIMIT 1000",
+        [after_tenant]
+      )
+
+    if Enum.any?(rows, fn [tenant] -> not Store.scope_tenant?(tenant) end),
+      do: raise(@scope_message)
+
+    if length(rows) == 1000, do: scope!(repo, table, rows |> List.last() |> hd())
+  end
+
+  defp query!(repo, sql, params), do: repo.query!(sql, params, log: false)
+
   defp check_text_search!(binding, config) do
     %{rows: [[encoding, found]]} =
       Store.sql!(
@@ -159,23 +177,17 @@ defmodule Elzoo.SearchData.Migration do
 
     id = binding.declaration.index_identity
 
-    # Runs now on the migration's connection; the DDL below is queued after it.
-    for name <- [Store.table_name(id), Store.mark_name(id)] do
-      table = Store.identifier(binding.prefix) <> "." <> Store.identifier(name)
+    tables =
+      for name <- [Store.table_name(id), Store.mark_name(id)],
+          do: Store.identifier(binding.prefix) <> "." <> Store.identifier(name)
 
-      %{rows: [[outside]]} =
-        Ecto.Migration.repo().query!(
-          """
-          SELECT EXISTS(SELECT 1 FROM #{table}
-                        WHERE octet_length(tenant) NOT BETWEEN 1 AND 128
-                           OR tenant ~ '[\\u0001-\\u001f\\u007f-\\u009f]')
-          """,
-          [],
-          log: false
-        )
-
-      if outside, do: raise(@scope_message)
-    end
+    # Runs now on the migration's connection, inside its transaction; the DDL below is queued
+    # after it. The lock blocks writers of both tables, in one order, until the migration
+    # commits, so no row committed after the scan escapes it; each scan statement then reads a
+    # snapshot taken after the lock (READ COMMITTED).
+    repo = Ecto.Migration.repo()
+    query!(repo, "LOCK TABLE #{Enum.join(tables, ", ")} IN SHARE ROW EXCLUSIVE MODE", [])
+    for table <- tables, do: scope!(repo, table, nil)
 
     Floor.install(p)
 

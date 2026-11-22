@@ -531,10 +531,13 @@ defmodule Elzoo.SearchData do
   end
 
   # Under the floor the tenant must also pass tenant-isolation's scope rule (no C1 control).
-  defp tenant?(%{tenant_isolation: _}, t),
-    do: text?(t, 128) and not String.match?(t, ~r/[\x{80}-\x{9F}]/u)
+  defp tenant?(%{tenant_isolation: _}, t), do: scope_tenant?(t)
 
   defp tenant?(_, t), do: text?(t, 1024)
+
+  @doc false
+  # tenant-isolation's scope rule: 1..128 bytes of valid UTF-8 without a C0 or C1 control.
+  def scope_tenant?(t), do: text?(t, 128) and not String.match?(t, ~r/[\x{80}-\x{9F}]/u)
 
   @doc false
   def validate_binding(b) do

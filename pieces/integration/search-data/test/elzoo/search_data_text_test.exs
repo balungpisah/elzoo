@@ -654,6 +654,92 @@ defmodule Elzoo.SearchDataTextTest do
       assert protected.() == [[true]]
     end
 
+    @tag :race
+    test "protect locks both tables: a concurrent legacy write is seen or refused", %{
+      p: p,
+      admin: admin
+    } do
+      {:ok, legacy} = Store.new(TextRepo, declaration("race-floor"), prefix: p)
+      assert {:ok, ^legacy} = Migration.install(legacy)
+
+      :persistent_term.put(
+        {FloorMigration, :binding},
+        Map.put(legacy, :tenant_isolation, admin.tenant_isolation)
+      )
+
+      long = String.duplicate("t", 129)
+      table = Store.table(legacy)
+
+      ungranted = fn ->
+        length(
+          q!(TextRepo, "SELECT 1 FROM pg_locks WHERE relation=to_regclass($1) AND NOT granted", [
+            table
+          ]).rows
+        )
+      end
+
+      migrate = fn version ->
+        Task.async(fn ->
+          try do
+            Ecto.Migrator.up(TextRepo, version, FloorMigration, prefix: p, log: false)
+          rescue
+            e in RuntimeError -> {:raised, e.message}
+          end
+        end)
+      end
+
+      # Another connection runs `sql` in an open transaction until :release.
+      open = fn sql, params ->
+        parent = self()
+
+        task =
+          Task.async(fn ->
+            TextRepo.transaction(fn ->
+              q!(TextRepo, sql, params)
+              send(parent, {:held, self()})
+              receive do: (:release -> :ok), after: (15_000 -> raise "not released")
+            end)
+          end)
+
+        assert_receive {:held, pid}, 2000
+        {task, pid}
+      end
+
+      # 1. A legacy write is open before protect/1: its lock request waits, then it sees the row.
+      {writer, pid} =
+        open.(
+          """
+          INSERT INTO #{table} (tenant,source_ref,version,chunk_index,content,content_digest,
+            source_digest,start_byte,end_byte,embedding,embedding_descriptor,embedding_provenance,batch_index)
+          VALUES ($1,'open',1,0,'\\x61'::bytea,$2,$2,0,1,'[1,0,0]','\\x00'::bytea,'\\x00'::bytea,0)
+          """,
+          [long, :binary.copy(<<0>>, 32)]
+        )
+
+      migration = migrate.(2)
+      wait_until(fn -> ungranted.() == 1 end)
+      send(pid, :release)
+      Task.await(writer)
+
+      assert {:raised, "search data index holds tenant IDs outside the tenant isolation scope"} =
+               Task.await(migration)
+
+      q!(TextRepo, "DELETE FROM #{table}")
+
+      # 2. protect/1 holds its lock (its ALTER TABLE waits behind a reader); a legacy put
+      # arriving then waits, and after protect/1 commits the floor refuses it.
+      {reader, pid} = open.("SELECT count(*) FROM #{table}", [])
+      migration = migrate.(2)
+      wait_until(fn -> ungranted.() == 1 end)
+      writer = Task.async(fn -> put(legacy, "late", 1, ["fox"], [], long) end)
+      wait_until(fn -> ungranted.() == 2 end)
+      send(pid, :release)
+      Task.await(reader)
+      assert :ok = Task.await(migration)
+      assert {:indeterminate, :unavailable} = Task.await(writer)
+      assert truth(legacy, "SELECT count(*)::int FROM #{table}") == [[0]]
+    end
+
     test "the floor transaction keeps the binding's deadline, not the Repo's timeout", %{app: app} do
       # ShortRepo's own :timeout is 1000 ms; the binding allows 3000 ms of statements.
       short = %{app | repo: ShortRepo, statement_timeout_ms: 3000}
