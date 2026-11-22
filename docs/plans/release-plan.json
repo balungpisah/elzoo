@@ -9709,7 +9709,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/document-parse/piece.json",
-      "manifest_sha256": "2e4aa40c412d54e1cd548bce9962267b530f0b808abe1269944b0951d7d89698"
+      "manifest_sha256": "1cf2a40804f1bf4d26327a12ab6b6c0d11ced182346cc5194d5b44384a3a18c1"
     },
     {
       "id": "runtime/adapter",
