@@ -247,11 +247,13 @@ an observation).
      harness then stops that instance and starts one with Lifeline's
      default `rescue_after` (60 minutes, which meets the Lifeline Need)
      before the host calls `resubmit/3`, so no job other than the rescued
-     recovery run executes under the short value (that run only classifies
-     the pending attempt, read-only, and a second rescue of it writes
-     nothing, since the first recorded outcome wins); the next attempt
-     completes, and the ingest ends
-     `indexed` with one version stored.
+     recovery run executes under the short value. That run reads the
+     pending attempt's intent through an owner without `host`, so it admits
+     nothing and sends nothing, then records the attempt `:unknown` and
+     fails the ingest `:embedding_unknown`; a second rescue of it writes
+     nothing more, since the first recorded outcome wins and the ingest is
+     no longer `embedding`. The next attempt completes, and the ingest
+     ends `indexed` with one version stored.
    - *Throttle.* One call is throttled once; the next attempt has a new
      `ref` and completes.
    - *Metering.* The host pages `attempts/3` of every ingest and records one
