@@ -249,8 +249,10 @@ lock is seen by the scan, and a write that arrives later waits and then gets the
 `protect/1` therefore blocks reads and writes of both tables while it runs, for about as long as
 the scan takes (an operator Need: run it in a maintenance window, or accept the pause; a request
 that waits longer than its `statement_timeout_ms` while `protect/1` holds the locks returns
-`unavailable` for a read or `indeterminate` for a write, and the host retries it after the
-migration). It reads every distinct tenant ID in pages of 1,000 and decides with the same rule as
+`unavailable` for a read or `indeterminate` for a write; a read may be retried after the
+migration, and an `indeterminate` write follows the Piece's indeterminate rule (the results
+paragraph at the end of [Deleting a source](#deleting-a-source)): repeat it as a guarded put with
+`if_newer: true`, or read back first, never as an unguarded replay). It reads every distinct tenant ID in pages of 1,000 and decides with the same rule as
 the scoped calls on the UTF-8 values that Postgrex receives, so the database encoding does not
 change the decision (an SQL_ASCII database was checked once by a local probe, not by a committed
 test: the test role cannot create databases). This needs the migration's own transaction (Ecto's
