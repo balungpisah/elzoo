@@ -246,7 +246,7 @@ RC-01 (stored state across a format change, wave 4), RC-42 (durable dedup for
 events in, wave 4), RC-06 (waves 4 and 5), RC-03 and RC-04 (wave 6). They are
 unchanged here.
 
-## Waves 4 to 9: Waves 4 and 5 merged
+## Waves 4 to 9: Waves 4 to 6 merged
 
 These handles are listed so that an earlier Contract does not close a door
 that a later wave needs. Wave 4's registered Levels 1–4 (including Pieces
@@ -258,9 +258,11 @@ and root consumer acceptances `ELZ-252`, `ELZ-258`, `ELZ-266`) are merged on
 dispositions and finite evidence limits. Wave 5's Levels 1–3 and its root
 consumer acceptance `ELZ-286` are merged on `main`; see
 [bot-platform-wave5.md](bot-platform-wave5.md) for its dispositions, its
-closure section and its open items. Wave 6 is planned in
-[bot-platform-wave6.md](bot-platform-wave6.md), with one disposition for each
-of its handles; its tasks are published from that page. Waves 6 to 9
+closure section and its open items. Wave 6's Levels 1–3 and its root
+consumer acceptance `ELZ-323` are merged on `main`; see
+[bot-platform-wave6.md](bot-platform-wave6.md) for its dispositions, its
+closure section and its open handoff. Wave 7 is not admitted: it waits for
+the owner's go. Waves 7 to 9
 retain the existing serial rule: a wave is registered when the preceding wave
 and its pre-registration gates are accepted. A handle with a job in brackets
 is an existing catalogue row that the job owns; the one exception is

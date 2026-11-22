@@ -26,6 +26,33 @@ The recorded ELZ-286 limits stay recorded limits for Wave 5. For Wave 6:
 - **Live public MCP endpoint: not needed.** No Wave 6 job calls an MCP server. The root acceptance uses scripted providers, so `integration/mcp-runtime`'s success path over a public endpoint stays unshown.
 - **Audit capture: needed, admitted.** The Level 3 root acceptance composes `state/audit-log` over the CheckedCommand records of the Wave 6 admin commands (not over the journal, quota or metering tables). A conditional Level 1 test-role task comes first if the ELZ-285 roles cannot meet its role Needs (see "Dependency levels").
 
+## Wave 6 closure and open handoff
+
+Wave 6 is accepted. All published Wave 6 tasks are merged on `main` (`2447871f`, push check green):
+
+- **Level 1:** ELZ-297 (`domain/journal`), ELZ-298 (the Run transcript of `assembly/run-engine`), ELZ-299 (`domain/metering`), ELZ-300 (`domain/entitlement`), ELZ-301 (`delivery/dead-letter-store`) and ELZ-302 (`workflow/eval`).
+- **Level 2:** ELZ-303 (`domain/quota`) and ELZ-304 (`domain/pricing`).
+- **Registry cost:** ELZ-319 ([#748](https://github.com/balungpisah/elzoo/pull/748), the checked money registry of `domain/money`), ELZ-320 ([#750](https://github.com/balungpisah/elzoo/pull/750), `domain/journal` keeps the checked value) and ELZ-321 ([#749](https://github.com/balungpisah/elzoo/pull/749), `domain/pricing` accepts a checked registry).
+- **Level 3:** ELZ-322 ([#751](https://github.com/balungpisah/elzoo/pull/751), `model_totals/3` of `domain/metering`) and the mandatory root consumer acceptance ELZ-323 ([#746](https://github.com/balungpisah/elzoo/issues/746), merged as [PR #755](https://github.com/balungpisah/elzoo/pull/755) at `2447871f`), with ELZ-324 ([#757](https://github.com/balungpisah/elzoo/pull/757), the `domain/pricing` documents for the metering read).
+- **Repairs and process changes merged during the wave:** defect and test repairs ELZ-305, ELZ-309, ELZ-312, ELZ-313, ELZ-314, ELZ-315, ELZ-316 and ELZ-318; the owner decisions ELZ-308; and the workflow and skip-list changes ELZ-306, ELZ-307, ELZ-310, ELZ-311, ELZ-317 and ELZ-325.
+
+Coordinator decisions taken during the wave are set in the published task texts and listed in [choices](../choices.md#wave-6-coordinator-decisions).
+
+ELZ-323 establishes only its finite tested composition; its [report's Limits](../research/wave6-count-and-see.md#limits) are the full list, and [choices](../choices.md#limits-of-the-wave-6-acceptance-elz-323) restates them for users. Audit capture covers only the checked-command records on `elzoo_log_records`, not the journal, quota or metering tables; attribution is per binding, as `state/audit-log` states, and the harness binds one session per command. Identities are pinned test keys, not an identity provider; only the checked-command actors are verified principals, and the quota, metering and journal service actors are host strings. Providers are scripted: no real provider usage report and no live MCP endpoint. There is no invoice, payment or settlement (Wave 9), and a balanced journal does not prove external settlement. The ready Store tables are not under row security, as in ELZ-286. The RunEngine Run, Unit, evidence and transcript stores run on the RunEngine fixture's owner connection, not as the application role. Run and model metrics are not shown (Q8 A), and the counted gate, the admission and settlement, the metering split, the committed actual, the billing decision, the credit apply and the spend check are harness host code (Q9 A), not Pieces. The spend-alert notice is committed, not delivered. The restart is an engine and application-pool restart over committed history; no database crash or failover is tested. These are finite scenarios, not proofs, and no complete-Wave claim is made.
+
+Open handoff:
+
+- **RunEngine stores on the owner connection.** The RunEngine Run, Unit, evidence and transcript stores of the root acceptances run on the RunEngine fixture's owner connection, not as `elzoo_app`. The coordinator accepted this for ELZ-323 as a stated limit ([review blocker B1](https://github.com/balungpisah/elzoo/pull/755#issuecomment-7070654200)), the same arrangement as ELZ-286; ELZ-327 is filed to remove it.
+
+Open items, none blocking:
+
+- [#701](https://github.com/balungpisah/elzoo/issues/701) (bind `resolve/3` of `delivery/dead-letter-store` to a record generation) and [#710](https://github.com/balungpisah/elzoo/issues/710) (a second result from `runtime/os-isolation` when an Owner finishes during `recover/1`) are not tasks yet.
+- [#715](https://github.com/balungpisah/elzoo/issues/715): NOTEs on the recheck steps of the coordinator guide.
+- The skip-list rows #719 to #753 in the [coordinator guide](../development/13-coordinator.md) stay until their ranges are rechecked.
+- Timing flakes carried from earlier waves: [#670](https://github.com/balungpisah/elzoo/issues/670) (ELZ-176 `bounded_time`, owner decision of 2026-11-21 in force), [#669](https://github.com/balungpisah/elzoo/issues/669) and [#547](https://github.com/balungpisah/elzoo/issues/547).
+
+Wave 7 is not admitted. It waits for the owner's go; no Wave 7 task, row or plan is registered.
+
 ## Source boundaries checked (at `main` `bd1fffb8`)
 
 These facts were read from the ready manifests and READMEs at `main` `bd1fffb8`. No file under `pieces/` changed between `e6380e17` and `bd1fffb8`. They are facts, not claims that a Wave 6 composition has been exercised.
