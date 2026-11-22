@@ -117,12 +117,19 @@ defmodule Elzoo.Wave5.TenancyHelper do
 
   # ------------------------------------------------------------ connections
 
-  @doc "The fixed application role of ELZ-285; the test fails when it is unset or not a role name."
+  @doc """
+  The fixed application role of ELZ-285, `elzoo_app`; the test fails when the variable is unset,
+  not a role name, or names another role (ELZ-327), before any pool starts or grant runs.
+  """
   def app_role! do
     role = System.get_env("ELZOO_TEST_APP_ROLE")
 
     if not (is_binary(role) and role =~ ~r/\A[a-z_][a-z0-9_]{0,62}\z/),
       do: flunk("ELZOO_TEST_APP_ROLE must name the application role of ELZ-285; it is unset")
+
+    if role != "elzoo_app",
+      do:
+        flunk("ELZOO_TEST_APP_ROLE must be elzoo_app, the fixed role of ELZ-285: #{inspect(role)}")
 
     role
   end

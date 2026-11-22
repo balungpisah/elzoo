@@ -340,6 +340,17 @@ defmodule Elzoo.RunEngine.TestHelper do
       log: false
     )
 
+    # Registered first, so it runs last (after the process shutdown below) and also when a later
+    # setup step (the migration, the grant, the first append) fails.
+    ExUnit.Callbacks.on_exit(fn ->
+      Ecto.Adapters.SQL.query!(
+        TestRepo,
+        "DROP SCHEMA IF EXISTS #{Postgres.identifier(prefix)} CASCADE",
+        [],
+        log: false
+      )
+    end)
+
     :ok = Ecto.Migrator.up(TestRepo, 1, TestMigration, prefix: prefix, log: false)
     :ok = grant.(prefix)
     controller = ExUnit.Callbacks.start_supervised!({PostgresHarness, []}, id: make_ref())
@@ -690,13 +701,6 @@ defmodule Elzoo.RunEngine.TestHelper do
       end
 
       Agent.stop(intent_pids)
-
-      Ecto.Adapters.SQL.query!(
-        TestRepo,
-        "DROP SCHEMA IF EXISTS #{Postgres.identifier(prefix)} CASCADE",
-        [],
-        log: false
-      )
     end)
 
     c

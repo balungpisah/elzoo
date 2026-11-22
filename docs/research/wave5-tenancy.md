@@ -38,7 +38,8 @@ Files: [test/wave5_tenancy_test.exs](../../test/wave5_tenancy_test.exs) and the 
   The fixture's owner Repo creates its own schema and runs its migration; the owner grants the
   application role only the Store-table privileges there (no `DELETE`, no `TRUNCATE`), and the
   Run, Unit, Effect intent, host and evidence stores run on the application connection
-  (ELZ-327). Each Run asserts that every one of its Store bindings connects as the application
+  (ELZ-327); the evidence store also backs the transcript reader, which this acceptance does not
+  read. Each Run asserts that every one of its Store bindings connects as the application
   role and that the role owns no table of, and holds no `TRUNCATE` or `DELETE` on, the engine
   schema. CheckedCommand commands use the PostgreSQL Store on the application connection.
 
