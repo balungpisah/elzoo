@@ -544,6 +544,7 @@ defmodule Elzoo.MemoryRecordTest do
             {%{now_ms: @max_time}, true},
             {%{now_ms: @max_time + 1}, false},
             {%{checked_at: -1}, false},
+            {%{checked_at: 0}, true},
             {%{checked_at: @max_time}, true},
             {%{checked_at: @max_time + 1}, false},
             {%{scopes: []}, false},
@@ -560,6 +561,7 @@ defmodule Elzoo.MemoryRecordTest do
             {%{kinds: [:note]}, false},
             {%{kinds: @kinds ++ [:fact]}, false},
             {%{principal: ""}, false},
+            {%{principal: "p"}, true},
             {%{principal: String.duplicate("p", 128)}, true},
             {%{principal: String.duplicate("p", 129)}, false},
             {%{extra: 1}, false}
@@ -702,6 +704,48 @@ defmodule Elzoo.MemoryRecordTest do
       ])
 
       assert_buried(p, "m1")
+    end
+
+    test "two calls that list one pair of IDs in opposite orders take their locks in key order",
+         %{m: m, p: p} do
+      # A repeated write of "b" locks [b, a] (its ID, then its predecessor); erase_subject/3
+      # over s1 locks its batch [a, b]. Another connection holds the higher of the two keys,
+      # one call queues first and the other second, once in each order (one tenant each).
+      # With both calls taking keys in ascending order, the first holds the lower key and the
+      # second waits for it. With the calls taking them in opposite orders, in one of the two
+      # runs the first call waits for the higher key holding nothing while the second takes the
+      # lower one: a deadlock that PostgreSQL ends as :unavailable.
+      erased = {:ok, %{forgotten: ["a", "b"], cursor: nil}}
+
+      for {tenant, order, expected} <- [
+            {"T1", [:write, :erase], [{:ok, :duplicate}, erased]},
+            {"T2", [:erase, :write], [erased, {:error, :forgotten}]}
+          ] do
+        w!(m, tenant, prop("a"))
+        b = prop("b", supersedes: "a")
+        w!(m, tenant, b)
+        call = %{write: fn -> w(m, tenant, b) end, erase: fn -> erase(m, tenant, "s1", nil) end}
+        high = Enum.max_by(["a", "b"], &key(p, tenant, &1))
+        both = fn -> waiting(p, tenant, "a") + waiting(p, tenant, "b") end
+
+        results =
+          behind_lock(p, tenant, high, fn ->
+            [first, second] = order
+            t1 = Task.async(call[first])
+            wait_until(fn -> both.() == 1 end)
+            t2 = Task.async(call[second])
+            wait_until(fn -> both.() == 2 end)
+            [t1, t2]
+          end)
+
+        assert {tenant, order, results} == {tenant, order, expected}
+
+        for id <- ["a", "b"] do
+          sql = &"SELECT count(*) FROM \"#{p}\".#{&1} WHERE memory_id = '#{id}'"
+          assert direct(tenant, sql.(@rec)) == [[0]]
+          assert direct(tenant, sql.(@tomb)) == [[1]]
+        end
+      end
     end
 
     test "a new record written after erase read its batch stays until a repeat", %{m: m, p: p} do
@@ -997,6 +1041,21 @@ defmodule Elzoo.MemoryRecordTest do
     good_texts = [t.(1), t.(128), "é"]
     ok? = fn p -> MR.digest("T1", p) != {:error, :invalid} end
 
+    erase_with = fn changes ->
+      MR.erase_subject(
+        m,
+        "T1",
+        Map.merge(
+          %{subject: "s1", actor_ref: "ops", forgotten_at_ms: 1, cursor: nil, max_batch: 1},
+          changes
+        )
+      )
+    end
+
+    forget_actor = fn v ->
+      MR.forget(m, "T1", %{memory_id: "m", actor_ref: v, reason: "r", forgotten_at_ms: 1})
+    end
+
     for field <- [:memory_id, :written_by] do
       for v <- bad_texts, do: refute(ok?.(prop("m", %{field => v})), inspect({field, v}))
       for v <- good_texts, do: assert(ok?.(prop("m", %{field => v})), inspect({field, v}))
@@ -1012,17 +1071,24 @@ defmodule Elzoo.MemoryRecordTest do
       assert MR.digest(v, prop("m")) == {:error, :invalid}
       assert forget(m, v, "m") == {:error, :invalid}
 
-      assert MR.forget(m, "T1", %{memory_id: "m", actor_ref: v, reason: "r", forgotten_at_ms: 1}) ==
-               {:error, :invalid}
-
+      assert forget_actor.(v) == {:error, :invalid}
       assert erase(m, "T1", v, nil) == {:error, :invalid}
+      assert erase_with.(%{actor_ref: v}) == {:error, :invalid}
       assert MR.recall(m, "T1", req([{:tenant}], principal: v)) == {:error, :invalid}
     end
 
+    # Every text field accepts 1 and 128 bytes and a multibyte character.
     for v <- good_texts do
-      assert ok?.(prop("m", scope: {:bot, v}))
+      for kind <- [:space, :subject, :bot], do: assert(ok?.(prop("m", scope: {kind, v})))
       assert ok?.(prop("m", provenance: [{:artifact, v}]))
+      assert ok?.(prop("m", supersedes: v))
       assert MR.digest(v, prop("m")) |> elem(0) == :ok
+      assert forget_actor.(v) == {:error, :unknown_memory}
+      assert forget(m, "T1", v) == {:error, :unknown_memory}
+      assert erase_with.(%{subject: v}) == {:ok, %{forgotten: [], cursor: nil}}
+      assert erase_with.(%{actor_ref: v}) == {:ok, %{forgotten: [], cursor: nil}}
+      assert erase_with.(%{cursor: v}) == {:ok, %{forgotten: [], cursor: nil}}
+      assert {:ok, _} = MR.recall(m, "T1", req([{:tenant}], principal: v))
     end
 
     assert ok?.(prop("m", scope: {:tenant}))
