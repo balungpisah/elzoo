@@ -198,8 +198,8 @@ nothing and completes. Every step first checks that the config's search binding 
    `:unknown`. The first recorded outcome of an attempt wins. Completed writes the vectors to the
    staged chunks and enqueues the next job; throttled, overloaded, `credentials_unavailable`,
    `:not_dispatched` and `:completed_lost` snooze for a new attempt while the budget lasts (the
-   provider's `retry_after` clamped to 1..3,600 s, else 5 × 2^(k−1) s after the k-th attempt of
-   the budget), then `:embedding_exhausted`; an unknown outcome fails `:embedding_unknown` and
+   provider's `retry_after` clamped to 1..3,600 s, else 5 × 2^(n−1) s after the n-th attempt,
+   numbers continuing across `resubmit/3`), then `:embedding_exhausted`; an unknown outcome fails `:embedding_unknown` and
    only `resubmit/3` starts another attempt; any other refusal fails `{:embedding_refused, r}`.
 3. **Index**: `put_source(search, tenant, {source_ref, version, text_sha256}, chunks, if_newer:
    true)` outside a transaction; committed moves to `indexed` and deletes the staged chunks in
@@ -253,7 +253,9 @@ a superuser or `BYPASSRLS` role ignores them.
   construction only. Control `supported`: `cancel/3` and `resubmit/3`; Oban queue pause is
   inherited.
 
-Limits: scripted providers only (no quality claim, no live provider). No exactly-once Effect: a
+Limits: scripted providers only (no quality claim, no live provider). `log: false` silences only
+the Logger: the consumer Repo's Ecto query telemetry still receives every query's parameters,
+including the tenant, source reference, chunk content and encoded vectors. No exactly-once Effect: a
 `:completed_lost` attempt is a second paid call, a throttle or overload may have been processed,
 and an `:unknown` attempt may have been charged; the attempts record keeps that visible. With a
 durable Store each admitted attempt leaves one intent whose arguments are the batch's chunk texts,

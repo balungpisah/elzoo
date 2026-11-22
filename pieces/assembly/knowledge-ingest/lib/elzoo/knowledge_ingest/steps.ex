@@ -539,16 +539,14 @@ defmodule Elzoo.KnowledgeIngest.Steps do
              {:ok, a} <- admit(cfg, declaration(c, j, n, contents)),
              task_sup = override(c, :task_supervisor, info(j), fn -> sup end),
              {:ok, owner} <- start_owner(c, cfg, a, task_sup, true) do
-          reply = EffectIntent.advance(owner, :dispatch)
-
-          outcome =
-            case reply do
-              {:ok, :dispatched} -> delivery(c, a.key, sup, owner)
-              _ -> recovered(c, EffectIntent.status(owner).phase)
+          try do
+            case EffectIntent.advance(owner, :dispatch) do
+              {:ok, :dispatched} -> {:outcome, delivery(c, a.key, sup, owner)}
+              _ -> {:outcome, recovered(c, EffectIntent.status(owner).phase)}
             end
-
-          stop(owner)
-          {:outcome, outcome}
+          after
+            stop(owner)
+          end
         end
       end)
 
@@ -564,9 +562,11 @@ defmodule Elzoo.KnowledgeIngest.Steps do
         with {:ok, cfg} <- configure(c, j.tenant) |> or_retry(:recovery),
              {:ok, a} <- admit(cfg, declaration(c, j, n, contents)),
              {:ok, owner} <- start_owner(c, cfg, a, sup, false) do
-          phase = EffectIntent.status(owner).phase
-          stop(owner)
-          {:outcome, recovered(c, phase)}
+          try do
+            {:outcome, recovered(c, EffectIntent.status(owner).phase)}
+          after
+            stop(owner)
+          end
         end
       end)
 
@@ -793,10 +793,8 @@ defmodule Elzoo.KnowledgeIngest.Steps do
   defp apply_outcome(c, _j, row, batch, n, outcome) do
     case kind(outcome) do
       {:retry, retry_after} ->
-        k = n - batch.budget_base
-
-        if k < c.max_attempts,
-          do: {:ok, {:snooze, delay(retry_after, k)}},
+        if n - batch.budget_base < c.max_attempts,
+          do: {:ok, {:snooze, delay(retry_after, n)}},
           else: failed!(c, row, :embedding_exhausted, :embed)
 
       :unknown ->
@@ -812,10 +810,10 @@ defmodule Elzoo.KnowledgeIngest.Steps do
   defp kind(outcome) when outcome in [:not_dispatched, :completed_lost], do: {:retry, nil}
   defp kind(_), do: :unknown
 
-  # The provider's retry_after clamped to 1..3,600 s, otherwise 5 × 2^(k−1) s after the k-th
-  # attempt of the budget.
+  # The provider's retry_after clamped to 1..3,600 s, otherwise 5 × 2^(n−1) s after the n-th
+  # attempt (attempt numbers continue across resubmit/3).
   defp delay(s, _) when is_integer(s), do: s |> max(1) |> min(3_600)
-  defp delay(_, k), do: 5 * Integer.pow(2, k - 1)
+  defp delay(_, n), do: 5 * Integer.pow(2, n - 1)
 
   ## Index
 

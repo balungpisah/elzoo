@@ -353,6 +353,8 @@ defmodule Elzoo.KnowledgeIngest do
            true <- is_integer(limit) and limit in 1..256,
            {:ok, from} <- cursor(cursor) do
         {:ok, {key, limit, from}}
+      else
+        _ -> :error
       end
     end
 

@@ -139,7 +139,9 @@ defmodule Elzoo.KnowledgeIngestTest do
           %{page | limit: 0},
           %{page | limit: 257},
           %{page | after: :x},
-          Map.delete(page, :after)
+          Map.delete(page, :after),
+          :not_a_map,
+          {:ok, {{r.source_ref, r.version}, 1_000_000, {-5, -5}}}
         ],
         do: assert({{:error, :invalid}, 0} = queries(fn -> KI.attempts(c, caller(t), bad) end))
 
@@ -571,6 +573,16 @@ defmodule Elzoo.KnowledgeIngestTest do
     assert snooze(env) == 5
     Harness.drain(env)
     assert %{state: :indexed, attempts: 2} = status(env, t, r2)
+    # after resubmit/3 the numbers continue: attempt 2 overloaded snoozes 5 × 2^(2 − 1) = 10 s
+    r3 = submit!(env, t, doc(env, t, "after resubmit", source_ref: "rs"))
+    Script.script(env.script, [:timeout, {:status, :overloaded}])
+    Harness.drain(env)
+    assert %{state: :failed, reason: :embedding_unknown} = status(env, t, r3)
+    assert {:ok, _} = KI.resubmit(env.c, caller(t), key(r3))
+    Harness.drain_once(env)
+    assert snooze(env) == 10
+    Harness.drain(env)
+    assert %{state: :indexed, attempts: 3} = status(env, t, r3)
     id = ingest_id(env.p, "handbook", t, "doc-1", 1)
 
     assert [
@@ -580,7 +592,7 @@ defmodule Elzoo.KnowledgeIngestTest do
            ] = attempts(env, t, r)
 
     assert [ref1, ref2, ref3] == ["#{id}/0/1", "#{id}/0/2", "#{id}/0/3"]
-    assert length(Script.calls(env.script)) == 5
+    assert length(Script.calls(env.script)) == 8
   end
 
   defp snooze(env) do
