@@ -380,17 +380,21 @@ defmodule Elzoo.MemoryRecord do
   end
 
   # The first max_batch IDs of the subject after cursor, among records and tombstones, and
-  # one more to tell whether an ID follows.
+  # one more to tell whether an ID follows. Each table gives at most max_batch + 1 IDs in
+  # order from its (tenant, scope_kind, scope_id, memory_id) index, so a call reads a bounded
+  # number of rows; the first max_batch + 1 IDs of the union are among them.
   defp batch(repo, t, tenant, r) do
     sql = """
     SELECT memory_id FROM (
-      SELECT memory_id FROM #{t.rec}
-      WHERE tenant = $1 AND scope_kind = 'subject' AND scope_id = $2
-        AND ($3::text IS NULL OR memory_id > $3::text COLLATE "C")
+      (SELECT memory_id FROM #{t.rec}
+       WHERE tenant = $1 AND scope_kind = 'subject' AND scope_id = $2
+         AND ($3::text IS NULL OR memory_id > $3::text COLLATE "C")
+       ORDER BY memory_id COLLATE "C" LIMIT $4)
       UNION
-      SELECT memory_id FROM #{t.tomb}
-      WHERE tenant = $1 AND scope_kind = 'subject' AND scope_id = $2
-        AND ($3::text IS NULL OR memory_id > $3::text COLLATE "C")
+      (SELECT memory_id FROM #{t.tomb}
+       WHERE tenant = $1 AND scope_kind = 'subject' AND scope_id = $2
+         AND ($3::text IS NULL OR memory_id > $3::text COLLATE "C")
+       ORDER BY memory_id COLLATE "C" LIMIT $4)
     ) ids
     ORDER BY memory_id COLLATE "C"
     LIMIT $4

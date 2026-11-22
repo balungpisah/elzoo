@@ -46,6 +46,16 @@ defmodule Elzoo.MemoryRecordTest do
   setup %{role: role} do
     p = Harness.install!(AdminRepo, role)
     on_exit(fn -> Harness.drop!(AdminRepo, p) end)
+
+    # After every case: a record and a tombstone of one ID never both exist (the invariant
+    # that recall relies on when it does not look for a tombstone of a record's own ID).
+    on_exit(fn ->
+      assert truth(
+               p,
+               "SELECT count(*) FROM \"#{p}\".#{@rec} r JOIN \"#{p}\".#{@tomb} t USING (tenant, memory_id)"
+             ) == [[0]]
+    end)
+
     {:ok, p: p, m: MR.new(repo: AppRepo, prefix: p)}
   end
 
@@ -803,6 +813,108 @@ defmodule Elzoo.MemoryRecordTest do
 
     assert erase(m, "T1", "nobody", nil, 2) == {:ok, %{forgotten: [], cursor: nil}}
     assert erase(m, "T1", "s1", "s1-e", 2) == {:ok, %{forgotten: [], cursor: nil}}
+  end
+
+  test "8 an erase batch reads at most max_batch + 1 rows of each table", %{m: m, p: p} do
+    # 1,000 records and 1,000 tombstones of s1 and 1,000 records of s2, written by the owner.
+    {:ok, _} =
+      TI.transact(AdminRepo, %{tenant: "T1"}, fn ->
+        for {table, subject, prefix} <- [{@rec, "s1", "r"}, {@tomb, "s1", "t"}, {@rec, "s2", "o"}] do
+          columns =
+            if table == @rec,
+              do:
+                "kind, schema_id, schema_version, sources, trust, max_bytes, content, provenance_kinds, provenance_ids, written_by, writer_kind, written_at_ms, digest",
+              else: "forgotten_at_ms, actor_ref, reason"
+
+          values =
+            if table == @rec,
+              do:
+                "'fact', 'elzoo.untrusted-content.marked', 1, '{a}', 'untrusted', 4096, 'c', '{run}', '{r}', 'w', 'agent', 1, 'd'",
+              else: "1, 'ops', 'r'"
+
+          Harness.query!(
+            AdminRepo,
+            "INSERT INTO \"#{p}\".#{table} (tenant, memory_id, scope_kind, scope_id, #{columns}) SELECT 'T1', $1 || lpad(n::text, 4, '0'), 'subject', $2, #{values} FROM generate_series(1, 1000) n",
+            [prefix, subject]
+          )
+        end
+
+        {:ok, :inserted}
+      end)
+
+    for t <- [@rec, @tomb], do: Harness.query!(AdminRepo, "ANALYZE \"#{p}\".#{t}")
+
+    handler = "elzoo-memory-record-plan-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler,
+      [:elzoo, :memory_record, :app_repo, :query],
+      &__MODULE__.handle_statement/4,
+      self()
+    )
+
+    try do
+      # The first batch, a batch from the middle of the records and one past the records,
+      # where only tombstones follow.
+      for cursor <- [nil, "r0500", "r1000"] do
+        flush_statements()
+        assert {:ok, %{forgotten: [_, _]}} = erase(m, "T1", "s1", cursor, 2)
+
+        [{sql, params}] =
+          for {sql, params} <- received_statements([]), sql =~ "UNION", do: {sql, params}
+
+        {:ok, [[plan]]} =
+          TI.transact(AppRepo, %{tenant: "T1"}, fn ->
+            {:ok,
+             SQL.query!(AppRepo, "EXPLAIN (ANALYZE, FORMAT JSON) " <> sql, params, log: false).rows}
+          end)
+
+        plan = if is_binary(plan), do: Jason.decode!(plan), else: plan
+        read = scans(hd(plan)["Plan"])
+
+        # Each table's scan reads at most max_batch + 1 = 3 rows.
+        assert Enum.sort(Map.keys(read)) == [@rec, @tomb], inspect({cursor, read})
+        assert Enum.all?(read, fn {_, rows} -> rows <= 3 end), inspect({cursor, read})
+      end
+    after
+      :telemetry.detach(handler)
+    end
+  end
+
+  def handle_statement(_event, _measurements, meta, parent),
+    do: send(parent, {:statement, meta.query, meta.params})
+
+  defp flush_statements do
+    receive do
+      {:statement, _, _} -> flush_statements()
+    after
+      0 -> :ok
+    end
+  end
+
+  defp received_statements(acc) do
+    receive do
+      {:statement, sql, params} -> received_statements([{sql, params} | acc])
+    after
+      0 -> acc
+    end
+  end
+
+  # The rows that the scans of each Piece table read in an EXPLAIN ANALYZE plan.
+  defp scans(node) do
+    own =
+      case node do
+        %{"Relation Name" => table} when table in [@rec, @tomb] ->
+          %{table => node["Actual Rows"] * node["Actual Loops"]}
+
+        _ ->
+          %{}
+      end
+
+    node
+    |> Map.get("Plans", [])
+    |> Enum.map(&scans/1)
+    |> Enum.reduce(own, &Map.merge(&1, &2, fn _, a, b -> a + b end))
   end
 
   defp walk(m, cursor, acc) do
