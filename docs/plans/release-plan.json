@@ -8977,6 +8977,30 @@
       "issue": 808,
       "url": "https://github.com/balungpisah/elzoo/issues/808",
       "issue_body_sha256": "efe1e060d6d674352615b4a8afac35d07029c30a6da61541db42e2efa7a24463"
+    },
+    {
+      "id": "ELZ-341",
+      "title": "ELZ-341 \u2014 Record that Wave 7 is accepted, with its open handoff",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-338",
+        "ELZ-340"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-341-wave7-closure-note.md"
+      ],
+      "outputs": [],
+      "acceptance": "bot-platform-wave7.md records the Wave 7 closure (every published Wave 7 task merged on a green main, repairs and process changes, coordinator decisions, the ELZ-338 limits, the open handoff: the item_id host note, the #670 and ExportTest timing observations with no fix, the carried open items, Wave 8 planning next by owner pre-approval); bot-platform.md no longer calls Wave 7 planned; choices.md gains the Wave 7 acceptance limits; the coordinator guide gains the owed #798 skip row; no Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 815,
+      "url": "https://github.com/balungpisah/elzoo/issues/815",
+      "issue_body_sha256": "e390f49e95785b30a90cc347368968cac902ff7295eb631c9d72ea3ab60bb3b1"
     }
   ],
   "entries": [
