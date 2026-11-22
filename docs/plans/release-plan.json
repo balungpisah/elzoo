@@ -8755,6 +8755,32 @@
       "issue": 769,
       "url": "https://github.com/balungpisah/elzoo/issues/769",
       "issue_body_sha256": "ee3f0edce65c379a2e736350033f9dfe9bdb8c0556d91177fdf2f6ba608ced2b"
+    },
+    {
+      "id": "ELZ-333",
+      "title": "ELZ-333 — Parse untrusted plain text, Markdown and HTML bytes into bounded UTF-8 text that fits text chunking",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-330",
+        "ELZ-081"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-333-document-parse.md"
+      ],
+      "outputs": [
+        "integration/document-parse"
+      ],
+      "acceptance": "Pure Piece under the owner's Q1 A: parse/3 takes 0..8 MiB of untrusted bytes (max_bytes may narrow it), one media type of the closed version 1 set text/plain, text/markdown and text/html, and returns text of 1..1 MiB valid UTF-8 with format (plaintext or markdown, for integration/text-chunking), raw SHA-256 of source and text and a parser identity; one UTF-8 BOM removed, CR LF to LF, no transcoding; HTML through Floki.parse_document/2 with the bundled mochiweb parser named in the call, script, style, template, noscript, head (except title), comments and attributes left out, a closed block set giving paragraph breaks, ASCII whitespace collapsed, a meta charset other than UTF-8 refused; fixed order invalid_option, unsupported_media_type, too_large, invalid_utf8, parse_failed, unsupported_charset, empty_text, text_too_large; never raises, errors echo nothing; completes the adoption of floki and updates its docs/dependencies.md row; PDF, DOCX, structure keys, other charsets, media-type parameters, an offset map and pre whitespace kept addable in place. Untrusted input: local small gate and full review; negative controls keep script text, drop the input bound and drop the explicit parser.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 772,
+      "url": "https://github.com/balungpisah/elzoo/issues/772",
+      "issue_body_sha256": "b1769d84bd07aed5f9fbe1b955b4f11a8a3b711fcda36db21543fe028ca936cc"
     }
   ],
   "entries": [
@@ -9674,6 +9700,14 @@
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/text-chunking/piece.json",
       "manifest_sha256": "0d43e8babba00d2f17e6c8ecf26f2ffe1f7375258d3fd998f36418e09b1232e7"
+    },
+    {
+      "id": "integration/document-parse",
+      "job": "ELZ-333",
+      "note": "Planned pure parse of untrusted document bytes of the closed media-type set text/plain, text/markdown and text/html (owner Q1 A) into valid UTF-8 text of 1..1 MiB that integration/text-chunking takes, with the raw SHA-256 of source and text and a parser identity; HTML through floki 0.38.5's bundled parser, leaving out script, style, template, noscript, head except title, comments and attributes, with paragraph breaks for a closed block set; no transcoding, fetch, external entity resolution or script; fixed refusals that echo nothing. Its output is untrusted content that the caller marks.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "runtime/adapter",

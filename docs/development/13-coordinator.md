@@ -142,10 +142,11 @@
   first, mark it ready so the automated reviewer passes, then close it
   unmerged and delete both branches. The reviewer of another model family in
   `AGENTS.md` section 6 may recheck a listed range instead, under that
-  section's reading and citation rule. A recheck reads only the pull
-  request's own commits in the range (`git log --first-parent --no-merges
-  <range>`), the same filter that `AGENTS.md` section 8 uses, so a merge of
-  `main` into the branch is not rechecked. Each finding becomes its own task, and
+  section's reading and citation rule. A recheck reads the pull request's
+  own commits in the range (`git log --first-parent --no-merges <range>`,
+  the same filter that `AGENTS.md` section 8 uses) and each merge of `main`
+  into the branch in the range whose `git show --remerge-diff --format=
+  <merge>` is not empty; a merge with an empty remerge diff is not reviewed again. Each finding becomes its own task, and
   the row is removed only after the automated reviewer or that reviewer posts
   findings or an explicit no-findings result for the range, as a review on
   the recheck pull request or, for that reviewer, a five-line record on the
@@ -168,6 +169,8 @@
   | #753 | `a1920865..db617841` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
   | #759 | `148beb97..76e46c61` and the commit that adds this row | nothing posted for `76e46c61` or for the row commit 30 minutes after its push; the other-family fallback review was the gate |
   | #761 | `4ee045d6..a153ea56` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
+  | #770 | `fbcffb85..b59f5165` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
+  | #771 | `5571f641..b72ca93a` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
 
 - **Repair of a red `main`.** The full check on `main` is the evidence of the
   small-gate merges. When it is red:
