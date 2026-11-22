@@ -8837,6 +8837,29 @@
       "issue": 795,
       "url": "https://github.com/balungpisah/elzoo/issues/795",
       "issue_body_sha256": "5f65aba35a3e2ca15a636327621ffab6c397d692f30b2e16cd80148cfff1149a"
+    },
+    {
+      "id": "ELZ-336",
+      "title": "ELZ-336 — domain/pricing: state that at most 3072 rows can be priced",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-324"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "worker; published Piece task; local small gate, light review and merge queue",
+      "paths": [
+        "tasks/ELZ-336-pricing-priced-row-limit.md"
+      ],
+      "outputs": [],
+      "acceptance": "domain/pricing README (Usage section and limits paragraph) and piece.json (contract, the limit ending up to 4096 rows, operations.config) state next to the 0..4096 row bound that a usage prices only when each row's key {provider_id, model_id, unit} has a card line, so at most 3 x the card's lines rows (3072 with the 1024-line ceiling), a larger usage unpriced_unit; no code, bound, Cure or example change. One public-API regression test: 3072 valid rows on a full 1024-line card price with hand-written amounts and 3073 rows give unpriced_unit, with a reverted negative control; new manifest_sha256, note equal to contract; Piece tests, local small gate, light review; closes #794.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 799,
+      "url": "https://github.com/balungpisah/elzoo/issues/799",
+      "issue_body_sha256": "d946001d314079b7a6a6f0d0a45cf00f979b5f5fcfafa0c44911c5a0c99cfb1f"
     }
   ],
   "entries": [
@@ -9335,12 +9358,12 @@
     {
       "id": "domain/pricing",
       "job": "ELZ-304",
-      "note": "Pure charges from the usage totals of one tenant and period under one immutable rate-card version. price/3 takes a card {card_id, version, content_hash, kind :cost | :price, currency (a domain/money registry member with an integer minor unit), rounding (one of Elzoo.Money.rounding_modes/0), lines} of 1..1024 stand-alone lines {provider_id, model_id, unit, rate, per, minimum} sorted and unique on {provider_id, model_id, unit}, with an exact decimal-string rate (at most 18 significant and 18 fractional digits) per power-of-ten units (1..10^9) and an optional minimum, and usage {tenant, period, rows} of 0..4096 rows in the domain/metering totals shape plus provider_id and model_id. Each line with a row is charged quantity x rate / per, built exactly in integer arithmetic and rounded once through Elzoo.Money.from_decimal/4, then raised to its minimum; a line with no row is absent; unknown observations add nothing to quantity, count in unknown_count and make the charge incomplete, never priced as zero. A charge {tenant, period, card identity, lines, total, incomplete, unknown_count} has an exact total in the card currency. difference/3 is later.total - earlier.total for two charges of one tenant, period and card identity. Both take opts [] (the compiled domain/money registry) or [registry: r], r the compiled default, a raw domain/money registry or a checked value of Elzoo.Money.Registry.check/1; a raw registry is checked once per call with check/1 and that checked value goes to every domain/money call of the call, a checked value as it is; a registry that check/1 refuses, a forged checked value included, is invalid. content_hash/1 is the SHA-256 of a documented canonical card encoding. Fixed error atoms in the order invalid, card, content_hash, usage, unpriced_unit, amount_range, and charge, card_mismatch for difference/3; none echoes an ID or amount. Kind, source and error sets and the returned maps may gain members. No I/O, clock, storage, journal post, tiers, exchange rate, invoice or Float.",
+      "note": "Pure charges from the usage totals of one tenant and period under one immutable rate-card version. price/3 takes a card {card_id, version, content_hash, kind :cost | :price, currency (a domain/money registry member with an integer minor unit), rounding (one of Elzoo.Money.rounding_modes/0), lines} of 1..1024 stand-alone lines {provider_id, model_id, unit, rate, per, minimum} sorted and unique on {provider_id, model_id, unit}, with an exact decimal-string rate (at most 18 significant and 18 fractional digits) per power-of-ten units (1..10^9) and an optional minimum, and usage {tenant, period, rows} of 0..4096 rows in the domain/metering totals shape plus provider_id and model_id; a usage prices only when each row's key {provider_id, model_id, unit} has a card line, so at most 3 x the card's lines rows (3072 with 1024 lines), a larger usage unpriced_unit. Each line with a row is charged quantity x rate / per, built exactly in integer arithmetic and rounded once through Elzoo.Money.from_decimal/4, then raised to its minimum; a line with no row is absent; unknown observations add nothing to quantity, count in unknown_count and make the charge incomplete, never priced as zero. A charge {tenant, period, card identity, lines, total, incomplete, unknown_count} has an exact total in the card currency. difference/3 is later.total - earlier.total for two charges of one tenant, period and card identity. Both take opts [] (the compiled domain/money registry) or [registry: r], r the compiled default, a raw domain/money registry or a checked value of Elzoo.Money.Registry.check/1; a raw registry is checked once per call with check/1 and that checked value goes to every domain/money call of the call, a checked value as it is; a registry that check/1 refuses, a forged checked value included, is invalid. content_hash/1 is the SHA-256 of a documented canonical card encoding. Fixed error atoms in the order invalid, card, content_hash, usage, unpriced_unit, amount_range, and charge, card_mismatch for difference/3; none echoes an ID or amount. Kind, source and error sets and the returned maps may gain members. No I/O, clock, storage, journal post, tiers, exchange rate, invoice or Float.",
       "baseline_status": "deferred",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/pricing/piece.json",
-      "manifest_sha256": "fc9e7a67929e6c9ab65da6398da91af7dfd805dec33cf3701c7e4a488e99b6ba"
+      "manifest_sha256": "c2da47be8e86eb4c7375652ff944cb125b23e8cf3d221c7a7422016be9f1f2ec"
     },
     {
       "id": "domain/principal",
