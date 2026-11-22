@@ -8804,6 +8804,29 @@
       "issue": 795,
       "url": "https://github.com/balungpisah/elzoo/issues/795",
       "issue_body_sha256": "5f65aba35a3e2ca15a636327621ffab6c397d692f30b2e16cd80148cfff1149a"
+    },
+    {
+      "id": "ELZ-336",
+      "title": "ELZ-336 — domain/pricing: state that at most 3072 rows can be priced",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-324"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "worker; published Piece task; local small gate, light review and merge queue",
+      "paths": [
+        "tasks/ELZ-336-pricing-priced-row-limit.md"
+      ],
+      "outputs": [],
+      "acceptance": "domain/pricing README (Usage section and limits paragraph) and piece.json (contract, the limit ending up to 4096 rows, operations.config) state next to the 0..4096 row bound that a usage prices only when each row's key {provider_id, model_id, unit} has a card line, so at most 3 x the card's lines rows (3072 with the 1024-line ceiling), a larger usage unpriced_unit; no code, bound, Cure or example change. One public-API regression test: 3072 valid rows on a full 1024-line card price with hand-written amounts and 3073 rows give unpriced_unit, with a reverted negative control; new manifest_sha256, note equal to contract; Piece tests, local small gate, light review; closes #794.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 799,
+      "url": "https://github.com/balungpisah/elzoo/issues/799",
+      "issue_body_sha256": "d946001d314079b7a6a6f0d0a45cf00f979b5f5fcfafa0c44911c5a0c99cfb1f"
     }
   ],
   "entries": [
