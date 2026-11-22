@@ -9001,6 +9001,29 @@
       "issue": 815,
       "url": "https://github.com/balungpisah/elzoo/issues/815",
       "issue_body_sha256": "e390f49e95785b30a90cc347368968cac902ff7295eb631c9d72ea3ab60bb3b1"
+    },
+    {
+      "id": "ELZ-343",
+      "title": "ELZ-343 \u2014 Give the aggregate consumer a 45-minute budget for the next waves",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-253"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-343-aggregate-budget-growth.md"
+      ],
+      "outputs": [],
+      "acceptance": "The aggregate outer tag and its guard assertion agree on exactly 2,700,000 ms, with the measured basis (hosted growth per ready Piece, slow-runner and local factors, a projection for 20 more Pieces) next to the tag. The 300,000 ms inner default, the per-ID limits, the complete ready-Piece selection, every assertion and the CI job budgets are unchanged; no split and no Piece change. mix check --affected origin/main on disposable PostgreSQL 16 with pgvector and MinIO as elzoo_app (or the recorded host limit and the exact-head hosted full check), aggregate timing before and after, live roadmap and diff checks; closes #814.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 819,
+      "url": "https://github.com/balungpisah/elzoo/issues/819",
+      "issue_body_sha256": "d78a01db6eb78782794bf3ec404df3418915a414bcfc8b3ba4a417db26d7b526"
     }
   ],
   "entries": [

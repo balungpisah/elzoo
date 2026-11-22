@@ -152,13 +152,18 @@ defmodule Elzoo.ExportTest do
   # on 2026-11-07 (PR #59 head 4fdc8ad), where 360 s timed out twice on machine A CI.
   # ELZ-253 / #571: the complete outer budget includes export, child compilation/tests and
   # post-child checks. Local child work reached ~1,265 s; hosted child work took ~946 s.
-  # The 1,500 s budget leaves ~235 s beyond observed local child work; this is a measured
-  # margin, not a worst-case guarantee. A split is a possible later task.
+  # ELZ-343 / #814: 2,700 s. Hosted fast runners took 964 s at 114 ready Pieces (2026-11-20) and
+  # 1,079-1,085 s at 137 (2026-11-22): ~5 s per Piece, ~19 s per Piece from 133 to 137. Slow hosted
+  # runners took up to 1.27x (1,374 s at 136) and a local 4-CPU orb 1.29-1.36x (1,391 and 1,471 s
+  # at 137). 20 more Pieces at 20 s each, at 1.36x: ~2,020 s, ~680 s below this limit; a measured
+  # margin, not a worst-case guarantee. The inner run is ~75% sync (137 of 195 copied modules are
+  # `async: false`) and uses about one core; running them at once would split this consumer, a
+  # separate decision.
   # ELZ-073: the aggregate consumer's inner limit, named so that the part test below can assert it.
   @aggregate_inner_timeout 300_000
   def aggregate_inner_timeout, do: @aggregate_inner_timeout
 
-  @tag timeout: 1_500_000
+  @tag timeout: 2_700_000
   @tag :aggregate_consumer
   test "all selected sources compile and run outside Elzoo with only upstream code paths", ctx do
     ids =
@@ -396,7 +401,7 @@ defmodule Elzoo.ExportTest do
     # Limits that the split must not lose: the aggregate consumer (the selection test above counts it but
     # does not assert its limits) and the per-ID limits are asserted by the test above.
     [aggregate] = Enum.filter(tests, &Map.has_key?(&1.tags, :aggregate_consumer))
-    assert aggregate.tags.timeout == 1_500_000
+    assert aggregate.tags.timeout == 2_700_000
     assert Elzoo.ExportTest.aggregate_inner_timeout() == 300_000
   end
 
