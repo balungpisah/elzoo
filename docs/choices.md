@@ -761,6 +761,138 @@ publication, and each task lists the options it keeps open.
   or several sets.
 - **To change.** Recall by meaning inside `state/memory-record` is additive.
 
+## Limits of the Wave 7 acceptance (ELZ-338)
+
+[ELZ-338](../tasks/ELZ-338-wave7-remember-and-know-acceptance.md) runs the
+Wave 7 Pieces together on PostgreSQL 16 with pgvector and the disposable S3
+test server, with every Piece call and every RunEngine Store on the
+`elzoo_app` role. It shows only its finite tested composition; its
+[report's Limits](research/wave7-remember-and-know.md#limits) and its task's
+"Limits to state" are the full list, and the
+[wave closure](plans/bot-platform-wave7.md#wave-7-closure-and-open-handoff)
+restates them. Races inside one Piece, and the outcomes that the host maps
+but the acceptance does not reach, are that Piece's tests. An acceptance has
+no Piece output, so a later acceptance task that adds what is missing needs
+no Piece ID; only a change of a Piece follows the ID rule.
+
+### Scripted providers, harness fusion, no connector
+
+- **Chosen.** The embedding and model providers are scripted. There is no
+  rerank provider, and the reciprocal-rank fusion is harness code
+  ([Q3 A](#the-host-fuses-vector-and-lexical-ranks-no-rerank-provider-q3-a)).
+  The harness puts the documents as artifact versions; no web, database or
+  drive connector is used.
+- **Why.** The acceptance checks the composition and depends on no provider
+  account.
+- **For you.** No claim is made about embedding, retrieval, ranking or answer
+  quality; measure them with your own provider and documents.
+- **To change.** Exercise your own provider. A rerank provider or a connector
+  is additive.
+
+### A citation checks the quoted bytes, not the answer
+
+- **Chosen.** `workflow/citation` shows that each quote is in the cited
+  item's content. Its offsets are in the parsed text, not in the uploaded
+  bytes. The scripted model's fixed answer names the item IDs.
+- **Why.** The Piece checks a cited answer against the items it was given; it
+  does not judge the answer.
+- **For you.** A resolved citation is not a correct answer. An item's rendered
+  block names its sources, not its `item_id`: a live model can cite an
+  `item_id` only if your host puts it in the item's rendered block.
+- **To change.** An acceptance that renders the `item_id` in each block needs
+  no Piece ID.
+
+### Pinned test identities and a volatile approval state
+
+- **Chosen.** Principals and the reviewer's evidence are built by the host
+  from pinned test identities, not by an identity provider. The
+  `workflow/approval` state is a volatile harness value, and its events are
+  not kept durably.
+- **Why.** The Wave 7 Pieces take opaque tenant, subject and principal IDs,
+  and `workflow/approval` holds a pure volatile state (its own limit).
+- **For you.** Your issuer and a durable record of approvals are yours.
+- **To change.** Test your own issuer; a durable approval event log stays an
+  open option.
+
+### Tables outside the floor; the intent Store keeps embedding texts
+
+- **Chosen.** The search-data declaration registry, the Store tables
+  (RunEngine, artifact records and the intent Store), Oban's job rows (they
+  carry the tenant and the ingest ID) and the retention-erasure vault tables,
+  whose subjects the host namespaces, are not under row security. The durable
+  intent Store keeps each admitted embedding call's arguments (chunk, query
+  and memory texts) outside the floor, and no forget, erasure, cancel or
+  `delete_source/4` removes them; for a memory they hold only the markers of
+  the values that redaction found.
+- **Why.** The acceptance uses the ready tables as they are, as in
+  [RunEngine Store tables without row security](#runengine-store-tables-without-row-security)
+  of Wave 5.
+- **For you.** Treat the intent Store and Oban's jobs as tenant content, and
+  remove it under your own retention.
+- **To change.** Composing these tables with `state/tenant-isolation`, or a
+  retention of the intent Store, would be a task of its own.
+
+### What forgetting and erasure leave behind
+
+- **Chosen.** `integration/pii-redaction` finds listed patterns only, so a
+  value it does not find (the street address of the acceptance) stays in
+  plain text in the Run records and the intent Store and, until forgotten, in
+  the memory record and the memory index. The Run records are not erased with
+  a subject, and the markers in them stop opening. Tombstones keep opaque
+  IDs, including the subject's ID. Dead tuples, WAL and backups keep deleted
+  content and wrapped keys until PostgreSQL reclaims them. `log: false`
+  silences only the Logger: the Repo's query telemetry still receives
+  tenants, IDs, content and vectors as parameters.
+- **Why.** Crypto-shredding covers only the values that redaction found
+  ([Q5 A](#forget-deletes-a-tombstone-stays-personal-values-go-through-the-vault-q5-a));
+  an unlisted value is deleted with the record.
+- **For you.** Redact once: `put/3` mints a new reference on each call, so a
+  retry that redacts again writes other bytes (`:conflict` for the same
+  memory ID). Cover telemetry handlers, WAL and backups in your own
+  retention.
+- **To change.** Content sealed in the vault (Q5 B) stays an open option.
+
+### The host keeps the Needs of the durable Pieces
+
+- **Chosen.** Oban's Lifeline Need is the host's; `indexed` is not live state;
+  a stranded ingest waits for an equal `submit/3`; batches run one at a time.
+  Under a volatile Memory intent Store, which the acceptance does not use, an
+  interrupted attempt whose intent is not found is `:unknown` even when it was
+  never sent. Two databases that share one intent Store and one embedding
+  binding must not also reuse the same schema prefix and index identity. A
+  throttled or unknown attempt may have been charged, so the host records it
+  as unknown usage. The Runs' model calls are not metered here. READ
+  COMMITTED, the Repos' default, is a consumer Need that the Pieces check and
+  cannot set.
+- **Why.** These are the stated Needs and limits of
+  `assembly/knowledge-ingest` and the durable Pieces; the Wave 6 acceptance
+  covers Run metering.
+- **For you.** Keep Lifeline's `rescue_after` above the stated bound, use a
+  durable intent Store, and record each attempt in `domain/metering`.
+- **To change.** Metering inside `assembly/knowledge-ingest` stays an open
+  option.
+
+### No database crash or failover
+
+- **Chosen.** The restarts are an Oban instance stopped or killed in one VM,
+  not a database restart.
+- **Why.** The acceptance runs on one disposable database.
+- **For you.** Durability claims stay those of each Piece.
+- **To change.** Test a crash or failover of your database yourself.
+
+### One meaning query covers 256 memories; expired memories stay stored
+
+- **Chosen.** A meaning query permits at most 256 sources, so it covers at
+  most 256 memories; a tenant with more queries several sets, which the
+  acceptance does not exercise. Recall leaves expired memories out, but they
+  stay stored until forgotten.
+- **Why.** `query/2` of `integration/search-data` takes at most 256 permitted
+  sources per call
+  ([Q10 B](#recall-by-meaning-as-a-composition-q10-b)).
+- **For you.** Query the newest 256 or several sets, and forget expired
+  memories that you do not keep.
+- **To change.** Recall by meaning inside `state/memory-record` is additive.
+
 ## Wave 7 coordinator decisions
 
 These are set in the published task texts
