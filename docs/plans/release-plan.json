@@ -8682,6 +8682,27 @@
       "issue_body_sha256": "e05b6c06038e5964d91803e92a16ee709423b168e9bb4eaf6ecca96e5afa9780"
     },
     {
+      "id": "ELZ-330",
+      "title": "ELZ-330 — Pin floki 0.38.5 as a direct dependency",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-22",
+      "owner_role": "coordinator; one-PR path for a root dependency change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-330-floki-provider.md"
+      ],
+      "outputs": [],
+      "acceptance": "Wave 7 provider prerequisite under the owner's Q1 A: floki == 0.38.5 is a direct dependency in mix.exs, with a Hex provider row (MIT, versioned hexdocs reference) in registry/providers.json and a row in the direct-dependency table of docs/dependencies.md; mix.lock is byte-equal to the base (0.38.5 is already locked through cure's md dependency); no config :floki, Piece, catalogue or entries change and no other dependency or pin; not adoption in the dependency register's sense (no Elzoo runtime check until integration/document-parse adds one). mix check with no flag on a disposable PostgreSQL 16 with pgvector as elzoo_app, diff and roadmap checks, independent review, exact-head full hosted check, merge queue.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 766,
+      "url": "https://github.com/balungpisah/elzoo/issues/766",
+      "issue_body_sha256": "0f22782f2a7fded2a6656e0404c8f954b40d9f3525043a9c5364cb9744acc630"
+    },
+    {
       "id": "ELZ-331",
       "title": "ELZ-331 — Search the chunk store by words, remove a source, keep the newest version and keep tenants apart in the database",
       "kind": "published",
@@ -10101,10 +10122,12 @@
     {
       "id": "workflow/citation",
       "job": "ELZ-329",
-      "note": "Planned pure check of a model's cited answer: schema/0 gives the cited-answer schema version 1 for workflow/typed-decision, and check/3 accepts a citation only when its item ID is one of the items given to the model and its quote occurs in that item's content as exact bytes, resolving each quote by first occurrence to source, version and byte range, with fixed refusals that echo nothing. A citation shows where text came from, not that the answer is true.",
+      "note": "Pure check of a model's cited answer against the exact items it was given. schema/0 gives the decoded JSON Schema object of a cited answer version 1 {text, citations: [{item_id, quote}]} (text maxLength 65,536, at most 32 citations, item_id and quote 1..1,024 characters, no additional properties) for workflow/typed-decision to ask for on an output Port of schema identity elzoo.citation.answer version 1. check/3 takes one decoded answer (exactly the string keys text and citations; text valid UTF-8 of 0..65,536 bytes; a proper list of citations with exactly item_id and quote, each valid UTF-8 of 1..1,024 bytes), the 0..256 items given to the model ({item_id, source, version, content} plus optional start_byte; IDs 1..1,024 UTF-8 bytes, item_id unique; version 1..2^31-1; content at most 1 MiB, 8 MiB over all items; start_byte + content size at most 2^53-1) and a policy %{min_citations: 0..32}, and returns {:ok, %{citations: [%{item_id, source, version, start_byte, end_byte}]}} in the answer's order, each quote resolved by the first occurrence of its exact bytes in the cited item's content and offset by the item's start_byte (0 without it), end_byte exclusive. Otherwise the first of the fixed atoms invalid (host items or policy), malformed, too_many, duplicate (equal item_id and quote), unknown_item (exact bytes), quote_not_found (exact bytes, no normalization), uncited; no error echoes an ID, quote, text or content or names the citation. It never raises. Policy, item and resolved-entry maps may gain optional keys and the error set members in place. A citation shows where the text came from, not that the answer is true. No I/O, clock, process, retrieval, model call or Unicode normalization.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/citation/piece.json",
+      "manifest_sha256": "492264c31654fd1d9d15f67ce65e8fb7e9f5263cf3c4f4cff317a7bbf896577c"
     },
     {
       "id": "workflow/agent-loop",

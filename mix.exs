@@ -109,7 +109,10 @@ defmodule Elzoo.MixProject do
       # yaml_elixir (MIT) is the call surface; yamerl (BSD-2-Clause) is named
       # and pinned because it is the parser that decides what a document means.
       {:yaml_elixir, "== 2.12.2"},
-      {:yamerl, "== 0.10.0"}
+      {:yamerl, "== 0.10.0"},
+      # ELZ-330 provider prerequisite for integration/document-parse (MIT): the HTML parser,
+      # already locked at 0.38.5 through cure's md dependency; declared directly and pinned.
+      {:floki, "== 0.38.5"}
     ]
   end
 

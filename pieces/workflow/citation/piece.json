@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "id": "workflow/citation",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "otp"],
+  "dependencies": ["core/payload-schema"],
+  "contract": "Pure check of a model's cited answer against the exact items it was given. schema/0 gives the decoded JSON Schema object of a cited answer version 1 {text, citations: [{item_id, quote}]} (text maxLength 65,536, at most 32 citations, item_id and quote 1..1,024 characters, no additional properties) for workflow/typed-decision to ask for on an output Port of schema identity elzoo.citation.answer version 1. check/3 takes one decoded answer (exactly the string keys text and citations; text valid UTF-8 of 0..65,536 bytes; a proper list of citations with exactly item_id and quote, each valid UTF-8 of 1..1,024 bytes), the 0..256 items given to the model ({item_id, source, version, content} plus optional start_byte; IDs 1..1,024 UTF-8 bytes, item_id unique; version 1..2^31-1; content at most 1 MiB, 8 MiB over all items; start_byte + content size at most 2^53-1) and a policy %{min_citations: 0..32}, and returns {:ok, %{citations: [%{item_id, source, version, start_byte, end_byte}]}} in the answer's order, each quote resolved by the first occurrence of its exact bytes in the cited item's content and offset by the item's start_byte (0 without it), end_byte exclusive. Otherwise the first of the fixed atoms invalid (host items or policy), malformed, too_many, duplicate (equal item_id and quote), unknown_item (exact bytes), quote_not_found (exact bytes, no normalization), uncited; no error echoes an ID, quote, text or content or names the citation. It never raises. Policy, item and resolved-entry maps may gain optional keys and the error set members in place. A citation shows where the text came from, not that the answer is true. No I/O, clock, process, retrieval, model call or Unicode normalization.",
+  "limits": [
+    "A citation shows that the quoted bytes are in the content of the cited item, not that the answer is true or that the quote supports it; the relation between text and the citations is not checked.",
+    "item_id, source, version, start_byte and content are host-vouched: not checked against a store, a digest or the source text. Offsets of an ingested document are in its parsed text, not in the uploaded bytes.",
+    "Matching is by exact bytes: a paraphrase, a changed space or another normalization is not found, and the host decides whether to ask again. The first failing rule is reported, without the index of the citation.",
+    "Through workflow/typed-decision, Elzoo.PayloadSchema.check/3 refuses an answer whose compact JSON is over 65,536 bytes (too_large), so a text of 65,536 bytes, or 32 citations near their byte bounds, reaches check/3 only when the host calls it directly.",
+    "No proof is claimed: finite listed scenarios with hand-written offsets. No retrieval, ranking, model call or repair."
+  ],
+  "files": [
+    "lib/elzoo/citation.ex",
+    "test/elzoo/citation_test.exs",
+    "examples/citation.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/citation_test.exs",
+      "claim": "Listed scenarios with hand-written offsets: schema/0 equal to the written-out object, built for an output Port by Elzoo.PayloadSchema.build/2 and refusing an extra top-level or citation key, a missing text, an empty quote and 33 citations; 256 four-byte characters accepted by schema and check/3 and 300 accepted by the schema and malformed in check/3; 0, 1, 32 and 33 citations; quotes of 0, 1, 1,024 and 1,025 bytes and invalid UTF-8; item_id of 0 and 1,025 bytes; text of 0, 65,536 and 65,537 bytes; case and trailing-space item_id unknown; fabricated and other-item quotes not found; duplicate pairs; NFC against NFD; multi-byte, first-occurrence and start_byte offsets; min_citations at 0, 2 and 32 and bad policies; the fixed error order with two faults per input; host-input bounds (257 items, repeated item_id, ID, version, start_byte and 2^53-1 offset edges, unknown key, 1 MiB and 8 MiB content bounds); junk terms in every argument without a raise and with bare fixed error atoms that hold no byte of the inputs; the checked example. Skipping the substring check fails the fabricated-quote case (negative control, not committed). Finite scenarios, not a proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/stdlib/binary.html#match/2",
+      "claim": "OTP 29.1.2 :binary.match/2 returns the lowest byte position of a nonempty pattern, or nomatch; byte_size/1 and integer arithmetic for the offsets."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/String.html#valid?/2",
+      "claim": "Elixir 1.20.4 String.valid?/1 for UTF-8 validation, exact binary equality of map keys and MapSet membership."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host gives check/3 exactly the items, with their true item_id, source, version, start_byte and the content bytes, that the model was shown, and does not show a refused answer as cited."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure function with no events, logs or process; the host owns instrumentation."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Fixed Contract bounds (256 items, 1,024-byte IDs and quotes, 65,536-byte text, 32 citations, 1 MiB and 8 MiB content, version 1..2^31-1, offsets up to 2^53-1); min_citations is a per-call operand, not a setting."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process, lifecycle, drain protocol or durable control state."
+    }
+  }
+}
