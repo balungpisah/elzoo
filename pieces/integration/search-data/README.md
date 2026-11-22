@@ -76,7 +76,9 @@ declaration: a second install with another configuration, or with the key added 
 `incompatible_embedding`, and an index installed without it needs a new index identity to gain
 it. A declaration without the key keeps exactly its earlier stored bytes.
 
-With the key, `install/1` first refuses a non-UTF-8 database (`database_encoding`, an operator
+An identity already installed with other declaration bytes is `incompatible_embedding` first,
+also when the new configuration name is unknown. With the key, `install/1` then refuses a
+non-UTF-8 database (`database_encoding`, an operator
 Need; this refusal is not tested because the test role cannot create a database) and a
 configuration that is not in `pg_catalog` (`unknown_text_search_config`, also when one of that
 name exists in another schema). It then adds a plain `text_vector tsvector NOT NULL` column
@@ -233,7 +235,12 @@ exactly the keys `repo, prefix, declaration, statement_timeout_ms`.
 `install/1` (which refuses a caller's transaction, and a migration runs in one): it installs the
 readers and protects the vector table and the delete-mark table (`tenant_column: "tenant"`,
 `space_column: nil`). A binding without `tenant_isolation` raises `ArgumentError` with the fixed
-message `"search data binding has no tenant_isolation option"` before any DDL.
+message `"search data binding has no tenant_isolation option"` before any DDL. When either table
+already holds a tenant ID outside tenant-isolation's scope rule (over 128 bytes, or with a C0 or
+C1 control character), which no call could reach under the floor, `protect/1` raises a
+`RuntimeError` with the fixed message
+`"search data index holds tenant IDs outside the tenant isolation scope"`, naming no tenant,
+before any DDL: move or remove those rows, then run the migration again.
 
 With the option, `put_source`, `delete_source/4`, `query/2` and `query_text/2` run their whole
 transaction through `Elzoo.TenantIsolation.transact/3` with scope `%{tenant: tenant}`; a tenant
