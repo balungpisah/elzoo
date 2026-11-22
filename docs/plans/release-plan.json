@@ -10039,10 +10039,12 @@
     {
       "id": "workflow/citation",
       "job": "ELZ-329",
-      "note": "Planned pure check of a model's cited answer: schema/0 gives the cited-answer schema version 1 for workflow/typed-decision, and check/3 accepts a citation only when its item ID is one of the items given to the model and its quote occurs in that item's content as exact bytes, resolving each quote by first occurrence to source, version and byte range, with fixed refusals that echo nothing. A citation shows where text came from, not that the answer is true.",
+      "note": "Pure check of a model's cited answer against the exact items it was given. schema/0 gives the decoded JSON Schema object of a cited answer version 1 {text, citations: [{item_id, quote}]} (text maxLength 65,536, at most 32 citations, item_id and quote 1..1,024 characters, no additional properties) for workflow/typed-decision to ask for on an output Port of schema identity elzoo.citation.answer version 1. check/3 takes one decoded answer (exactly the string keys text and citations; text valid UTF-8 of 0..65,536 bytes; a proper list of citations with exactly item_id and quote, each valid UTF-8 of 1..1,024 bytes), the 0..256 items given to the model ({item_id, source, version, content} plus optional start_byte; IDs 1..1,024 UTF-8 bytes, item_id unique; version 1..2^31-1; content at most 1 MiB, 8 MiB over all items; start_byte + content size at most 2^53-1) and a policy %{min_citations: 0..32}, and returns {:ok, %{citations: [%{item_id, source, version, start_byte, end_byte}]}} in the answer's order, each quote resolved by the first occurrence of its exact bytes in the cited item's content and offset by the item's start_byte (0 without it), end_byte exclusive. Otherwise the first of the fixed atoms invalid (host items or policy), malformed, too_many, duplicate (equal item_id and quote), unknown_item (exact bytes), quote_not_found (exact bytes, no normalization), uncited; no error echoes an ID, quote, text or content or names the citation. It never raises. Policy, item and resolved-entry maps may gain optional keys and the error set members in place. A citation shows where the text came from, not that the answer is true. No I/O, clock, process, retrieval, model call or Unicode normalization.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/citation/piece.json",
+      "manifest_sha256": "492264c31654fd1d9d15f67ce65e8fb7e9f5263cf3c4f4cff317a7bbf896577c"
     },
     {
       "id": "workflow/agent-loop",
