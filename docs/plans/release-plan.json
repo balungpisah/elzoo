@@ -8827,6 +8827,29 @@
       "issue": 799,
       "url": "https://github.com/balungpisah/elzoo/issues/799",
       "issue_body_sha256": "d946001d314079b7a6a6f0d0a45cf00f979b5f5fcfafa0c44911c5a0c99cfb1f"
+    },
+    {
+      "id": "ELZ-337",
+      "title": "ELZ-337 — The same-model Reviewer line keeps the role and model",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-311"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-337-same-model-reviewer-line.md"
+      ],
+      "outputs": [],
+      "acceptance": "AGENTS.md section 6: the record template's first line reads Reviewer: <role>; <model>[, same model, different session (no other model family available)], and the fallback sentence shows the Reviewer line as <role>; <model>, same model, different session (<why the other-family reviewer could not run>); no other line of section 6 implies that a same-model record may leave out the role or model; every other rule unchanged (owner decision); closes #793. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 802,
+      "url": "https://github.com/balungpisah/elzoo/issues/802",
+      "issue_body_sha256": "f6797cd5bf59a3c1de36f5199f9e7272818c20dd56ef8a4140a777d27280f565"
     }
   ],
   "entries": [
