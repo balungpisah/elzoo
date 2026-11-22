@@ -2,7 +2,9 @@
 
 ## Status and scope
 
-This document is planning input for Wave 7 (`Remember and know`) of the P13 track in [bot-platform.md](bot-platform.md). It promotes nothing to ready and publishes no Piece task. [release-plan.json](release-plan.json) remains the one canonical planning source; handles are provisional until publication, and the coordinator assigns the ELZ IDs then. The coordinator publishes the levels below after the owner answers Q1–Q10, and records the answers.
+This document is planning input for Wave 7 (`Remember and know`) of the P13 track in [bot-platform.md](bot-platform.md). It promotes nothing to ready. [release-plan.json](release-plan.json) remains the one canonical planning source; handles are provisional until publication, and the coordinator assigns the ELZ IDs then. The coordinator publishes the levels below after the owner answers Q1–Q10, and records the answers.
+
+The owner answered Q1–Q10 on 2026-11-22 ("All recommended": option A for Q1–Q9 and option B for Q10), recorded in [bot-platform.md](bot-platform.md#owner-decisions-that-are-still-open) and [choices](../choices.md#wave-7-owner-choices-2026-11-22). The conditional sketches for Q2 B (trigram similarity as a match member) and its `pg_trgm` provider prerequisite are not taken. Level 1 publishes [ELZ-331](../../tasks/ELZ-331-search-data-text-delete-floor.md) (`integration/search-data` in place, under Q2 A and Q7 A) and [ELZ-332](../../tasks/ELZ-332-memory-record.md) (`state/memory-record`, under Q4–Q6 A).
 
 Wave 6 is accepted: its root consumer acceptance [ELZ-323](../../tasks/ELZ-323-wave6-count-and-see-acceptance.md) and its closure record ([ELZ-326](../../tasks/ELZ-326-wave6-closure-note.md), in [the Wave 6 plan](bot-platform-wave6.md)) are merged on `main`, so the serial rule of [bot-platform.md](bot-platform.md) lets Wave 7 be registered. The coordinator reports that the owner approved Wave 7 for planning (2026-11-22). This plan treats the pruned Wave 7 row of [bot-platform.md](bot-platform.md) ("Subsequent waves (Waves 6–9)") as a proposal, checks each handle against the ready manifests, and keeps a new Piece only for missing policy. Where a ready Piece lacks something that clearly belongs to it, the plan extends it in place under its ID (rule of 2026-11-14; `AGENTS.md` section 4).
 
@@ -149,7 +151,7 @@ Limits to state: scripted providers, so no claim about embedding, retrieval, ran
 
 **Provider prerequisites.** Under the recommended answers there is one: adopting `floki 0.38.5` as a direct dependency (Q1 A). Under Q2 B there is a second, `pg_trgm` in CI and `.agents/setup`. Under Q1 B or C there are more: a poppler `pdftotext` system package in CI and `.agents/setup`, or a parsing-service container in CI and its adapter. Each is its own task with the full check, and it merges before the Piece that needs it. No Ash, OpenTelemetry, rerank or connector dependency is adopted.
 
-**Owner questions.**
+**Owner questions.** All ten were answered on 2026-11-22: option A for Q1–Q9 and option B for Q10, each the recommendation. The text below keeps the options as asked.
 
 1. **Q1 — Which document formats, and which parser** (`integration/document-parse`; knowledge-ingest's media types).
    - A: plain text, Markdown and HTML; HTML through `floki 0.38.5` (MIT, pure Elixir, already locked as a transitive dependency), adopted as a direct dependency by its own task.

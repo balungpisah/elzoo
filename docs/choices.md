@@ -629,6 +629,136 @@ acceptance has one named group for each
 You can combine them, for example a quota-capped plan whose overage is billed
 pay-as-you-go.
 
+## Wave 7 owner choices (2026-11-22)
+
+Sources: the 2026-11-22 entries in
+[bot-platform.md](plans/bot-platform.md#owner-decisions-that-are-still-open)
+and the questions in
+[bot-platform-wave7.md](plans/bot-platform-wave7.md#provider-prerequisites-and-open-questions).
+The owner took every recommendation: option A for Q1–Q9 and option B for Q10.
+The standing "no corner" rule of Wave 6 (above) applies to each Wave 7
+Contract; each task lists the options it keeps open.
+
+### Plain text, Markdown and HTML, with `floki` for HTML (Q1 A)
+
+- **Chosen.** `integration/document-parse` takes `text/plain`, `text/markdown`
+  and `text/html`; HTML is parsed with `floki 0.38.5`, adopted as a direct
+  dependency by its own provider task (ELZ-330) before the parser task.
+- **Why.** It covers web pages and exported help articles with a maintained
+  library that is already locked; PDF parsers have a long history of
+  memory-safety faults, and `runtime/os-isolation` is not a sandbox.
+- **For you.** Convert other formats to one of the three before you ingest
+  them.
+- **To change.** PDF or DOCX is a new member of the media-type set with its
+  provider (a parsing service in a container first): additive.
+
+### Lexical search with PostgreSQL full-text search, no extension (Q2 A)
+
+- **Chosen.** `integration/search-data` gains a lexical query in place over the
+  same chunk rows, with one text search configuration declared per index
+  ([ELZ-331](../tasks/ELZ-331-search-data-text-delete-floor.md)). No `pg_trgm`.
+- **Why.** Words and stems cover keyword search with no new extension; a
+  separate Piece would copy every source and the filters.
+- **For you.** Declare the configuration (for example `simple`, `english` or
+  `indonesian`) when you create the index; an index without one has no lexical
+  query.
+- **To change.** Trigram matching is an added match member with its own
+  provider task for the extension: additive.
+
+### The host fuses vector and lexical ranks, no rerank provider (Q3 A)
+
+- **Chosen.** The Wave 7 root acceptance fuses the two ranked lists by
+  reciprocal rank in harness code into `workflow/context-selection`
+  priorities. No `integration/ai-rerank`.
+- **Why.** Fusion is a few lines of host code; a rerank provider is a new paid
+  call per query.
+- **For you.** Fuse in your host, or rank by one list only.
+- **To change.** A provider-neutral rerank interface and adapter is its own
+  Piece: additive.
+
+### A memory belongs to one tagged scope (Q4 A)
+
+- **Chosen.** A `state/memory-record` record has exactly one scope of the closed
+  set `{:tenant}`, `{:space, id}`, `{:subject, id}` and `{:bot, id}`; recall
+  names the scopes that the caller may read
+  ([ELZ-332](../tasks/ELZ-332-memory-record.md)).
+- **Why.** Bots need tenant knowledge and per-user preferences alike, and a
+  closed set keeps erasure by subject defined.
+- **For you.** Choose the scope when you write; check in your host that the
+  reader may read each scope that it recalls.
+- **To change.** A new scope member (for example `{:conversation, id}`) is
+  additive.
+
+### Forget deletes, a tombstone stays, personal values go through the vault (Q5 A)
+
+- **Chosen.** `forget/3` deletes the record's content and keeps a tombstone of
+  opaque IDs; subject erasure forgets every record of the subject. Personal
+  values are written through `integration/pii-redaction` tokenize mode with the
+  `state/retention-erasure` vault, so crypto-shredding covers them.
+- **Why.** Memory is state, not a log, so it can be deleted; sealing every
+  memory would make every recall depend on the key Need.
+- **For you.** Tokenize personal values before you write a memory, and delete
+  each forgotten memory's search-data source.
+- **To change.** Content sealed in the vault is an optional mode: additive.
+
+### A host policy decides who may write a memory (Q6 A)
+
+- **Chosen.** Each write runs a host policy over the scope kind, the memory
+  kind and the writer's `domain/principal` kind, with deny for an unlisted
+  triple and no default policy. A model's proposal is written under the Run's
+  `:agent` principal; an `:ask` needs an approval of the exact proposal.
+- **Why.** Model output is a proposal (rule 3), and a tenant-wide memory changes
+  every user's bot.
+- **For you.** Write your policy table; obtain an approval through
+  `workflow/approval` for each `:ask`.
+- **To change.** A new policy member or decision is additive.
+
+### An optional tenant floor on search-data (Q7 A)
+
+- **Chosen.** A search-data binding that names a `state/tenant-isolation` prefix
+  runs every statement under the tenant scope over protected tables; a binding
+  without it is unchanged
+  ([ELZ-331](../tasks/ELZ-331-search-data-text-delete-floor.md)).
+- **Why.** Knowledge chunks and memory indexes hold tenant content, and the
+  floor guards against a forgotten filter, as for the Wave 6 tables.
+- **For you.** Protect the tables in an Ecto migration after the index is
+  installed, connect as a non-owner, non-bypass role, and call `verify/1`
+  before you serve.
+- **To change.** A space-list floor is additive.
+
+### Knowledge ingest gets its own Piece ID; RC-39 stays deferred (Q8 A)
+
+- **Chosen.** `assembly/knowledge-ingest` is a new Piece ID;
+  `assembly/data-pipeline` (RC-39) stays a deferred example for a later data
+  workload.
+- **Why.** RC-39 names a generic build-graph and dataframe family; a knowledge
+  ingest is a specific Contract.
+- **For you.** Nothing to configure.
+- **To change.** A data-pipeline Assembly is its own task.
+
+### A throttled embedding call gets a new, counted attempt (Q9 A)
+
+- **Chosen.** After a throttle or overload, knowledge ingest starts a new attempt
+  with a new request reference after `retry_after` or a declared backoff, up to
+  a declared `max_attempts` (1..5, default 3), and records each attempt with its
+  usage. An `unknown` outcome is never retried automatically.
+- **Why.** A throttle is the provider's own signal to try later; recorded
+  attempts keep the cost of a request that may have been processed visible.
+- **For you.** Record each attempt's usage in `domain/metering`; resubmit an
+  ingest that failed on an unknown outcome yourself.
+- **To change.** Another retry policy is a declared option: additive.
+
+### Recall by meaning as a composition (Q10 B)
+
+- **Chosen.** Recall is by scope, kind and recency in `state/memory-record`; the
+  Wave 7 root acceptance also embeds each written memory into a search-data
+  memory index, so a query by meaning finds it. No Piece changes for it.
+- **Why.** Recency alone misses an old relevant fact; the composition needs only
+  the source delete that forgetting needs anyway.
+- **For you.** One query covers at most 256 memory sources; query the newest 256
+  or several sets.
+- **To change.** Recall by meaning inside `state/memory-record` is additive.
+
 ## Request charge and payload caps of `assembly/run-engine` (RC-50)
 
 Sources: the [piece.json](../pieces/assembly/run-engine/piece.json) contract
