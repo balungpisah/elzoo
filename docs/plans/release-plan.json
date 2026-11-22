@@ -8581,6 +8581,31 @@
       "issue_body_sha256": "59653212040331ac9921a87e4d4fc299f6a3a17064e85054adab8f173392682f"
     },
     {
+      "id": "ELZ-326",
+      "title": "ELZ-326 \u2014 Record that Wave 6 is accepted, with its open handoff",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-323",
+        "ELZ-324"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-326-wave6-closure-note.md"
+      ],
+      "outputs": [],
+      "acceptance": "bot-platform-wave6.md records the Wave 6 closure (every published Wave 6 task merged on a green main, repairs, coordinator decisions, the ELZ-323 limits, the owner-connection handoff to ELZ-327 and the non-blocking open items, Wave 7 not admitted); bot-platform.md no longer calls Wave 6 planned; choices.md gains the Wave 6 acceptance limits; no Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 758,
+      "url": "https://github.com/balungpisah/elzoo/issues/758",
+      "issue_body_sha256": "e06875e47eb221a4da6bcaf2b5333e7a8a8a3a96d11eaece12f8ca09cd7c6d39"
+    },
+    {
       "id": "ELZ-328",
       "title": "ELZ-328 — Plan Wave 7, Remember and know",
       "kind": "published",

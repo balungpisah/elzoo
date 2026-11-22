@@ -375,6 +375,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-323](https://github.com/balungpisah/elzoo/issues/746) | V2 / pieces | ELZ-055, ELZ-127, ELZ-249, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-281, ELZ-285, ELZ-297, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-304, ELZ-312, ELZ-313, ELZ-314, ELZ-316, ELZ-318, ELZ-322 | published 2026-11-21 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-324](https://github.com/balungpisah/elzoo/issues/752) | V2 / pieces | ELZ-321, ELZ-322 | published 2026-11-21 | worker; published Piece task; local small gate, full review and merge queue |
 | [ELZ-325](https://github.com/balungpisah/elzoo/issues/754) | V1B / pieces | ELZ-317 | published 2026-11-21 | coordinator; one-PR path for a documents change; merge queue |
+| [ELZ-326](https://github.com/balungpisah/elzoo/issues/758) | V2 / pieces | ELZ-323, ELZ-324 | published 2026-11-22 | coordinator; one-PR path for a documents change; independent review and merge queue |
 | [ELZ-328](https://github.com/balungpisah/elzoo/issues/762) | V1B / pieces | ELZ-286, ELZ-322 | published 2026-11-22 | coordinator; one-PR path for a documents change; independent review and merge queue |
 
 ## Catalogue accounting
@@ -570,7 +571,7 @@ Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326.
 
 Prior release gate: V1-ACCEPT.
 
@@ -4594,6 +4595,16 @@ Publication copy: [tasks/ELZ-325-skip-list-wave6-fallbacks.md](../../tasks/ELZ-3
 **Product aims:** P13.
 
 **Acceptance:** The Skipped automated reviews list in docs/development/13-coordinator.md adds rows for #737 (4304e053..d8171bde), #741 (fc3abf63..03f2d744), #747 (36937f30..e24f4cce), #750 (0c14fd52..5aa596f5) and #753 (a1920865..db617841), each with the reason in its skip comment and the other-family fallback review posted on the PR as the gate; existing rows, recheck procedure, rules, Contracts, Pieces and catalogue unchanged. Documents-only classification, live roadmap, claims and diff checks.
+
+### ELZ-326
+
+ELZ-326 — Record that Wave 6 is accepted, with its open handoff
+
+Publication copy: [tasks/ELZ-326-wave6-closure-note.md](../../tasks/ELZ-326-wave6-closure-note.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** bot-platform-wave6.md records the Wave 6 closure (every published Wave 6 task merged on a green main, repairs, coordinator decisions, the ELZ-323 limits, the owner-connection handoff to ELZ-327 and the non-blocking open items, Wave 7 not admitted); bot-platform.md no longer calls Wave 6 planned; choices.md gains the Wave 6 acceptance limits; no Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.
 
 ### ELZ-328
 

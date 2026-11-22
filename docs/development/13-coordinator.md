@@ -163,6 +163,7 @@
   | #747 | `36937f30..e24f4cce` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
   | #750 | `0c14fd52..5aa596f5` | nothing posted for the head 30 minutes after its push and the ready mark; the other-family fallback review was the gate |
   | #753 | `a1920865..db617841` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
+  | #759 | `148beb97..76e46c61` and the commit that adds this row | nothing posted for `76e46c61` or for the row commit 30 minutes after its push; the other-family fallback review was the gate |
 
 - **Repair of a red `main`.** The full check on `main` is the evidence of the
   small-gate merges. When it is red:
