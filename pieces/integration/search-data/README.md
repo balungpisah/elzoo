@@ -240,7 +240,15 @@ already holds a tenant ID outside tenant-isolation's scope rule (over 128 bytes,
 C1 control character), which no call could reach under the floor, `protect/1` raises a
 `RuntimeError` with the fixed message
 `"search data index holds tenant IDs outside the tenant isolation scope"`, naming no tenant,
-before any DDL: move or remove those rows, then run the migration again.
+before any DDL: move or remove those rows, then run the migration again. The check takes
+`LOCK TABLE ... IN SHARE ROW EXCLUSIVE MODE` on both tables first, so writes wait until the
+migration commits and none can commit between the scan and the floor DDL: a write that was open
+before the lock is seen by the scan, and a write that arrives later waits and is then refused by
+the floor. It reads every distinct tenant ID in pages of 1,000 and decides with the same rule as
+the scoped calls on the UTF-8 values that Postgrex receives, so the database encoding does not
+change the decision (an SQL_ASCII database was checked once by a local probe, not by a committed
+test: the test role cannot create databases). This needs the migration's own transaction (Ecto's
+default) under READ COMMITTED; without a transaction `LOCK TABLE` fails and nothing changes.
 
 With the option, `put_source`, `delete_source/4`, `query/2` and `query_text/2` run their whole
 transaction through `Elzoo.TenantIsolation.transact/3` with scope `%{tenant: tenant}`; a tenant
