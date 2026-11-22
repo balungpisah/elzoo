@@ -183,10 +183,17 @@ enqueues the next batch's or step's job (and moves the state on); an equal `subm
 re-enqueues a stranded step when none of its jobs is live; and `resubmit/3` restarts a `failed`
 ingest's step, also while another run of the failed job has not returned. So a replaced job,
 whether `Oban.retry_job/2` runs it again or a second run of it is still under way, writes
-nothing. The one exception is an embed job's write of the outcome of an attempt that is still
-`:pending`, before either check, so a late outcome is kept for metering; the transition that the
-outcome drives runs only under both checks. Every step first checks that the config's search
-binding has the `index_identity` recorded at submit (else `:index_mismatch`).
+nothing, with two exceptions. An embed job writes the outcome of an attempt that is still
+`:pending` before either check, so a late outcome is kept for metering; the transition that the
+outcome drives runs only under both checks. And an index job's `put_source` runs outside the row
+lock, after the transaction that checked both and read the staged chunks, so a job replaced in
+between still makes it: it writes this version's whole source from the same staged rows (once an
+ingest is `indexing` only `finish` and a cancel of a `failed` ingest change them, by deleting
+them, and `resubmit/3` returns it to `indexing` with them unchanged), a repeat that replaces the
+same version, while `if_newer` refuses it over a newer version or a delete mark; its `indexed`
+or `superseded` transaction then writes nothing. So a cancel of an ingest that failed at index
+can leave its version stored. Every step first checks that the config's search binding has the
+`index_identity` recorded at submit (else `:index_mismatch`).
 
 1. **Prepare**: `Artifact.get/4` (`:store_unavailable` and `{:object_store_unknown, _}` are a
    job error; any other error fails at once), `DocumentParse.parse/2`, `TextChunking.chunk/4`
