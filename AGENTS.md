@@ -420,7 +420,24 @@ exact-head requirements, or hosted checks on a new head.
   a pass on the exact head before the queue starts, that pass and its
   threads gate as the bullet above says, even when the pass comes after the
   10 minutes or after the extra review is done (owner decision, 2026-11-22).
-  A Piece with any
+  On the head that it reviews, the automated reviewer sets a commit status
+  with context `Devin Review` (owner decision, 2026-11-22). A `success`
+  state of that status on the exact head means that the automated pass on
+  that head has finished: no wait and no extra review is needed, and its
+  threads are answered and resolved before the queue starts, as the bullet
+  above says; the pass is clean only when it posted no thread (owner
+  decision, 2026-11-22). While that status is `pending`, wait for it. If it
+  is still `pending` 10 minutes after the later of the ready mark and that
+  head's push, that counts as nothing posted for the exact head, and any
+  state other than `pending` or `success` counts as the reviewer saying
+  that it is unavailable; in both cases the extra review applies as above
+  (owner decision, 2026-11-22). With no `Devin Review` status on the exact
+  head 10 minutes after the later of the ready mark and that head's push,
+  the 10-minute rule above applies unchanged (owner decision, 2026-11-22).
+  The coordinator records the skip on the pull request and adds the row to
+  "Skipped automated reviews" only when the extra review is the gate when
+  the queue starts; when an automated pass gates, nothing is recorded as
+  skipped (owner decision, 2026-11-22). A Piece with any
   weight listed in section 5 keeps its full review; the extra review does
   not replace it.
 - The same reviewer of another model family rechecks `domain/journal`,
