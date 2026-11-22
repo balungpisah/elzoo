@@ -8680,6 +8680,60 @@
       "issue": 764,
       "url": "https://github.com/balungpisah/elzoo/issues/764",
       "issue_body_sha256": "e05b6c06038e5964d91803e92a16ee709423b168e9bb4eaf6ecca96e5afa9780"
+    },
+    {
+      "id": "ELZ-331",
+      "title": "ELZ-331 — Search the chunk store by words, remove a source, keep the newest version and keep tenants apart in the database",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-082",
+        "ELZ-270",
+        "ELZ-285"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-331-search-data-text-delete-floor.md"
+      ],
+      "outputs": [],
+      "acceptance": "In-place integration/search-data (job handle integration/search-text; owner Q2 A, Q7 A): an optional persisted text_search configuration per index (UTF-8 database and visible configuration checked at install, tsvector column and GIN index, filled in the same INSERT), query_text/2 by websearch_to_tsquery with tenant and permitted sources filtered before ts_rank_cd ranking, the query/2 tie order, content bound and candidate shape with rank; delete_source/4 under the source advisory lock with a delete mark and stale_version for a higher stored version; put_source/5 if_newer guard; an optional state/tenant-isolation floor through Migration.protect/1, transact/3 on every statement and verify/1; existing bindings and tests unchanged; lexical, stop-word, filter, tie, overflow, install, tsvector-limit, delete, race, guard, elzoo_app isolation and caller-transaction cases; negative controls on the tenant predicate, the delete lock and the version read. Durable and untrusted input: local small gate and full review. Output none.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 768,
+      "url": "https://github.com/balungpisah/elzoo/issues/768",
+      "issue_body_sha256": "42ea5cc311a4ac9f8a478f50159b406411df95a9feb18e0895e49c47e45b48ee"
+    },
+    {
+      "id": "ELZ-332",
+      "title": "ELZ-332 — Scoped memory records, written only through a host policy, recalled within bounds and forgotten on request",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-030",
+        "ELZ-137",
+        "ELZ-270",
+        "ELZ-285"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-332-memory-record.md"
+      ],
+      "outputs": [
+        "state/memory-record"
+      ],
+      "acceptance": "Durable plain Ecto/Postgrex records and tombstones under the tenant-isolation floor (owner Q4 A, Q5 A, Q6 A; absorbs domain/memory-scope and workflow/memory-write-policy): one closed tagged scope per immutable record, untrusted-content marked content of 1..4,096 bytes, 1..16 provenance references; pure check_write/2 over a host policy with deny for an unlisted triple and no default; write/4 idempotent by memory_id (equal digest duplicate, other conflict), an ask written only with an approval of the exact proposal digest, one successor per record; recall/3 of current records of 1..16 scopes and optional kinds, newest first within count and byte bounds, in the context-selection candidate and node shape with check nil; forget/3 deletes content and keeps a tombstone; erase_subject/3 in resumable batches; writes, forgets and erasures of one ID serialized by a per-ID advisory lock (no row lock, no UPDATE grant), so a forgotten ID is never written again; mixed-scope and mixed-kind recall returns exactly the matching records; elzoo_app isolation, caller-transaction and READ COMMITTED refusals; negative controls on the expiry predicate, the content delete and the policy check. Durable and untrusted input: local small gate and full review.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 769,
+      "url": "https://github.com/balungpisah/elzoo/issues/769",
+      "issue_body_sha256": "ee3f0edce65c379a2e736350033f9dfe9bdb8c0556d91177fdf2f6ba608ced2b"
     }
   ],
   "entries": [
@@ -9677,6 +9731,14 @@
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/runtime/unit/piece.json",
       "manifest_sha256": "464ec731a559a7aa5a8c4409a2d514b9c7830a52de9f029af3c22809db191c24"
+    },
+    {
+      "id": "state/memory-record",
+      "job": "ELZ-332",
+      "note": "Planned durable memory records over a consumer-owned Ecto Repo on PostgreSQL 16 in Piece-owned records and tombstones tables under the state/tenant-isolation floor: one closed tagged scope (tenant, space, subject, bot) per immutable record with kind, workflow/untrusted-content marked content and provenance; a pure check_write/2 over a host policy of scope kind, kind and writer kind, deny for an unlisted triple; write/4 idempotent by memory_id, an ask written only with an approval of the exact proposal digest; bounded newest-first recall/3 in the workflow/context-selection candidate and node shape; forget/3 deletes the content and keeps a tombstone; erase_subject/3 forgets a subject's records in resumable batches. Absorbs the handles domain/memory-scope and workflow/memory-write-policy. No embedding, search, extraction or model call.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "state/artifact",
