@@ -239,9 +239,10 @@ none was committed. Each run exited 2.
 1. The application Repo without `SET ROLE` (connected as the owner). With the guard on,
    `setup_all` failed and invalidated all 8 tests: `the application connection is not the
    non-owner application role elzoo_app: %{current: "elzoo_test", login: true, inherit: true,
-   inherits_owner: true, ...}`. With the guard call also removed for that run, group 2 failed at
-   its first owner-only refusal: `ALTER TABLE <knowledge vector table> NO FORCE ROW LEVEL
-   SECURITY` succeeded.
+   inherits_owner: true, ...}`. With the guard call also removed from `setup_all` for that run,
+   group 2 failed at its first owner-only refusal (`ALTER TABLE <knowledge vector table> NO FORCE
+   ROW LEVEL SECURITY` succeeded); the setup test's own guard and the RunEngine binding check of
+   groups 3–6 and the table floor also failed; group 1 passed (7 of 8 failed).
 2. The citation check skipped (`display` takes every answer as cited with no citations): group 3
    failed at the unknown-item case, `left: {:cited, "A refund is paid within 14 days; ...", []}`,
    `right: {:not_cited, :unknown_item}`.
