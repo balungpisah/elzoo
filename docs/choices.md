@@ -839,8 +839,10 @@ no Piece ID; only a change of a Piece follows the ID rule.
   plain text in the Run records and the intent Store and, until forgotten, in
   the memory record and the memory index. The Run records are not erased with
   a subject, and the markers in them stop opening. Tombstones keep opaque
-  IDs, including the subject's ID. Dead tuples, WAL and backups keep deleted
-  content and wrapped keys until PostgreSQL reclaims them. `log: false`
+  IDs, including the subject's ID. Dead tuples and WAL keep deleted content
+  and wrapped keys until PostgreSQL reclaims them; backups keep them for the
+  host's backup retention, and `state/retention-erasure` leaves destroying an
+  old KEK version after that retention to the host. `log: false`
   silences only the Logger: the Repo's query telemetry still receives
   tenants, IDs, content and vectors as parameters.
 - **Why.** Crypto-shredding covers only the values that redaction found
@@ -854,8 +856,11 @@ no Piece ID; only a change of a Piece follows the ID rule.
 
 ### The host keeps the Needs of the durable Pieces
 
-- **Chosen.** Oban's Lifeline Need is the host's; `indexed` is not live state;
-  a stranded ingest waits for an equal `submit/3`; batches run one at a time.
+- **Chosen.** Oban's Lifeline Need is the host's: the acceptance's short
+  `rescue_after` runs only on the instance that rescues a killed instance's
+  job, and the default replaces it before `resubmit/3`. `indexed` is not live
+  state; a stranded ingest waits for an equal `submit/3`; batches run one at a
+  time.
   Under a volatile Memory intent Store, which the acceptance does not use, an
   interrupted attempt whose intent is not found is `:unknown` even when it was
   never sent. Two databases that share one intent Store and one embedding
