@@ -18,6 +18,9 @@ Owned paths:
   "Waves 4 to 9" paragraph only;
 - `docs/choices.md`: a new section, "Limits of the Wave 6 acceptance
   (ELZ-323)", before "Wave 6 coordinator decisions".
+- `docs/development/13-coordinator.md`: the "Skipped automated reviews"
+  list only, one row for this pull request if `AGENTS.md` section 6 lets the
+  coordinator skip the automated reviewer on it.
 
 Publication owns this task file, its no-output job row in
 `docs/plans/release-plan.json`, and the generated `docs/plans/views.md` and
