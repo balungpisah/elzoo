@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "id": "integration/document-parse",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "floki",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "integration/text-chunking"
+  ],
+  "contract": "Pure parse of untrusted document bytes into bounded text that integration/text-chunking takes as its source. parse/3 takes a binary of 0..8,388,608 bytes (per-call max_bytes 1..8,388,608 narrows the bound), one media type of the closed version 1 set text/plain, text/markdown and text/html (exact binaries, no parameters), and returns {:ok, %{text, format, media_type, source_sha256, text_sha256, parser}}: text valid UTF-8 of 1..1,048,576 bytes; format :markdown for text/markdown, :plaintext otherwise; raw SHA-256 of the input as given and of the text; parser %{id: \"integration/document-parse\", version: 1, library: \"floki 0.38.5\" for HTML, nil otherwise}. One leading UTF-8 BOM is removed; plain text and Markdown change only CR LF to LF. HTML goes through Floki.parse_document/2 with the bundled Floki.HTMLParser.Mochiweb named in the call: text nodes as the parser decodes them, script, style, template, noscript, head except title until the first element of head that is not head content (which starts the body), comments, processing instructions and attribute values left out, a closed block set giving paragraph breaks joined by a blank line, one space between adjacent non-text siblings, ASCII whitespace collapsed per paragraph; every meta charset declaration must be UTF-8. Otherwise the first of {:invalid_option, bytes | opts | unknown_option | max_bytes}, unsupported_media_type, too_large, invalid_utf8, parse_failed (an input with </floki, an end tag whose name holds & or the bytes </>, an unclosed title or textarea that takes in the parser's wrapper, a parse that fails, raises or gives an unknown node shape, or text that is not UTF-8), unsupported_charset, empty_text, text_too_large; refused whole, never truncated; no error holds an input byte. It never raises. No I/O, fetch, transcoding, rendering, PDF or DOCX; the output is untrusted content that the caller marks.",
+  "limits": [
+    "No proof is claimed; finite tests over listed and seeded generated scenarios.",
+    "The text is what the listed rules take from the bytes, not a rendering: no CSS, layout, display or hidden handling, so text that a browser hides can appear, and pre whitespace is collapsed.",
+    "The bundled parser drops whitespace-only text nodes, so the space between two adjacent elements is a rule of this Piece, not of the source: <b>Hel</b><i>lo</i> gives Hel lo.",
+    "An HTML document that holds </floki, an end tag whose name holds &, or the bytes </>, is refused, also when that end tag would not have cut the document; one that ends inside an unclosed title or textarea is refused as parse_failed.",
+    "The left-out rules apply to the elements of the parsed tree: a tag that the parser reads as part of an unclosed processing instruction, comment or attribute before it is no element, so <?x<style>s</style> gives s.",
+    "HTML parsing is floki 0.38.5's bundled parser, which is not HTML5-compliant; no claim is made that it is safe for hostile HTML beyond the listed and generated cases.",
+    "Markdown is passed through as source; HTML inside it is neither parsed nor removed.",
+    "Only UTF-8 is read: no charset detection or transcoding, and only meta declarations are read. An unclosed attribute value at the end of the input takes in the parser's closing wrapper, so it can change a declaration either way: <meta charset=utf-8 is refused, and an unclosed http-equiv=\"content-type is no declaration.",
+    "CPU time is bounded only through the 8 MiB input bound; the parse of deeply nested input is not linear in every case, and its timings are observations, not a time guarantee.",
+    "The output is untrusted content: parsing grants no authority and prevents no injection. No fetch, storage or chunking."
+  ],
+  "files": [
+    "examples/document_parse.exs",
+    "lib/elzoo/document_parse.ex",
+    "test/elzoo/document_parse_test.exs"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/document_parse_test.exs",
+      "claim": "Acceptance groups 1-12 with hand-written expected texts: each media type and the refused media types; BOM and CR LF; sentinels in script, style, template, noscript, head, comments, processing instructions and attribute values never in the text, also over a seeded generator of well-formed and unclosed shapes; the head rule with and without </head> and body tags; the block, space and whitespace rules; entities as the real Floki.parse_document/2 with the bundled Floki.HTMLParser.Mochiweb decodes them; malformed HTML, charlist processing instructions, a non-UTF-8 attribute name, every </floki and end-tag & form and the unclosed title and textarea wrapper refused, with their near misses accepted; charset declarations; the 8 MiB, max_bytes and 1 MiB edges; fit with Elzoo.TextChunking.chunk/4; junk terms, seeded random bytes, seeded valid UTF-8 over HTML units and 8 MiB of nested div and b always a result or a fixed error; every failure of the parse function through the __parse__/4 seam; errors echo no input byte; a raising :floki :html_parser setting does not change the result and the loaded floki is 0.38.5; the checked example; an import-table audit of the listed lib source; printed timing observations. Negative controls (keep script text, drop the input bound, call parse_document/1, drop the wrapper-suffix check) each fail their group, as do the old head rule and accepting </> (not committed). Finite evidence, not proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "floki",
+      "reference": "https://hexdocs.pm/floki/0.38.5/Floki.html#parse_document/2",
+      "claim": "floki 0.38.5 Floki.parse_document/2 with html_parser: Floki.HTMLParser.Mochiweb: {:ok, tree} | {:error, String.t()}; tree nodes are text binaries, {tag, attributes, children}, {:comment, text} and {:pi, name, attributes} (names can be charlists); tag and attribute names lower-cased bytewise; the floki root wrapper; whitespace-only text nodes dropped; title, textarea, script and style read as raw text; entity decoding of text nodes. Named, not proved; the shapes and behaviours the Piece relies on are pinned by its tests."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/String.html",
+      "claim": "Elixir 1.20.4 String.valid?/1 for UTF-8 validation, String.replace/3 for CR LF and String.downcase/2 with :ascii for case-insensitive matches."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html",
+      "claim": "OTP 29.1.2 crypto SHA-256 for the source and text digests; :binary.match/2 for the byte scans."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The bundled parser at 0.38.5 ends the document early at an end tag that closes its floki root and drops text after </> up to the next >; the Piece refuses both before the parse (the root end tag in its literal and character-reference forms). Other early ends are not known and are not claimed absent."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure function with no I/O, process or lifecycle to observe; the caller owns instrumentation."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Per-call max_bytes validated against the declared default 8,388,608 and ceiling 8,388,608 (limits/0); the value applies only to the current call; unknown or repeated options refused; no application environment read and no hot reconfiguration.",
+      "evidence": [
+        "test/elzoo/document_parse_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "Pure call with no process, lifecycle, drain protocol or durable control state."
+    }
+  }
+}
