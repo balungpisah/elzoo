@@ -17,7 +17,7 @@ Owned paths:
 - `docs/plans/bot-platform.md`: the heading and the Wave 6 sentences of the
   "Waves 4 to 9" paragraph only;
 - `docs/choices.md`: a new section, "Limits of the Wave 6 acceptance
-  (ELZ-323)", after "Wave 5 coordinator decisions".
+  (ELZ-323)", before "Wave 6 coordinator decisions".
 
 Publication owns this task file, its no-output job row in
 `docs/plans/release-plan.json`, and the generated `docs/plans/views.md` and
