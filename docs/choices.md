@@ -396,6 +396,108 @@ and the questions in
   result map has no other keys.
 - **To change.** Each option's path is listed in "Deferred options".
 
+## Limits of the Wave 6 acceptance (ELZ-323)
+
+[ELZ-323](../tasks/ELZ-323-wave6-count-and-see-acceptance.md) runs the Wave 6
+Pieces together on PostgreSQL, with the application connection as the
+`elzoo_app` role. It shows only its finite tested composition; its
+[report's Limits](research/wave6-count-and-see.md#limits) are the full list,
+and the
+[wave closure](plans/bot-platform-wave6.md#wave-6-closure-and-open-handoff)
+restates them. An acceptance has no Piece output, so a later acceptance task
+that adds what is missing needs no Piece ID; only a change of a Piece follows
+the ID rule.
+
+### Audit capture covers only the checked commands
+
+- **Chosen.** `state/audit-log` captures the checked-command records on
+  `elzoo_log_records`, not the journal, quota or metering tables.
+- **Why.** Those tables are Piece-owned, and `elzoo_log_records` is the one
+  table that `state/audit-log` audits.
+- **For you.** A journal post, a reservation or a usage row has no Carbonite
+  transaction of its own; send the admin change through a checked command
+  when you need its audit record. That record is of the command, not of its
+  effect: the acceptance audits `credit-3` before its account exists, and the
+  journal posts it only on a later apply. Attribution is per binding, as
+  `state/audit-log` states, and the acceptance binds one session per command:
+  on a reused binding, a checked command alone does not give each change its
+  own actor and action.
+- **To change.** Auditing a Piece-owned table would change `state/audit-log`:
+  under the ID rule.
+
+### Pinned test keys and host service actors
+
+- **Chosen.** Identities are pinned test keys, as in ELZ-286 (above). Only
+  the checked-command actors are verified principals; the quota, metering and
+  journal service actors are host strings.
+- **Why.** The Wave 6 Pieces take opaque tenant, Run and actor IDs.
+- **For you.** Your issuer, and who may act as a service actor, are yours to
+  check.
+- **To change.** Test your own issuer and service principals in your
+  application.
+
+### Scripted providers
+
+- **Chosen.** Providers and eval models are scripted: no real provider usage
+  report and no live MCP endpoint.
+- **Why.** The acceptance counts the usage that `integration/ai-model`
+  reports and does not depend on a provider account.
+- **For you.** Check your provider's usage report against metering in your
+  own test.
+- **To change.** Exercise your own provider.
+
+### No invoice, payment or settlement
+
+- **Chosen.** Charges post to `domain/journal`; there is no invoice, payment
+  or settlement.
+- **Why.** Wave 6 counts and prices. The Wave 9 baseline plans
+  `domain/payment-lifecycle` and `integration/payments`; `domain/invoice`
+  stays deferred there.
+- **For you.** A balanced journal does not prove external settlement.
+- **To change.** A later payment or invoice task; none is admitted.
+
+### RunEngine Store tables without row security
+
+- **Chosen.** The RunEngine Run, Unit, evidence and transcript stores run as
+  `elzoo_app`, and the ready Store tables are not under row security: the same
+  arrangement as
+  [RunEngine Store tables without row security](#runengine-store-tables-without-row-security)
+  of Wave 5, which states the reason, what it means for you and how to change
+  it. ELZ-323 merged with those stores on the RunEngine fixture's owner
+  connection, a limit the coordinator accepted (review blocker B1);
+  [ELZ-327](../tasks/ELZ-327-run-engine-stores-as-app-role.md) moved them to
+  `elzoo_app`.
+- **To change.** Composing the Store tables with `state/tenant-isolation` would
+  be a task of its own.
+
+### The counted gate is harness code
+
+- **Chosen.** The counted gate, the admission and settlement, the metering
+  split, the committed actual, the billing decision, the credit apply and the
+  spend check are host code of the acceptance, not Pieces, and Run and model
+  metrics are not shown
+  ([Q8 A](#no-run-or-model-metrics-in-wave-6-q8-a),
+  [Q9 A](#assemblytenant-edge-stays-a-deferred-example-q9-a)).
+- **Why.** The owner chose to keep them out of Wave 6 (above).
+- **For you.** Compose them in your host, in the acceptance's order.
+- **To change.** Additive, as Q8 and Q9 say.
+
+### The spend alert is committed, not sent
+
+- **Chosen.** Reaching a threshold commits one outbox notice (the acceptance
+  reaches exactly 80%); the acceptance does not deliver it.
+- **Why.** The acceptance does not compose `integration/notification`.
+- **For you.** Deliver the notice from the outbox yourself.
+- **To change.** Compose `integration/notification` in your test.
+
+### No database crash or failover
+
+- **Chosen.** The restart is an engine restart over committed history and a
+  restart of the application pool.
+- **Why.** The acceptance runs on one disposable database.
+- **For you.** Durability claims stay those of each Piece.
+- **To change.** Test a crash or failover of your database yourself.
+
 ## Wave 6 coordinator decisions
 
 These are set in the published task texts
