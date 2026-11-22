@@ -4645,13 +4645,13 @@ Publication copy: [tasks/ELZ-329-citation.md](../../tasks/ELZ-329-citation.md).
 
 ### ELZ-330
 
-ELZ-330 — Adopt floki 0.38.5 as a direct pinned dependency
+ELZ-330 — Pin floki 0.38.5 as a direct dependency
 
 Publication copy: [tasks/ELZ-330-floki-provider.md](../../tasks/ELZ-330-floki-provider.md).
 
 **Product aims:** P13.
 
-**Acceptance:** Wave 7 provider prerequisite under the owner's Q1 A: floki == 0.38.5 is a direct dependency in mix.exs, with a Hex provider row (MIT, versioned hexdocs reference) in registry/providers.json and a row in the direct-dependency table of docs/dependencies.md; mix.lock is byte-equal to the base (0.38.5 is already locked through cure's md dependency); no config :floki, Piece, catalogue or entries change and no other dependency or pin. mix check with no flag on a disposable PostgreSQL 16 with pgvector as elzoo_app, diff and roadmap checks, independent review, exact-head full hosted check, merge queue.
+**Acceptance:** Wave 7 provider prerequisite under the owner's Q1 A: floki == 0.38.5 is a direct dependency in mix.exs, with a Hex provider row (MIT, versioned hexdocs reference) in registry/providers.json and a row in the direct-dependency table of docs/dependencies.md; mix.lock is byte-equal to the base (0.38.5 is already locked through cure's md dependency); no config :floki, Piece, catalogue or entries change and no other dependency or pin; not adoption in the dependency register's sense (no Elzoo runtime check until integration/document-parse adds one). mix check with no flag on a disposable PostgreSQL 16 with pgvector as elzoo_app, diff and roadmap checks, independent review, exact-head full hosted check, merge queue.
 
 ### ELZ-331
 

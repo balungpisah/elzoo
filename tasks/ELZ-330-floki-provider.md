@@ -1,4 +1,4 @@
-# ELZ-330 — Adopt floki 0.38.5 as a direct pinned dependency
+# ELZ-330 — Pin floki 0.38.5 as a direct dependency
 
 - Dependencies: none
 
@@ -77,6 +77,10 @@ Facts checked on 2026-11-22 on `main` `75202491`:
 Upstream: `floki` 0.38.5 at its pinned version; no behavior of it is claimed
 here. The document-parse task records the behavior it relies on. Test: none
 new; the change adds no behavior. Needs: Hex access during `mix setup`.
-Limits: this task adopts a dependency only. It makes no claim that `floki`
-is safe for hostile HTML, adds no parser, reader or wrapper, and promotes no
-Piece. Telemetry, Config and Control are not applicable.
+Limits: this task pins and declares a dependency only. It is not adoption
+in the sense of `docs/dependencies.md`: no Elzoo runtime check exercises
+`floki` yet. The document-parse task adds the check of the API and the
+failure path that it relies on, and that completes the adoption. This task
+makes no claim that `floki` is safe for hostile HTML, adds no parser, reader
+or wrapper, and promotes no Piece. Telemetry, Config and Control are not
+applicable.

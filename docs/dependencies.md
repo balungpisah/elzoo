@@ -94,7 +94,7 @@ names it. "Use" is a short phrase taken from the `mix.exs` comment or the
 | `tz` | `== 0.28.4` | Apache-2.0 | `state/scheduler` | IANA timezone database Need for non-UTC schedules |
 | `yaml_elixir` | `== 2.12.2` | MIT | `workflow/skill` | YAML call surface of the skill frontmatter reader |
 | `yamerl` | `== 0.10.0` | BSD-2-Clause | `workflow/skill` | YAML parser behind `yaml_elixir`; its version decides what a document means |
-| `floki` | `== 0.38.5` | MIT | none yet (planned `integration/document-parse`) | HTML parser; already locked through `cure`'s `md` dependency, declared directly by ELZ-330 |
+| `floki` | `== 0.38.5` | MIT | none yet (planned `integration/document-parse`) | HTML parser; already locked through `cure`'s `md` dependency, declared directly by ELZ-330; not yet adopted: no Elzoo runtime check exercises it until `integration/document-parse` adds one |
 
 ## Source distribution and authoritative pins
 
