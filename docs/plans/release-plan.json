@@ -9761,7 +9761,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/memory-record/piece.json",
-      "manifest_sha256": "0c2f3a8246c7a4efb057933c9245ed7d7daecd191a59839d52aca55fd5b30519"
+      "manifest_sha256": "70d5e7cc11b83fca4e838ea4d33c547c43644c4cc38790b8d0468f1bee0fd9bc"
     },
     {
       "id": "state/artifact",
