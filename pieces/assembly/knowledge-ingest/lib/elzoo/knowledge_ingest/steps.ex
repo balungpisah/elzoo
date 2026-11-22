@@ -238,7 +238,7 @@ defmodule Elzoo.KnowledgeIngest.Steps do
       KI.hook(c, :prepare_commit, info(j))
 
       committed =
-        tx(c, j, &(&1.state == "preparing"), fn row ->
+        tx(c, j, &(&1.job_key == j.key and &1.state == "preparing"), fn row ->
           stage!(c, row, chunks, batches, parsed)
 
           KI.schedule(c, row, :embed, 0)

@@ -502,6 +502,50 @@ defmodule Elzoo.KnowledgeIngestTest do
     assert length(jobs(env, "embed")) == 2
   end
 
+  test "2 a prepare run held at its commit while the ingest fails and is resubmitted writes nothing",
+       ctx do
+    env = env(ctx)
+    t = tenant()
+    r = submit!(env, t, doc(env, t, xs(3), chunking: [chunk_overlap: 0]))
+    [[id, _, old_key, _]] = jobs(env, "prepare")
+    me = self()
+
+    Hooks.on(env.hooks, :prepare_commit, fn _ ->
+      send(me, {:at_commit, self()})
+      receive(do: (:go -> :ok))
+    end)
+
+    # run A of the job waits at its commit
+    a = Task.async(fn -> Worker.perform(Harness.job!(env, id)) end)
+    assert_receive {:at_commit, pid_a}, 30_000
+    # run B of the same job fails the ingest; resubmit/3 makes a new prepare job current
+    Hooks.on(env.hooks, :artifact, fn _ -> {:override, {:error, :deleted}} end)
+    assert :ok = Worker.perform(Harness.job!(env, id))
+    Hooks.off(env.hooks, :artifact)
+    assert %{state: :failed, reason: {:artifact, :deleted}} = status(env, t, r)
+    assert {:ok, %{state: :requested}} = KI.resubmit(env.c, caller(t), key(r))
+    [_, [new_id, "available", new_key, _]] = jobs(env, "prepare")
+    assert new_key != old_key
+    # run C, the current job, begins (preparing) and waits at its commit
+    c = Task.async(fn -> Worker.perform(Harness.job!(env, new_id)) end)
+    assert_receive {:at_commit, pid_c}, 30_000
+    assert %{state: :preparing} = status(env, t, r)
+    # A is no longer the current job: its commit writes nothing
+    send(pid_a, :go)
+    assert :ok = Task.await(a, 15_000)
+    assert %{state: :preparing} = status(env, t, r)
+    assert Harness.staged(env, t) == 0
+    assert jobs(env, "embed") == []
+    send(pid_c, :go)
+    assert :ok = Task.await(c, 15_000)
+    Hooks.off(env.hooks, :prepare_commit)
+    assert %{state: :embedding} = status(env, t, r)
+    assert Harness.staged(env, t) == 3
+    assert length(jobs(env, "embed")) == 1
+    Harness.drain(env)
+    assert %{state: :indexed} = status(env, t, r)
+  end
+
   test "2 a prepare job that committed and then errors on its last attempt writes nothing", ctx do
     env = env(ctx)
     t = tenant()

@@ -176,15 +176,17 @@ content or vector. A job acts only in its own state (prepare: `requested` or `pr
 embed job of batch b: `embedding` with b the first batch not completed; index: `indexing`) and
 only while it is the ingest's current job, its key equal to the stored current job key with its
 `<n>`: every write takes the ingest row `FOR UPDATE` and checks both first, and otherwise writes
-nothing and completes. So a job that an equal submit or `resubmit/3` replaced writes nothing
-when `Oban.retry_job/2` runs it again. There are two exceptions. Prepare's commit transaction
-checks only that the state is still `preparing`: the job passed both checks in its first
-transaction, a job is replaced only while it is not live, and what the commit stages follows
-from the ingest row and the config, so a second commit would stage the same chunks and batches.
-And an embed job writes the outcome of an attempt that is still `:pending` before either check,
-so a late outcome is kept for metering; the transition that the outcome drives runs only under
-both checks. Every step first checks that the config's search binding has the `index_identity`
-recorded at submit (else `:index_mismatch`).
+nothing and completes; prepare's commit transaction checks the whole key and the state
+`preparing`. A new key becomes current in three ways, each in the transaction that takes the
+ingest row lock, and none waits for the job it replaces to return: a step's own transition
+enqueues the next batch's or step's job (and moves the state on); an equal `submit/3`
+re-enqueues a stranded step when none of its jobs is live; and `resubmit/3` restarts a `failed`
+ingest's step, also while another run of the failed job has not returned. So a replaced job,
+whether `Oban.retry_job/2` runs it again or a second run of it is still under way, writes
+nothing. The one exception is an embed job's write of the outcome of an attempt that is still
+`:pending`, before either check, so a late outcome is kept for metering; the transition that the
+outcome drives runs only under both checks. Every step first checks that the config's search
+binding has the `index_identity` recorded at submit (else `:index_mismatch`).
 
 1. **Prepare**: `Artifact.get/4` (`:store_unavailable` and `{:object_store_unknown, _}` are a
    job error; any other error fails at once), `DocumentParse.parse/2`, `TextChunking.chunk/4`
