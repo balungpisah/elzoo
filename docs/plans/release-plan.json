@@ -8653,6 +8653,33 @@
       "issue": 762,
       "url": "https://github.com/balungpisah/elzoo/issues/762",
       "issue_body_sha256": "9095c0fd01175724ad7b7029ee05bd4c46bc4bba82c5c88c3317a4660e2ff09e"
+    },
+    {
+      "id": "ELZ-329",
+      "title": "ELZ-329 — Check a model's cited answer against the exact items it was given",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-030",
+        "ELZ-115"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-329-citation.md"
+      ],
+      "outputs": [
+        "workflow/citation"
+      ],
+      "acceptance": "Pure Piece: schema/0 gives the cited-answer JSON Schema version 1 (text, 0..32 citations of item_id and quote) that core/payload-schema builds; check/3 checks one decoded answer against 0..256 host items (item_id, source, version, content, optional start_byte) and a min_citations policy 0..32, in the fixed order invalid (host input), malformed, too_many, duplicate, unknown_item, quote_not_found, uncited, with exact-byte item IDs and quotes of 1..1,024 bytes found by first occurrence and resolved to source, version and exclusive byte range (source offsets for a chunk); never raises, errors echo nothing; Unicode normalization not found, multi-byte, first-occurrence and chunk offsets written by hand; inline markers, a parsed-to-uploaded offset map, cross-item quotes and a near-match mode kept addable in place. Untrusted model output: local small gate and full review; negative control skips the substring check.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 764,
+      "url": "https://github.com/balungpisah/elzoo/issues/764",
+      "issue_body_sha256": "e05b6c06038e5964d91803e92a16ee709423b168e9bb4eaf6ecca96e5afa9780"
     }
   ],
   "entries": [
@@ -10007,6 +10034,14 @@
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/typed-decision/piece.json",
       "manifest_sha256": "27e9e653d7393007bff6b3bdfe2c12b2b0a7f8fc73a23686e7837a19aae54cd4",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/citation",
+      "job": "ELZ-329",
+      "note": "Planned pure check of a model's cited answer: schema/0 gives the cited-answer schema version 1 for workflow/typed-decision, and check/3 accepts a citation only when its item ID is one of the items given to the model and its quote occurs in that item's content as exact bytes, resolving each quote by first occurrence to source, version and byte range, with fixed refusals that echo nothing. A citation shows where text came from, not that the answer is true.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
