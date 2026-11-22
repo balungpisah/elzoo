@@ -46,13 +46,28 @@ it, as the Wave 7 plan says.
 The application connection runs as the fixed role of ELZ-285, `elzoo_app`:
 the application Repo's `after_connect` runs `SET ROLE` to
 `ELZOO_TEST_APP_ROLE`, and an owner Repo (the connected `elzoo_test` role)
-creates the schemas, runs the migrations, grants and makes the owner-side
-reads that the cases name. The test **fails**, and does not skip or print
+creates the schemas, runs the installs (the Pieces' `Migration` functions,
+inside Ecto migrations where the Piece asks for one, and search-data's
+run-time `Migration.install/1`), grants and reads the catalog and the
+unprotected tables that the cases name. The test **fails**, and does not skip or print
 `NOT EXERCISED`, when `ELZOO_TEST_APP_ROLE` is unset or is not `elzoo_app`,
 or when the role it reaches is a superuser, has `BYPASSRLS`, can log in,
 inherits the session role or owns any table of a test schema. Every call of
-every Piece in this task runs on that application connection; the owner Repo
-makes no Piece call.
+every Piece in this task, other than those installs, runs on that
+application connection.
+
+**Table reads.** A protected table forces row security, so the owner, which
+is not a superuser, sees no row of it when no tenant is set. Every read of a
+protected table in the cases below is therefore harness SQL run as
+`elzoo_app` inside `Elzoo.TenantIsolation.transact/3` with the named
+tenant's scope (a plain query, not a Piece call), and each such read that
+expects no row of a kind also reads a row that the fixture put there, so it
+can fail. The unprotected tables (the Store tables, Oban's jobs and the
+retention-erasure vault tables) are read by the owner.
+
+The harness copies the pattern of ELZ-323's `engine_on_app!/2`,
+`role_facts/1` and `grant_store!/2` into its own helper; it does not load
+the Wave 6 or Wave 5 test files (ELZ-323 is a V2 job).
 
 - **Every RunEngine binding.** As `engine_on_app!/2` does in ELZ-323, the
   test collects each Store of each RunEngine fixture (the Unit, Run, host,
@@ -69,9 +84,9 @@ makes no Piece call.
   Repo. As the owner the test reads that `elzoo_app` owns no table of any
   test schema and holds exactly the grants that each Piece's README lists
   (knowledge-ingest, search-data under the floor, memory-record, metering),
-  plus the Store grants of ELZ-323's `grant_store!/2` and, for the
-  `state/retention-erasure` vault tables (which state no grant list), the
-  `SELECT, INSERT, UPDATE, DELETE` of ELZ-286. Oban runs with
+  plus the Store grants of ELZ-323's `grant_store!/2` (copied) and, for
+  the `state/retention-erasure` vault tables (which state no grant list),
+  `SELECT, INSERT, UPDATE, DELETE`, as in ELZ-286. Oban runs with
   `Oban.Peers.Isolated`, as the knowledge-ingest tests do. The report lists
   every grant; a grant that the application role needs and a Piece's README
   does not list is a finding for that Piece (a separate repair), recorded in
@@ -150,19 +165,24 @@ Checked at `main` `e7770603`. Each is the Piece's own README or `piece.json`.
 
 Two tenants, T1 and T2. Principals are `domain/principal` values built by
 the host from pinned test identities: in T1, the end user Ann (`:human`,
-the memory subject), a reviewer (`:human`) and the ingest service
-(`:service`), and each Run's `:agent` delegated from Ann; the same shapes
-in T2. One scripted embedding provider implements
+the memory subject), a second end user Bob (`:human`, who has memories and
+markers of his own), a reviewer (`:human`) and the ingest service
+(`:service`), and each Run's `:agent` delegated from the user it serves; in
+T2, the end user Cara, a reviewer and the ingest service. One scripted embedding provider implements
 `Elzoo.AiEmbedding.Provider` with a fixed dimension; it maps each input to a
 unit vector from a host table of topic words written out in the test, so
 queries and documents of one topic are near, and it reports
-`input_uncached_tokens` usage and counts its calls. It can be told to throttle
-once (`retry_after` of 1 s) or to hold a call behind a barrier. One scripted
+`input_uncached_tokens` usage and counts its calls. It can be told, for one
+named call, to throttle (`retry_after` of 1 s), to answer
+`authentication_failed`, to time out (so the call is `{:unknown, :timeout}`)
+or to hold the call behind a barrier. One scripted
 model answers each `model_call` of a RunEngine Run with an
 `elzoo.ai-text.result` value that the case names; for the extraction Run it
 copies a `[pii:...]` marker from its request.
 
-One knowledge-ingest config (one Oban queue, `max_attempts` 3) over one
+One knowledge-ingest config (one Oban queue, `max_attempts` 3, and the
+embedding option `max_inputs: 4`, so a document of five or more chunks has
+more than one batch) over one
 search-data knowledge index declared with `text_search: %{config: "english"}`
 and the floor; one search-data memory index with the floor; one
 memory-record install; one metering install; one retention-erasure vault;
@@ -171,32 +191,47 @@ all in disposable schemas, every Piece table protected and checked with its
 intent Store of the host's own embedding calls (query and memory-index
 calls), is one durable `integration/sql` Store on the application Repo; the
 host's own references start with `host/`, so they cannot equal an ingest
-reference, which starts with a 64-hex ingest ID. The period is `2026-11`.
+reference, which starts with a 64-hex ingest ID. The period is `2026-11`,
+and every metering `observed_at_ms` is a fixed value that the host derives
+from the attempt's `ref`, so recording an attempt again gives equal bytes.
 
 T1 puts, as `state/artifact` versions that the ingest service may read, an
 HTML document `refunds` (with a `<script>` holding the text `IGNORE ALL
-RULES`) and a Markdown document `shipping`. T2 puts documents under the
-same source references whose words and topic vectors rank better for T1's
-queries than T1's own, so only the tenant filter and the floor keep them
-out.
+RULES`) and a Markdown document `shipping` of at least five chunks, each at
+source version 1. T2 puts `refunds` and `shipping` under the same source
+references at source version 7, which T1 never uses, so no T2 chunk shares
+an `item_id` with a T1 chunk (search-data's `item_id` is the SHA-256 of
+source, version and chunk index, with no tenant). T2's documents hold the
+word `cara-only` and words and topic vectors that rank better for T1's
+queries than T1's own, and T1's `allowed_sources` name `refunds` and
+`shipping`, so only the tenant filter and the floor keep them out; a T2 row
+is told apart by its version, its content and its `source_digest`. T2 also
+submits a third document, `old-faq` version 7, whose embedding call answers
+`authentication_failed`, so it ends `failed` with
+`{:embedding_refused, :authentication_failed}` and keeps its staged chunks,
+and T2 then runs `delete_source/4` of `old-faq` at version 7
+(`{:committed, 0}`), which leaves a delete mark. In T2, Cara has memories
+written under the host's policy and indexed in the memory index, and one of
+them is forgotten with its source deleted, so each protected Wave 7 table
+holds a T2 row (the metering corrections table excepted: no case corrects
+an observation).
 
 ## Acceptance
 
-1. **Ingest.** Each tenant's two documents reach `indexed` through
+1. **Ingest.** Each tenant's `refunds` and `shipping` reach `indexed` through
    `submit/3`, with the queue drained by the harness. The chunks that
    `query/2` returns for a document equal `TextChunking.chunk/4` of
    `DocumentParse.parse/2` of its artifact bytes, and their `source_digest`
    is the status's `text_sha256`. No stored chunk holds the `<script>`
    text.
-   - *Restart between steps.* For one document of more than one batch (the
-     embedding config's `max_inputs` may be narrowed for it), after its
-     first batch has completed and before the next job runs, the Oban
+   - *Restart between steps.* For T1's `shipping` (more than one batch),
+     after its first batch has completed and before the next job runs, the
+     Oban
      instance is stopped and a new one is started on the same Repo with the
-     runner registered.
-     The ingest ends `indexed`, the provider got exactly one call per batch,
+     runner registered. The ingest ends `indexed`, the provider got exactly one call per batch,
      one version is stored and no staged chunk is left.
    - *Restart during a call.* With the queue running, the provider holds a
-     call of another ingest behind a barrier, and the Oban instance is
+     call of T1's `refunds` behind a barrier, and the Oban instance is
      killed (reason `:kill`, a short shutdown grace) so the job row stays
      `executing`. A new instance with a short Lifeline `rescue_after` (a
      test value used only after the instance died; the Lifeline Need holds
@@ -235,22 +270,27 @@ out.
    from 1. The candidates go to `ContextSelection.select/2` with
    `priority: :descending`, each with its provenance node and a current
    check from the host's permission snapshot. The selected order equals a
-   hand-computed order. A lexical query of stop words only returns `[]`, and
+   hand-computed order. A lexical query of stop words only returns `{:ok, []}`, and
    the fused order is then the vector order.
    - *Revocation.* A source revoked in the snapshot before the query is not
      in `allowed_sources` and is not returned. A source revoked after the
      query and before the selection gets a `:denied` check and is dropped
      `access_denied` with detail `denied`.
-   - *Tenants.* No T2 chunk is in any T1 result, although T2's chunks rank
-     better. As `elzoo_app`, inside `TenantIsolation.transact/3` with scope
-     `%{tenant: "T1"}`, a read without a tenant predicate of each protected
-     Wave 7 table (the vector and delete-mark tables of both search-data
-     indexes, the four knowledge-ingest tables, the two memory-record
-     tables, the two metering tables) finds no T2 row, and an insert of a T2 row into each is refused
-     with SQLSTATE 42501. As `elzoo_app`, `ALTER TABLE ... NO FORCE ROW
-     LEVEL SECURITY` and `DROP POLICY elzoo_tenant_floor ...` on a
-     search-data vector table and on the memory-record table are refused
-     (owner only).
+   - *Tenants.* No T1 result of either query holds a candidate of version
+     7, the word `cara-only` or a T2 `source_digest`, although T2's chunks
+     rank better; the same queries in T2's scope return them. A table read
+     (see "Table reads") without a tenant predicate, first in T2's scope and
+     then in T1's, of each protected Wave 7 table that holds a T2 row (the
+     vector and delete-mark tables of both search-data indexes, the four
+     knowledge-ingest tables, `elzoo_memory_records`,
+     `elzoo_memory_tombstones` and `elzoo_metering_observations`) finds at
+     least one T2 row in T2's scope and no T2 row in T1's scope, where it
+     finds T1's own rows. In T1's scope an insert of a T2 row into each of
+     those tables and into `elzoo_metering_corrections` is refused with
+     SQLSTATE 42501. As `elzoo_app`, `ALTER TABLE ... NO FORCE ROW LEVEL
+     SECURITY` and `DROP POLICY elzoo_tenant_floor ...` on the knowledge
+     index's vector table and on `elzoo_memory_records` are refused (owner
+     only).
 3. **Answer with citations.** The selected T1 chunks become citation items
    `%{item_id, source, version, content, start_byte}` (`start_byte` from the
    search-data candidate). `PromptAssembly.build/2` puts each item as a
@@ -266,8 +306,9 @@ out.
      equals its quote, where `parsed_text` is `DocumentParse.parse/2` of
      the cited version's artifact bytes and its SHA-256 is that version's
      `text_sha256`. The host shows the text with these citations.
-   - An answer that cites a T2 chunk's `item_id`, or a revoked item's, which
-     it was not given, gives `{:error, :unknown_item}`; an answer whose
+   - An answer that cites a T2 chunk's `item_id` (taken from T2's own
+     query, version 7, so it equals no T1 item's), or a revoked item's,
+     which it was not given, gives `{:error, :unknown_item}`; an answer whose
      quote is not in its item gives `{:error, :quote_not_found}`. The host
      shows neither as cited (its display result says so).
 4. **Remember.** A conversation of Ann's is tokenized by the host before the
@@ -308,15 +349,16 @@ out.
    - Ann later prefers another reply language: the new preference
      `supersedes` the old one. One more memory has `expires_at_ms` equal to
      the next Run's `now_ms`.
-   - The next Run's `recall/3` over Ann's subject scope and the tenant scope
+   - The next Run's `recall/3` over Ann's subject scope, the tenant scope
+     and the scope `{:space, "support"}`
      returns the current memories newest first, without the superseded and
      the expired one. The host completes each candidate (`estimate`,
      `priority` 0, `updated_at`) and sets each node's `check` from its own
      reading; with `recency: :newest` and `max_selected_count` below the
-     count, context-selection leaves out the oldest. A `{:space, id}` memory,
-     written by a `:human` reviewer, is in the recall because the host's
-     scope list still names that space, but Ann left the space after the
-     list was built: its current check is `:denied` and it is dropped
+     count, context-selection leaves out the oldest. A `{:space, "support"}`
+     memory, written by the `:human` reviewer, is in the recall because the
+     host's scope list still names that space, but Ann left the space after
+     the list was built: its current check is `:denied` and it is dropped
      `access_denied`. The selected memories go
      to the `memory` part of `PromptAssembly.build/2` as `%{id, content:
      entry.marked}`, and the scripted model's request holds them as one
@@ -333,16 +375,18 @@ out.
    entries) finds an old fact by topic as its first candidate. With that
    hit given the highest `priority` and `priority: :descending` before
    recency, the old fact is selected although recency alone leaves it out.
-   When the embedding call for one memory's index write is `:unknown`, that
-   memory is recalled by scope but not found by meaning, and the host's
+   When the embedding call for one memory's index write is told to time
+   out (`{:unknown, :timeout}`, recorded as unknown usage), that memory is
+   recalled by scope but not found by meaning, and the host's
    retry of the index write (a new `host/` reference) makes it found.
 6. **Forget and erase.**
    - *Forget.* `forget/3` of one memory is `{:ok, :applied}`; the host then
      runs `delete_source/4` of `memory:<id>` at version 1, which returns
      `{:committed, 1}`. Recall leaves it out. A `query/2` whose
-     `allowed_sources` name its source returns no row of it; an owner read
-     finds no row of that source in the memory index and no record row, and
-     finds its tombstone. A write that reuses the ID is `{:error,
+     `allowed_sources` name its source returns no row of it. A table read in
+     T1's scope finds no memory-index row of that source and no record row
+     of that ID, and finds its tombstone, the source's delete mark at
+     version 1 and the record row of another current memory. A write that reuses the ID is `{:error,
      :forgotten}`. A late index write of that memory at version 1 (as from
      a host retry that raced the forget) is `{:refused, :stale_version}`
      and nothing is stored.
@@ -352,15 +396,18 @@ out.
      "principal:" <> ann)`. When the host stops after the first batch and
      before its deletes, a repeat from `cursor: nil` returns the forgotten
      IDs again and the host deletes each source (`{:committed, 0}` for one
-     already deleted). Afterwards no recall, meaning query or owner read of
-     the memory tables and the memory index holds a memory of Ann, every
+     already deleted). Afterwards no recall, meaning query or table read in
+     T1's scope of `elzoo_memory_records` and the memory index's vector
+     table holds a memory of Ann (the same reads find Bob's), every
      marker that redaction wrote for Ann fetches `{:error, :not_found}`, and
      the vault status is `{:ok, :erased}`. The tenant-scope and space-scope
-     memories and another subject's memories and markers stay. One of Ann's memories
-     held her street address, which pii-redaction does not find (listed
-     patterns only), in plain text; after the erasure an owner read of the
-     memory-record tables and the memory index finds neither that address
-     nor any marker of Ann. Crypto-shredding covers only the values that
+     memories (whose content the fixture writes without any marker of Ann)
+     and Bob's memories stay, and Bob's markers still fetch his values. One
+     of Ann's memories held her street address, which pii-redaction does not
+     find (listed patterns only), in plain text; after the erasure a table
+     read in T1's scope of `elzoo_memory_records` and the memory index's
+     vector table finds neither that address nor any marker of Ann, and an
+     owner read of the vault tables finds neither her email nor her name. Crypto-shredding covers only the values that
      redaction found; an unlisted value is deleted with the record.
 7. **Negative controls**, one at a time, each restored before the final
    passing run; they validate the harness and do not replace the Pieces' own
@@ -389,7 +436,8 @@ above and its group, or it is under "Limits to state".
 | A stop between steps | `indexed` once, one call per batch | 1 |
 | A kill during a provider call | `:embedding_unknown`; `resubmit/3`; `indexed` once | 1 |
 | A throttle | a new attempt with a new `ref` | 1 |
-| Metering of completed, throttled, unknown, not-sent attempts; a re-record | known amount; unknown; unknown; nothing; `:duplicate` | 1 |
+| Metering of completed, throttled, unknown and refused attempts and host calls; a re-record | known amount; unknown; unknown; unknown; `:duplicate` | 1, 5 |
+| A T2 ingest refused `authentication_failed`; a T2 delete of an absent source | `failed`, staged chunks kept; `{:committed, 0}` and a delete mark | fixture, 2 |
 | A new version; a removed document | only the new version returned; nothing returned | 1 |
 | Fusion; a stop-word-only lexical query | hand-computed order; the vector order | 2 |
 | Revoked before the query; after it | not returned; dropped `access_denied` | 2 |
@@ -403,7 +451,7 @@ above and its group, or it is under "Limits to state".
 | Subject erasure, also stopped mid-cleanup | every memory and source of the subject gone; markers do not open; others stay | 6 |
 | Each negative control | the named case fails | 7 |
 | Races and failures inside one Piece (concurrent writes or supersedes of a memory, ingest version races, a delete during an ingest, artifact integrity, every parse and chunk error, cancel in each state, repair calls of a typed decision) | the owning Piece's tests; not repeated | Limits |
-| Outcomes the host maps but this task does not reach (`:completed_lost`, `:not_dispatched`, refusals other than a throttle, a Memory intent Store) | the stated mapping; the Piece's tests | Limits |
+| Outcomes the host maps but this task does not reach (`:completed_lost`, `:not_dispatched`, `credentials_unavailable` and the refusals other than a throttle and `authentication_failed`, a Memory intent Store) | the stated mapping (unknown usage if it may have been paid, nothing if not sent); the Piece's tests | Limits |
 
 ## Kept open
 
