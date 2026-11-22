@@ -344,6 +344,13 @@
       "version": "0.10.0",
       "reference": "https://hexdocs.pm/yamerl/0.10.0/",
       "license": "BSD-2-Clause"
+    },
+    "floki": {
+      "source": "hex",
+      "package": "floki",
+      "version": "0.38.5",
+      "reference": "https://hexdocs.pm/floki/0.38.5/Floki.html",
+      "license": "MIT"
     }
   }
 }
