@@ -32,10 +32,15 @@ defmodule Elzoo.Wave7.RememberAndKnowTest do
     on_exit(fn -> for repo <- [OwnerRepo, AppRepo], do: H.stop!(repo) end)
     # Fails, never skips: the application connection must be the application role.
     H.role_guard!(role)
-    _ = Elzoo.RunEngine.TestHelper.database()
+    engine_repo = Elzoo.RunEngine.TestHelper.database()
     {:ok, registry} = Registry.start_link(keys: :unique, name: Elzoo.RunEngine.TestRegistry)
     {:ok, units} = Registry.start_link(keys: :unique, name: Elzoo.RunEngine.UnitRegistry)
     for pid <- [registry, units], do: Process.unlink(pid)
+
+    on_exit(fn ->
+      for pid <- [registry, units, engine_repo], Process.alive?(pid), do: Supervisor.stop(pid)
+    end)
+
     %{role: role}
   end
 
