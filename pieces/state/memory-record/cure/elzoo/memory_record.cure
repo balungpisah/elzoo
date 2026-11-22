@@ -1,0 +1,119 @@
+# SPDX-License-Identifier: Apache-2.0
+# state/memory-record (ELZ-332): the write-policy decision of a memory proposal.
+# Pure: no I/O. The Elixir boundary (Elzoo.MemoryRecord) checks the policy and
+# the proposal, looks up the triple {scope_kind, kind, writer_kind}, compares an
+# approval's digest with the proposal digest and passes the results; these
+# functions decide.
+mod Elzoo.MemoryRecord
+  # A listed policy value.
+  type Rule = MemoryAllow | MemoryAsk | MemoryDeny
+
+  # The policy's entry for one triple.
+  type Entry = MemoryListed(Rule) | MemoryUnlisted
+
+  # The result of check_write/2.
+  type Decision = MemoryAllowed | MemoryAskPolicy | MemoryDenyPolicy | MemoryDenyUnlisted
+
+  # What the write call carries: no approval, or one whose digest matches the
+  # proposal digest or not.
+  type Approval = MemoryNoApproval | MemoryMatching | MemoryMismatching
+
+  # The step-2 outcome of write/4.
+  type Admission = MemoryWrite | MemoryDenied | MemoryApprovalRequired | MemoryApprovalMismatch
+
+  @total true
+  @reducible
+  fn rule(r: Rule) -> Decision =
+    match r
+      MemoryAllow() -> MemoryAllowed()
+      MemoryAsk() -> MemoryAskPolicy()
+      MemoryDeny() -> MemoryDenyPolicy()
+
+  # check_write/2: a listed value decides; an unlisted triple is denied (no default).
+  @total true
+  @reducible
+  fn decide(e: Entry) -> Decision =
+    match e
+      MemoryListed(r) -> rule(r)
+      MemoryUnlisted() -> MemoryDenyUnlisted()
+
+  # write/4 step 2: a deny refuses whatever the approval; an ask needs a matching
+  # approval; an approval given on an allow is checked the same way.
+  @total true
+  @reducible
+  fn approved(a: Approval) -> Admission =
+    match a
+      MemoryNoApproval() -> MemoryApprovalRequired()
+      MemoryMatching() -> MemoryWrite()
+      MemoryMismatching() -> MemoryApprovalMismatch()
+
+  @total true
+  @reducible
+  fn allowed(a: Approval) -> Admission =
+    match a
+      MemoryNoApproval() -> MemoryWrite()
+      MemoryMatching() -> MemoryWrite()
+      MemoryMismatching() -> MemoryApprovalMismatch()
+
+  @total true
+  @reducible
+  fn admit(d: Decision, a: Approval) -> Admission =
+    match d
+      MemoryAllowed() -> allowed(a)
+      MemoryAskPolicy() -> approved(a)
+      MemoryDenyPolicy() -> MemoryDenied()
+      MemoryDenyUnlisted() -> MemoryDenied()
+
+  # ── selectors for the laws ──────────────────────────────────────────────
+
+  @total true
+  @reducible
+  fn writes(s: Admission) -> Bool =
+    match s
+      MemoryWrite() -> True()
+      MemoryDenied() -> False()
+      MemoryApprovalRequired() -> False()
+      MemoryApprovalMismatch() -> False()
+
+  @total true
+  @reducible
+  fn matching(a: Approval) -> Bool =
+    match a
+      MemoryNoApproval() -> False()
+      MemoryMatching() -> True()
+      MemoryMismatching() -> False()
+
+  # ── selected laws ───────────────────────────────────────────────────────
+
+  # unlisted_denied: an unlisted triple is denied, so an empty policy denies every write.
+  @total true
+  fn unlisted_denied(a: Approval) -> Equivalent(Admission, admit(decide(MemoryUnlisted()), a), MemoryDenied()) =
+    reflexive(MemoryDenied())
+
+  # deny_never_writes: a listed deny writes nothing, for every approval.
+  @total true
+  fn deny_never_writes(a: Approval) -> Equivalent(Bool, writes(admit(decide(MemoryListed(MemoryDeny())), a)), False()) =
+    reflexive(False())
+
+  # ask_writes_only_approved: a listed ask writes exactly when the approval matches.
+  @total true
+  fn ask_writes_only_approved(a: Approval) -> Equivalent(Bool, writes(admit(decide(MemoryListed(MemoryAsk())), a)), matching(a)) =
+    match a
+      MemoryNoApproval() -> reflexive(False())
+      MemoryMatching() -> reflexive(True())
+      MemoryMismatching() -> reflexive(False())
+
+  # mismatch_never_writes: an approval of another digest writes nothing, for every entry.
+  @total true
+  fn mismatch_never_writes(e: Entry) -> Equivalent(Bool, writes(admit(decide(e), MemoryMismatching())), False()) =
+    match e
+      MemoryListed(r) -> rule_mismatch(r)
+      MemoryUnlisted() -> reflexive(False())
+
+  @total true
+  fn rule_mismatch(r: Rule) -> Equivalent(Bool, writes(admit(rule(r), MemoryMismatching())), False()) =
+    match r
+      MemoryAllow() -> reflexive(False())
+      MemoryAsk() -> reflexive(False())
+      MemoryDeny() -> reflexive(False())
+end
