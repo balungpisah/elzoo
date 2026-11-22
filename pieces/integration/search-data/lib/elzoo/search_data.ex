@@ -328,15 +328,23 @@ defmodule Elzoo.SearchData do
     )
   end
 
-  # websearch_to_tsquery raises 54000 ("tsquery is too complex") for some in-bounds texts, such
-  # as a long run of '-': a refusal of the input, not unavailability.
+  # websearch_to_tsquery cannot parse some in-bounds texts, such as a long run of '-': a refusal
+  # of the input, not unavailability. PostgreSQL 16.16 reports 54000 "tsquery is too complex";
+  # 16.15 and earlier report the internal error XX000 "tsquery stack too small" for the same text.
   defp ranked!(b, :rank, sql, params) do
     sql!(b, sql, params)
   rescue
     e in Postgrex.Error ->
-      if match?(%{code: :program_limit_exceeded}, e.postgres),
-        do: b.repo.rollback({:refused, :invalid_request}),
-        else: reraise(e, __STACKTRACE__)
+      case e.postgres do
+        %{code: :program_limit_exceeded} ->
+          b.repo.rollback({:refused, :invalid_request})
+
+        %{code: :internal_error, message: "tsquery stack too small"} ->
+          b.repo.rollback({:refused, :invalid_request})
+
+        _ ->
+          reraise e, __STACKTRACE__
+      end
   end
 
   defp ranked!(b, :distance, sql, params), do: sql!(b, sql, params)

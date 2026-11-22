@@ -94,9 +94,10 @@ request = %{tenant: tenant, text: "quick \"brown fox\" -dog", k: 20,
 ```
 
 `text` is 1..4096 bytes of valid UTF-8 without NUL, parsed with `websearch_to_tsquery`, so no
-query syntax error is possible. A text that PostgreSQL finds too complex to parse (SQLSTATE
-54000, for example a run of 33 or more `-`) is `{:error, :invalid_request}`, not
-`unavailable`, so a host does not retry it. The other keys and bounds are those of `query/2`. Tenant and
+query syntax error is possible. A text that PostgreSQL finds too complex to parse (for example
+a run of 33 or more `-`: SQLSTATE 54000 "tsquery is too complex" on PostgreSQL 16.16, the
+internal error XX000 "tsquery stack too small" on 16.15 and earlier) is
+`{:error, :invalid_request}`, not `unavailable`, so a host does not retry it. The other keys and bounds are those of `query/2`. Tenant and
 permitted sources apply in the `WHERE` before ranking; rows match by `@@` and order by
 `ts_rank_cd` descending, then source reference in C collation, version and chunk index. The
 content bound and its overflow refusal are those of `query/2`. A candidate has the keys of a
