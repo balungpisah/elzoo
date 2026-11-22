@@ -200,12 +200,18 @@ defmodule Elzoo.CitationTest do
 
   describe "5 source offsets" do
     test "start_byte shifts the range; 0 equals no key; source and version are the item's" do
-      chunk = item("h", @hello, %{source: "docs/manual", version: 7, start_byte: 100})
+      chunk = item("h", @hello, %{source: "manual/setup", version: 7, start_byte: 100})
 
       assert {:ok,
               %{
                 citations: [
-                  %{item_id: "h", source: "docs/manual", version: 7, start_byte: 107, end_byte: 113}
+                  %{
+                    item_id: "h",
+                    source: "manual/setup",
+                    version: 7,
+                    start_byte: 107,
+                    end_byte: 113
+                  }
                 ]
               }} == Citation.check(answer([cite("h", "wörld")]), [chunk], @open)
 
@@ -439,7 +445,7 @@ defmodule Elzoo.CitationTest do
                cited: [
                  %{
                    item_id: "chunk-7",
-                   source: "docs/handbook",
+                   source: "handbook/refunds",
                    version: 12,
                    start_byte: 4113,
                    end_byte: 4127

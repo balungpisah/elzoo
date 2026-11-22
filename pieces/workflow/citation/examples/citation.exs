@@ -7,7 +7,7 @@ items = [
   %{item_id: "note-1", source: "notes/onboarding", version: 3, content: "Badges open at 8am."},
   %{
     item_id: "chunk-7",
-    source: "docs/handbook",
+    source: "handbook/refunds",
     version: 12,
     content: "Refunds are paid within 14 days.",
     start_byte: 4096
