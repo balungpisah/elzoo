@@ -9,6 +9,7 @@ defmodule Elzoo.SearchData.Migration do
   alias Elzoo.TenantIsolation.Migration, as: Floor
 
   @protect_message "search data binding has no tenant_isolation option"
+  @scope_message "search data index holds tenant IDs outside the tenant isolation scope"
 
   def install(binding) do
     with :ok <- Store.validate_binding(binding) do
@@ -18,6 +19,12 @@ defmodule Elzoo.SearchData.Migration do
           %{binding | declaration: %{binding.declaration | index_identity: "registry"}},
           :migration
         )
+
+        # An identity already installed with other bytes is incompatible, whatever else it names.
+        stored = stored_declaration(binding)
+
+        if stored != nil and stored != Store.declaration_bytes(binding.declaration),
+          do: binding.repo.rollback({:refused, :incompatible_embedding})
 
         # Before anything is created: a text-search index needs a UTF-8 database and a
         # pg_catalog configuration of the declared name.
@@ -33,24 +40,12 @@ defmodule Elzoo.SearchData.Migration do
           []
         )
 
-        result =
-          Store.sql!(
-            binding,
-            "SELECT descriptor FROM #{Store.registry(binding)} WHERE index_identity=$1",
-            [binding.declaration.index_identity]
-          )
-
-        case result.rows do
-          [[bytes]] ->
-            if bytes != Store.declaration_bytes(binding.declaration),
-              do: binding.repo.rollback({:refused, :incompatible_embedding})
-
-          [] ->
-            Store.sql!(binding, "INSERT INTO #{Store.registry(binding)} VALUES($1,$2,$3)", [
-              binding.declaration.index_identity,
-              Store.declaration_bytes(binding.declaration),
-              Store.table_name(binding.declaration.index_identity)
-            ])
+        if stored == nil do
+          Store.sql!(binding, "INSERT INTO #{Store.registry(binding)} VALUES($1,$2,$3)", [
+            binding.declaration.index_identity,
+            Store.declaration_bytes(binding.declaration),
+            Store.table_name(binding.declaration.index_identity)
+          ])
         end
 
         dimensions = binding.declaration.descriptor.dimensions
@@ -107,6 +102,25 @@ defmodule Elzoo.SearchData.Migration do
     _ -> {:error, :invalid_request}
   end
 
+  # The stored declaration bytes of the identity, or nil when the registry or its row is absent.
+  defp stored_declaration(binding) do
+    %{rows: [[exists]]} =
+      Store.sql!(binding, "SELECT pg_catalog.to_regclass($1) IS NOT NULL", [
+        Store.registry(binding)
+      ])
+
+    if exists do
+      case Store.sql!(
+             binding,
+             "SELECT descriptor FROM #{Store.registry(binding)} WHERE index_identity=$1",
+             [binding.declaration.index_identity]
+           ).rows do
+        [[bytes]] -> bytes
+        [] -> nil
+      end
+    end
+  end
+
   defp check_text_search!(binding, config) do
     %{rows: [[encoding, found]]} =
       Store.sql!(
@@ -132,6 +146,9 @@ defmodule Elzoo.SearchData.Migration do
   install the `state/tenant-isolation` readers in the binding's `tenant_isolation` prefix and
   protect the vector table and the delete-mark table (`tenant_column: "tenant"`,
   `space_column: nil`). A binding without `tenant_isolation` raises `ArgumentError` before any DDL.
+  When either table holds a tenant ID outside tenant-isolation's scope rule (1..128 bytes, no C0
+  or C1 control character), which no scoped call could reach, it raises a `RuntimeError` with a
+  fixed message naming no tenant, before any DDL.
   """
   def protect(binding) do
     p =
@@ -140,8 +157,27 @@ defmodule Elzoo.SearchData.Migration do
         _ -> raise ArgumentError, @protect_message
       end
 
-    Floor.install(p)
     id = binding.declaration.index_identity
+
+    # Runs now on the migration's connection; the DDL below is queued after it.
+    for name <- [Store.table_name(id), Store.mark_name(id)] do
+      table = Store.identifier(binding.prefix) <> "." <> Store.identifier(name)
+
+      %{rows: [[outside]]} =
+        Ecto.Migration.repo().query!(
+          """
+          SELECT EXISTS(SELECT 1 FROM #{table}
+                        WHERE octet_length(tenant) NOT BETWEEN 1 AND 128
+                           OR tenant ~ '[\\u0001-\\u001f\\u007f-\\u009f]')
+          """,
+          [],
+          log: false
+        )
+
+      if outside, do: raise(@scope_message)
+    end
+
+    Floor.install(p)
 
     for name <- [Store.table_name(id), Store.mark_name(id)],
         do:

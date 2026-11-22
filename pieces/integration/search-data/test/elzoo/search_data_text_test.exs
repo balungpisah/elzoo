@@ -337,6 +337,9 @@ defmodule Elzoo.SearchDataTextTest do
                  prefix: p
                )
 
+      # Another configuration of an installed identity is incompatible, also an unknown one.
+      unknown = put_in(t.declaration.text_search.config, "nosuchcfg")
+      assert {:error, :incompatible_embedding} = Migration.install(unknown)
       simple = put_in(t.declaration.text_search.config, "simple")
       assert {:error, :incompatible_embedding} = Migration.install(simple)
       removed = Map.delete(t.declaration, :text_search)
@@ -609,6 +612,46 @@ defmodule Elzoo.SearchDataTextTest do
           do: q!(TextRepo, sql)
 
       {:ok, admin: admin, app: %{admin | repo: AppRepo}}
+    end
+
+    test "protect refuses stored tenant IDs outside the floor scope before any DDL", %{
+      p: p,
+      admin: admin
+    } do
+      {:ok, legacy} = Store.new(TextRepo, declaration("legacy-floor"), prefix: p)
+      assert {:ok, ^legacy} = Migration.install(legacy)
+      floor = Map.put(legacy, :tenant_isolation, admin.tenant_isolation)
+      :persistent_term.put({FloorMigration, :binding}, floor)
+      edge = String.duplicate("t", 128)
+      long = String.duplicate("t", 129)
+      assert {:committed, 1} = put(legacy, "source", 1, ["fox"], [], edge)
+      assert {:committed, 1} = put(legacy, "source", 1, ["fox"], [], "\u00e9t\u00e9")
+      assert {:committed, 1} = put(legacy, "source", 1, ["fox"], [], long)
+      assert {:committed, 0} = Store.delete_source(legacy, "t\u0085", "gone", 1)
+
+      protected = fn ->
+        q!(
+          TextRepo,
+          "SELECT bool_or(relrowsecurity) OR EXISTS(SELECT 1 FROM pg_policy WHERE polrelid IN (to_regclass($1), to_regclass($2))) FROM pg_class WHERE oid IN (to_regclass($1), to_regclass($2))",
+          [Store.table(legacy), Store.marks(legacy)]
+        ).rows
+      end
+
+      for {fix, table} <- [{long, Store.table(legacy)}, {"t\u0085", Store.marks(legacy)}] do
+        error =
+          assert_raise RuntimeError, fn ->
+            Ecto.Migrator.up(TextRepo, 2, FloorMigration, prefix: p, log: false)
+          end
+
+        assert error.message ==
+                 "search data index holds tenant IDs outside the tenant isolation scope"
+
+        assert protected.() == [[false]]
+        q!(TextRepo, "DELETE FROM #{table} WHERE tenant=$1", [fix])
+      end
+
+      assert :ok = Ecto.Migrator.up(TextRepo, 2, FloorMigration, prefix: p, log: false)
+      assert protected.() == [[true]]
     end
 
     test "the floor transaction keeps the binding's deadline, not the Repo's timeout", %{app: app} do
