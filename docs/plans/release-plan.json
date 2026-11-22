@@ -8629,6 +8629,30 @@
       "issue": 760,
       "url": "https://github.com/balungpisah/elzoo/issues/760",
       "issue_body_sha256": "6db79e5ff6bf861b7c52ebe14c3e9e123b6b96e89579374b37b385a0f7a211be"
+    },
+    {
+      "id": "ELZ-328",
+      "title": "ELZ-328 — Plan Wave 7, Remember and know",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-286",
+        "ELZ-322"
+      ],
+      "status": "published 2026-11-22",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-328-wave7-plan.md"
+      ],
+      "outputs": [],
+      "acceptance": "docs/plans/bot-platform-wave7.md gives the Wave 7 source boundaries, one disposition per candidate handle, a decision for each deferred item mapped to Wave 7 (the runtime/async-work progress heartbeat, assembly/data-pipeline RC-39 and the Wave 7 row's deferred list), dependency levels ending in a mandatory root consumer acceptance, a Contract sketch, acceptance with negative controls and the options kept open for each job, and the owner questions with options and recommendations; bot-platform.md points the RC-39 row and the Wave 7 rows to the page and says in its Wave 6 deferred row that Wave 6 is accepted; no Contract, task, Piece or catalogue change. Documents-only classification, live roadmap, claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 762,
+      "url": "https://github.com/balungpisah/elzoo/issues/762",
+      "issue_body_sha256": "9095c0fd01175724ad7b7029ee05bd4c46bc4bba82c5c88c3317a4660e2ff09e"
     }
   ],
   "entries": [
