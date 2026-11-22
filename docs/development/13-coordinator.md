@@ -151,10 +151,11 @@
     remerge diff as its own commit after the commits before it. Push both
     branches only when the build succeeds. Open a pull request from
     `recheck/<PR>` to `recheck/<PR>-base`, mark it ready so the automated
-    reviewer passes, then close it unmerged and delete both branches. They
-    hold only replays of commits on `main` and no work of their own, and the
-    closed pull request's `refs/pull/<n>/head` keeps the exact tip, so the
-    archive ref of `AGENTS.md` section 8 is not needed.
+    reviewer passes, and close it unmerged. `recheck/<PR>` is not merged,
+    so before you delete it push an archive ref of its exact tip, as
+    `AGENTS.md` section 8 requires (`refs/heads/archive/recheck-<PR>-<UTC
+    time>-<tip>`), and name that ref in a comment on the closed recheck pull
+    request. Then delete both branches.
   - If a cherry-pick conflicts because a commit depends on a merge of
     `main`, or a remerge diff does not apply, abort it and push nothing for
     that row. The reviewer of another model family (`openai/gpt-6.1-terra`
