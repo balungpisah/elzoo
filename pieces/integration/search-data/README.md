@@ -175,7 +175,10 @@ text_search_too_large, stale_version and isolation. Refusals are fixed atoms tha
 tenant, source, text or content.
 No partial-source success is returned. Conservative indeterminate covers lost
 COMMIT observation and other unexpected DB errors; retry/reconciliation policy
-belongs to the caller. The store does not claim external exactly-once Effects.
+belongs to the caller. After an indeterminate put, repeat it with `if_newer: true` or read back
+first, never as an unguarded put, which can replace a newer version; an indeterminate
+`delete_source/4` may be repeated as is (it is version-checked and idempotent). The store does
+not claim external exactly-once Effects.
 
 ## Reading and completing candidates
 
@@ -250,9 +253,8 @@ lock is seen by the scan, and a write that arrives later waits and then gets the
 the scan takes (an operator Need: run it in a maintenance window, or accept the pause; a request
 that waits longer than its `statement_timeout_ms` while `protect/1` holds the locks returns
 `unavailable` for a read or `indeterminate` for a write; a read may be retried after the
-migration, and an `indeterminate` write follows the Piece's indeterminate rule (the results
-paragraph at the end of [Deleting a source](#deleting-a-source)): repeat it as a guarded put with
-`if_newer: true`, or read back first, never as an unguarded replay). It reads every distinct tenant ID in pages of 1,000 and decides with the same rule as
+migration, and an `indeterminate` write follows the indeterminate rule in the results paragraph
+at the end of [Deleting a source](#deleting-a-source), never as an unguarded replay). It reads every distinct tenant ID in pages of 1,000 and decides with the same rule as
 the scoped calls on the UTF-8 values that Postgrex receives, so the database encoding does not
 change the decision (an SQL_ASCII database was checked once by a local probe, not by a committed
 test: the test role cannot create databases). This needs the migration's own transaction (Ecto's
