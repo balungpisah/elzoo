@@ -16,17 +16,22 @@
   "dependencies": [
     "workflow/context-selection",
     "integration/ai-embedding",
-    "integration/text-chunking"
+    "integration/text-chunking",
+    "state/tenant-isolation"
   ],
   "applications": [
     "crypto"
   ],
-  "contract": "Consumer-Repo PostgreSQL/pgvector exact cosine chunk store: immutable per-index descriptor, atomic serialized source replacement, tenant and allowed-source SQL filtering before bounded distance ranking, non-null provenance and caller-snapshot retrieval candidates for current context-selection recheck; no provider calls or permission decision.",
+  "contract": "Consumer-Repo PostgreSQL/pgvector exact cosine chunk store: immutable per-index descriptor with an optional pg_catalog text search configuration, atomic serialized source replacement with an optional if_newer version guard and a serialized source delete with delete marks, tenant and allowed-source SQL filtering before bounded cosine or ts_rank_cd lexical ranking, an optional state/tenant-isolation row-security floor with verify/1, non-null provenance and caller-snapshot retrieval candidates for current context-selection recheck; no provider calls or permission decision.",
   "limits": [
-    "Finite PostgreSQL16/vector scenarios, not proofs; storage/transaction and cosine behavior remain upstream.",
+    "Finite PostgreSQL16/vector scenarios, not proofs; storage/transaction, cosine, full-text search and row security remain upstream.",
     "Consumer owns Repo/types, installed extension and usable extension-owned type/operator search path, trusted schemas, deployment, credentials and permission snapshots.",
-    "No ANN, ranking quality, source authentication, retention/deletion policy, monotonic-version policy, embedding calls or exactly-once guarantee.",
-    "Source1..65536 chunks,1MiB each/8MiB total; queryk1..256 and8MiB whole-result bound.",
+    "No ANN, fusion, rerank, snippets, ranking quality, relevance, language detection or typo tolerance, source authentication, retention/expiry schedule, embedding calls or exactly-once guarantee.",
+    "Version guard holds only between guarded writes and deletes under READ COMMITTED (checked, not set); an unguarded put still replaces any version and ignores delete marks.",
+    "Only pg_catalog text search configurations; text-search index needs a UTF-8 database (database_encoding refusal untested); words over 2047 bytes are not indexed; tsvector over 1MB refused.",
+    "Delete removes rows, not dead tuples, WAL or backups; no tombstone beyond the per-source delete mark.",
+    "Floor: tenant-isolation limits apply (owner can unforce or drop policies; superuser/BYPASSRLS ignore them); the declaration registry is not under row security.",
+    "Source1..65536 chunks,1MiB each/8MiB total; queryk1..256, text1..4096 bytes and8MiB whole-result bound.",
     "Source-global chunk indices are distinct from batch-local embedding indices; caller owns the association.",
     "Explicit same-process caller transaction refused; raw-BEGIN and Sandbox limits remain as documented.",
     "Extension namespace-unavailability is integration-tested; literal absent pg_extension catalog entry is not."
@@ -35,6 +40,7 @@
     "lib/elzoo/search_data.ex",
     "lib/elzoo/search_data/migration.ex",
     "test/elzoo/search_data_test.exs",
+    "test/elzoo/search_data_text_test.exs",
     "test/support/search_data_test_helper.exs"
   ],
   "grounding": [
@@ -42,6 +48,11 @@
       "kind": "test",
       "file": "test/elzoo/search_data_test.exs",
       "claim": "S1-S11 finite real PostgreSQL/vector scenarios: real chunker output joined with fixture batch-local embedding records and stored provenance, tenant/permitted-source SQL filtering before ranking, access revocation through context-selection, immutable declaration/descriptor/norm checks, bounds and whole-result refusal, stable ties and identity, real statement timeout and caller transaction refusal, paused replacement with concurrent readers and serialized writers, installed extension unavailable through a restricted Repo search path without shared extension changes; copied-consumer execution. S11 observes actual Repo/Postgrex result content at overflow, exact 8 MiB and one-byte-below boundaries; no universal BEAM heap bound is claimed."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/search_data_text_test.exs",
+      "claim": "ELZ-331 cases 1-12 on the worker's own disposable PostgreSQL 16/vector database in random schemas dropped afterwards: 1 lexical hit, miss, english stop-word-only query and websearch syntax including unbalanced quotes run without error; 2 another tenant's and an unpermitted source's better-ranked rows excluded at k 1, empty permitted list; 3 equal ranks by source_ref C collation then chunk index and item_id equal to query/2's; 4 overflow, exact 8MiB and one-byte-below content bound observed on the Repo result; 5 text_search_disabled and text 0/4097 bytes, invalid UTF-8 and NUL refused, 1 and 4096 bytes accepted; 6 unknown and schema-only configurations (also on search_path) refused, changed, added and removed configuration incompatible, legacy declaration bytes unchanged, re-install creates a missing delete-mark table, and a search_path-first copy of simple named english changes neither the writer nor the reader; 7 tsvector over 1MB refused whole with the previous version kept, NUL content refused under the key before any query and accepted without it; 8 delete counts, absent and repeat 0, stale_version for a lower version; 9 put and delete of version 2 behind a held advisory lock, each seen waiting in pg_locks, in both orders; 10 guarded writes of versions 1 and 2 behind the barrier in both orders, guards against stored versions and delete marks, equal-version repeat, unguarded writes unchanged, bad opts; 11 as the ELZ-285 application role (ELZOO_TEST_APP_ROLE, fail not skip) with only the README grants and protect/1 inside an Ecto.Migrator run: verify/1 ok, every operation for T1, no T2 row visible and direct T2 inserts into both tables fail 42501, 129-byte and U+0085 tenants invalid before any query, unprotected index not_enabled, protect/1 raises without the option; 12 caller transaction refused with no query on Repo telemetry with and without the floor, repeatable-read Repo refuses delete and guarded put with nothing changed while an unguarded put succeeds. Dropping the query_text tenant predicate fails case 2 without the floor and passes case 11 with it, dropping the delete lock fails case 9, reading the version outside the lock fails case 10, and an unqualified configuration in the insert or the query fails case 6 (negative controls). Races repeated with --repeat-until-failure. Finite scenarios, not proofs."
     },
     {
       "kind": "upstream",
@@ -56,6 +67,12 @@
       "claim": "Consumer Repo transactions, query connection ownership and query telemetry are upstream contracts."
     },
     {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/16/textsearch-controls.html",
+      "claim": "PostgreSQL 16 to_tsvector, websearch_to_tsquery (no syntax errors), ts_rank_cd, the 1MB tsvector limit (54000), pg_advisory_xact_lock, READ COMMITTED statement snapshots and row-level security with 42501 are upstream behavior, not locally proved."
+    },
+    {
       "kind": "assumption",
       "claim": "The consumer supplies authentic frozen-source and embedding association/provenance, trusted database schemas/search path, truthful permission snapshots, and rechecks current access before model injection."
     }
@@ -68,9 +85,10 @@
     },
     "config": {
       "status": "supported",
-      "contract": "Fixed Repo/prefix/index descriptor and1..60000ms statement timeout(default5000); per-call queryk1..256, permitted sources<=256 and1..8MiB content bound may narrow. No hot update.",
+      "contract": "Fixed Repo/prefix/index descriptor with optional text_search config, optional tenant_isolation prefix and1..60000ms statement timeout(default5000); per-call queryk1..256, permitted sources<=256, text1..4096 bytes and1..8MiB content bound may narrow; put_source/5 if_newer boolean. No hot update.",
       "evidence": [
-        "test/elzoo/search_data_test.exs"
+        "test/elzoo/search_data_test.exs",
+        "test/elzoo/search_data_text_test.exs"
       ]
     },
     "control": {

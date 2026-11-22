@@ -207,7 +207,8 @@ defmodule Elzoo.SearchDataTextTest do
     test "2 tenant and permitted sources filter before ranking", %{t: t} do
       assert {:committed, 1} = put(t, "source", 1, ["fox"])
       assert {:committed, 1} = put(t, "forbidden", 1, ["fox fox fox fox"])
-      assert {:committed, 1} = put(t, "source", 1, ["fox fox fox fox"], [], "other-tenant")
+      # Another version, so no row of the tenant shares its identity.
+      assert {:committed, 1} = put(t, "source", 3, ["fox fox fox fox"], [], "other-tenant")
       assert {:ok, [hit]} = Store.query_text(t, text_request("fox", %{k: 1}))
       assert {hit.content, hit.source} == {"fox", "source"}
       assert is_float(hit.rank) and not Map.has_key?(hit, :distance)
