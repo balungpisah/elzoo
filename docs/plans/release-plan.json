@@ -8950,7 +8950,7 @@
       "baseline_status": "planned",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/knowledge-ingest/piece.json",
-      "manifest_sha256": "c5c7e807d8129587d7bd7335894fa408f11242dfcb7e1364cd4106586f9fec3c",
+      "manifest_sha256": "247a21b0941ea10917de889aa3c593f9b693961edc7f45cc24b81d7b6d3ec51c",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
