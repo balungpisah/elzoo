@@ -199,8 +199,9 @@ nothing and completes. Every step first checks that the config's search binding 
    staged chunks and enqueues the next job; throttled, overloaded, `credentials_unavailable`,
    `:not_dispatched` and `:completed_lost` snooze for a new attempt while the budget lasts (the
    provider's `retry_after` clamped to 1..3,600 s, else 5 × 2^(n−1) s after the n-th attempt,
-   numbers continuing across `resubmit/3`), then `:embedding_exhausted`; an unknown outcome fails `:embedding_unknown` and
-   only `resubmit/3` starts another attempt; any other refusal fails `{:embedding_refused, r}`.
+   numbers continuing across `resubmit/3`), then `:embedding_exhausted`; an unknown outcome
+   fails `:embedding_unknown` and only `resubmit/3` starts another attempt; any other refusal
+   fails `{:embedding_refused, r}`.
 3. **Index**: `put_source(search, tenant, {source_ref, version, text_sha256}, chunks, if_newer:
    true)` outside a transaction; committed moves to `indexed` and deletes the staged chunks in
    one transaction; `stale_version` to `superseded`; `{:indeterminate, :unavailable}` is a job
