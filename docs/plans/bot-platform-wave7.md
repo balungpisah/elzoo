@@ -4,7 +4,7 @@
 
 This document is planning input for Wave 7 (`Remember and know`) of the P13 track in [bot-platform.md](bot-platform.md). It promotes nothing to ready. [release-plan.json](release-plan.json) remains the one canonical planning source; handles are provisional until publication, and the coordinator assigns the ELZ IDs then. The coordinator publishes the levels below after the owner answers Q1–Q10, and records the answers.
 
-Level 1 is published in part: [ELZ-329 task](../../tasks/ELZ-329-citation.md) · [issue #764](https://github.com/balungpisah/elzoo/issues/764) (`workflow/citation`, which depends on no open question). The other Level 1 jobs wait on the answers to Q1, Q2 and Q4–Q7.
+Level 1 is published in part: [ELZ-329 task](../../tasks/ELZ-329-citation.md) · [issue #764](https://github.com/balungpisah/elzoo/issues/764) (`workflow/citation`, which depends on no owner question).
 
 Wave 6 is accepted: its root consumer acceptance [ELZ-323](../../tasks/ELZ-323-wave6-count-and-see-acceptance.md) and its closure record ([ELZ-326](../../tasks/ELZ-326-wave6-closure-note.md), in [the Wave 6 plan](bot-platform-wave6.md)) are merged on `main`, so the serial rule of [bot-platform.md](bot-platform.md) lets Wave 7 be registered. The coordinator reports that the owner approved Wave 7 for planning (2026-11-22). This plan treats the pruned Wave 7 row of [bot-platform.md](bot-platform.md) ("Subsequent waves (Waves 6–9)") as a proposal, checks each handle against the ready manifests, and keeps a new Piece only for missing policy. Where a ready Piece lacks something that clearly belongs to it, the plan extends it in place under its ID (rule of 2026-11-14; `AGENTS.md` section 4).
 
