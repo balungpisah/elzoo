@@ -8677,7 +8677,7 @@
       ],
       "issue": 768,
       "url": "https://github.com/balungpisah/elzoo/issues/768",
-      "issue_body_sha256": "0f473f0894a352c0a6e2a31f4512b5eeec81b7a1ed03de44fb590f3879eda6f6"
+      "issue_body_sha256": "ae3f216e4a8f92090b889708fe5cb1d4c34787ab0259a399ff9ff0a0e791aef7"
     },
     {
       "id": "ELZ-332",
@@ -8700,13 +8700,13 @@
       "outputs": [
         "state/memory-record"
       ],
-      "acceptance": "Durable plain Ecto/Postgrex records and tombstones under the tenant-isolation floor (owner Q4 A, Q5 A, Q6 A; absorbs domain/memory-scope and workflow/memory-write-policy): one closed tagged scope per immutable record, untrusted-content marked content of 1..4,096 bytes, 1..16 provenance references; pure check_write/2 over a host policy with deny for an unlisted triple and no default; write/4 idempotent by memory_id (equal digest duplicate, other conflict), an ask written only with an approval of the exact proposal digest, one successor per record; recall/3 of current records of 1..16 scopes and optional kinds, newest first within count and byte bounds, in the context-selection candidate and node shape with check nil; forget/3 deletes content and keeps a tombstone; erase_subject/3 in resumable batches; mixed-scope and mixed-kind recall returns exactly the matching records; elzoo_app isolation, caller-transaction and READ COMMITTED refusals; negative controls on the expiry predicate, the content delete and the policy check. Durable and untrusted input: local small gate and full review.",
+      "acceptance": "Durable plain Ecto/Postgrex records and tombstones under the tenant-isolation floor (owner Q4 A, Q5 A, Q6 A; absorbs domain/memory-scope and workflow/memory-write-policy): one closed tagged scope per immutable record, untrusted-content marked content of 1..4,096 bytes, 1..16 provenance references; pure check_write/2 over a host policy with deny for an unlisted triple and no default; write/4 idempotent by memory_id (equal digest duplicate, other conflict), an ask written only with an approval of the exact proposal digest, one successor per record; recall/3 of current records of 1..16 scopes and optional kinds, newest first within count and byte bounds, in the context-selection candidate and node shape with check nil; forget/3 deletes content and keeps a tombstone; erase_subject/3 in resumable batches; writes, forgets and erasures of one ID serialized by a per-ID advisory lock (no row lock, no UPDATE grant), so a forgotten ID is never written again; mixed-scope and mixed-kind recall returns exactly the matching records; elzoo_app isolation, caller-transaction and READ COMMITTED refusals; negative controls on the expiry predicate, the content delete and the policy check. Durable and untrusted input: local small gate and full review.",
       "product_aims": [
         "P13"
       ],
       "issue": 769,
       "url": "https://github.com/balungpisah/elzoo/issues/769",
-      "issue_body_sha256": "d1bd455fdeabca3af582dd9318c95f54be2d32b0889c6cc8e797f1029a5279c3"
+      "issue_body_sha256": "1d9523de4b6f0e271f7e0cb6dff0c2dd29587971fd17da2301d5ceef9583debb"
     }
   ],
   "entries": [

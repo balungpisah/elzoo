@@ -636,14 +636,16 @@ Sources: the 2026-11-22 entries in
 and the questions in
 [bot-platform-wave7.md](plans/bot-platform-wave7.md#provider-prerequisites-and-open-questions).
 The owner took every recommendation: option A for Q1–Q9 and option B for Q10.
-The standing "no corner" rule of Wave 6 (above) applies to each Wave 7
-Contract; each task lists the options it keeps open.
+The 2026-11-22 answer did not restate the standing "no corner" rule of
+Wave 6 (above); the coordinator applies it to each Wave 7 Contract at
+publication, and each task lists the options it keeps open.
 
 ### Plain text, Markdown and HTML, with `floki` for HTML (Q1 A)
 
 - **Chosen.** `integration/document-parse` takes `text/plain`, `text/markdown`
-  and `text/html`; HTML is parsed with `floki 0.38.5`, adopted as a direct
-  dependency by its own provider task (ELZ-330) before the parser task.
+  and `text/html`; HTML is parsed with `floki 0.38.5`, to be adopted as a
+  direct dependency by its own provider task (ELZ-330, in publication) before
+  the parser task.
 - **Why.** It covers web pages and exported help articles with a maintained
   library that is already locked; PDF parsers have a long history of
   memory-safety faults, and `runtime/os-isolation` is not a sandbox.
