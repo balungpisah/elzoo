@@ -14,10 +14,15 @@ n is the batch's attempt number. Attempt numbers continue across `resubmit/3`
 and are never reused, so nothing bounds this backoff, unlike `retry_after`,
 which is clamped to 1..3,600 s. With `max_attempts` 5 and three resubmits, n
 reaches 16: a snooze of 163,840 s (about 45 hours). At n = 34 the snooze is
-about 1,361 years, and from n = 42 the scheduled time passes the end of the
-PostgreSQL timestamp range (294276 AD), so the snooze cannot be stored (the
-#805 estimate of n ≈ 34 was too low). A scheduled job also stays unique, so
-an equal submit does not enqueue it again. The code follows the ELZ-334
+about 1,361 years. At n = 42 the scheduled time passes the end of the
+PostgreSQL timestamp range (294276 AD), and the snooze cannot be stored.
+Above that, Postgrex encodes the microsecond offset in a signed 64-bit field
+with no range check, so the value wraps: some n fail the same way (n = 58),
+others store a wrong time (n = 43, about year 114315), and from n = 59 the
+offset 5 × 2^(n−1) × 10^6 µs is a multiple of 2^64, so the stored time is the
+current time and there is no backoff at all. (The #805 estimate of n ≈ 34
+for the range was too low.) A scheduled job also stays unique, so an equal
+submit does not enqueue it again. The code follows the ELZ-334
 Contract text, so the defect is in the Contract.
 
 Coordinator decision: clamp the computed backoff to at most 3,600 s, the same
