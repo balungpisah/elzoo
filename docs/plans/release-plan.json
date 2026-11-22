@@ -9704,10 +9704,12 @@
     {
       "id": "integration/document-parse",
       "job": "ELZ-333",
-      "note": "Planned pure parse of untrusted document bytes of the closed media-type set text/plain, text/markdown and text/html (owner Q1 A) into valid UTF-8 text of 1..1 MiB that integration/text-chunking takes, with the raw SHA-256 of source and text and a parser identity; HTML through floki 0.38.5's bundled parser, leaving out script, style, template, noscript, head except title, comments and attributes, with paragraph breaks for a closed block set; no transcoding, fetch, external entity resolution or script; fixed refusals that echo nothing. Its output is untrusted content that the caller marks.",
+      "note": "Pure parse of untrusted document bytes into bounded text that integration/text-chunking takes as its source. parse/3 takes a binary of 0..8,388,608 bytes (per-call max_bytes 1..8,388,608 narrows the bound), one media type of the closed version 1 set text/plain, text/markdown and text/html (exact binaries, no parameters), and returns {:ok, %{text, format, media_type, source_sha256, text_sha256, parser}}: text valid UTF-8 of 1..1,048,576 bytes; format :markdown for text/markdown, :plaintext otherwise; raw SHA-256 of the input as given and of the text; parser %{id: \"integration/document-parse\", version: 1, library: \"floki 0.38.5\" for HTML, nil otherwise}. One leading UTF-8 BOM is removed; plain text and Markdown change only CR LF to LF. HTML goes through Floki.parse_document/2 with the bundled Floki.HTMLParser.Mochiweb named in the call: text nodes as the parser decodes them, script, style, template, noscript, head except title, comments, processing instructions and attribute values left out, a closed block set giving paragraph breaks joined by a blank line, one space between adjacent non-text siblings, ASCII whitespace collapsed per paragraph; every meta charset declaration must be UTF-8. Otherwise the first of {:invalid_option, bytes | opts | unknown_option | max_bytes}, unsupported_media_type, too_large, invalid_utf8, parse_failed (an input with </floki or an end tag whose name holds &, an unclosed title or textarea that takes in the parser's wrapper, a parse that fails, raises or gives an unknown node shape, or text that is not UTF-8), unsupported_charset, empty_text, text_too_large; refused whole, never truncated; no error holds an input byte. It never raises. No I/O, fetch, transcoding, rendering, PDF or DOCX; the output is untrusted content that the caller marks.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/document-parse/piece.json",
+      "manifest_sha256": "bfbdadeeffe07f412f1761aeeb178d4d79018c89583e5894e6e6b6c62da6bddb"
     },
     {
       "id": "runtime/adapter",

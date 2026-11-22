@@ -680,7 +680,8 @@
       "summary": "Parse untrusted plain text, Markdown and HTML bytes into bounded UTF-8 text that fits text chunking",
       "disposition": "adapt",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/integration/document-parse/piece.json",
       "reason": "ELZ-333: Wave 7 (P13). Pure parse of a closed media-type set (owner Q1 A): HTML through floki 0.38.5, adopted by this Piece's runtime check; no transcoding, fetch, PDF or DOCX."
     },
     {
