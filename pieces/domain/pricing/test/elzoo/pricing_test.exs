@@ -773,6 +773,35 @@ defmodule Elzoo.PricingTest do
                Pricing.price(per_billion, usage([row(:estimated, Integer.pow(10, 38) - 1)]))
     end
 
+    test "3072 rows price on a full 1024-line card; 3073 rows are unpriced_unit" do
+      keys = for i <- 1..1024, do: "m" <> String.pad_leading("#{i}", 4, "0")
+      c = card(for m <- keys, do: line("1", 1, %{model_id: m}))
+
+      # Each of the 1024 keys in each of the three sources: 1024 × 3 = 3072 rows.
+      rows =
+        for m <- keys, source <- [:estimated, :provider_reported, :unknown] do
+          if source == :unknown,
+            do: row(source, 0, %{model_id: m, unknown_count: 1}),
+            else: row(source, 1, %{model_id: m})
+        end
+
+      assert length(rows) == 3072
+      assert {:ok, charge} = Pricing.price(c, usage(rows))
+      # Each line: quantity 1 + 1 at 1 EUR per unit is 2.00 EUR; 1024 lines are 2048.00 EUR.
+      assert length(charge.lines) == 1024
+      assert Enum.uniq(units(charge)) == [200]
+
+      assert Enum.uniq(Enum.map(charge.lines, &{&1.quantity, &1.count, &1.unknown_count})) ==
+               [{2, 3, 1}]
+
+      assert charge.total == %Amount{currency: currency("EUR"), minor_units: 204_800}
+      assert {charge.incomplete, charge.unknown_count} == {true, 1024}
+
+      # Every key and source is taken, so a 3073rd unique row has no card line.
+      extra = row(:estimated, 1, %{model_id: "m1025"})
+      assert Pricing.price(c, usage(rows ++ [extra])) == {:error, :unpriced_unit}
+    end
+
     test "each 128-byte text at 0, 128 and 129 bytes, invalid UTF-8 and C0 and C1 characters" do
       ok = String.duplicate("a", 128)
 
