@@ -402,6 +402,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-350](https://github.com/balungpisah/elzoo/issues/839) | V2 / pieces | ELZ-286, ELZ-323, ELZ-338 | published 2026-11-23 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 | [ELZ-351](https://github.com/balungpisah/elzoo/issues/841) | V1B / pieces | ELZ-033, ELZ-114, ELZ-124, ELZ-127, ELZ-234, ELZ-241, ELZ-298, ELZ-349 | published 2026-11-23 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-352](https://github.com/balungpisah/elzoo/issues/845) | V1B / pieces | ELZ-303 | published 2026-11-23 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
+| [ELZ-353](https://github.com/balungpisah/elzoo/issues/846) | V2 / pieces | ELZ-297 | published 2026-11-23 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -604,7 +605,7 @@ Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350, ELZ-353.
 
 Prior release gate: V1-ACCEPT.
 
@@ -4898,3 +4899,13 @@ Publication copy: [tasks/ELZ-352-quota-role-guard-membership.md](../../tasks/ELZ
 **Product aims:** P13.
 
 **Acceptance:** The domain/quota test helper's role guard reads pg_has_role(current_user, session_user, 'MEMBER') as member_of_owner and fails on it; only that test file changes, no Contract, lib, README, manifest or index change. Negative control (elzoo_app a member of a disposable session role WITH INHERIT FALSE, SET TRUE passes the old guard and fails the new one), the Piece's tests as elzoo_app, the small gate, git diff --check, ci-change-class and the index step 3 checks; one light review and exact-head check-piece.
+
+### ELZ-353
+
+ELZ-353 — The domain/journal role guard refuses any membership in the session role
+
+Publication copy: [tasks/ELZ-353-journal-role-guard-membership.md](../../tasks/ELZ-353-journal-role-guard-membership.md).
+
+**Product aims:** P09.
+
+**Acceptance:** The domain/journal test helper's role guard reads pg_has_role(current_user, session_user, 'MEMBER') as member_of_owner and fails on it; only that test file changes, no Contract, lib, README, manifest or index change. Negative control (elzoo_app a member of a disposable session role WITH INHERIT FALSE, SET TRUE passes the old guard and fails the new one), the Piece's tests as elzoo_app, the small gate, git diff --check, ci-change-class and the index step 3 checks; one light review and exact-head check-piece.
