@@ -177,30 +177,31 @@ per `{label, member}` as a queue.
   `NOCREATEDB`, and not a member of the session role (`pg_has_role(…, 'MEMBER')` is false; read
   by the setup test and on each Store's Repo).
 - The time of the acceptance module, `MIX_ENV=test mix test test/wave8_bots_talk_test.exs
-  --trace --warnings-as-errors` on that orb, alone on its database server (exit 0, 7 tests,
+  --trace --warnings-as-errors` on that orb at 2216fb42, alone on its database server (exit 0, 7 tests,
   0 failures):
 
   | Test | Time |
   | --- | --- |
-  | setup | 900 ms |
-  | group 1: mail in | 3,333 ms |
-  | group 2: turns | 7,568 ms |
-  | group 2: `:decided` | 2,486 ms |
-  | groups 3 and 4: delegation and parent close | 2,052 ms |
-  | group 5: rollover | 4,279 ms |
-  | group 6: isolation | 1,492 ms |
-  | module total | 25.5 s |
+  | setup | 792 ms |
+  | group 1: mail in | 3,095 ms |
+  | group 2: turns | 6,850 ms |
+  | group 2: `:decided` | 2,467 ms |
+  | groups 3 and 4: delegation and parent close | 1,885 ms |
+  | group 5: rollover | 3,989 ms |
+  | group 6: isolation | 1,474 ms |
+  | module total | 23.7 s |
 
   Every test is well within the root suite's per-test limit of 120,000 ms, so no test sets
   `@tag timeout:`. Group 5 passed 3 of 3 in one `--repeat-until-failure 3` launch.
-- The local gate, holding the one database slot: `mix check --affected origin/main` exited 0
-  (4,700 s; `ELZOO AFFECTED CHECK PASSED`; the root suite 3,925 passed, 114 excluded, in
-  4,115 s; the aggregate consumer of 142 ready Pieces 1,554 s), and `git diff --check` exited 0.
-  That run was on the head reviewed first. The first review's repairs change only the two test
-  files and this report; on the repaired head, `mix format --check-formatted`, `mix compile
-  --warnings-as-errors`, the acceptance module above, `scripts/check-roadmap.py` (with
-  `--live`), `scripts/check-claims.py`, `scripts/test-ci-change-class.py` and `git diff --check`
-  each exited 0, and the hosted full check runs on the exact head.
+- The local gate, holding the one database slot, on the head that holds every code change of
+  this task (2216fb429545afe5a8aa06f049190d391dd7dbee; only this report changed after it):
+  `mix check --affected origin/main` exited 0 (4,020 s; `ELZOO AFFECTED CHECK PASSED`; the root
+  suite 3,925 passed, 114 excluded, in 4,005 s; the aggregate consumer of 142 ready Pieces
+  1,567 s), and `git diff --check` exited 0. An earlier run on the head reviewed first
+  (7cb25ffafd5f1fb0957e6eb6cf6ec3637a276f5e) also exited 0 (4,700 s). On the final head,
+  `scripts/check-roadmap.py` (with `--live`), `scripts/check-claims.py`,
+  `scripts/test-ci-change-class.py` and `git diff --check` each exited 0, and the hosted full
+  check runs on the exact head.
 
 ## Harness negative controls
 
