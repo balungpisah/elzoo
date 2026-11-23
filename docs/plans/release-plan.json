@@ -9171,9 +9171,11 @@
     {
       "id": "workflow/turn-policy",
       "job": "ELZ-345",
-      "note": "Planned pure pattern step of a room Run: rules addressed, round_robin, bounded everyone and decided, and a host-rule behaviour, each under one open turn, members only, a bot-turn bound, escalation, handoff, a bounded window and a rollover carry; the decided pick is untrusted model output that falls back to the default member. Absorbs the handles workflow/handoff, workflow/human-escalation and the room part of workflow/loop-guard. No clock, I/O or model call.",
+      "note": "Pure pattern step in the core/operator shape over PatternStep v1 neutral maps for the root callable of a room Run: the rules addressed (lead-bot and mention-only presets, host-vouched reply-to), round_robin, bounded everyone and decided (one decision action whose untrusted pick falls back to the default member), and a pure host-rule behaviour that fails closed; every rule keeps one open turn, members only, the max_bot_turns bound (also for bot and peer messages), escalation, handoff, a bounded window, the rollover carry and unique action IDs; check_start/2, restart_carry/1 and pick_schema/0. No clock, I/O, store, process or model call.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/turn-policy/piece.json",
+      "manifest_sha256": "951b0d77f7908d19c24c5892318efc5221a9277b8e09cb0e4a908c76841b1677",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

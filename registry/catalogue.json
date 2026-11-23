@@ -1064,7 +1064,8 @@
       "summary": "Pattern step: who speaks next in a room, with a bot-turn bound",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/turn-policy/piece.json",
       "reason": "ELZ-345: Wave 8 (P13). Pure pattern-step v1 step (owner Q2 A expanded, Q8 A); absorbs workflow/handoff, workflow/human-escalation and the room part of workflow/loop-guard."
     },
     {
