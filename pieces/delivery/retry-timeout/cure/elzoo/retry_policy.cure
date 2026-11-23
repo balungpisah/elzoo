@@ -7,12 +7,15 @@ mod Elzoo.RetryPolicy
   type RedispatchMode = RedispatchForbidden | RedispatchIdempotent
   type ResultClass = ClassCompleted | ClassRetryable | ClassPermanent | ClassDispatched
   type RetryDecision = DecideSettle | DecideRetry | DecidePermanent | DecideExhausted | DecideUnresolved
+  type RetryJitter = JitterNone | JitterFull
 
   rec RetryPolicy
     max_attempts: Int
     base_backoff_ms: Int
     max_backoff_ms: Int
     mode: RedispatchMode
+    jitter: RetryJitter
+    max_failure_delay_ms: Int
 
   local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
 
@@ -75,6 +78,42 @@ mod Elzoo.RetryPolicy
           S(rest) -> grow(policy.base_backoff_ms, policy.max_backoff_ms, rest)
       NegativeSuccessor(_) -> policy.base_backoff_ms
 
+  local fn min_int(left: Int, right: Int) -> Int =
+    pickup
+      left <= right -> left
+      else -> right
+
+  local fn max_int(left: Int, right: Int) -> Int =
+    pickup
+      left >= right -> left
+      else -> right
+
+  local fn add(left: Int, right: Int) -> Int = left + right
+
+  # Full jitter j = (random * (b + 1)) / 2^32; 0 <= j <= b for random in 0..2^32-1.
+  local fn spread(random: Int, b: Int) -> Int = (random * (b + 1)) / 4294967296
+
+  local fn retryable_delay(policy: RetryPolicy, b: Int, failure: Option(Int), random: Int) -> Int =
+    match failure
+      None() ->
+        match policy.jitter
+          JitterNone() -> b
+          JitterFull() -> spread(random, b)
+      Some(fd) ->
+        match policy.jitter
+          JitterNone() -> max_int(min_int(fd, policy.max_failure_delay_ms), b)
+          JitterFull() -> max_int(min_int(fd, policy.max_failure_delay_ms), b) + spread(random, b)
+
+  fn delay(policy: RetryPolicy, attempt: Int, class: ResultClass, failure: Option(Int), random: Int) -> Int =
+    match class
+      ClassCompleted() -> backoff(policy, attempt)
+      ClassPermanent() -> backoff(policy, attempt)
+      ClassDispatched() -> backoff(policy, attempt)
+      ClassRetryable() -> retryable_delay(policy, backoff(policy, attempt), failure, random)
+
+  local fn mk(max: Int, base: Int, cap: Int, mode: RedispatchMode, jitter: RetryJitter, mfd: Int) -> RetryPolicy =
+    RetryPolicy{max_attempts: max, base_backoff_ms: base, max_backoff_ms: cap, mode: mode, jitter: jitter, max_failure_delay_ms: mfd}
+
   fn permanent_never_retried(mode: RedispatchMode) -> Equivalent(Bool, retry_permitted(mode, ClassPermanent()), False()) =
     reflexive(False())
 
@@ -83,4 +122,25 @@ mod Elzoo.RetryPolicy
 
   fn dispatched_not_retried_when_forbidden() -> Equivalent(Bool, retry_permitted(RedispatchForbidden(), ClassDispatched()), False()) =
     reflexive(False())
+
+  fn delay_completed_is_backoff(policy: RetryPolicy, attempt: Int, failure: Option(Int), random: Int) -> Equivalent(Int, delay(policy, attempt, ClassCompleted(), failure, random), backoff(policy, attempt)) =
+    reflexive(backoff(policy, attempt))
+
+  fn delay_permanent_is_backoff(policy: RetryPolicy, attempt: Int, failure: Option(Int), random: Int) -> Equivalent(Int, delay(policy, attempt, ClassPermanent(), failure, random), backoff(policy, attempt)) =
+    reflexive(backoff(policy, attempt))
+
+  fn delay_dispatched_is_backoff(policy: RetryPolicy, attempt: Int, failure: Option(Int), random: Int) -> Equivalent(Int, delay(policy, attempt, ClassDispatched(), failure, random), backoff(policy, attempt)) =
+    reflexive(backoff(policy, attempt))
+
+  fn delay_retryable_none_without_failure_is_backoff(max: Int, base: Int, cap: Int, mode: RedispatchMode, mfd: Int, attempt: Int, random: Int) -> Equivalent(Int, delay(mk(max, base, cap, mode, JitterNone(), mfd), attempt, ClassRetryable(), None(), random), backoff(mk(max, base, cap, mode, JitterNone(), mfd), attempt)) =
+    reflexive(backoff(mk(max, base, cap, mode, JitterNone(), mfd), attempt))
+
+  fn delay_retryable_none_with_failure_is_max(max: Int, base: Int, cap: Int, mode: RedispatchMode, mfd: Int, attempt: Int, fd: Int, random: Int) -> Equivalent(Int, delay(mk(max, base, cap, mode, JitterNone(), mfd), attempt, ClassRetryable(), Some(fd), random), max_int(min_int(fd, mfd), backoff(mk(max, base, cap, mode, JitterNone(), mfd), attempt))) =
+    reflexive(max_int(min_int(fd, mfd), backoff(mk(max, base, cap, mode, JitterNone(), mfd), attempt)))
+
+  fn delay_retryable_full_without_failure_is_spread(max: Int, base: Int, cap: Int, mode: RedispatchMode, mfd: Int, attempt: Int, random: Int) -> Equivalent(Int, delay(mk(max, base, cap, mode, JitterFull(), mfd), attempt, ClassRetryable(), None(), random), spread(random, backoff(mk(max, base, cap, mode, JitterFull(), mfd), attempt))) =
+    reflexive(spread(random, backoff(mk(max, base, cap, mode, JitterFull(), mfd), attempt)))
+
+  fn delay_retryable_full_with_failure_is_max_plus_spread(max: Int, base: Int, cap: Int, mode: RedispatchMode, mfd: Int, attempt: Int, fd: Int, random: Int) -> Equivalent(Int, delay(mk(max, base, cap, mode, JitterFull(), mfd), attempt, ClassRetryable(), Some(fd), random), add(max_int(min_int(fd, mfd), backoff(mk(max, base, cap, mode, JitterFull(), mfd), attempt)), spread(random, backoff(mk(max, base, cap, mode, JitterFull(), mfd), attempt)))) =
+    reflexive(add(max_int(min_int(fd, mfd), backoff(mk(max, base, cap, mode, JitterFull(), mfd), attempt)), spread(random, backoff(mk(max, base, cap, mode, JitterFull(), mfd), attempt))))
 end

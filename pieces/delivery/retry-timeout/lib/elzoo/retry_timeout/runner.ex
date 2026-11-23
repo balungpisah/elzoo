@@ -245,7 +245,11 @@ defmodule Elzoo.RetryTimeout.Runner do
         finish(state, ref, {:completed, response})
 
       :retry ->
-        {:ok, delay} = RetryTimeout.backoff(state.policy, op.n)
+        random = :rand.uniform(4_294_967_296) - 1
+
+        {:ok, delay} =
+          RetryTimeout.delay(state.policy, op.n, class, %{failure_delay_ms: nil, random: random})
+
         put_op(state, ref, arm(op, ref, :retry, delay))
 
       :permanent ->
