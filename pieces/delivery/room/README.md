@@ -144,7 +144,8 @@ An error of that delivery is returned and no wake is given.
 
 **`rollover/3`,** each step safe to repeat:
 
-1. **The result.** The `engine` Need, then `result/3`: `{:pending, :not_completed}` is
+1. **The result.** The `engine` Need, `status/1` (a halted engine is an error and gets no
+   other call), then `result/3`: `{:pending, :not_completed}` is
    `:not_terminal`, an error `{:result, reason}`. A completed Run whose outcome is
    `elzoo.room.carry` v1, passes `check_start/2` and the reserve check and has `link` the tip's
    `seq` + 1 is `:finished` (outcome `"completed"`). Any other end restarts from the tip's own
@@ -167,7 +168,8 @@ An error of that delivery is returned and no wake is given.
 
 **`resume/3`:** a tip whose Run is not started gets `pin/4` of its pin and the `start` Need; a
 Run whose classification is `:configured` gets its start input; a tip after the first link
-unpins the predecessor's pin (a no-op once done); then `{:ok, :terminal}` or `{:ok, :live}`.
+unpins the predecessor's pin (a no-op once done); then `{:ok, :terminal}` or `{:ok, :live}`,
+from a `status/1` read after the start input.
 
 ## Host sequence and Needs
 
@@ -216,7 +218,15 @@ The room checks none of these Needs:
   be settled refused: after a lost reply, when an outcome of an earlier action lands between the
   reply and the read, when the pattern's request found no room in control (`record_size`), or
   when a lost reply's message reached the pattern and no turn or decision naming it was admitted
-  in that Run. The host decides whether to put it again under a new `message_id`.
+  in that Run, or when an Attempt change between two calls (allowed by the Need) makes the
+  re-given `mail:<message_id>` differ from the first, lost, one, so the engine answers
+  `input_id_conflict` and the room settles `{:refused, :input_id_conflict}`. The host decides
+  whether to put it again under a new `message_id`.
+- `open/3` can leave its pin record for the first Run ID: when its step 4 conflict release does
+  not finish (the `chain/3` read or the unpin fails, or the process ends between the conflict
+  and the unpin), a repeat takes step 2, which writes nothing and returns `{:mailbox,
+  :conflict}`; and when an open that pinned fails (`{:mailbox, :unavailable}` that did not
+  commit) and is never repeated. That version then cannot be deleted while the record stays.
 - The room claims no exactly-once delivery: a message is given at most once per Run by the
   engine's input IDs and to exactly one link by the mailbox.
 - A tip whose carry does not complete gets no more mail and ends at its Run deadline, then

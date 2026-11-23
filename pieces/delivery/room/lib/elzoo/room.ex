@@ -57,11 +57,10 @@ defmodule Elzoo.Room do
   `{:ok, room}` or `{:error, :invalid_binding}`.
   """
   def new(opts) when is_list(opts) do
-    keys = Keyword.keys(opts)
-
-    if Enum.sort(keys) == Enum.sort(@enforce_keys) and binding?(Map.new(opts)),
-      do: {:ok, struct!(__MODULE__, opts)},
-      else: {:error, :invalid_binding}
+    if Keyword.keyword?(opts) and Enum.sort(Keyword.keys(opts)) == Enum.sort(@enforce_keys) and
+         binding?(Map.new(opts)),
+       do: {:ok, struct!(__MODULE__, opts)},
+       else: {:error, :invalid_binding}
   end
 
   def new(_), do: {:error, :invalid_binding}
@@ -132,6 +131,7 @@ defmodule Elzoo.Room do
     with :ok <- valid(tenant?(tenant) and text?(chain_id, 128) and change?(change)),
          {:ok, tip} <- tip(room, tenant, chain_id),
          {:ok, host} <- engine(room, tenant, tip),
+         {:ok, _view} <- status(host.engine),
          {:ok, outcome, carry, kind} <- ending(room, tip, host),
          :ok <- settle_claimed(room, tenant, chain_id, host) do
       next = ids(tenant, chain_id, tip.seq + 1)
@@ -543,7 +543,7 @@ defmodule Elzoo.Room do
         case call(fn ->
                RunEngine.input(host.engine, "start:" <> run_id, typed(input), context(view))
              end) do
-          {:reply, {:ok, reply}} when reply in [:applied, :duplicate] -> {:ok, view}
+          {:reply, {:ok, reply}} when reply in [:applied, :duplicate] -> status(host.engine)
           {:reply, {:error, reason}} -> {:error, {:start, reason}}
           other -> engine_error(other)
         end

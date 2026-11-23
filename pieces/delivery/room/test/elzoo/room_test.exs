@@ -307,6 +307,9 @@ defmodule Elzoo.RoomTest do
       assert Room.new(Keyword.delete(w.room |> Map.from_struct() |> Map.to_list(), :clock)) ==
                {:error, :invalid_binding}
 
+      for opts <- [[:x], [{"a", 1}], [{:clock, 1} | [:x]]],
+          do: assert(Room.new(opts) == {:error, :invalid_binding})
+
       assert Room.new(
                w.room
                |> Map.from_struct()
@@ -330,6 +333,30 @@ defmodule Elzoo.RoomTest do
 
   defp tip(w, chain_id), do: chain(w, chain_id).tip
   defp die, do: Process.exit(self(), :kill)
+
+  # Ends the process that runs the first mailbox query containing `fragment`, once the query
+  # has run inside its transaction, which the crash then rolls back.
+  defp crash_at_query(fragment) do
+    id = {__MODULE__, make_ref()}
+    event = [:elzoo, :durable_mailbox, :app_repo, :query]
+    :ok = :telemetry.attach(id, event, &__MODULE__.crash_query/4, {id, fragment})
+    ExUnit.Callbacks.on_exit(fn -> :telemetry.detach(id) end)
+  end
+
+  @doc false
+  def crash_query(_event, _measurements, %{query: query}, {id, fragment}) do
+    if String.contains?(query, fragment) and :telemetry.detach(id) == :ok,
+      do: Process.exit(self(), :kill)
+  end
+
+  defp assert_one_successor(w, chain_id, run1, run2, pin, pinned \\ 1) do
+    assert {:ok, :live} = resume(w, chain_id)
+    assert %{seq: 2, state: :live} = tip(w, chain_id)
+    assert Enum.filter(inputs(w, run2), &String.starts_with?(&1, "start:")) == ["start:" <> run2]
+    assert pins_of(w, run1) == []
+    assert pinned_rows(w, run2) == List.duplicate(run2, pinned)
+    assert pins_of(w, run2) == [pin]
+  end
 
   defp pinned_rows(w, run_id) do
     for {"recipe_pinned", %{"run_id" => ^run_id}} <-
@@ -705,6 +732,70 @@ defmodule Elzoo.RoomTest do
       end
     end
 
+    test "a crash after step 1, after step 2's settle and between 3(a) and 3(b)", %{role: role} do
+      w = world(role)
+      [v1, b, _] = w.versions
+
+      # After step 1: inside the claim's transaction, so result/3 ran and nothing of step 2 is
+      # committed. A pending message stays pending.
+      run1 = open!(w, "s1", start())
+      run2 = ids(w, "s1", 2)
+      end_by_deadline(w, "s1", run1)
+      assert {:ok, :applied} = put(w, "s1", "m-1", mentions: ["bot-a"])
+      crash_at_query("SELECT run_id, unit_identity, stopped FROM")
+      assert {:crashed, _} = isolated(fn -> rollover(w, "s1") end)
+      assert status(w, "s1", "m-1").state == :pending
+      assert %{seq: 1, state: :live} = tip(w, "s1")
+      assert {:ok, :terminal} = resume(w, "s1")
+      assert {:ok, %{seq: 2}} = rollover(w, "s1")
+      settle_engine(w, run2)
+      assert {:ok, :delivered} = deliver(w, "s1")
+      assert status(w, "s1", "m-1") == %{state: :consumed, link_seq: 2, reason: nil}
+      assert_one_successor(w, "s1", run1, run2, v1)
+
+      # After step 2: inside plan_rollover's transaction. The delivering message was settled
+      # refused before the crash and is not claimed again; the repeat claims the pending one
+      # and settles it :not_applied, so it goes to the successor.
+      run1 = open!(w, "s2", start())
+      run2 = ids(w, "s2", 2)
+      assert {:ok, :applied} = put(w, "s2", "m-0")
+      assert {:ok, :applied} = raw_mail(w, run1, claim!(w, "s2"))
+      clock(w, view_deadline(w, run1))
+      assert {:ok, :applied} = raw_wake(w, run1, "w1")
+      assert {:ok, :applied} = put(w, "s2", "m-1", mentions: ["bot-a"])
+      crash_at_query("SELECT pin, planned_pin, state FROM")
+      assert {:crashed, _} = isolated(fn -> rollover(w, "s2") end)
+      assert status(w, "s2", "m-0") == %{state: :refused, link_seq: 1, reason: :unacknowledged}
+      assert status(w, "s2", "m-1").state == :pending
+      assert %{seq: 1, state: :live, planned_pin: nil} = tip(w, "s2")
+      assert {:ok, :terminal} = resume(w, "s2")
+      assert {:ok, %{seq: 2}} = rollover(w, "s2")
+      assert status(w, "s2", "m-0") == %{state: :refused, link_seq: 1, reason: :unacknowledged}
+      settle_engine(w, run2)
+      assert {:ok, :delivered} = deliver(w, "s2")
+      assert status(w, "s2", "m-1") == %{state: :consumed, link_seq: 2, reason: nil}
+      refute "mail:m-0" in inputs(w, run2)
+      assert_one_successor(w, "s2", run1, run2, v1)
+
+      # Between 3(a) and 3(b): the old plan stays; the repeat unpins it again (a no-op) and
+      # plans and pins the inherited version.
+      run1 = open!(w, "s3", start())
+      run2 = ids(w, "s3", 2)
+      end_by_deadline(w, "s3", run1)
+      hook(w, crash_on(w, &kind?(&1, "recipe_pinned", run2), :after))
+      assert {:crashed, _} = isolated(fn -> rollover(w, "s3", %{pin: b, ref: "change-b"}) end)
+      assert pins_of(w, run2) == [b]
+      hook(w, crash_on(w, &kind?(&1, "recipe_unpinned", run2), :after))
+      assert {:crashed, _} = isolated(fn -> rollover(w, "s3") end)
+      assert pins_of(w, run2) == []
+      assert %{seq: 1, planned_pin: ^b} = tip(w, "s3")
+      assert {:ok, :terminal} = resume(w, "s3")
+      assert {:ok, %{seq: 2}} = rollover(w, "s3")
+      assert tip(w, "s3").change_ref == nil
+      # Two pin appends for the successor's Run ID: B's, since unpinned, and the inherited one.
+      assert_one_successor(w, "s3", run1, run2, v1, 2)
+    end
+
     test "a crash after the start Need of open/3, before its start input: deliver/3 is :not_started",
          %{role: role} do
       w = world(role)
@@ -858,8 +949,11 @@ defmodule Elzoo.RoomTest do
 
         pid =
           if restart do
-            if chain_id == "halt",
-              do: assert(deliver(w, chain_id) == {:error, {:engine, :delivery_unknown}})
+            if chain_id == "halt" do
+              assert deliver(w, chain_id) == {:error, {:engine, :delivery_unknown}}
+              # rollover/3 calls nothing else on a halted engine: no result/3 read.
+              assert rollover(w, chain_id) == {:error, {:engine, :delivery_unknown}}
+            end
 
             if chain_id == "exit", do: assert(deliver(w, chain_id) == {:error, :not_started})
             # The host reconciles and starts the engine again under the same Run ID.
