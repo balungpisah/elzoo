@@ -170,6 +170,12 @@ Three negative controls make these tests fail:
 - Every fact is host-vouched: the root, the parent, the authority, the
   remaining budget, the lineage, the revocations and the pin. The Piece checks
   their shape and their consistency, not their truth.
+- Epochs are not compared. Rule 1 revalidates the root and the parent with
+  `current_epoch: 0`. The child copies the root's `auth_epoch`, as
+  `Principal.delegate/2` does. So an agent parent with an older epoch than its
+  root is accepted, and its child gets the root's newer epoch. The host runs
+  `Principal.check/2` on the parent with its current epoch before it calls
+  `grant/2`.
 - A grant is a decision, not a reservation. The engine's nested binding or the
   host reserves the budget.
 - A `:request_cancel` reaches a child only when it is idle. A `:cancel` of an

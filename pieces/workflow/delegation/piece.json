@@ -10,6 +10,7 @@
   "contract": "Pure child-Run grant over trusted parent facts: refuses the whole request in order malformed, revoked (root, parent, child or any lineage bot), depth over max_depth 1..8, cycle (the root's ID or a lineage bot), escalation past the parent's scopes or spaces, budget (not 1..budget_remaining) and version_change (a change without a recorded-action ref); then delegates the child from the root with domain/principal (one level), passes the parent's validated effective authority as the domain/authorization parent bound, the inherited or explicitly changed pin, depth, the lineage with the child and a parent-close rule (abandon, request_cancel by default, cancel); on_parent_close/1 maps each open child of an ended parent to abandon, one elzoo.delegation.cancel_requested v1 request, or an Attempt cancel. Errors are fixed atoms. No I/O, clock, process, store, Run start, cancel or message.",
   "limits": [
     "Every fact is host-vouched (root, parent, authority, remaining budget, lineage, revocations, pin); the Piece checks their shape and consistency, not their truth.",
+    "Epochs are not compared: root and parent are revalidated at current_epoch 0, and the child copies the root's auth_epoch, so a parent with an older epoch than its root yields a child with the root's; the host checks the parent with Principal.check/2 at its current epoch first.",
     "A grant is a decision, not a reservation: the engine's nested binding or the host reserves the budget.",
     "A request_cancel reaches a child only when it is idle, so a busy agent-loop child sees none before it ends; a cancel of an Attempt does not stop a sent Effect (the engine's unknown rules apply).",
     "One delegation level in domain/principal: every child agent is delegated from the root, and the lineage is where a middle bot is seen.",
@@ -33,7 +34,7 @@
     },
     {
       "kind": "assumption",
-      "claim": "The host builds root and parent from its own authenticated state, supplies the parent's current effective authority, remaining budget, true lineage, current revoked IDs and pin, gives parent_authority as parent in the child's domain/authorization context, reserves the budget, and applies on_parent_close/1 to every open child when the child-start slot settles without the child's result."
+      "claim": "The host builds root and parent from its own authenticated state, checks the parent with Principal.check/2 at its current epoch and revocations before the call, supplies the parent's current effective authority, remaining budget, true lineage, current revoked IDs and pin, gives parent_authority as parent in the child's domain/authorization context, reserves the budget, and applies on_parent_close/1 to every open child when the child-start slot settles without the child's result."
     }
   ],
   "operations": {

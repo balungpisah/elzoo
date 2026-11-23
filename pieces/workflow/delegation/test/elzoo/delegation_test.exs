@@ -354,6 +354,8 @@ defmodule Elzoo.DelegationTest do
          facts(authority: [post(1), w("post:1", "state", {:text, "draft"})])},
         {"authority not a list", facts(authority: :all)},
         {"root an agent", facts(root: agent("bot-x"))},
+        {"root and parent one agent",
+         facts(root: agent("bot-x"), parent: agent("bot-x"), lineage: [])},
         {"parent a human other than root", facts(parent: human("bot-c"), lineage: ["bot-c"])},
         {"forged root", facts(root: %{human() | allowed_scopes: ["write", "read"]})},
         {"root a plain map", facts(root: Map.from_struct(human()))},
