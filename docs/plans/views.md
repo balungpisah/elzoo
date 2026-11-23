@@ -401,6 +401,9 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-349](https://github.com/balungpisah/elzoo/issues/835) | V1B / pieces | ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-053, ELZ-096, ELZ-114, ELZ-115, ELZ-116, ELZ-126, ELZ-127, ELZ-137, ELZ-141, ELZ-142, ELZ-170, ELZ-171, ELZ-267, ELZ-270, ELZ-285, ELZ-344, ELZ-345, ELZ-346, ELZ-347, ELZ-348 | published 2026-11-23 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-350](https://github.com/balungpisah/elzoo/issues/839) | V2 / pieces | ELZ-286, ELZ-323, ELZ-338 | published 2026-11-23 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 | [ELZ-351](https://github.com/balungpisah/elzoo/issues/841) | V1B / pieces | ELZ-033, ELZ-114, ELZ-124, ELZ-127, ELZ-234, ELZ-241, ELZ-298, ELZ-349 | published 2026-11-23 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-352](https://github.com/balungpisah/elzoo/issues/845) | V1B / pieces | ELZ-303 | published 2026-11-23 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
+| [ELZ-353](https://github.com/balungpisah/elzoo/issues/846) | V2 / pieces | ELZ-297 | published 2026-11-23 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
+| [ELZ-354](https://github.com/balungpisah/elzoo/issues/847) | V1B / pieces | ELZ-301 | published 2026-11-23 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
 | [ELZ-355](https://github.com/balungpisah/elzoo/issues/851) | V1B / pieces | ELZ-349 | published 2026-11-23 | coordinator; one-PR path for a documents change; independent review and merge queue |
 
 ## Catalogue accounting
@@ -598,13 +601,13 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-291, ELZ-305, ELZ-306, ELZ-307, ELZ-308, ELZ-309, ELZ-315, ELZ-311, ELZ-312, ELZ-310, ELZ-318, ELZ-317, ELZ-322, ELZ-325, ELZ-328, ELZ-329, ELZ-330, ELZ-331, ELZ-332, ELZ-333, ELZ-334, ELZ-335, ELZ-337, ELZ-338, ELZ-339, ELZ-340, ELZ-341, ELZ-342, ELZ-343, ELZ-344, ELZ-345, ELZ-346, ELZ-347, ELZ-348, ELZ-349, ELZ-351, ELZ-355.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-291, ELZ-305, ELZ-306, ELZ-307, ELZ-308, ELZ-309, ELZ-315, ELZ-311, ELZ-312, ELZ-310, ELZ-318, ELZ-317, ELZ-322, ELZ-325, ELZ-328, ELZ-329, ELZ-330, ELZ-331, ELZ-332, ELZ-333, ELZ-334, ELZ-335, ELZ-337, ELZ-338, ELZ-339, ELZ-340, ELZ-341, ELZ-342, ELZ-343, ELZ-344, ELZ-345, ELZ-346, ELZ-347, ELZ-348, ELZ-349, ELZ-351, ELZ-352, ELZ-354, ELZ-355.
 
 ### V2-ACCEPT
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350, ELZ-353.
 
 Prior release gate: V1-ACCEPT.
 
@@ -4888,6 +4891,36 @@ Publication copy: [tasks/ELZ-351-run-engine-expiry-reports.md](../../tasks/ELZ-3
 **Product aims:** P13.
 
 **Acceptance:** In-place assembly/run-engine (owner approval 24 Nov): optional start option expiry_reports: :owner, recorded in the Run's configure control and fingerprint, absent = today's engine byte for byte; each slot that the expiry pass settles is held as its pending_input (counted active) when its callable is open and given to that callable by a :resume_input record as the existing expiry action_outcome (outcome expired, refusal schema, reason expired, the expiring input's time), in ascending occurrence order, charged as any pattern output, its 113-byte invocation entry inside the held slot's reserve; dropped with no record, call or charge on generation close, terminal view, change of Attempt, closed owner or pending stop; held while paused and given after continue; with the option a :resume_input step switches the lifecycle from waiting to active when nothing is open (#843, the same defect without the option, is not repaired here); report ID = resume record ID; golden default-off trace, nested reaction, several expiries, closed owner, ending, cap and room edges, paused, replay, recovery, ID and native v2 cases with ten negative controls including the default flipped on and delivery to the root; last commit updates the ELZ-349 case-4 Limit in docs/research/wave8-bots-talk.md and docs/plans/bot-platform-wave8.md. Durable state, concurrency and unknown outcomes: local small gate on an a1.medium orb and full review. Output none.
+
+### ELZ-352
+
+ELZ-352 — The domain/quota role guard refuses any membership in the session role
+
+Publication copy: [tasks/ELZ-352-quota-role-guard-membership.md](../../tasks/ELZ-352-quota-role-guard-membership.md).
+
+**Product aims:** P13.
+
+**Acceptance:** The domain/quota test helper's role guard reads pg_has_role(current_user, session_user, 'MEMBER') as member_of_owner and fails on it; only that test file changes, no Contract, lib, README, manifest or index change. Negative control (elzoo_app a member of a disposable session role WITH INHERIT FALSE, SET TRUE passes the old guard and fails the new one), the Piece's tests as elzoo_app, the small gate, git diff --check, ci-change-class and the index step 3 checks; one light review and exact-head check-piece.
+
+### ELZ-353
+
+ELZ-353 — The domain/journal role guard refuses any membership in the session role
+
+Publication copy: [tasks/ELZ-353-journal-role-guard-membership.md](../../tasks/ELZ-353-journal-role-guard-membership.md).
+
+**Product aims:** P09.
+
+**Acceptance:** The domain/journal test helper's role guard reads pg_has_role(current_user, session_user, 'MEMBER') as member_of_owner and fails on it; only that test file changes, no Contract, lib, README, manifest or index change. Negative control (elzoo_app a member of a disposable session role WITH INHERIT FALSE, SET TRUE passes the old guard and fails the new one), the Piece's tests as elzoo_app, the small gate, git diff --check, ci-change-class and the index step 3 checks; one light review and exact-head check-piece.
+
+### ELZ-354
+
+ELZ-354 — The delivery/dead-letter-store role guard refuses any membership in the session role
+
+Publication copy: [tasks/ELZ-354-dead-letter-store-role-guard-membership.md](../../tasks/ELZ-354-dead-letter-store-role-guard-membership.md).
+
+**Product aims:** P13.
+
+**Acceptance:** The delivery/dead-letter-store test helper's role guard reads pg_has_role(current_user, session_user, 'MEMBER') as member_of_owner and fails on it; only that test file changes, no Contract, lib, README, manifest or index change. Negative control (elzoo_app a member of a disposable session role WITH INHERIT FALSE, SET TRUE passes the old guard and fails the new one), the Piece's tests as elzoo_app, the small gate, git diff --check, ci-change-class and the index step 3 checks; one light review and exact-head check-piece.
 
 ### ELZ-355
 
