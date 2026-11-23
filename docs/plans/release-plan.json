@@ -9232,6 +9232,36 @@
       "issue": 835,
       "url": "https://github.com/balungpisah/elzoo/issues/835",
       "issue_body_sha256": "bcedcacdfbec889e1415813ce2cc481032e58744bb6fa80ce91aacd1f68b5bbd"
+    },
+    {
+      "id": "ELZ-351",
+      "title": "ELZ-351 — An engine option gives each expired slot's settlement to the callable that owns it",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-114",
+        "ELZ-124",
+        "ELZ-127",
+        "ELZ-234",
+        "ELZ-241",
+        "ELZ-298",
+        "ELZ-349"
+      ],
+      "status": "published 2026-11-23",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-351-run-engine-expiry-reports.md"
+      ],
+      "outputs": [],
+      "acceptance": "In-place assembly/run-engine (owner approval 24 Nov): optional start option expiry_reports: :owner, recorded in the Run's configure control and fingerprint, absent = today's engine byte for byte; each slot that the expiry pass settles is held as its pending_input (counted active) when its callable is open and given to that callable by a :resume_input record as the existing expiry action_outcome (outcome expired, refusal schema, reason expired, the expiring input's time), in ascending occurrence order, charged as any pattern output, its 113-byte invocation entry inside the held slot's reserve; dropped with no record, call or charge on generation close, terminal view, change of Attempt, closed owner or pending stop; held while paused and given after continue; with the option a :resume_input step switches the lifecycle from waiting to active when nothing is open (#843, the same defect without the option, is not repaired here); report ID = resume record ID; golden default-off trace, nested reaction, several expiries, closed owner, ending, cap and room edges, paused, replay, recovery, ID and native v2 cases with ten negative controls including the default flipped on and delivery to the root; last commit updates the ELZ-349 case-4 Limit in docs/research/wave8-bots-talk.md and docs/plans/bot-platform-wave8.md. Durable state, concurrency and unknown outcomes: local small gate on an a1.medium orb and full review. Output none.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 841,
+      "url": "https://github.com/balungpisah/elzoo/issues/841",
+      "issue_body_sha256": "98897c84a2ca8eeae664b5e3ed8730cff491b6c0befbdbccd333e297484d05f5"
     }
   ],
   "entries": [
