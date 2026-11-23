@@ -9287,6 +9287,29 @@
       "issue": 841,
       "url": "https://github.com/balungpisah/elzoo/issues/841",
       "issue_body_sha256": "98897c84a2ca8eeae664b5e3ed8730cff491b6c0befbdbccd333e297484d05f5"
+    },
+    {
+      "id": "ELZ-352",
+      "title": "ELZ-352 — The domain/quota role guard refuses any membership in the session role",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-303"
+      ],
+      "status": "published 2026-11-23",
+      "owner_role": "coordinator; one-PR path for a test-only Piece repair; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-352-quota-role-guard-membership.md"
+      ],
+      "outputs": [],
+      "acceptance": "The domain/quota test helper's role guard reads pg_has_role(current_user, session_user, 'MEMBER') as member_of_owner and fails on it; only that test file changes, no Contract, lib, README, manifest or index change. Negative control (elzoo_app a member of a disposable session role WITH INHERIT FALSE, SET TRUE passes the old guard and fails the new one), the Piece's tests as elzoo_app, the small gate, git diff --check, ci-change-class and the index step 3 checks; one light review and exact-head check-piece.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 845,
+      "url": "https://github.com/balungpisah/elzoo/issues/845",
+      "issue_body_sha256": "c1e77b8e7d9f08a9689f1e6619735d58719fe18bf1a31d290be2f8a7e0b45ad3"
     }
   ],
   "entries": [
