@@ -1048,7 +1048,8 @@
       "summary": "Durable record of one delegated item: intent, assignee, evidence and acceptance",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/work-item/piece.json",
       "reason": "ELZ-347: Wave 8 (P13). Replaces RC-11, narrowed to one item per child Run (owner Q4 A); plain Ecto/Postgrex table under state/tenant-isolation; dependencies between items and lease-bound completion stay addable."
     },
     {
