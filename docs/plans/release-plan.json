@@ -9157,6 +9157,35 @@
       "issue": 825,
       "url": "https://github.com/balungpisah/elzoo/issues/825",
       "issue_body_sha256": "703d309a703d587f2d484379dccd5d6b07d7812b971d721f35b6fd2819ef44dd"
+    },
+    {
+      "id": "ELZ-348",
+      "title": "ELZ-348 — A room as a chain of Runs: mail given only between turns, a rollover before the engine's bounds, and every step recoverable",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-127",
+        "ELZ-171",
+        "ELZ-344",
+        "ELZ-345"
+      ],
+      "status": "published 2026-11-23",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-348-room.md"
+      ],
+      "outputs": [
+        "delivery/room"
+      ],
+      "acceptance": "Assembly with no table, process or state of its own (owner Q1 A, Q8 A with the reserve additions; settled decisions 1 and 3): each link of a durable-mailbox chain is one RunEngine Run on a fresh Unit room/<sha256(tenant NUL chain)>/<seq> with the turn-policy root pattern; open/3 checks the start with check_start/2, link 1 and the reserve before it pins, opens the chain and starts the first Run; deliver/3 gives one mail input only to an idle tip and settles it by the reply and the classification read after it (record_size stops the link, definite engine refusals are refused, lost replies stay delivering), and gives the rollover message instead when the slot count, request count or time leaves less than the per-message reserve (B turns of the declared bot worst case with their posts, one notice, and the decision worst case under decided or a host rule) plus the carry and finish; wake/3 routes the host timer and gives a delivering message again first; rollover/3 reads result/3 (finished carry, else restart_carry/1), settles a claimed message from transcript/3, unpins an earlier plan, plans and pins, takes the mailbox's atomic step (a plan_mismatch unpins its own pin), starts the successor and unpins the old Run; resume/3 finishes a stopped sequence; real engine, mailbox, turn-policy and recipe-store cases at every threshold edge, pin result, crash point and the plan review M2 and M3 cases; negative controls on the restart carry, the idle check, the decision reserve, the unpin order, both pin cleanups, the wake order and the fresh Unit. Durable effects, concurrency and unknown outcomes: local small gate and full review.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 831,
+      "url": "https://github.com/balungpisah/elzoo/issues/831",
+      "issue_body_sha256": "058200b956c09ee6cd45a696727d50d7d0f020b52728830f2df5c4f123a4aad9"
     }
   ],
   "entries": [
@@ -9188,6 +9217,14 @@
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/delegation/piece.json",
       "manifest_sha256": "8632ecc3f8b9bb298a986df1872c81f025c0301f9c2d05a8bc556d2306187a32",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "delivery/room",
+      "job": "ELZ-348",
+      "note": "Planned durable Assembly that hosts a room as the continuation chain of delivery/durable-mailbox, one assembly/run-engine Run per link on a fresh Unit with the workflow/turn-policy root pattern: mail given one message at a time and only to an idle tip, a rollover message before a message whose worst case (the per-message reserve over the room's rule, with the decision action) could pass 256 lifetime actions, the request cap or the Run deadline, and the rollover sequence (result, settlement from the transcript, pin, the mailbox's atomic step, the successor's start, the old unpin) repeatable after any crash. No table, process, timer or child Run.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
