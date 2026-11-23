@@ -603,6 +603,8 @@ usable (the ID rule above).
 | More than one active plan per tenant | `domain/entitlement` | Drop the version 1 `overlap` refusal for a declared stacking rule; a resolution already lists its grants and plans, and allowances are a list tagged by grant; `domain/quota` checks each allowance against the listed grants and sums the amounts of one unit | Yes (accepted inputs widen) |
 | A host unit such as `runs` | `domain/metering`, `domain/entitlement` | A new member of the unit set | Yes |
 | Live-model eval | `workflow/eval` | An optional dataset `mode` member, default scripted | Yes |
+| A runtime turn-rule switch | `workflow/turn-policy`, `workflow/delegation` | An optional `set_rule` key of `elzoo.room.answer`, handled like `handoff_to` and allowed only through a policy key `rule_change: %{allowed, by}`; an `allowed_patterns` key of the delegation grant, narrowed per child like scopes | Yes |
+| Per-bot stop and resume | `workflow/turn-policy` | An optional member state | Yes |
 
 ## Composing plan types
 
@@ -944,6 +946,116 @@ These are set in the published task texts
   that was indexed after a refused cancel with `delete_source/4`.
 - **To change.** Parallel batches and a `:head` reference are additive.
 
+## Wave 8 owner choices (2026-11-23)
+
+Sources: the 2026-11-23 entries in
+[bot-platform.md](plans/bot-platform.md#owner-decisions-that-are-still-open)
+and [the Wave 8 answers](plans/bot-platform-wave8.md#owner-answers-2026-11-23).
+The owner confirmed every recommendation ("Yes. Go"): option A for Q1–Q8,
+with Q2 and Q8 expanded. The standing "no corner" rule of Wave 6 (above)
+applies; each Wave 8 task lists the options it keeps open.
+
+### A room is a chain of Runs on fresh Units (Q1 A)
+
+- **Chosen.** Each link of a room's chain is one Run on its own fresh Unit;
+  the room rolls over before the 256 lifetime actions of `assembly/run-engine`
+  and carries the turn-policy state over. The chain lives in
+  `delivery/durable-mailbox` ([ELZ-344](../tasks/ELZ-344-durable-mailbox.md));
+  its link transaction is the "one atomic step" of the 2026-11-21 chain
+  decision: the old Run is terminal before it and the successor starts after
+  it (the coordinator's reading).
+- **Why.** No engine change: a fresh Unit never carries the lifetime count
+  into a new period.
+- **For you.** Give each link its own Unit identity and Run ID.
+- **To change.** A stated `lifetime_actions` result (Q8 C) is additive.
+
+### Four turn rules through one plug (Q2 A, expanded)
+
+- **Chosen.** `workflow/turn-policy`
+  ([ELZ-345](../tasks/ELZ-345-turn-policy.md)) has `:addressed` (presets lead
+  bot and mention-only, with an optional host-vouched `reply_to_member`),
+  `:round_robin`, a bounded `:everyone` and `:decided` (one decision action
+  whose pick is untrusted and falls back to the default member), and a pure
+  host-rule behaviour. Every rule keeps every guard: one open turn, members
+  only, the bot-turn bound, escalation, handoff, the window, the carry and
+  unique action IDs.
+- **Why.** Support rooms, teams of bots and moderated rooms all fit, and no
+  rule can widen the bound or reach a non-member.
+- **For you.** Pick a rule per room; bind the decision action, for example to
+  `workflow/typed-decision`; write bidding, skill or priority routing,
+  time-of-day rules or per-member rates as host rules.
+- **To change.** A runtime rule switch (`set_rule` on the answer under a
+  policy key `rule_change: %{allowed, by}`) and per-bot stop and resume are
+  additive.
+
+### A child Run starts through a tool call (Q3 A)
+
+- **Chosen.** The parent asks a `tool_call` whose host binding records the
+  work item, pins the version and starts the child; no protocol change.
+- **Why.** The engine already reserves budget, checks authority and records
+  the intent of a tool call, and an unknown spawn is never retried.
+- **For you.** Write the child-start binding; apply
+  `workflow/delegation`'s grant in it.
+- **To change.** A pattern-step v3 `start_child` action is additive.
+
+### One work item per child Run (Q4 A)
+
+- **Chosen.** `workflow/work-item` ([ELZ-347](../tasks/ELZ-347-work-item.md))
+  keeps one item per child Run: intent, assignee, parent-close rule, the
+  child's result as evidence, and acceptance by the parent Run's principal.
+  It replaces RC-11.
+- **Why.** After a crash the host finds a parent's open children; a result is
+  evidence, not completion (rule 8).
+- **For you.** Accept or reject each offered item yourself.
+- **To change.** Acceptance by a person, dependencies between items and
+  lease-bound completion are additive.
+
+### Mail and chains in Piece-owned tables (Q5 A)
+
+- **Chosen.** `delivery/durable-mailbox` keeps chains, links and messages in
+  its own tables under the `state/tenant-isolation` floor.
+- **Why.** A rollover must see every unsettled delivery in one transaction,
+  and mail is tenant content.
+- **For you.** Install the tables in an Ecto migration, connect as the
+  application role and call `verify/1` before you serve.
+- **To change.** A push notifier and a purge of consumed mail are additive.
+
+### One delegation level, the lineage in the grant (Q6 A)
+
+- **Chosen.** Every child agent is delegated from the root person or service
+  with scopes inside its parent's; `workflow/delegation`
+  ([ELZ-346](../tasks/ELZ-346-delegation.md)) keeps the lineage and a declared
+  `max_depth` (1..8). The default parent-close rule `:request_cancel` reaches
+  a child only when it is idle, so a busy agent-loop child sees no cancel
+  request before it ends (the coordinator's reading).
+- **Why.** `domain/principal` keeps its one-level rule, and authority never
+  widens.
+- **For you.** Pass the lineage and the revocations that you hold.
+- **To change.** Nested delegation in `domain/principal` and an
+  `allowed_patterns` key of the grant are additive.
+
+### No A2A in Wave 8 (Q7 A)
+
+- **Chosen.** `integration/a2a-server` and `integration/a2a-client` stay
+  deferred, with the Nexus-style call shape, until a concrete peer exists.
+- **Why.** No peer is named.
+- **For you.** Nothing to configure.
+- **To change.** A client for one named peer is its own task.
+
+### Roll over before any bound, with a per-message reserve (Q8 A)
+
+- **Chosen.** A room rolls over after `rollover.max_turns` turns, and earlier
+  when the tip's slot count, its request count or the time left would not
+  hold one more delivered message plus the carry. The reserve counts every
+  turn that one message can start (at most `max_bot_turns`) and the decision
+  action's actions and requests, as the worst case over every rule the room
+  may use.
+- **Why.** No rollover message reaches the room between the turns of one
+  message.
+- **For you.** Declare the worst case of your bot recipes and decision
+  binding.
+- **To change.** A stated lifetime count (Q8 C) is additive.
+
 ## Request charge and payload caps of `assembly/run-engine` (RC-50)
 
 Sources: the [piece.json](../pieces/assembly/run-engine/piece.json) contract
@@ -964,9 +1076,10 @@ and limits, and the
   requests than the host sealed at its start.
 - **For you.** Choose `request_cap` per Run. A long-lived host such as a room
   reaches 256 lifetime actions; the recommended default is to start a new host
-  identity before then and carry bounded summary state over, which waits for
-  owner confirmation before Wave 8
-  ([room decision](plans/bot-platform.md#a-decision-that-wave-8-waits-for-the-life-of-a-room)).
+  identity before then and carry bounded summary state over, which the owner
+  confirmed for Wave 8 on 2026-11-23
+  ([room decision](plans/bot-platform.md#a-decision-that-wave-8-waits-for-the-life-of-a-room);
+  [Q1 A](#a-room-is-a-chain-of-runs-on-fresh-units-q1-a)).
 - **To change.** `request_cap` is a host option within 1 to 256. A larger cap
   or a reset changes the Contract: under the ID rule.
 

@@ -236,6 +236,14 @@
       "manifest": "pieces/delivery/dead-letter-store/piece.json"
     },
     {
+      "id": "delivery/durable-mailbox",
+      "summary": "Declared durable mail and the continuation chain of a room's Runs",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-344: Wave 8 (P13). Plain Ecto/Postgrex tables under state/tenant-isolation (owner Q1 A, Q5 A); closed input surface and one successor per link (2026-11-21); no Run start or engine call."
+    },
+    {
       "id": "delivery/debounce",
       "summary": "Pure trailing-edge latest-value debounce policy for one caller-owned partition.",
       "disposition": "own",
@@ -1037,11 +1045,27 @@
     },
     {
       "id": "workflow/work-item",
-      "summary": "Durable work intent and acceptance",
-      "disposition": "defer",
-      "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy. ELZ-015 evaluates Ash resource actions with tenant context; no ready bundle or durable execution claim. ELZ-025 study: enumerated lifecycle transitions, completion bound to the current lease or authority holder, no-op transitions write nothing."
+      "summary": "Durable record of one delegated item: intent, assignee, evidence and acceptance",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-347: Wave 8 (P13). Replaces RC-11, narrowed to one item per child Run (owner Q4 A); plain Ecto/Postgrex table under state/tenant-isolation; dependencies between items and lease-bound completion stay addable."
+    },
+    {
+      "id": "workflow/delegation",
+      "summary": "Grant a child Run narrowed authority, a budget share and a parent-close rule",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-346: Wave 8 (P13). Pure (owner Q3 A, Q6 A); one delegation level through domain/principal; absorbs the delegation part of workflow/loop-guard."
+    },
+    {
+      "id": "workflow/turn-policy",
+      "summary": "Pattern step: who speaks next in a room, with a bot-turn bound",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-345: Wave 8 (P13). Pure pattern-step v1 step (owner Q2 A expanded, Q8 A); absorbs workflow/handoff, workflow/human-escalation and the room part of workflow/loop-guard."
     },
     {
       "id": "workflow/pattern-step",

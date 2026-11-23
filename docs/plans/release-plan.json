@@ -2204,9 +2204,7 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "workflow/work-item"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-026",
@@ -2214,7 +2212,7 @@
         "ELZ-024",
         "RC-10"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for workflow/work-item by published ELZ-347 (narrowed to one item per child Run); output moved",
       "contract": "Work Item has stable intent, acceptance revision, assignee/authority and explicit lifecycle. A Run result is evidence offered for acceptance, never automatic business completion.",
       "acceptance": "Stale holder cannot accept, duplicate completion is idempotent, no-op writes nothing, dependency failure policy explicit, cancellation of an Attempt does not erase intent.",
       "reuse": "Ash resource/action/state facilities; reuse provider ownership when ELZ-028 determines it suffices.",
@@ -9047,9 +9045,145 @@
       "issue": 819,
       "url": "https://github.com/balungpisah/elzoo/issues/819",
       "issue_body_sha256": "244c66cb9445c5507df7e548fad33bb50b0ab325afbdc3c437d7c0df80116a1e"
+    },
+    {
+      "id": "ELZ-344",
+      "title": "ELZ-344 — Durable mail for rooms: declared messages only, one claim at a time, and a continuation chain of Runs",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-115",
+        "ELZ-270",
+        "ELZ-285"
+      ],
+      "status": "published 2026-11-23",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-344-durable-mailbox.md"
+      ],
+      "outputs": [
+        "delivery/durable-mailbox"
+      ],
+      "acceptance": "Durable plain Ecto/Postgrex chains, links and messages under the tenant-isolation floor (owner Q1 A, Q5 A; settled decisions 1 and 3): a declaration of 1..64 message names with core/payload-schema schemas built at new/2; put/3 refuses shape, an undeclared name, a wrong schema version and an invalid payload before any write, then an unknown chain or another declaration, is idempotent by message_id and refuses mailbox_full at a declared bound; mail to any link's run_id goes to the live tip; claim/3 under the chain row lock gives the oldest pending message to exactly one link and again after a crash; settle/3 applied, not_applied or refused from a closed list, record_size sets stopped; plan_rollover/3 and rollover/3, the atomic step: not_tip, delivery_unsettled, already_rolled_over, plan_mismatch, identity_in_use, one successor by row lock and a unique predecessor index, the pin inherited unless an explicit change; chain/3 and status/3; elzoo_app isolation, caller-transaction and READ COMMITTED refusals; barrier races and negative controls on the payload check, both successor guards and delivery_unsettled. Durable, concurrent, tenant content: local small gate and full review.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 822,
+      "url": "https://github.com/balungpisah/elzoo/issues/822",
+      "issue_body_sha256": "c719a2bc7babb2017dbeb5253292e629babfb18a556dc43cfe51bf5d4ca99414"
+    },
+    {
+      "id": "ELZ-345",
+      "title": "ELZ-345 — The turn policy of a room: who speaks next, a bot-turn bound, escalation, handoff and the rollover carry",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-114",
+        "ELZ-115",
+        "ELZ-137",
+        "ELZ-141"
+      ],
+      "status": "published 2026-11-23",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-345-turn-policy.md"
+      ],
+      "outputs": [
+        "workflow/turn-policy"
+      ],
+      "acceptance": "Pure pattern-step v1 room step (owner Q2 A expanded, Q8 A; absorbs workflow/handoff, workflow/human-escalation and the room part of workflow/loop-guard): built-in rules addressed (lead-bot and mention-only presets, host-vouched reply_to_member), round_robin, bounded everyone and decided (one decision action, an untrusted elzoo.room.pick that falls back to default_member), and a pure host-rule behaviour that fails closed; every rule keeps one open turn, members only, the max_bot_turns bound (also for bot and peer messages), escalation, handoff, the window, the carry and unique action IDs; check_start/2, restart_carry/1 and pick_schema/0; the carry local_work then a finish naming it; sizes within the engine's 65,536-byte bounds; negative controls on the bound, peer counting, non-member mentions and pick membership. Model output: local small gate and full review.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 823,
+      "url": "https://github.com/balungpisah/elzoo/issues/823",
+      "issue_body_sha256": "71108e4525ae770f9781652e4859436618552da4bc3462fb328177985946af04"
+    },
+    {
+      "id": "ELZ-346",
+      "title": "ELZ-346 — Grant a child Run less authority and a budget share, refuse deep or cyclic delegation, and decide what a parent's end does to each child",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-267",
+        "ELZ-024"
+      ],
+      "status": "published 2026-11-23",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-346-delegation.md"
+      ],
+      "outputs": [
+        "workflow/delegation"
+      ],
+      "acceptance": "Pure child grant (owner Q3 A, Q6 A; settled decisions 2 and 3; absorbs the delegation part of workflow/loop-guard): grant/2 over trusted parent facts refuses in order malformed, revoked (root, parent, child or any lineage bot), depth over max_depth 1..8, cycle, escalation, budget and version_change, then delegates the child from the root with domain/principal (one level), passes the parent's effective authority for the domain/authorization intersection, the inherited or explicitly changed pin and the parent-close rule (default request_cancel); on_parent_close/1 maps each open child to abandon, a cancel request or an Attempt cancel; negative controls on the lineage and revocation checks and on delegating from the agent. Authorization and identity: local small gate and full review.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 824,
+      "url": "https://github.com/balungpisah/elzoo/issues/824",
+      "issue_body_sha256": "cb609fa7b57459e3b67caee3026be7ae209cb1200dfd27317df3db6e41b35cac"
+    },
+    {
+      "id": "ELZ-347",
+      "title": "ELZ-347 — A durable record of one delegated item: its intent, the child Run it is assigned to, the child's result as evidence, and acceptance by the parent",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-137",
+        "ELZ-270",
+        "ELZ-285"
+      ],
+      "status": "published 2026-11-23",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-347-work-item.md"
+      ],
+      "outputs": [
+        "workflow/work-item"
+      ],
+      "acceptance": "Durable plain Ecto/Postgrex work items under the tenant-isolation floor (owner Q4 A; replaces RC-11, narrowed to one item per child Run): stable untrusted-content intent, assignee child_run_id, parent-close rule, the lifecycle open, running, offered, accepted or rejected, and cancel_requested, cancelled or abandoned, with a revision; create/3 idempotent; offer/4 only from the assignee; decide/4 only by the owner; a no-op writes nothing; stale_revision for a concurrent decision; list_open/3 after a crash; a Run result is evidence, never completion; elzoo_app isolation, caller-transaction and READ COMMITTED refusals; negative controls on the revision, assignee and no-op checks. Durable, concurrent, tenant content: local small gate and full review.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 825,
+      "url": "https://github.com/balungpisah/elzoo/issues/825",
+      "issue_body_sha256": "9861837969456e14d34d3831854e53699c874ae00cc5c95a569bc8fc3a173971"
     }
   ],
   "entries": [
+    {
+      "id": "delivery/durable-mailbox",
+      "job": "ELZ-344",
+      "note": "Planned durable mail and room continuation chains over a consumer-owned Ecto Repo on PostgreSQL 16 in Piece-owned chain, link and message tables under the state/tenant-isolation floor: only declared message names whose payload passes the declared core/payload-schema schema are written; mail to any link's Run ID goes to the live tip; FIFO claim to exactly one link and settlement; the rollover step closes the tip and creates exactly one successor that keeps the pinned version unless an explicit change. No Run start, engine call or timer.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/turn-policy",
+      "job": "ELZ-345",
+      "note": "Planned pure pattern step of a room Run: rules addressed, round_robin, bounded everyone and decided, and a host-rule behaviour, each under one open turn, members only, a bot-turn bound, escalation, handoff, a bounded window and a rollover carry; the decided pick is untrusted model output that falls back to the default member. Absorbs the handles workflow/handoff, workflow/human-escalation and the room part of workflow/loop-guard. No clock, I/O or model call.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/delegation",
+      "job": "ELZ-346",
+      "note": "Planned pure child-Run grant: a principal delegated from the root (one level), the parent's effective authority, a budget share, depth and cycle refusals over the lineage, revocations, the inherited or explicitly changed pin and a per-child parent-close rule (abandon, request cancel by default, cancel), and the action for each open child of an ended parent. Absorbs the delegation part of workflow/loop-guard. No I/O.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
+    },
     {
       "id": "assembly/agent-product",
       "job": "RC-38",
@@ -10257,10 +10391,10 @@
     },
     {
       "id": "workflow/work-item",
-      "job": "RC-11",
-      "note": "Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy. ELZ-015 evaluates Ash resource actions with tenant context; no ready bundle or durable execution claim. ELZ-025 study: enumerated lifecycle transitions, completion bound to the current lease or authority holder, no-op transitions write nothing.",
+      "job": "ELZ-347",
+      "note": "Planned durable work items over a consumer-owned Ecto Repo on PostgreSQL 16 in one Piece-owned table under the state/tenant-isolation floor (ELZ-347 replaces RC-11, narrowed): one item per child Run with a stable workflow/untrusted-content intent, the assignee child_run_id, the parent-close rule, an explicit lifecycle with a revision (open, running, offered, accepted or rejected; cancel_requested, cancelled, abandoned), the child's result offered as evidence and acceptance or rejection by the parent Run's principal; a no-op writes nothing; list_open/3 finds a parent's open children after a crash. A Run result is evidence, never completion. Dependencies between items, lease-bound completion and acceptance by a person stay addable.",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
