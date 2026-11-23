@@ -246,7 +246,7 @@ RC-01 (stored state across a format change, wave 4), RC-42 (durable dedup for
 events in, wave 4), RC-06 (waves 4 and 5), RC-03 and RC-04 (wave 6). They are
 unchanged here.
 
-## Waves 4 to 9: Waves 4 to 7 merged
+## Waves 4 to 9: Waves 4 to 8 merged
 
 These handles are listed so that an earlier Contract does not close a door
 that a later wave needs. Wave 4's registered Levels 1–4 (including Pieces
@@ -264,11 +264,14 @@ consumer acceptance `ELZ-323` are merged on `main`; see
 closure section and its open handoff. Wave 7's Levels 1–4 and its root
 consumer acceptance `ELZ-338` are merged on `main`; see
 [bot-platform-wave7.md](bot-platform-wave7.md) for its dispositions, its
-closure section and its open handoff. Wave 8 is registered: the owner
-answered its questions on 2026-11-23, and its Level 1 is published (ELZ-344
-to ELZ-347); see [bot-platform-wave8.md](bot-platform-wave8.md). Waves 8 and 9
-retain the existing serial rule: a wave is registered when the preceding wave
-and its pre-registration gates are accepted. A handle with a job in brackets
+closure section and its open handoff. Wave 8's Levels 1–2 and its root
+consumer acceptance `ELZ-349` are merged on `main`; see
+[bot-platform-wave8.md](bot-platform-wave8.md) for its dispositions, its
+closure section and its open handoff. Wave 9 is planned in
+[bot-platform-wave9.md](bot-platform-wave9.md) and is registered when the
+owner answers its questions. Wave 9 retains the existing serial rule: a wave
+is registered when the preceding wave and its pre-registration gates are
+accepted. A handle with a job in brackets
 is an existing catalogue row that the job owns; the one exception is
 `delivery/durable-idempotency` (RC-42), which is a candidate gap and not a
 catalogue row.
@@ -280,7 +283,7 @@ catalogue row.
 | 6 | Count and see ([plan](bot-platform-wave6.md)) | `integration/observability` (RC-03), `runtime/faces` (RC-04), `runtime/telemetry-events`, `runtime/trace`, `runtime/metrics`, `runtime/log`, `state/run-transcript`, `runtime/alert`, `delivery/dead-letter-store`, `state/projection`, `domain/metering` (RC-21), `domain/pricing` (RC-23), `domain/quota` (RC-08), `domain/journal` (RC-22), `domain/wallet`, `workflow/spend-alert`, `assembly/tenant-edge` (RC-40), `state/feedback`, `state/eval-dataset`, `workflow/eval`, `workflow/red-team`, `ui/component` (RC-31) |
 | 7 | Remember and know ([plan](bot-platform-wave7.md)) | `domain/memory-scope`, `state/memory-record`, `workflow/memory-write-policy`, `workflow/memory-extract`, `workflow/memory-recall`, `state/cache`, `state/bot-data`, `integration/document-parse`, `integration/search-text`, `integration/ai-rerank`, `workflow/permission-mirror`, `workflow/citation`, `integration/connector-web`, `integration/connector-database`, `assembly/data-pipeline` (RC-39), `assembly/knowledge-ingest` |
 | 8 | Bots talk ([plan](bot-platform-wave8.md)) | `delivery/durable-mailbox`, `workflow/loop-guard`, `workflow/delegation`, `workflow/handoff`, `workflow/human-escalation`, `workflow/turn-policy`, `delivery/room`, `state/shared-board`, `workflow/work-item` (RC-11), `assembly/task-workflow` (RC-37), `integration/a2a-server`, `integration/a2a-client` |
-| 9 | More tools, doors, models and money | `integration/oauth-client`, `integration/webhook-out`, `workflow/client-tool`, `workflow/code-mode`, `integration/openapi-tool`, `integration/mcp-server`, `workflow/package-vetting`, `integration/connector-drive`, `integration/channel-slack`, `integration/channel-whatsapp`, `integration/channel-telegram`, `integration/channel-email-in`, `integration/ai-text-compatible`, `integration/ai-text-google`, `integration/ai-multimodal`, `integration/ai-model-catalogue`, `delivery/model-routing` (RC-25), `delivery/resequence` (RC-28), `runtime/load-shed`, `domain/payment-lifecycle` (RC-24), `integration/payments` (RC-24), `assembly/ledger-checkout` (RC-41), `domain/plan`, `domain/invoice` |
+| 9 | More tools, doors, models and money ([plan](bot-platform-wave9.md)) | `integration/oauth-client`, `integration/webhook-out`, `workflow/client-tool`, `workflow/code-mode`, `integration/openapi-tool`, `integration/mcp-server`, `workflow/package-vetting`, `integration/connector-drive`, `integration/channel-slack`, `integration/channel-whatsapp`, `integration/channel-telegram`, `integration/channel-email-in`, `integration/ai-text-compatible`, `integration/ai-text-google`, `integration/ai-multimodal`, `integration/ai-model-catalogue`, `delivery/model-routing` (RC-25), `delivery/resequence` (RC-28), `runtime/load-shed`, `domain/payment-lifecycle` (RC-24), `integration/payments` (RC-24), `assembly/ledger-checkout` (RC-41), `domain/plan`, `domain/invoice` |
 
 ### A door that wave 1 kept open: a command with no Run (delivered in Wave 4)
 
@@ -309,7 +312,7 @@ rather than the unpruned 74-handle wishlist:
 | **6 · Count and see** ([plan](bot-platform-wave6.md), which places each handle and departs from this row for `domain/entitlement`, `state/run-transcript` and `workflow/spend-alert`) | `state/run-transcript` (carrying tree/span trace view), `delivery/dead-letter-store`, `domain/metering`, `domain/quota` (with `domain/entitlement` & `run_id`-idempotent tenant allowance reservation/settlement), `domain/pricing`, `domain/journal` (double-entry over ready `domain/money`, absorbing `domain/wallet`), `workflow/eval` (dataset-backed bot evaluation over ready `runtime/recipe-test` + `state/artifact`, absorbing `state/eval-dataset`) | `runtime/telemetry`, `integration/observability` (already ready — replaces `runtime/telemetry-events`, `runtime/metrics`, `runtime/trace`, `runtime/log`, `runtime/alert`), `state/audit-log`, `workflow/budget` (`spend-alert` is a budget threshold) | `runtime/faces`, `state/projection`, `state/feedback`, `workflow/red-team`, `ui/component` (stay consumer-driven until a concrete caller exists) |
 | **7 · Remember and know** ([plan](bot-platform-wave7.md), which places each handle and departs from this row for `integration/search-text` and `assembly/knowledge-ingest`) | `state/memory-record` (absorbing `domain/memory-scope` & `workflow/memory-write-policy`), `integration/search-text` (PostgreSQL FTS/`pg_trgm`), `integration/document-parse`, `workflow/citation`, `assembly/knowledge-ingest` (service-principal Run composition over ready `document-parse` + `text-chunking` + `ai-embedding` + `search-data`) | `integration/search-data` (`pgvector`), `integration/text-chunking`, `integration/ai-embedding`, `workflow/context-selection`, Wave 5 `state/tenant-isolation` RLS (replaces `workflow/permission-mirror`), `workflow/memory-extract` & `workflow/memory-recall` (pure pattern/module steps over `state/memory-record` + `search-data`) | `state/cache`, `state/bot-data`, `integration/ai-rerank`, `integration/connector-web`, `integration/connector-database`, `assembly/data-pipeline` |
 | **8 · Bots talk** ([plan](bot-platform-wave8.md), which places each handle; the G10 room-life decision is answered, 2026-11-23) | `delivery/durable-mailbox` (Store/outbox-backed bot & room mailbox), `workflow/turn-policy`, `delivery/room`, `workflow/delegation` (absorbing `handoff`, `loop-guard`, `human-escalation`), `workflow/work-item` | `assembly/run-engine` (unchanged Contract; rooms roll over before the 256-action cap via host-owned rollover to a new Unit carrying bounded summary state), `state/conversation` | `state/shared-board`, `assembly/task-workflow`, `integration/a2a-server`, `integration/a2a-client` (only when a concrete external A2A peer exists) |
-| **9 · More tools, doors, models and money** | `integration/oauth-client`, `integration/webhook-out`, `integration/mcp-server`, `workflow/code-mode` (Lua-first over ready `runtime/lua-sandbox`), `integration/ai-multimodal`, `integration/ai-text-compatible` / `integration/ai-text-google`, `delivery/model-routing`, `domain/payment-lifecycle` + `integration/payments` (over ready `domain/money` + `delivery/effect-intent`, preferring no-custody / sub-account split settlement) | `integration/ai-text-anthropic`, `integration/ai-text-openai`, `integration/webhook-in`, `domain/money`, `delivery/effect-intent`, `domain/journal` (Wave 6) | Individual channel adapters (`slack`, `whatsapp`, `telegram`, `email-in` — build each concrete channel as consumer demand arrives, starting with the first active channel), `integration/openapi-tool`, `workflow/package-vetting`, `integration/connector-drive`, `domain/plan`, `domain/invoice`, `runtime/load-shed` |
+| **9 · More tools, doors, models and money** ([plan](bot-platform-wave9.md), which places each handle and departs from this row for `workflow/code-mode`, `integration/ai-multimodal`, `domain/plan` and `domain/invoice`) | `integration/oauth-client`, `integration/webhook-out`, `integration/mcp-server`, `workflow/code-mode` (Lua-first over ready `runtime/lua-sandbox`), `integration/ai-multimodal`, `integration/ai-text-compatible` / `integration/ai-text-google`, `delivery/model-routing`, `domain/payment-lifecycle` + `integration/payments` (over ready `domain/money` + `delivery/effect-intent`, preferring no-custody / sub-account split settlement) | `integration/ai-text-anthropic`, `integration/ai-text-openai`, `integration/webhook-in`, `domain/money`, `delivery/effect-intent`, `domain/journal` (Wave 6) | Individual channel adapters (`slack`, `whatsapp`, `telegram`, `email-in` — build each concrete channel as consumer demand arrives, starting with the first active channel), `integration/openapi-tool`, `workflow/package-vetting`, `integration/connector-drive`, `domain/plan`, `domain/invoice`, `runtime/load-shed` |
 
 ### A decision that wave 8 waits for: the life of a room
 
@@ -424,7 +427,7 @@ Resolved on 2026-11-22 (owner); these decisions govern Wave 7 ([bot-platform-wav
 | --- | --- |
 | Confirm room rollover default (fresh Unit before 256 lifetime actions of `assembly/run-engine`) | answered 2026-11-23: candidate 1 (Wave 8 Q1 A); ELZ-344 (the chain), and `delivery/room` at Wave 8 Level 2 |
 | The turn policies of a room | answered 2026-11-23: Wave 8 Q2 A, expanded; ELZ-345 |
-| The language of model-written code | not registered (wave 9) |
+| The language of model-written code | asked as Q1 of [bot-platform-wave9.md](bot-platform-wave9.md#provider-prerequisites-and-open-questions) (recommended: Lua in the ready `runtime/lua-sandbox`) |
 
 ## Check
 

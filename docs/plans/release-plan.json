@@ -9356,6 +9356,29 @@
       "issue": 847,
       "url": "https://github.com/balungpisah/elzoo/issues/847",
       "issue_body_sha256": "76e71077958f4b8e3290990613e6fa0be6b48c8c544f21312877d4cc3f978e23"
+    },
+    {
+      "id": "ELZ-355",
+      "title": "ELZ-355 — Plan Wave 9, More tools, doors, models and money, and record that Wave 8 is accepted",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-349"
+      ],
+      "status": "published 2026-11-23",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-355-wave9-plan.md"
+      ],
+      "outputs": [],
+      "acceptance": "docs/plans/bot-platform-wave9.md gives the Wave 9 source boundaries, one disposition per candidate handle (new, extend in place, reuse, absorbed, deferred), the settled owner decisions carried as settled (the saga rules, the retry delay from the failure in place on delivery/retry-timeout, subscriptions through domain/plan and domain/invoice, RC-59 OAuth in Wave 9, no corner), a decision for each deferred item mapped to Wave 9, dependency levels ending in a mandatory root consumer acceptance, a Contract sketch, acceptance with negative controls and the options kept open for each job, numbered owner questions with lettered options and recommendations, and what remains after Wave 9; bot-platform-wave8.md records the Wave 8 closure and open handoff, bot-platform.md states that Waves 4 to 8 are merged, and choices.md gains the Wave 8 acceptance limits; no Contract, task, Piece or catalogue change. Documents-only classification, roadmap (plain, write, live), claims and diff checks.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 851,
+      "url": "https://github.com/balungpisah/elzoo/issues/851",
+      "issue_body_sha256": "7b2f2073e96a859e93d5376ef5bfe9fd7d9d6d4f7cfdd41f7fb95aff06a80e53"
     }
   ],
   "entries": [

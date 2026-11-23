@@ -1056,6 +1056,115 @@ applies; each Wave 8 task lists the options it keeps open.
   binding.
 - **To change.** A stated lifetime count (Q8 C) is additive.
 
+## Limits of the Wave 8 acceptance (ELZ-349)
+
+[ELZ-349](../tasks/ELZ-349-wave8-bots-talk-acceptance.md) runs the Wave 8
+Pieces together on PostgreSQL 16 and the disposable S3 test server, with
+every Piece call and every RunEngine and recipe-store Store on the
+`elzoo_app` role. It shows only its finite tested composition; its
+[report's Limits](research/wave8-bots-talk.md#limits) and its task's
+"Limits to state" are the full list, and the
+[wave closure](plans/bot-platform-wave8.md#wave-8-closure-and-open-handoff)
+restates them. Races inside one Piece, and the outcomes that the host maps
+but the acceptance does not reach, are that Piece's tests. An acceptance has
+no Piece output, so a later acceptance task that adds what is missing needs
+no Piece ID; only a change of a Piece follows the ID rule.
+
+### Scripted models, harness bindings, pinned identities
+
+- **Chosen.** Model results are scripted. The wrapper from an agent-loop
+  finish to `elzoo.room.answer`, the child-start binding, the parent-close
+  application, the bookkeeping from an item to its child-start slot and the
+  idle-checked delivery to a child's own chain are harness code. Identities
+  are pinned test identities; every principal, revocation, epoch and
+  authority fact is host-built.
+- **Why.** The acceptance checks the composition and depends on no model
+  provider or identity provider.
+- **For you.** No claim is made about answer quality, a pick being a good
+  one or a model following a turn. The reserve is the worst case of the
+  scripted recipes: count your agent-loop's own bounds (up to 64 proposals
+  per turn) and your decision binding.
+- **To change.** A reusable answer wrapper stays an open option of
+  `workflow/turn-policy`.
+
+### A cancel request reaches only an idle child
+
+- **Chosen.** The default `:request_cancel` is delivered when the child Run
+  is idle. The ready agent loop has an open action from its start to its
+  finish, so an agent-loop child sees no cancel request before its end. A
+  cancel of an Attempt does not stop a sent Effect.
+- **Why.** The engine gives a message to a pattern only while no action is
+  open; the unknown-outcome rules of `delivery/effect-intent` apply.
+- **For you.** Choose `:cancel` for a child that must stop at once, and
+  reconcile its sent Effects.
+- **To change.** A control that reaches a busy child stays an open option.
+
+### An expired tool slot is not reported to its callable
+
+- **Chosen.** By default the engine gives no expired tool slot to the nested
+  callable that asked it, so a bot's turn whose tool calls expire waits
+  until its own deadline. ELZ-349 does not turn on the option below.
+- **Why.** An input that settles no slot is given to the root pattern only
+  ([run-engine README](../pieces/assembly/run-engine/README.md), lines
+  521–533).
+- **For you.** Give each turn a deadline that you can wait for.
+- **To change.** Start the engine with the option `expiry_reports: :owner`
+  ([ELZ-351](../tasks/ELZ-351-run-engine-expiry-reports.md)), which gives
+  each expired settlement to its owning callable.
+
+### One message at a time, at most once per Run
+
+- **Chosen.** A room delivers one message at a time, only between turns; a
+  stalled turn holds the room until its deadline, and a stalled Run until
+  its Run deadline. A message is given at most once per Run, not end to end.
+  The slot count as the lifetime count is a reading of the engine's code
+  ([Q8 A](#roll-over-before-any-bound-with-a-per-message-reserve-q8-a)). The
+  concurrent-rollover case is outside the room's one-deliverer Need and
+  shows only the mailbox's guards.
+- **Why.** These are the stated Needs and limits of `delivery/room` and
+  `delivery/durable-mailbox`.
+- **For you.** Run one deliverer per chain, and serialize every command to a
+  tenant's shared Run owner, as the harness does; the harness lock covers the
+  commands that the harness sends, not an engine's own completion after local
+  work. Repeat `open/3` after an error until it returns a stop: the exact
+  stop set is open wording in issue #834, and the acceptance relies on no
+  stop other than `{:ok, _}`.
+- **To change.** A stated lifetime count (Q8 C) is additive.
+
+### A tenant's pinned Runs are bounded
+
+- **Chosen.** One tenant's recipe-store stream holds 10,000 records, and
+  each Run of a pinned version appends a pin and an unpin, so the rooms and
+  children of one tenant run out of Runs at about 5,000.
+- **Why.** `state/recipe-store` has no compaction (issue #821).
+- **For you.** Count your tenant's rollovers and child Runs.
+- **To change.** Compaction of settled pin pairs is its own task (#821).
+
+### Tables outside the floor; no erasure of mail
+
+- **Chosen.** The RunEngine Store tables, the recipe-store stream and the
+  artifact records are not under row security. Mail payloads, carries and
+  work-item intents hold people's text and have no delete or erasure in
+  Wave 8; dead tuples, WAL and backups keep deleted content until PostgreSQL
+  reclaims it. `log: false` silences only the Logger: the Repo's query
+  telemetry still receives tenants, IDs and payloads as parameters. READ
+  COMMITTED, the Repos' default, is a consumer Need that the Pieces check and
+  cannot set.
+- **Why.** The acceptance uses the ready tables as they are.
+- **For you.** Treat these tables and your telemetry handlers as tenant
+  content under your own retention.
+- **To change.** Erasure of mail and intents, and composing the Store
+  tables with `state/tenant-isolation`, would be tasks of their own.
+
+### No database crash, no live channel
+
+- **Chosen.** The restarts are a host's bookkeeping dropped or a Need
+  failing in one VM, not a database restart. No A2A peer, live channel or
+  cross-node room is used.
+- **Why.** The acceptance runs on one disposable database in one VM.
+- **For you.** Durability claims stay those of each Piece.
+- **To change.** Test a crash or failover of your database yourself.
+
 ## Request charge and payload caps of `assembly/run-engine` (RC-50)
 
 Sources: the [piece.json](../pieces/assembly/run-engine/piece.json) contract
