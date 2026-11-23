@@ -66,7 +66,7 @@ defmodule Elzoo.TurnPolicy do
         policy["rule"] in ["everyone", "decided"] and length(bots) > policy["max_bot_turns"] ->
           {:error, :too_many_bots}
 
-        carry != nil and not carry_fits?(carry, bots, policy["window"]) ->
+        carry != nil and not carry_fits?(carry, bots, policy) ->
           {:error, :carry}
 
         true ->
@@ -730,9 +730,13 @@ defmodule Elzoo.TurnPolicy do
 
   defp carry?(_), do: false
 
-  # The relative checks of a carry: members of this start, this window, the payload bound.
-  defp carry_fits?(carry, bots, %{"messages" => count, "bytes" => bytes}) do
+  # The relative checks of a carry: members of this start, the bot-turn bound (every
+  # queued turn is counted in bot_turns, as the step keeps it), this window, the payload bound.
+  defp carry_fits?(carry, bots, %{"max_bot_turns" => max, "window" => window}) do
+    %{"messages" => count, "bytes" => bytes} = window
+
     Enum.all?(carry["queue"], &(&1["member"] in bots)) and carry["default_member"] in [nil | bots] and
+      length(carry["queue"]) <= carry["bot_turns"] and carry["bot_turns"] <= max and
       length(carry["window"]) <= count and
       (length(carry["window"]) <= 1 or json_bytes(carry["window"]) <= bytes) and
       json_bytes(carry) <= 65_536

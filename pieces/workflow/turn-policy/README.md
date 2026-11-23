@@ -31,8 +31,9 @@ below ground them; they are finite scenarios, not a universal proof.
   checks of a `start` input: `:malformed`, `:unknown_rule`, `:default_member`,
   `:too_many_bots` (`"everyone"` or `"decided"` with more bot members than
   `max_bot_turns`) and `:carry` (a queued member or the carried default member
-  that is not a bot member of the start, a carried window over this start's
-  `window` bounds, or a carry over 65,536 bytes of compact JSON). The room
+  that is not a bot member of the start, more queued turns than `bot_turns` or a
+  `bot_turns` over this start's `max_bot_turns`, a carried window over this
+  start's `window` bounds, or a carry over 65,536 bytes of compact JSON). The room
   checks every start and carry before it pins or opens anything.
 - `restart_carry(start)` returns the start of the successor of a link that
   ended without a carry: `link` + 1, the queue emptied and the note
@@ -128,7 +129,9 @@ no carry is asked (`link_limit`).
 ## The per-message count (Q8 reserve)
 
 Between two messages the step asks at the root at most one decision action,
-`max_bot_turns` turns with one post each, and one notice; a carrying step asks,
+`max_bot_turns` turns with one post each, and one notice, and, when those turns
+reach `rollover.max_turns`, the carry `local_work` action and the finish after
+them; a carrying step asks,
 for a message, no turn, no decision and no notice, and one carry action, then
 the finish. The room's per-message reserve is this count with the worst case of
 the decision binding and of the bot recipes, over every rule the room may use.

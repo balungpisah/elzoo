@@ -893,6 +893,54 @@ defmodule Elzoo.TurnPolicyTest do
       end
     end
 
+    # A carry-over start keeps the bot-turn bound: every queued turn is counted in
+    # bot_turns, and bot_turns stays within this start's max_bot_turns.
+    carried = fn max, queued, bot_turns ->
+      room(%{"max_bot_turns" => max}, %{
+        "link" => 2,
+        "carry" => %{
+          "window" => [],
+          "bot_turns" => bot_turns,
+          "default_member" => nil,
+          "rule_state" => nil,
+          "awaiting_person" => false,
+          "queue" => for(_ <- 1..queued//1, do: %{"member" => "b1", "message_id" => "m1"}),
+          "seq" => %{"turn" => 0, "notice" => 0, "decision" => 0},
+          "notes" => []
+        }
+      })
+    end
+
+    for {payload, expected} <- [
+          {carried.(3, 3, 3), :ok},
+          {carried.(3, 3, 2), {:error, :carry}},
+          {carried.(3, 3, 0), {:error, :carry}},
+          {carried.(3, 0, 3), :ok},
+          {carried.(3, 0, 4), {:error, :carry}},
+          {carried.(2, 2, 2), :ok},
+          {carried.(2, 16, 16), {:error, :carry}},
+          {carried.(2, 16, 0), {:error, :carry}},
+          {carried.(16, 16, 16), :ok}
+        ] do
+      assert TurnPolicy.check_start(new!(), payload) == expected,
+             inspect(payload["carry"], limit: 4)
+
+      {state, action} = step(new!(), start(payload))
+
+      case expected do
+        :ok ->
+          assert state.phase == :running
+
+        {:error, reason} ->
+          assert action == nil and state.phase == :invalid_start and state.invalid_start == reason
+      end
+    end
+
+    # A successor that starts at the bound runs its queued turns and no more.
+    {state, first} = step(new!(), start(carried.(3, 3, 3)))
+    {_, log} = drive(state, first, host(fn _ -> %{"mentions" => ["b2"]} end))
+    assert turns(log) == ["b1", "b1", "b1"] and length(notices(log)) == 1
+
     # A host rule name is known only from the state of new/1.
     assert TurnPolicy.check_start(new!(%{}), room(%{"rule" => "script"})) == {:error, :unknown_rule}
 
@@ -1195,7 +1243,7 @@ defmodule Elzoo.TurnPolicyTest do
         %{
           "carry" => %{
             "window" => [],
-            "bot_turns" => 0,
+            "bot_turns" => 1,
             "default_member" => nil,
             "rule_state" => nil,
             "awaiting_person" => false,
