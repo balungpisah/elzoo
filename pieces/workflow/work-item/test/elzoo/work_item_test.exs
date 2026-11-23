@@ -422,6 +422,42 @@ defmodule Elzoo.WorkItemTest do
       assert get!(w, "T1", "s").state == :offered
       assert WI.start(w, "T1", "absent", %{revision: 1}) == {:error, :unknown_item}
       assert WI.get(w, "T1", "absent") == {:error, :unknown_item}
+
+      # Steps 3 and 4 come before the revision: at an older and a newer revision, the
+      # assignee, the owner, other evidence and the state are refused for what they are.
+      rev = in_state(w, "T1", "o", :offered)
+      stale_holder = %{child_run_id: "child-old", evidence: "outcome-1"}
+      other_principal = %{decided_by: "owner-2", decision: :accepted}
+
+      for r <- [rev - 1, rev + 1] do
+        assert WI.offer(w, "T1", "o", Map.put(stale_holder, :revision, r)) ==
+                 {:error, :not_assignee}
+
+        assert step(w, "T1", "o", r, {:offer, "outcome-2"}) == {:error, :conflict}
+
+        assert WI.decide(w, "T1", "o", Map.put(other_principal, :revision, r)) ==
+                 {:error, :not_owner}
+
+        assert step(w, "T1", "o", r, :start) == {:error, {:state, :offered}}
+      end
+
+      for r <- [1, 3] do
+        assert WI.offer(w, "T1", "s2", Map.put(stale_holder, :revision, r)) ==
+                 {:error, :unknown_item}
+      end
+
+      create!(w, "T1", item("s2"))
+
+      for r <- [2, 3] do
+        assert WI.offer(w, "T1", "s2", Map.put(stale_holder, :revision, r)) ==
+                 {:error, :not_assignee}
+
+        assert step(w, "T1", "s2", r, :offer) == {:error, {:state, :open}}
+        assert step(w, "T1", "s2", r, :accepted) == {:error, {:state, :open}}
+      end
+
+      assert %{state: :offered, revision: ^rev} = get!(w, "T1", "o")
+      assert %{state: :open, revision: 1} = get!(w, "T1", "s2")
     end
   end
 
@@ -620,7 +656,7 @@ defmodule Elzoo.WorkItemTest do
       assert open!(later, "T1", "parent-1", "xa", 1) == %{items: [], more: false}
     end
 
-    test "limit 256 returns 256 items and more when one more is open", %{w: w} do
+    test "limit 256 returns 256 items and more when one more is open", %{w: w, p: p} do
       ids = for n <- 0..256, do: "p-" <> String.pad_leading(Integer.to_string(n), 3, "0")
       for id <- Enum.take(ids, 256), do: create!(w, "T1", item(id, parent_run_id: "p"))
 
@@ -631,6 +667,18 @@ defmodule Elzoo.WorkItemTest do
       assert %{items: items, more: true} = open!(w, "T1", "p", nil, 256)
       assert Enum.map(items, & &1.item_id) == Enum.take(ids, 256)
       assert open!(w, "T1", "p", "p-255", 256) == %{items: [get!(w, "T1", "p-256")], more: false}
+
+      # The index that serves list_open/3: the open items of one parent in item_id order.
+      assert truth(
+               p,
+               "SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND indexname = 'elzoo_work_items_open'",
+               [p]
+             ) ==
+               [
+                 [
+                   ~s|CREATE INDEX elzoo_work_items_open ON #{p}.elzoo_work_items USING btree (tenant, parent_run_id, item_id) WHERE (state = ANY (ARRAY['open'::text, 'running'::text, 'offered'::text, 'cancel_requested'::text]))|
+                 ]
+               ]
 
       # A final item is not listed.
       assert step(w, "T1", "p-000", 1, {:close, :abandoned}) == {:ok, %{revision: 2}}
@@ -745,16 +793,31 @@ defmodule Elzoo.WorkItemTest do
       ]
     end
 
+    invalid_calls = fn w ->
+      [
+        WI.create(w, "T1", item("")),
+        WI.get(w, "", "i1"),
+        WI.start(w, "T1", "i1", %{revision: 0}),
+        WI.offer(w, "T1", "i1", %{revision: 1, child_run_id: "c", evidence: ""}),
+        WI.decide(w, "T1", "i1", %{revision: 1, decided_by: "owner-1", decision: :maybe}),
+        WI.close(w, "T1", "i1", %{revision: 1, to: :open}),
+        WI.list_open(w, "T1", %{parent_run_id: "p", after: nil, limit: 0})
+      ]
+    end
+
     try do
       {:ok, results} =
         AppRepo.transact(fn ->
           flush_queries()
           results = calls.(w)
+          invalid = invalid_calls.(w)
           refute_received {:query, _}
-          {:ok, results}
+          {:ok, {results, invalid}}
         end)
 
-      assert results == List.duplicate({:error, :in_transaction}, 7)
+      # Shape first: an invalid call inside a caller's transaction is invalid.
+      assert results ==
+               {List.duplicate({:error, :in_transaction}, 7), List.duplicate({:error, :invalid}, 7)}
 
       # verify/1 runs inside a caller's transaction too.
       assert {:ok, :ok} = AppRepo.transact(fn -> {:ok, WI.verify(w)} end)
@@ -768,6 +831,10 @@ defmodule Elzoo.WorkItemTest do
                {:error, :invalid}
 
       refute_received {:query, _}
+
+      # Positive control: the handler sees the Piece's queries on this Repo.
+      assert {:ok, _} = WI.get(w, "T1", "i1")
+      assert_received {:query, _}
     after
       :telemetry.detach(handler)
     end
