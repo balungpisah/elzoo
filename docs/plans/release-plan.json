@@ -9179,9 +9179,11 @@
     {
       "id": "workflow/delegation",
       "job": "ELZ-346",
-      "note": "Planned pure child-Run grant: a principal delegated from the root (one level), the parent's effective authority, a budget share, depth and cycle refusals over the lineage, revocations, the inherited or explicitly changed pin and a per-child parent-close rule (abandon, request cancel by default, cancel), and the action for each open child of an ended parent. Absorbs the delegation part of workflow/loop-guard. No I/O.",
+      "note": "Pure child-Run grant over trusted parent facts: refuses the whole request in order malformed, revoked (root, parent, child or any lineage bot), depth over max_depth 1..8, cycle (the root's ID or a lineage bot), escalation past the parent's scopes or spaces, budget (not 1..budget_remaining) and version_change (a change without a recorded-action ref); then delegates the child from the root with domain/principal (one level), passes the parent's validated effective authority as the domain/authorization parent bound, the inherited or explicitly changed pin, depth, the lineage with the child and a parent-close rule (abandon, request_cancel by default, cancel); on_parent_close/1 maps each open child of an ended parent to abandon, one elzoo.delegation.cancel_requested v1 request, or an Attempt cancel. Errors are fixed atoms. No I/O, clock, process, store, Run start, cancel or message.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/delegation/piece.json",
+      "manifest_sha256": "e93b7748c1550cfc6696d481540572e85b23a31cacf99715a152cb66458dcd33",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
