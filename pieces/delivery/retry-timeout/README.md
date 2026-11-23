@@ -31,8 +31,8 @@ jitter belongs to delay/4.
 returns {:ok, ms}. fd is nil or a non-negative integer (a wait the caller read
 from a not-dispatched refusal, such as a rate-limit retry_after_ms); r is an
 integer in 0..4294967295 supplied by the caller. With b = backoff and, under
-:full, j = (r * (b + 1)) div 2^32 (0 <= j <= b; j < b only when b > 4294967295),
-else j = 0: a :retryable delay is b (:none) or j (:full) when fd is nil, and
+:full, j = (r * (b + 1)) div 2^32 (0 <= j <= b; at r = 4294967295, j = b
+when b <= 4294967295 and j < b above that), else j = 0: a :retryable delay is b (:none) or j (:full) when fd is nil, and
 max(min(fd, max_failure_delay_ms), b) (:none) or that plus j (:full) when fd is
 an integer. A possibly dispatched result's delay is exactly backoff/2:
 :dispatched, :completed and :permanent ignore fd, r and jitter. Errors in

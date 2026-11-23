@@ -342,6 +342,23 @@ defmodule Elzoo.RetryDelayTest do
         base_backoff_ms: 5
       )
 
+    # The Runner refuses today's 5-tuple policy at start.
+    opts = [
+      capacity: 1,
+      attempt_timeout_ms: 1000,
+      attempt: fn _ -> nil end,
+      dead_letter: fn _ -> :ok end,
+      task_supervisor: start_supervised!({Task.Supervisor, []}, id: make_ref())
+    ]
+
+    assert {:error, {:invalid_options, _}} =
+             start_supervised(
+               {Runner, [policy: {:RetryPolicy, 3, 10, 1000, :RedispatchForbidden}] ++ opts},
+               id: make_ref()
+             )
+
+    assert {:ok, _} = start_supervised({Runner, [policy: policy!([])] ++ opts}, id: make_ref())
+
     {:ok, ref} = Runner.submit(pid, request("full"))
     assert_receive {R, ^ref, {:completed, done}}, 2000
     assert done["attempt_id"] == "full/attempt/2"
