@@ -399,6 +399,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-347](https://github.com/balungpisah/elzoo/issues/825) | V1B / pieces | ELZ-033, ELZ-137, ELZ-270, ELZ-285 | published 2026-11-23 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-348](https://github.com/balungpisah/elzoo/issues/831) | V1B / pieces | ELZ-033, ELZ-127, ELZ-171, ELZ-344, ELZ-345 | published 2026-11-23 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-349](https://github.com/balungpisah/elzoo/issues/835) | V1B / pieces | ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-053, ELZ-096, ELZ-114, ELZ-115, ELZ-116, ELZ-126, ELZ-127, ELZ-137, ELZ-141, ELZ-142, ELZ-170, ELZ-171, ELZ-267, ELZ-270, ELZ-285, ELZ-344, ELZ-345, ELZ-346, ELZ-347, ELZ-348 | published 2026-11-23 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-350](https://github.com/balungpisah/elzoo/issues/839) | V2 / pieces | ELZ-286, ELZ-323, ELZ-338 | published 2026-11-23 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -601,7 +602,7 @@ Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350.
 
 Prior release gate: V1-ACCEPT.
 
@@ -4865,3 +4866,13 @@ Publication copy: [tasks/ELZ-349-wave8-bots-talk-acceptance.md](../../tasks/ELZ-
 **Product aims:** P13.
 
 **Acceptance:** Real PostgreSQL 16 and MinIO, every Piece call and every RunEngine and recipe-store Store on the elzoo_app role (the test fails, not skips, when the role is missing, privileged or bypasses row security): mail in through delivery/durable-mailbox with undeclared and invalid payloads refused before any row and mail during a turn given after it; delivery/room turns under workflow/turn-policy with agent-loop bots behind a harness answer wrapper with per-turn spec IDs, mentions, a second turn with new action IDs, the bot-turn bound with one notice, a two-room ping-pong stopped at the bound, escalation, handoff and a decided room through a real workflow/typed-decision binding with a valid pick and a non-member pick that falls back to default_member; a harness child-start tool_call binding with workflow/delegation grant/2 (escalation, cycle, revoked middle bot, depth, budget and stale refused whole), a workflow/work-item record, a pinned version that a newer publish does not reach, attach_child and acceptance only by the parent; parent close with abandon, request_cancel and cancel applied once from list_open/3 across a restart; rollover at the Q8 threshold to one successor on a fresh Unit, not_tip on a stale request, mail to the old Run ID given once, a crash after the mailbox step, a kept pin and a restarted tip; owner-only DDL refused, tenant reads and 42501 writes on the chain, link, message and work-item tables; five harness negative controls; the acceptance test's own time recorded. Full gate (mix check --affected origin/main), full review, merge queue.
+
+### ELZ-350
+
+ELZ-350 — The Wave 5, 6 and 7 role guards refuse any membership in the session role
+
+Publication copy: [tasks/ELZ-350-role-guard-membership.md](../../tasks/ELZ-350-role-guard-membership.md).
+
+**Product aims:** P09.
+
+**Acceptance:** The role_facts/1 of the Wave 5, 6 and 7 helpers read pg_has_role(current_user, session_user, 'MEMBER') as member_of_owner, and each role_guard!/1 fails on it; no other guard fact, fixture or scenario changes and no Piece. Negative control per helper (elzoo_app a member of a disposable session role WITH INHERIT FALSE, SET TRUE passes the old guard and fails the new one), the three acceptance modules and ELZ-349's as elzoo_app, mix check --affected origin/main (or the recorded host limit and the exact-head hosted full check), roadmap, claims and diff checks; closes #838.

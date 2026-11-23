@@ -9232,6 +9232,31 @@
       "issue": 835,
       "url": "https://github.com/balungpisah/elzoo/issues/835",
       "issue_body_sha256": "bcedcacdfbec889e1415813ce2cc481032e58744bb6fa80ce91aacd1f68b5bbd"
+    },
+    {
+      "id": "ELZ-350",
+      "title": "ELZ-350 \u2014 The Wave 5, 6 and 7 role guards refuse any membership in the session role",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-286",
+        "ELZ-323",
+        "ELZ-338"
+      ],
+      "status": "published 2026-11-23",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-350-role-guard-membership.md"
+      ],
+      "outputs": [],
+      "acceptance": "The role_facts/1 of the Wave 5, 6 and 7 helpers read pg_has_role(current_user, session_user, 'MEMBER') as member_of_owner, and each role_guard!/1 fails on it; no other guard fact, fixture or scenario changes and no Piece. Negative control per helper (elzoo_app a member of a disposable session role WITH INHERIT FALSE, SET TRUE passes the old guard and fails the new one), the three acceptance modules and ELZ-349's as elzoo_app, mix check --affected origin/main (or the recorded host limit and the exact-head hosted full check), roadmap, claims and diff checks; closes #838.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 839,
+      "url": "https://github.com/balungpisah/elzoo/issues/839",
+      "issue_body_sha256": "df075479ec726f35cc2265d9b51340ae151ae2248ce50cb166f4563bf6bb019a"
     }
   ],
   "entries": [

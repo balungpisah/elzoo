@@ -126,14 +126,14 @@ defmodule Elzoo.Wave6.CountHelper do
 
   @doc """
   The role facts of the application connection: its role, the session (owner) role, superuser,
-  BYPASSRLS, LOGIN, INHERIT, CREATEROLE, CREATEDB, and whether it holds the owner's privileges
-  through inheritance.
+  BYPASSRLS, LOGIN, INHERIT, CREATEROLE, CREATEDB, and whether it is a member of the session role
+  (direct or indirect, with or without INHERIT).
   """
   def role_facts(repo) do
-    [[current, session, super, bypass, login, inherit, createrole, createdb, inherits_owner]] =
+    [[current, session, super, bypass, login, inherit, createrole, createdb, member_of_owner]] =
       q!(
         repo,
-        "SELECT current_user::text, session_user::text, r.rolsuper, r.rolbypassrls, r.rolcanlogin, r.rolinherit, r.rolcreaterole, r.rolcreatedb, pg_has_role(current_user, session_user, 'USAGE') FROM pg_roles r WHERE r.rolname = current_user"
+        "SELECT current_user::text, session_user::text, r.rolsuper, r.rolbypassrls, r.rolcanlogin, r.rolinherit, r.rolcreaterole, r.rolcreatedb, pg_has_role(current_user, session_user, 'MEMBER') FROM pg_roles r WHERE r.rolname = current_user"
       )
 
     %{
@@ -145,21 +145,21 @@ defmodule Elzoo.Wave6.CountHelper do
       inherit: inherit,
       createrole: createrole,
       createdb: createdb,
-      inherits_owner: inherits_owner
+      member_of_owner: member_of_owner
     }
   end
 
   @doc """
   Fails, never skips: the application connection must be the fixed ELZ-285 role `elzoo_app`,
   NOSUPERUSER, NOBYPASSRLS, NOLOGIN, NOINHERIT, NOCREATEROLE, NOCREATEDB, not the session role
-  and without the owner's privileges.
+  and not a member of it.
   """
   def role_guard!(role) do
     facts = role_facts(AppRepo)
 
     if role != "elzoo_app" or facts.current != role or facts.current == facts.session or
          facts.super or facts.bypass or facts.login or facts.inherit or facts.createrole or
-         facts.createdb or facts.inherits_owner,
+         facts.createdb or facts.member_of_owner,
        do:
          flunk(
            "the application connection is not the non-owner application role: #{inspect(facts)}"
@@ -327,7 +327,7 @@ defmodule Elzoo.Wave6.CountHelper do
                inherit: false,
                createrole: false,
                createdb: false,
-               inherits_owner: false
+               member_of_owner: false
              } = facts = role_facts(repo)
 
       assert facts.current != facts.session
