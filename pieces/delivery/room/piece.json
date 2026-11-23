@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "id": "delivery/room",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "otp"],
+  "dependencies": [
+    "delivery/durable-mailbox",
+    "workflow/turn-policy",
+    "assembly/run-engine",
+    "state/recipe-store"
+  ],
+  "applications": ["crypto"],
+  "contract": "Durable Assembly in plain Elixir with no table, process, timer or state of its own that hosts a room as the continuation chain of delivery/durable-mailbox, one assembly/run-engine Run per link on a fresh Unit room/<sha256(tenant NUL chain)>/<seq> with the workflow/turn-policy root pattern and its version pinned in state/recipe-store. open/3 checks the start (check_start/2, link 1, no carry, the reserve) before it pins, opens the chain and starts the first Run, and after a conflicting open, also a repeated one, removes the request's pin for the first Run ID unless that chain's first link holds the same Run and pin. deliver/3 gives one mail input only to an idle tip, refuses mail of the room's own schemas or of a turn-ID form, and settles each message by the engine reply and the classification read after it (record_size stops the link, definite engine refusals are refused, lost replies, exits and halts stay delivering); it gives the rollover message instead when the slot count, request count or clock leaves less than the per-message reserve (B turns of the declared bot worst case with their posts, one notice, and the decision worst case under decided or a host rule) plus the carry and finish. wake/3 routes the host timer and gives a delivering message again before the wake. rollover/3 of the link link_seq returns {:not_tip, seq} with nothing written when the tip is another link, then reads result/3 (a valid finished carry, else restart_carry/1 with the same checks), settles a claimed message from transcript/3, unpins an earlier plan of another version, plans and pins, takes the mailbox's atomic step (a plan_mismatch unpins its own pin), starts the successor and unpins the old Run; resume/3 finishes a stopped sequence. Every call can be repeated with the same request; fixed tagged errors, no retry, log or telemetry.",
+  "limits": [
+    "The room is as sound as its Needs: one deliverer per chain, no control (Attempt change, cancel) during a call, a true declared reserve, a start Need that builds the engine with the room's bindings, schemas and result_reader, a wake timer at each slot deadline and Run deadline, a deadline margin above the longest engine call and the clock difference, and read limits that cover one link's history. It checks none of them.",
+    "The slot count as the lifetime action count and the meaning of status classification are readings of assembly/run-engine's code (owner answer Q8); the tests run the real engine, so a change of either fails them.",
+    "A refused message reads not shown to have been given: after a lost reply, an outcome landing between the reply and the read, a request without room in control, a lost reply whose message reached the pattern with no turn or decision naming it admitted, or an Attempt change between two calls that makes the re-given input ID conflict (input_id_conflict), a message that a pattern was given can be settled refused; the host decides whether to put it again.",
+    "An open/3 that pinned, failed and is never repeated leaves its pin record for the first Run ID, and that version then cannot be deleted; the host repeats open/3 after an error.",
+    "No exactly-once delivery: a message is given at most once per Run by the engine's input IDs and to exactly one link by the mailbox.",
+    "A tip whose carry does not complete gets no more mail and ends at its Run deadline, then restarts; a stalled turn holds the room until its deadline and a stalled tip until its Run deadline; a rollover at link 2^31-1 is refused (link_limit).",
+    "One tenant's recipe-store stream holds 10,000 records and each link appends a pin and an unpin, so one tenant's rooms run out of links at about 5,000 until that stream gains compaction (#821).",
+    "Mail payloads and carries hold people's text and have no delete or erasure.",
+    "No child Run, parent-close rule, timer, process, A2A peer, live channel or cross-node room; a chain keeps its rule.",
+    "The test harness hosts one engine at a time (the run-engine fixture routes the Unit's offers to one name), so a link's record is read before its successor starts; finite listed scenarios, not a proof."
+  ],
+  "files": [
+    "lib/elzoo/room.ex",
+    "test/elzoo/room_test.exs",
+    "test/elzoo/room_bounds_test.exs",
+    "test/support/room_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/room_test.exs",
+      "claim": "Listed scenarios pass on the worker's disposable PostgreSQL 16 with the real run-engine (fixture/1, one Run per link begun in its Run owner), the real durable mailbox in random schemas as the application role, the real turn-policy step with scripted bots and decisions and the real recipe store on the Memory Store with a log hook, and an engine stand-in for the record_size, indeterminate, exit and halt replies: case 1 turns posted, a message put during a turn busy then given, a 128-byte member; case 2 each check_start reason, link 2, a carry, the reserve at 256 and 257 for actions and requests, a pin error, equal and conflicting opens, a chain created between the read and the open (own pin removed when the pins differ, kept when equal), an equal open after the first rollover; case 3 the request_count and clock edges; case 4 a finished rollover with the carried queue run first and mail to the old Run ID given once to the successor; case 5 restarts at the Run deadline, after a carried queue (restarted_queue_dropped, no turn run again), for a carry naming another link, and a restarted carry over a larger reserve changing nothing; case 7 settlement from the transcript (absent, turn ran, no turn naming it, a transcript error, a result error); case 8 pin deleted, indeterminate, stream_full at 10,000 records, plan review M2 and M3; case 9 a crash before step 1, after steps 3(b), 3, 4, 5 and 6 and after open/3's start Need; case 10 kept and changed versions and a delete refused pinned at three points; case 11 each engine reply and classification, lost replies, an exit, a halt and restart, a record_size lost reply before a wake, a missing schema, two clocks and the refused room schemas; case 12 shapes. Finite scenarios, not a proof."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/room_bounds_test.exs",
+      "claim": "Listed scenarios at the engine's 256 lifetime actions pass on the real engine: a message delivered at slots + A + 2 = 256 whose turns all fit, the rollover message with one more slot, a decided message just inside the reserve with its decision and picked turns, the rollover message where a reserve without the decision part would admit a message that passes 256, the slot edge on a finished successor on a fresh Unit, and a turn over 256 actions refused invalid_request then ended out_of_time by wakes at the slot and Run deadlines and restarted. Finite scenarios, not a proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html#hash/2",
+      "claim": "OTP 29.1.2 crypto:hash(sha256, Data) computes the chain hash of the Run and Unit IDs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/GenServer.html#call/3",
+      "claim": "Pinned Elixir GenServer.call/3 exits when the call ends by its limit or the server dies; the room catches that exit of an engine call."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host runs one deliverer per chain and gives no control during a call, declares the true worst case of its recipes and decision binding, builds each engine through the start Need with the room's bindings, schemas, result_reader and a run_deadline past the margin, wakes the tip at each slot deadline and Run deadline and calls deliver/3 after a wake at the Run deadline, repeats open/3 after an error, rolls over the link that rollover/3 names, reconciles halted engines, and vouches for each mail's from and reply_to_member."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "The room emits no events and no logs; the engine, mailbox and recipe store keep their own declarations."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "The binding from new/1 (exactly mailbox, recipes, principal, turn_policy, the start and engine Needs, clock, request_cap 1..256, the reserve and read_limits, else invalid_binding) is the only configuration, fixed for the value's life; no hot reconfiguration.",
+      "evidence": ["test/elzoo/room_test.exs"]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle of its own: the host owns the engines, their reconciliation and the wake timer."
+    }
+  }
+}
