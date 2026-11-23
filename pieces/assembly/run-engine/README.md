@@ -550,7 +550,10 @@ The report is the expiry input itself: an `action_outcome` with outcome
 `at_ms` the time of the expiring input. It is kept under the ID of the
 `:resume_input` record that gives it, `"resume:"` and the hex SHA-256 of the ETF of
 `{run_id, occurrence}`, with correlation `%{occurrence: key, loss: :timed_out}` and
-the `pause_deadline` of the expiring input's context. The settlement itself is as
+the `pause_deadline` of the expiring input's context. Under `budget_rule: :pause` a
+report is held only when that deadline is after the input's time: an outcome of
+local work carries the deadline of its dispatch, which can have passed, and its
+expired slots then settle as without the option. The settlement itself is as
 without the option: its outcome, join entry, tracker acceptance, Budget step (no
 actual, entry held until the Budget expires it; a `wait_event` actual 0 with its
 reservation released) and the close of an expired parent's child.
@@ -1175,14 +1178,15 @@ expiring together; reports held while paused dropped by the parent's expiry; a c
 of Attempt), `ending_drops_reports` (a cancel's own step; reports held while paused
 dropped by the Run deadline; an input at the Run deadline holds none), `bound_edges`
 (a report's first excess under `:finish` and under `:pause`, which pauses with the
-expiring input's deadline and gives no later report after `continue`; a `wake` at the
-cap; a give at 64 bytes of control headroom through `step/2`; a crafted slot map
+expiring input's deadline and gives no later report after `continue`; under `:pause`
+a lost local work whose outcome carries a passed deadline holds no report, and the
+next `wake` pauses with its own deadline; a `wake` at the cap; a give at 64 bytes of control headroom through `step/2`; a crafted slot map
 within one report of its bound), `paused_reports_wait`, `replay_is_equal (expiry
 reports)`, `recovery_gives_the_same_reports` (a death after a directly committed
 expiring wake gives the same reports, records and Unit state as an engine that did not
 die, with the clock moved 1,000 ms), `report_id_is_the_resume_id` and
 `native_v2_wait_report` (also a wait held while paused and given after `continue`,
-read by `event_waits/3` and `transcript/3`). Twelve temporary negative controls each made a named test
+read by `event_waits/3` and `transcript/3`). Thirteen temporary negative controls each made a named test
 fail and were reverted: the default flipped on, delivery to the root, descending
 order, no open-owner condition, giving after generation closed (the `:pause` item; the
 `:finish` item drops the report by the pending stop and the parent's deny), a held
@@ -1190,14 +1194,16 @@ report not counted as active, a hold with no `fits?/1` check (`step/2` raises), 
 time read from the clock at the give, no lifecycle switch at `:resume_input`, the ID
 `"expire:" <> occurrence` (the later host input halts the engine) and a report with an
 empty context (the expiring `wake` returns `{:error, :durable_unit_transition_failed}`)
-and the event-wait reader without its projection of `:resume_input` (`event_waits/3`
-returns `{:error, :history}`).
+the event-wait reader without its projection of `:resume_input` (`event_waits/3`
+returns `{:error, :history}`) and a hold under `:pause` whatever its deadline (the
+root is given the report of the lost local work).
 
 Limits of expiry reports. Reports come only from the expiry pass, and the engine has
 no timer, so an expiry and its report need an input of the current Attempt at or after
 the deadline; an input at or after the Run deadline holds none, because the lifecycle
 takes the expiry itself as `Expired` and the end of the Run settles the open slots
-`run_closed`. A report is an engine-made outcome, not a provider result: it says that
+`run_closed`. Under `:pause` an input whose `pause_deadline` is not after its time (an
+outcome of local work dispatched before that deadline) holds none. A report is an engine-made outcome, not a provider result: it says that
 the deadline passed, not that nothing was sent, and the cost stays unknown, not zero. A
 dropped report leaves no trace other than the slot's settlement. The bound edge of a
 hold is shown on a crafted state through `step/2`, not on a reachable Run; the stop of a

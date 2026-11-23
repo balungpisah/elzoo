@@ -1495,12 +1495,15 @@ defmodule Elzoo.RunEngine do
   # order, under the ID of the :resume_input record that will give it, when the state
   # with it placed still fits; otherwise the slot settles as without the option. A
   # report carries the pause deadline of the expiring input, so that a first excess
-  # under budget_rule :pause can enter the pause. Without the option this is
+  # under budget_rule :pause can enter the pause; under :pause an input whose pause
+  # deadline is not after its time holds no report. Without the option this is
   # expire_waits/2 alone.
   defp expire_and_report(state, at, context) do
     expired = expire_waits(state, at)
 
-    if state.control[:expiry_reports] == :owner do
+    if state.control[:expiry_reports] == :owner and
+         (state.control.budget_rule == :finish or
+            (is_integer(context[:pause_deadline]) and context.pause_deadline > at)) do
       state.slots
       |> Enum.filter(fn {key, slot} ->
         slot.phase != :settled and expired.slots[key].phase == :settled

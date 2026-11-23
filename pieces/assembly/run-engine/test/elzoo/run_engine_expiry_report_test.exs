@@ -395,6 +395,34 @@ defmodule Elzoo.RunEngineExpiryReportTest do
       assert slot_by(view(engine), "x2") == nil
     end
 
+    test "under budget_rule :pause an expiry whose input's pause deadline has passed holds no report" do
+      # The local work's outcome carries the pause deadline of its dispatch (50,000);
+      # it is lost at 51,000, after its own deadline (45,000), so the expiry pass of
+      # that outcome settles the slot. A report with that deadline could not pause.
+      script = [request([action("slow")]), request([action("more")]), :wait]
+
+      {c, bindings} =
+        reports_setup(script, %{}, %{"slow" => 45_000}, request_cap: 1, budget_rule: :pause)
+
+      engine = start(c, bindings: bindings, expiry_reports: :owner)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:local_started, task}, 5_000
+      at(c, 51_000)
+      Process.exit(task, :kill)
+
+      v = wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
+      assert v.slots[{1, 0}].outcome == "expired"
+      assert [%{"kind" => "start"}] = inputs_of(pattern_inputs(), "root")
+      assert resume_records(c) == []
+      assert held(c) == []
+
+      assert {:ok, _} = RunEngine.input(engine, "w", wake(), verified(%{pause_deadline: 70_000}))
+      state = unit_state(c)
+      assert state.control.generation_closed
+      assert state.control.lifecycle.phase == :paused
+      assert state.control.lifecycle.pause_deadline == 70_000
+    end
+
     test "a wake with the count at the cap expires slots and gives no report" do
       %{c: c, engine: engine} = nested_turn(nil, request_cap: 2)
       assert [%{"kind" => "start"}] = inputs_of(pattern_inputs(), "nested")
