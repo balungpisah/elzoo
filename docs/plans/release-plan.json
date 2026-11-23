@@ -9101,7 +9101,7 @@
       ],
       "issue": 823,
       "url": "https://github.com/balungpisah/elzoo/issues/823",
-      "issue_body_sha256": "98a8b0258bf7ba34fe8ef7a28a461607b2e41634ec3008a9600c7597b4f7fcb4"
+      "issue_body_sha256": "75a1e4fc97d01fce77d1fb1b2096d71ad0beb37da03dcf56eae2c9b686294bf1"
     },
     {
       "id": "ELZ-346",
@@ -9171,11 +9171,11 @@
     {
       "id": "workflow/turn-policy",
       "job": "ELZ-345",
-      "note": "Pure pattern step in the core/operator shape over PatternStep v1 neutral maps for the root callable of a room Run: the rules addressed (lead-bot and mention-only presets, host-vouched reply-to), round_robin, bounded everyone and decided (one decision action whose untrusted pick falls back to the default member), and a pure host-rule behaviour that fails closed; every rule keeps one open turn, members only, the max_bot_turns bound (also for bot and peer messages), escalation, handoff, a bounded window, the rollover carry and unique action IDs; check_start/2, restart_carry/1 and pick_schema/0. No clock, I/O, store, process or model call.",
+      "note": "Pure pattern step in the core/operator shape over PatternStep v1 neutral maps for the root callable of a room Run: the rules addressed (lead-bot and mention-only presets, host-vouched reply-to), round_robin, bounded everyone and decided (one decision action whose untrusted pick falls back to the default member), and a pure host-rule behaviour that fails closed, its context and rule state bounded in bytes and to 30 levels of nesting; every rule keeps one open turn, members only, the max_bot_turns bound (also for bot and peer messages), escalation, handoff, a bounded window, the rollover carry and unique action IDs; check_start/2 (which also refuses a carry whose queue or bot_turns passes the bound), restart_carry/1 and pick_schema/0. No clock, I/O, store, process or model call.",
       "baseline_status": "planned",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/turn-policy/piece.json",
-      "manifest_sha256": "951b0d77f7908d19c24c5892318efc5221a9277b8e09cb0e4a908c76841b1677",
+      "manifest_sha256": "2e456abb5bbcf79bfb909b6d020f6809eb121825e7a543cc42de107752676201",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
