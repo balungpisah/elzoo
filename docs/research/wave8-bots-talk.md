@@ -20,7 +20,7 @@ decision A on the issue). Case 4 had said that after the `wake` at the child-sta
 slot: an input that settles no slot is given "to the root pattern only" ([run-engine
 README](../../pieces/assembly/run-engine/README.md), lines 521–533), and the expiry pass drops the
 callable of each slot it settles. The option `expiry_reports: :owner` (ELZ-351) reports each
-expired slot to its owning callable (the README's "Expiry reports" paragraphs, lines 539–584), and
+expired slot to its owning callable (the README's "Expiry reports" paragraphs, lines 539–595), and
 the root acceptance does not turn it on, so case 4 holds as recorded. Case 4 now states what
 the engine does, and the test asserts it: A's turn stays `running`, with no second model call and
 no post, and settles `expired` at the `wake` at its own deadline. The task gains the matching
