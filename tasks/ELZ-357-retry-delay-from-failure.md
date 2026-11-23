@@ -104,7 +104,7 @@ New groups go in a new test file, for example `test/elzoo/retry_delay_test.exs`,
 6. **Laws and controls**: the audit test of `test/elzoo/retry_policy_test.exs` asserts that each new law is an export of the loaded module (as `test/elz010_cure_probe_test.exs` does for its laws), and its loop of rejected mutations gains two entries: (a) the dispatched branch of the delay uses the retryable rule with the failure delay, and (b) the clamp `min(fd, max_failure_delay_ms)` is dropped. Compilation rejects each.
 7. **`runner_jitter`**:
    - A Runner with `jitter: :full` and `base_backoff_ms` 5, given a not-dispatched result and then a completed one, settles `{:completed, _}` after two attempts.
-   - A Runner with `mode: :redispatch_idempotent`, `jitter: :full` and `base_backoff_ms` = `max_backoff_ms` = 3,600,000, given a failed, dispatched, retryable result: its retry timer (`:sys.get_state(pid).ops[ref].timers.retry`, whose third element is the monotonic target, as the existing runner tests read the deadline timer) is armed for `b` = 3,600,000 ms, within a slack of at most 1,000 ms below it. So the Runner passes the class of the result, and a possibly dispatched retry is not jittered.
+   - A Runner with `mode: :redispatch_idempotent`, `jitter: :full` and `base_backoff_ms` = `max_backoff_ms` = 3,600,000, given a failed, dispatched, retryable result: its retry timer (`:sys.get_state(pid).ops[ref].timers.retry`, whose third element is the monotonic target, as the existing runner tests read the deadline timer) is armed for `b` = 3,600,000 ms: with `t0` = `System.monotonic_time(:millisecond)` taken before the submit and `t1` after the state read, `t0 + b <= target <= t1 + b`. So the Runner passes the class of the result, and a possibly dispatched retry is not jittered.
    - A Runner with the default policy keeps every existing timer test unchanged.
 
 **Negative controls**, each by a temporary edit of the production Cure function in the worktree, run, recorded and reverted (`AGENTS.md` section 4). With the laws in place each edit fails compilation; record that, then remove for the same run only the laws that the edit breaks, and record the ExUnit failure:
@@ -112,7 +112,7 @@ New groups go in a new test file, for example `test/elzoo/retry_delay_test.exs`,
 1. Apply the failure delay to `ClassDispatched`: group 4 fails.
 2. Drop the `max_failure_delay_ms` clamp: the `fd` 5,001 and 10^12 cases of group 2 fail.
 3. Give `:none` the jitter (use `j` under both kinds): group 2's `random` case fails.
-4. In the Runner (an Elixir edit; no law breaks), pass `:retryable` to `delay/4` for every `:retry` decision: group 7's dispatched case fails (except with probability about slack / `b`, 1 in 3,600).
+4. In the Runner (an Elixir edit; no law breaks), pass `:retryable` to `delay/4` for every `:retry` decision: group 7's dispatched case fails (except when the jitter falls within the elapsed time `t1 − t0` of `b`).
 
 Groups 2 to 4 carry the delay rule; group 7 carries the Runner's use of it.
 
