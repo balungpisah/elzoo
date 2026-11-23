@@ -9183,7 +9183,7 @@
       "baseline_status": "planned",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/delegation/piece.json",
-      "manifest_sha256": "e93b7748c1550cfc6696d481540572e85b23a31cacf99715a152cb66458dcd33",
+      "manifest_sha256": "5290f58063601224eab02bb931f7224b961a4802a937066d8e12195f89403400",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
