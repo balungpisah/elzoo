@@ -673,10 +673,14 @@ defmodule Elzoo.RecipeStoreGenerationTest do
     @tag backend: :memory
     test "a carry of 5,001 records refuses each change that appends with :stream_full; nothing is written",
          %{store: store, c: c, tenant: tenant} do
-      %{rs: rs} = H.build(store)
-      {id, pkg} = live_state!(store, rs, c, tenant, 4_998)
+      %{rs: rs, art: rs_art} = H.build(store)
+      # A free version (stored only): header 1 + free 1 + id 2 + 4,997 pins = 5,001.
+      free = put!(rs, c, H.package(name: "free"))
+      {id, pkg} = live_state!(store, rs, c, tenant, 4_997)
       written = snapshot(store, tenant)
 
+      assert {:error, :stream_full} = RecipeStore.delete(rs, c, free)
+      assert {:ok, [%{state: :committed}]} = Artifact.versions(rs_art, c, H.artifact_id(free))
       assert {:error, :stream_full} = RecipeStore.pin(rs, c, id, "new")
       assert {:error, :stream_full} = RecipeStore.unpin(rs, c, id, "p-1")
       assert {:error, :stream_full} = RecipeStore.check(rs, c, id, H.facts())
@@ -694,7 +698,10 @@ defmodule Elzoo.RecipeStoreGenerationTest do
       assert {:ok, :unpinned} = RecipeStore.unpin(rs, c, id, "never-pinned")
       assert {:ok, ^id} = RecipeStore.put(rs, c, pkg)
       assert {:error, :pinned} = RecipeStore.delete(rs, c, id)
-      assert {:ok, [entry(id, %{checked: true, pins: 4_998})]} == RecipeStore.versions(rs, c)
+
+      assert {:ok, [entry(free, %{}), entry(id, %{checked: true, pins: 4_997})]} ==
+               RecipeStore.versions(rs, c)
+
       assert {:ok, nil} = RecipeStore.published(rs, c)
       assert {:ok, ^pkg} = RecipeStore.get(rs, c, id)
       assert snapshot(store, tenant) == written
