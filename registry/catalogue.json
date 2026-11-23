@@ -249,8 +249,9 @@
       "summary": "A room as a chain of Runs: mail between turns, rollover and recovery",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-348: Wave 8 (P13). Assembly of delivery/durable-mailbox, assembly/run-engine, workflow/turn-policy and state/recipe-store, one Run per link on a fresh Unit (owner Q1 A, Q8 A); no table, process or timer of its own."
+      "status": "ready",
+      "reason": "ELZ-348: Wave 8 (P13). Assembly of delivery/durable-mailbox, assembly/run-engine, workflow/turn-policy and state/recipe-store, one Run per link on a fresh Unit (owner Q1 A, Q8 A); no table, process or timer of its own.",
+      "manifest": "pieces/delivery/room/piece.json"
     },
     {
       "id": "delivery/debounce",
