@@ -9186,6 +9186,52 @@
       "issue": 831,
       "url": "https://github.com/balungpisah/elzoo/issues/831",
       "issue_body_sha256": "8531fc5682b34f95d0264fc4ff6cc69ef181cd8b153ea842b16d1d6673294acb"
+    },
+    {
+      "id": "ELZ-349",
+      "title": "ELZ-349 — Bots talk end to end on PostgreSQL as a non-owner application role",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-009",
+        "ELZ-022",
+        "ELZ-023",
+        "ELZ-024",
+        "ELZ-053",
+        "ELZ-096",
+        "ELZ-114",
+        "ELZ-115",
+        "ELZ-116",
+        "ELZ-126",
+        "ELZ-127",
+        "ELZ-137",
+        "ELZ-141",
+        "ELZ-142",
+        "ELZ-170",
+        "ELZ-171",
+        "ELZ-267",
+        "ELZ-270",
+        "ELZ-285",
+        "ELZ-344",
+        "ELZ-345",
+        "ELZ-346",
+        "ELZ-347",
+        "ELZ-348"
+      ],
+      "status": "published 2026-11-23",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-349-wave8-bots-talk-acceptance.md"
+      ],
+      "outputs": [],
+      "acceptance": "Real PostgreSQL 16 and MinIO, every Piece call and every RunEngine and recipe-store Store on the elzoo_app role (the test fails, not skips, when the role is missing, privileged or bypasses row security): mail in through delivery/durable-mailbox with undeclared and invalid payloads refused before any row and mail during a turn given after it; delivery/room turns under workflow/turn-policy with agent-loop bots behind a harness answer wrapper with per-turn spec IDs, mentions, a second turn with new action IDs, the bot-turn bound with one notice, a two-room ping-pong stopped at the bound, escalation, handoff and a decided room through a real workflow/typed-decision binding with a valid pick and a non-member pick that falls back to default_member; a harness child-start tool_call binding with workflow/delegation grant/2 (escalation, cycle, revoked middle bot, depth, budget and stale refused whole), a workflow/work-item record, a pinned version that a newer publish does not reach, attach_child and acceptance only by the parent; parent close with abandon, request_cancel and cancel applied once from list_open/3 across a restart; rollover at the Q8 threshold to one successor on a fresh Unit, not_tip on a stale request, mail to the old Run ID given once, a crash after the mailbox step, a kept pin and a restarted tip; owner-only DDL refused, tenant reads and 42501 writes on the chain, link, message and work-item tables; five harness negative controls; the acceptance test's own time recorded. Full gate (mix check --affected origin/main), full review, merge queue.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 835,
+      "url": "https://github.com/balungpisah/elzoo/issues/835",
+      "issue_body_sha256": "e834dc39476ca36b26ae38d31a1679029494d25af50bfdd67694acd396d5cd3d"
     }
   ],
   "entries": [
