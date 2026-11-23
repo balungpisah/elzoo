@@ -1101,16 +1101,16 @@ no Piece ID; only a change of a Piece follows the ID rule.
 
 ### An expired tool slot is not reported to its callable
 
-- **Chosen.** On the engine that ELZ-349 ran, an expired tool slot is not
-  given to the nested callable that asked it, so a bot's turn whose tool
-  calls expire waits until its own deadline.
+- **Chosen.** By default the engine gives no expired tool slot to the nested
+  callable that asked it, so a bot's turn whose tool calls expire waits
+  until its own deadline. ELZ-349 does not turn on the option below.
 - **Why.** An input that settles no slot is given to the root pattern only
   ([run-engine README](../pieces/assembly/run-engine/README.md), lines
-  502–503).
+  521–533).
 - **For you.** Give each turn a deadline that you can wait for.
-- **To change.** The in-place engine option `expiry_reports: :owner`
-  ([ELZ-351](../tasks/ELZ-351-run-engine-expiry-reports.md)) gives each
-  expired settlement to its owning callable.
+- **To change.** Start the engine with the option `expiry_reports: :owner`
+  ([ELZ-351](../tasks/ELZ-351-run-engine-expiry-reports.md)), which gives
+  each expired settlement to its owning callable.
 
 ### One message at a time, at most once per Run
 

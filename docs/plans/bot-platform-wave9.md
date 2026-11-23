@@ -91,7 +91,7 @@ Each deferred item that [bot-platform.md](bot-platform.md), the earlier wave pla
 - **Wave 8 handoff** ([closure](bot-platform-wave8.md#wave-8-closure-and-open-handoff)):
   - **#821** (recipe-store pin records fill the 10,000-record tenant stream): `integration/mcp-server` starts one pinned Run per call, so one tenant reaches the bound after about 5,000 calls. The repair is its own scoped task on `state/recipe-store`, recommended for publication with Level 1, and the root acceptance depends on it; until it merges, mcp-server states the bound as a limit.
   - **#843** (a Run resumed after `continue` with nothing open stays waiting): a Wave 9 Run that pauses for an approval of a payment would meet it. Its repair is its own task on `assembly/run-engine`; the root acceptance does not pause and continue a Run until it merges.
-  - **ELZ-351** (`expiry_reports: :owner`, in build): a code-mode `run_code` callable whose module call expires is told of it only with that option; the root acceptance sets it once ELZ-351 is merged and states the limit otherwise.
+  - **ELZ-351** (`expiry_reports: :owner`, merged at `987f31e6`): a code-mode `run_code` callable whose module call expires is told of it only with that option, so the root acceptance turns it on for the code-mode Run and depends on ELZ-351.
   - **#834** (room `open/3` wording) and the merged role-guard repairs ELZ-350 and ELZ-352 to ELZ-354: no Wave 9 item; the Wave 9 root acceptance's role guard tests membership (`'MEMBER'`) as ELZ-349 does.
 - **An observation, no change here:** [catalogue.md](../catalogue.md) still maps "Saga, Process Manager" to `workflow/state-machine`, which the ready Contract contradicts; the ledger-checkout task corrects that row when it marks its Piece ready.
 
