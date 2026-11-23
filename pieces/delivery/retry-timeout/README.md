@@ -9,8 +9,11 @@ Uses OTP Task.Supervisor, GenServer and tokenized send_after/cancel_timer.
 
 `Elzoo.RetryTimeout.policy(opts)` returns {:ok, policy} or fixed errors.
 Defaults: max_attempts=3, base_backoff_ms=10, max_backoff_ms=1000,
-mode=:redispatch_forbidden. Max attempts positive integer; backoff integers
-0 <= base <= cap. Mode also allows :redispatch_idempotent, an **unverified
+mode=:redispatch_forbidden, jitter=:none, max_failure_delay_ms=3600000.
+Max attempts positive integer; backoff integers 0 <= base <= cap. jitter is
+:none or :full (else :invalid_jitter); max_failure_delay_ms is an integer in
+0..4294967295 (else :invalid_max_failure_delay). Checks run in that order,
+after the existing max_attempts, backoff and mode checks. Mode also allows :redispatch_idempotent, an **unverified
 caller assertion** that the provider deduplicates by unchanged idempotency_key
 or is naturally idempotent. No durable intent/reconcile protocol is supplied.
 
@@ -21,9 +24,25 @@ not_dispatched -> :retryable; other rows -> :dispatched (possible Effect).
 settles, permanent dead-letters, retryable retries below max else exhausts;
 dispatched is unresolved in default mode, or retries/exhausts only in
 idempotent mode. Error labels alone never authorize possibly-dispatched retry.
-`backoff(policy, attempts_made)` returns capped base * 2^(n-1), no jitter.
-Cure RetryPolicy erases to {:RetryPolicy, max, base, cap, mode}; nullary sums
-erase to atoms. Validating Elixir APIs reject malformed foreign values.
+`backoff(policy, attempts_made)` returns capped base * 2^(n-1), no jitter;
+jitter belongs to delay/4.
+
+`delay(policy, attempts_made, class, %{failure_delay_ms: fd, random: r})`
+returns {:ok, ms}. fd is nil or a non-negative integer (a wait the caller read
+from a not-dispatched refusal, such as a rate-limit retry_after_ms); r is an
+integer in 0..4294967295 supplied by the caller. With b = backoff and, under
+:full, j = (r * (b + 1)) div 2^32 (0 <= j <= b; j < b only when b > 4294967295),
+else j = 0: a :retryable delay is b (:none) or j (:full) when fd is nil, and
+max(min(fd, max_failure_delay_ms), b) (:none) or that plus j (:full) when fd is
+an integer. A possibly dispatched result's delay is exactly backoff/2:
+:dispatched, :completed and :permanent ignore fd, r and jitter. Errors in
+order: :invalid_policy, :invalid_attempt, :invalid_class, :invalid_delay_input
+(not a map of exactly those two keys in range). delay/4 does not decide whether
+to retry (decide/3 does) and may pass the deadline; the caller checks it.
+Cure RetryPolicy erases to {:RetryPolicy, max, base, cap, mode, jitter,
+max_failure_delay_ms} with jitter :JitterNone | :JitterFull; nullary sums erase
+to atoms. The pre-ELZ-357 5-tuple is refused as :invalid_policy. Validating
+Elixir APIs reject malformed foreign values.
 
 ## Runner
 
@@ -40,7 +59,10 @@ Caller supervises a Task.Supervisor and runner; no Elzoo.Application needed:
 attempt_fun maps an attempt Envelope to a DeliveryResult map (not {:ok, map});
 sink_fun maps a redacted record to :ok or failure. now_ms/0 defaults to
 System.os_time(:millisecond), injectable at construction. All Config fixed at
-start; no hot updates. Positive capacity/timeout, valid policy and callbacks
+start; no hot updates. For a :retry decision the runner calls delay/4 with
+the result's class, failure_delay_ms nil (a DeliveryResult has no delay
+member) and a random value it draws in its own process with :rand (not a
+cryptographic source); under jitter :none every timer equals backoff/2. Positive capacity/timeout, valid policy and callbacks
 required; invalid start options return :invalid_options.
 
 submit/2 returns {:ok, ref}, {:error, {:saturated, result}} (rejected/
@@ -114,13 +136,22 @@ is not redacted by this Piece; consumers own Logger policy.
 
 ## Grounding and limits
 
-Pinned Cure checks the production types and six selected helper laws across
-backpressure/retry policy (three here: permanent_never_retried,
-completed_never_retried, dispatched_not_retried_when_forbidden). Laws constrain
-production retry_permitted, not the full decide/runner invariant. Audits reject
+Pinned Cure checks the production types and thirteen selected helper laws
+across backpressure/retry policy (ten here: permanent_never_retried,
+completed_never_retried, dispatched_not_retried_when_forbidden,
+delay_completed_is_backoff, delay_permanent_is_backoff,
+delay_dispatched_is_backoff, delay_retryable_none_without_failure_is_backoff,
+delay_retryable_none_with_failure_is_max,
+delay_retryable_full_without_failure_is_spread,
+delay_retryable_full_with_failure_is_max_plus_spread). Laws constrain
+production retry_permitted and the delay equalities by class and jitter kind,
+not the full decide/runner invariant, the jitter ranges or boundary
+validation. Audits reject
 axioms/holes/unresolved/unaudited/opaque/not_proven_total. False-law, production
 mutation and hole negatives run in mix check. ExUnit covers the full valid
-result matrix, decision table, capped backoff, named OTP terminal paths,
+result matrix, decision table, capped backoff, a golden backoff/decide table
+recorded before ELZ-357, delay/4 cases and a jitter sweep with its range
+bounds, the runner's class and random use, named OTP terminal paths,
 concurrent conservation traces, stale tokens, long timers, sink failures,
 restart and copied-source consumers. These are finite tests, not universal
 proofs. Root tests exercise the unchanged UnitAdapter.
@@ -130,3 +161,11 @@ at-least-once, exactly-once Effect, distributed credit, shedding, circuit
 breaker, provider-idempotency proof or durable dead-letter storage. Assumes
 truthful Adapter observations, caller-selected idempotency, clock agreement
 at admission and external sink durability.
+
+delay/4 returns a number; this Piece sleeps only in its runner, and a caller
+that waits elsewhere owns its timer. A failure delay is the caller's reading of
+the failure; this Piece does not check that the failure named it. The clamp
+bounds the wait a failure can ask for; a delay above the deadline is still
+returned, and the runner's deadline wins as before. Full jitter can give 0 for
+a retryable result without a failure delay. The jittered range bounds are
+finite test evidence, not laws.
