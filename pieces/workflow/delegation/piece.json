@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "id": "workflow/delegation",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir"],
+  "dependencies": ["domain/principal", "domain/authorization"],
+  "contract": "Pure child-Run grant over trusted parent facts: refuses the whole request in order malformed, revoked (root, parent, child or any lineage bot), depth over max_depth 1..8, cycle (the root's ID or a lineage bot), escalation past the parent's scopes or spaces, budget (not 1..budget_remaining) and version_change (a change without a recorded-action ref); then delegates the child from the root with domain/principal (one level), passes the parent's validated effective authority as the domain/authorization parent bound, the inherited or explicitly changed pin, depth, the lineage with the child and a parent-close rule (abandon, request_cancel by default, cancel); on_parent_close/1 maps each open child of an ended parent to abandon, one elzoo.delegation.cancel_requested v1 request, or an Attempt cancel. Errors are fixed atoms. No I/O, clock, process, store, Run start, cancel or message.",
+  "limits": [
+    "Every fact is host-vouched (root, parent, authority, remaining budget, lineage, revocations, pin); the Piece checks their shape and consistency, not their truth.",
+    "A grant is a decision, not a reservation: the engine's nested binding or the host reserves the budget.",
+    "A request_cancel reaches a child only when it is idle, so a busy agent-loop child sees none before it ends; a cancel of an Attempt does not stop a sent Effect (the engine's unknown rules apply).",
+    "One delegation level in domain/principal: every child agent is delegated from the root, and the lineage is where a middle bot is seen.",
+    "Plain Elixir, no Cure law of its own: rule order, depth, cycle, revocation, lineage consistency and the parent-close mapping are test-grounded only; the subset law of delegated labels is domain/principal's."
+  ],
+  "files": [
+    "lib/elzoo/delegation.ex",
+    "test/elzoo/delegation_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/delegation_test.exs",
+      "claim": "Listed scenarios pass: depth at max_depth and one over with max_depth 1, 4 and 8; a cycle through the root's ID, a middle bot and the parent; a revoked root, middle bot, parent and child_bot; a scope and a space the parent does not hold, exact bytes; budget 0, 1, the remaining amount and one over; a change with a ref, ref nil, 257 bytes and control characters (version_change) and without the ref key (malformed); two-fault order cases; the grant of an agent and of a human and service root parent; inherited and changed pin; an exhaustive 16x16 scope and space subset table; a child domain/authorization decision refused authority_exceeded outside parent_authority; the reachable principal escalation; the default parent_close; malformed parents, lineages, max_depth 0 and 9, conflicting authority and request shapes; errors echo no sentinel; on_parent_close/1 for each rule, a mixed list, 0, 256 and 257 entries and a repeated child_run_id. Skipping the lineage check of the cycle rule, skipping the lineage check of the revocation rule and delegating from the parent instead of the root each make these tests fail (negative controls). Finite scenarios, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Pinned Elixir term equality, list membership and String.valid?/1; ready domain/principal check/2 and delegate/2 and domain/authorization validate_authority/1 are reused unchanged."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host builds root and parent from its own authenticated state, supplies the parent's current effective authority, remaining budget, true lineage, current revoked IDs and pin, gives parent_authority as parent in the child's domain/authorization context, reserves the budget, and applies on_parent_close/1 to every open child when the child-start slot settles without the child's result."
+    }
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure functions emit no observations and no logs; the host owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "Fixed Contract bounds (lineage 8, max_depth 1..8 as a per-call fact, 1024 revoked IDs, 256 children, 128-byte pin, 256-byte ref); every fact is a per-call operand, not a setting."},
+    "control": {"status": "not_applicable", "contract": "No process or lifecycle; revocation is a per-call fact and the host starts, cancels and messages Runs."}
+  }
+}
