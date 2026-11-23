@@ -9122,13 +9122,13 @@
       "outputs": [
         "workflow/delegation"
       ],
-      "acceptance": "Pure child grant (owner Q3 A, Q6 A; settled decisions 2 and 3; absorbs the delegation part of workflow/loop-guard): grant/2 over trusted parent facts refuses in order malformed, revoked (root, parent, child or any lineage bot), depth over max_depth 1..8, cycle, escalation, budget and version_change, then delegates the child from the root with domain/principal (one level), passes the parent's effective authority for the domain/authorization intersection, the inherited or explicitly changed pin and the parent-close rule (default request_cancel); on_parent_close/1 maps each open child to abandon, a cancel request or an Attempt cancel; negative controls on the lineage and revocation checks and on delegating from the agent. Authorization and identity: local small gate and full review.",
+      "acceptance": "Pure child grant (owner Q3 A, Q6 A; settled decisions 2 and 3; absorbs the delegation part of workflow/loop-guard): grant/2 over trusted parent facts refuses in order malformed, revoked (root, parent, child or any lineage bot), stale (an agent parent below the root's epoch), depth over max_depth 1..8, cycle, escalation, budget and version_change, then delegates the child from the root with domain/principal (one level), passes the parent's effective authority for the domain/authorization intersection, the inherited or explicitly changed pin and the parent-close rule (default request_cancel); on_parent_close/1 maps each open child to abandon, a cancel request or an Attempt cancel; negative controls on the lineage and revocation checks, the epoch check and on delegating from the agent. Authorization and identity: local small gate and full review.",
       "product_aims": [
         "P13"
       ],
       "issue": 824,
       "url": "https://github.com/balungpisah/elzoo/issues/824",
-      "issue_body_sha256": "09c71b8a27e26d3a54409a85c4b0316dee491dafce40e4a5287a9a493c94e5ee"
+      "issue_body_sha256": "b4ef0277f202ca638fea8e61a80e91a109c754de3aa0f1b71412f67d2b42c497"
     },
     {
       "id": "ELZ-347",
@@ -9179,11 +9179,11 @@
     {
       "id": "workflow/delegation",
       "job": "ELZ-346",
-      "note": "Pure child-Run grant over trusted parent facts: refuses the whole request in order malformed, revoked (root, parent, child or any lineage bot), depth over max_depth 1..8, cycle (the root's ID or a lineage bot), escalation past the parent's scopes or spaces, budget (not 1..budget_remaining) and version_change (a change without a recorded-action ref); then delegates the child from the root with domain/principal (one level), passes the parent's validated effective authority as the domain/authorization parent bound, the inherited or explicitly changed pin, depth, the lineage with the child and a parent-close rule (abandon, request_cancel by default, cancel); on_parent_close/1 maps each open child of an ended parent to abandon, one elzoo.delegation.cancel_requested v1 request, or an Attempt cancel. Errors are fixed atoms. No I/O, clock, process, store, Run start, cancel or message.",
+      "note": "Pure child-Run grant over trusted parent facts: refuses the whole request in order malformed, revoked (root, parent, child or any lineage bot), stale (an agent parent below the root's auth_epoch), depth over max_depth 1..8, cycle (the root's ID or a lineage bot), escalation past the parent's scopes or spaces, budget (not 1..budget_remaining) and version_change (a change without a recorded-action ref); then delegates the child from the root with domain/principal (one level), passes the parent's validated effective authority as the domain/authorization parent bound, the inherited or explicitly changed pin, depth, the lineage with the child and a parent-close rule (abandon, request_cancel by default, cancel); on_parent_close/1 maps each open child of an ended parent to abandon, one elzoo.delegation.cancel_requested v1 request, or an Attempt cancel. Errors are the fixed atoms malformed, revoked, stale, depth, cycle, escalation, budget and version_change, or {:principal, atom} with domain/principal's reason unchanged; none echoes an ID, scope or space. No I/O, clock, process, store, Run start, cancel or message.",
       "baseline_status": "planned",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/delegation/piece.json",
-      "manifest_sha256": "5290f58063601224eab02bb931f7224b961a4802a937066d8e12195f89403400",
+      "manifest_sha256": "8632ecc3f8b9bb298a986df1872c81f025c0301f9c2d05a8bc556d2306187a32",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
