@@ -9122,13 +9122,13 @@
       "outputs": [
         "workflow/delegation"
       ],
-      "acceptance": "Pure child grant (owner Q3 A, Q6 A; settled decisions 2 and 3; absorbs the delegation part of workflow/loop-guard): grant/2 over trusted parent facts refuses in order malformed, revoked (root, parent, child or any lineage bot), depth over max_depth 1..8, cycle, escalation, budget and version_change, then delegates the child from the root with domain/principal (one level), passes the parent's effective authority for the domain/authorization intersection, the inherited or explicitly changed pin and the parent-close rule (default request_cancel); on_parent_close/1 maps each open child to abandon, a cancel request or an Attempt cancel; negative controls on the lineage and revocation checks and on delegating from the agent. Authorization and identity: local small gate and full review.",
+      "acceptance": "Pure child grant (owner Q3 A, Q6 A; settled decisions 2 and 3; absorbs the delegation part of workflow/loop-guard): grant/2 over trusted parent facts refuses in order malformed, revoked (root, parent, child or any lineage bot), stale (an agent parent below the root's epoch), depth over max_depth 1..8, cycle, escalation, budget and version_change, then delegates the child from the root with domain/principal (one level), passes the parent's effective authority for the domain/authorization intersection, the inherited or explicitly changed pin and the parent-close rule (default request_cancel); on_parent_close/1 maps each open child to abandon, a cancel request or an Attempt cancel; negative controls on the lineage and revocation checks, the epoch check and on delegating from the agent. Authorization and identity: local small gate and full review.",
       "product_aims": [
         "P13"
       ],
       "issue": 824,
       "url": "https://github.com/balungpisah/elzoo/issues/824",
-      "issue_body_sha256": "09c71b8a27e26d3a54409a85c4b0316dee491dafce40e4a5287a9a493c94e5ee"
+      "issue_body_sha256": "b4ef0277f202ca638fea8e61a80e91a109c754de3aa0f1b71412f67d2b42c497"
     },
     {
       "id": "ELZ-347",
@@ -9181,9 +9181,11 @@
     {
       "id": "workflow/delegation",
       "job": "ELZ-346",
-      "note": "Planned pure child-Run grant: a principal delegated from the root (one level), the parent's effective authority, a budget share, depth and cycle refusals over the lineage, revocations, the inherited or explicitly changed pin and a per-child parent-close rule (abandon, request cancel by default, cancel), and the action for each open child of an ended parent. Absorbs the delegation part of workflow/loop-guard. No I/O.",
+      "note": "Pure child-Run grant over trusted parent facts: refuses the whole request in order malformed, revoked (root, parent, child or any lineage bot), stale (an agent parent below the root's auth_epoch), depth over max_depth 1..8, cycle (the root's ID or a lineage bot), escalation past the parent's scopes or spaces, budget (not 1..budget_remaining) and version_change (a change without a recorded-action ref); then delegates the child from the root with domain/principal (one level), passes the parent's validated effective authority as the domain/authorization parent bound, the inherited or explicitly changed pin, depth, the lineage with the child and a parent-close rule (abandon, request_cancel by default, cancel); on_parent_close/1 maps each open child of an ended parent to abandon, one elzoo.delegation.cancel_requested v1 request, or an Attempt cancel. Errors are the fixed atoms malformed, revoked, stale, depth, cycle, escalation, budget and version_change, or {:principal, atom} with domain/principal's reason unchanged; none echoes an ID, scope or space. No I/O, clock, process, store, Run start, cancel or message.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/delegation/piece.json",
+      "manifest_sha256": "8632ecc3f8b9bb298a986df1872c81f025c0301f9c2d05a8bc556d2306187a32",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -10394,10 +10396,12 @@
     {
       "id": "workflow/work-item",
       "job": "ELZ-347",
-      "note": "Planned durable work items over a consumer-owned Ecto Repo on PostgreSQL 16 in one Piece-owned table under the state/tenant-isolation floor (ELZ-347 replaces RC-11, narrowed): one item per child Run with a stable workflow/untrusted-content intent, the assignee child_run_id, the parent-close rule, an explicit lifecycle with a revision (open, running, offered, accepted or rejected; cancel_requested, cancelled, abandoned), the child's result offered as evidence and acceptance or rejection by the parent Run's principal; a no-op writes nothing; list_open/3 finds a parent's open children after a crash. A Run result is evidence, never completion. Dependencies between items, lease-bound completion and acceptance by a person stay addable.",
+      "note": "Durable work items over a consumer-owned Ecto Repo on PostgreSQL 16 in one Piece-owned table that Migration.install/1 creates with PRIMARY KEY (tenant, item_id), UNIQUE (tenant, child_run_id) and an open-item index, protected with the state/tenant-isolation floor (ELZ-347 replaces RC-11, narrowed to one item per child Run): create/3 stores an item open at revision 1 with a stable workflow/untrusted-content intent of 1..4,096 bytes, the assignee child_run_id, the host-vouched owner, acceptance :parent and a parent-close rule (:abandon, :request_cancel, :cancel), idempotent by item_id (equal canonical bytes duplicate, else conflict) and conflict for another item's child_run_id; start/4, offer/4 (only from the assignee, evidence an opaque 1..256-byte reference), decide/4 (accepted or rejected, only by the owner) and close/4 (cancel_requested, cancelled, abandoned) move it through open, running, offered, accepted or rejected and the closing states, checking in order unknown_item, the no-op (target state with equal facts: {:ok, :unchanged}, nothing written, whatever the revision), not_assignee or not_owner, {:state, state}, stale_revision, then one UPDATE guarded by the expected revision, so two concurrent decisions commit one; get/3 returns the item with its intent as the neutral map; list_open/3 returns the non-final items of one parent Run in item_id byte order after a cursor, limit 1..256, with more. A Run result is evidence only through offer/4, never completion; an Attempt cancel changes no item. Shape, then the caller's open transaction, before any query; writes refuse an isolation other than READ COMMITTED; fixed errors that echo no ID or intent; log: false, no telemetry.",
       "baseline_status": "deferred",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/work-item/piece.json",
+      "manifest_sha256": "9ed85d7e47fa61d73e41fd006387bc58f4774f3d62efb1c94f5c08206e19b207"
     },
     {
       "id": "workflow/pattern-step",
