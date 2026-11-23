@@ -198,6 +198,16 @@ defmodule Elzoo.RunEngine do
          not state.control.callables[slot.callable].closed do
       record = slot.pending_input.record
       state = update_in(state.slots[key], &Map.delete(&1, :pending_input))
+
+      # With expiry reports, the last held input given with no slot open makes the
+      # Run active again before the call, as settle_protocol/3 does (ELZ-351).
+      state =
+        if state.control[:expiry_reports] == :owner and active_count(state) == 0 and
+             map_size(state.control.lifecycle.waits) == 0 and
+             state.control.lifecycle.phase == :waiting,
+           do: put_in(state.control.lifecycle.phase, :active),
+           else: state
+
       invoke(state, %{record | input: Jason.decode!(record.input)}, slot.callable)
     else
       {state, :none}
@@ -693,7 +703,7 @@ defmodule Elzoo.RunEngine do
         {:done, {classify(state, :duplicate), :none}}
 
       true ->
-        state = expire_waits(state, input["at_ms"])
+        state = expire_and_report(state, input["at_ms"], record.context)
         {state, accepted, callable} = protocol(state, record)
 
         state =
@@ -1477,6 +1487,62 @@ defmodule Elzoo.RunEngine do
     end)
   end
 
+  # The expiry pass and, with `expiry_reports: :owner` in control, its reports
+  # (ELZ-351): after the whole pass, each slot that it settled and whose callable is
+  # still open holds the expiry input as its pending_input, in ascending occurrence
+  # order, under the ID of the :resume_input record that will give it, when the state
+  # with it placed still fits; otherwise the slot settles as without the option. A
+  # report carries the pause deadline of the expiring input, so that a first excess
+  # under budget_rule :pause can enter the pause. Without the option this is
+  # expire_waits/2 alone.
+  defp expire_and_report(state, at, context) do
+    expired = expire_waits(state, at)
+
+    if state.control[:expiry_reports] == :owner do
+      state.slots
+      |> Enum.filter(fn {key, slot} ->
+        slot.phase != :settled and expired.slots[key].phase == :settled
+      end)
+      |> Enum.sort()
+      |> Enum.reduce(expired, fn {key, slot}, acc ->
+        if acc.control.callables[slot.callable].closed do
+          acc
+        else
+          order =
+            Enum.reduce(acc.slots, 0, fn {_, s}, n ->
+              max(n, (s[:pending_input] || %{order: 0}).order)
+            end)
+
+          record = %{
+            version: acc.version,
+            kind: :protocol,
+            id: stable_id("resume:", {acc.control.run_id, key}),
+            run_id: acc.control.run_id,
+            attempt_id: slot.attempt_id,
+            input:
+              Jason.encode!(
+                outcome(
+                  acc.version,
+                  slot.action_id,
+                  "expired",
+                  @refusal_schema,
+                  refusal(acc, key, "expired"),
+                  at
+                )
+              ),
+            correlation: %{occurrence: key, loss: :timed_out},
+            context: Map.take(context, [:pause_deadline])
+          }
+
+          candidate = put_in(acc.slots[key][:pending_input], %{order: order + 1, record: record})
+          if fits?(candidate), do: candidate, else: acc
+        end
+      end)
+    else
+      expired
+    end
+  end
+
   # Whether the own effect of protocol `record` settles slot `key` of `state`: the
   # slot is still open after the expiry pass of the same fold step and settled after
   # the record's own protocol rule, before the end of a Run closes what is left.
@@ -1484,7 +1550,7 @@ defmodule Elzoo.RunEngine do
   # it reads no reason from an outcome that came too late to apply.
   @doc false
   def own_settlement?(state, record, key) do
-    expired = expire_waits(state, record.input["at_ms"])
+    expired = expire_and_report(state, record.input["at_ms"], record.context)
 
     if expired.slots[key].phase == :settled do
       false
@@ -1542,6 +1608,7 @@ defmodule Elzoo.RunEngine do
          true <- valid_result_reader_options?(opts),
          true <- length(Keyword.get_values(opts, :protocol_version)) <= 1,
          true <- length(Keyword.get_values(opts, :event_source)) <= 1,
+         reports when reports in [[], [:owner]] <- Keyword.get_values(opts, :expiry_reports),
          protocol_version when protocol_version in [1, 2] <- Keyword.get(opts, :protocol_version, 1),
          event_source = Keyword.get(opts, :event_source),
          true <-
@@ -1576,6 +1643,13 @@ defmodule Elzoo.RunEngine do
         if protocol_version == 1,
           do: digest(identity),
           else: digest({:run_engine_v2, identity, Map.take(event_source, [:id, :version])})
+
+      # The option is recorded in control and in the fingerprint; absent, both are
+      # unchanged.
+      fingerprint =
+        if reports == [:owner],
+          do: digest({:expiry_reports, :owner, fingerprint}),
+          else: fingerprint
 
       control = %{
         fingerprint: fingerprint,
@@ -1631,6 +1705,9 @@ defmodule Elzoo.RunEngine do
               principal: opts[:principal]
             }),
           else: control
+
+      control =
+        if reports == [:owner], do: Map.put(control, :expiry_reports, :owner), else: control
 
       s = %{
         opts: Map.new(opts),
