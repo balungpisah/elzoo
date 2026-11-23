@@ -79,6 +79,15 @@ defmodule Elzoo.Wave8.BotsTalkTest do
         "R2" => %{name: "R2", peer_id: "R2"}
       })
 
+  # A's turn after its tool slots expired: running, no second model call, no new post.
+  defp turn_waits!(w, run, posts) do
+    view = H.view(w, run)
+    assert [%{phase: :running}] = for({_, s} <- view.slots, s.action_id == "t/1/2/turn", do: s)
+    refute Enum.any?(view.slots, fn {_, s} -> s.action_id == "t/1/2:m:2" end)
+    refute Enum.any?(Host.get().calls, &match?({"R1/1", "t/1/2:m:2", _}, &1))
+    assert H.posts("R1") == posts
+  end
+
   defp clean!, do: assert(Host.get().errors == [])
 
   defp ann(w, chain, id, text, mentions),
@@ -493,7 +502,6 @@ defmodule Elzoo.Wave8.BotsTalkTest do
         ])
       )
 
-      Host.script({"R1/1", "t/1/2:m:2"}, H.say("my children ended"))
       ann(w, "R1", "m-2", "A, start three", ["A"])
       at = H.now(w)
       assert {:ok, :delivered} = H.deliver(w, "T1", room1, "R1")
@@ -505,21 +513,20 @@ defmodule Elzoo.Wave8.BotsTalkTest do
       assert H.idle?(H.view(w, kr))
       H.settle!(w, run)
 
-      # The wake at the three tool calls' deadline settles them without a result: the parent of
-      # each child ends; A's agent loop reads three failed tool results and finishes.
+      # The wake at the three tool calls' deadline settles them expired, without a result: the
+      # parent of each child ends. A's turn is not given the expired slots: it stays running
+      # with no second model call and no post.
       H.clock(w, at + H.tool_ms())
       assert {:ok, :busy} = H.wake(w, "T1", room1, "R1", "deadline/t/1/2")
-      view = H.settle!(w, run)
-      assert H.idle?(view)
+      view = H.view(w, run)
 
       for n <- 1..3 do
-        assert [%{outcome: outcome}] =
+        assert [%{phase: :settled, outcome: "expired"}] =
                  for({_, s} <- view.slots, s.action_id == "t/1/2:t:1:#{n}", do: s)
-
-        assert outcome != "completed"
       end
 
-      assert {_, _, %{"text" => "my children ended"}} = List.last(H.posts("R1"))
+      posts_before = H.posts("R1")
+      turn_waits!(w, run, posts_before)
 
       # The open items of the tip: the three children (C's item is final).
       {:ok, %{items: open}} =
@@ -591,8 +598,19 @@ defmodule Elzoo.Wave8.BotsTalkTest do
       assert {:ok, %{state: :abandoned}} =
                WorkItem.get(w.items, "T1", H.item_id(run, "t/1/2:t:1:1"))
 
-      # No outcome reached the parent after its slots settled; no item stays open.
-      assert H.idle?(H.view(w, run))
+      # No outcome reached the parent after its slots settled; its turn still waits. The wake at
+      # the turn's own deadline settles it expired; then the tip is idle.
+      turn_waits!(w, run, posts_before)
+      H.clock(w, at + H.turn_ms())
+      assert {:ok, :busy} = H.wake(w, "T1", room1, "R1", "deadline/t/1/2/turn")
+      view = H.settle!(w, run)
+      assert H.idle?(view)
+
+      assert [%{phase: :settled, outcome: "expired"}] =
+               for({_, s} <- view.slots, s.action_id == "t/1/2/turn", do: s)
+
+      refute Enum.any?(view.slots, fn {_, s} -> s.action_id == "t/1/2:m:2" end)
+      assert H.posts("R1") == posts_before
 
       assert {:ok, %{items: [], more: false}} =
                WorkItem.list_open(w.items, "T1", %{parent_run_id: run, after: nil, limit: 256})

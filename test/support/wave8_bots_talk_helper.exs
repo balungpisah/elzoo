@@ -357,6 +357,7 @@ defmodule Elzoo.Wave8.Helper do
   def turn_limit, do: @turn_limit
   def max_proposals, do: @max_proposals
   def tool_ms, do: @tool_ms
+  def turn_ms, do: @turn_ms
   def margin_ms, do: @margin_ms
 
   @doc """
