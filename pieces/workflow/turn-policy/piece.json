@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "id": "workflow/turn-policy",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "jason"],
+  "dependencies": [
+    "workflow/pattern-step",
+    "workflow/untrusted-content",
+    "workflow/typed-decision",
+    "core/payload-schema"
+  ],
+  "contract": "Pure pattern step in the core/operator shape over PatternStep v1 neutral maps for the root callable of a room Run: the rules addressed (lead-bot and mention-only presets, host-vouched reply-to), round_robin, bounded everyone and decided (one decision action whose untrusted pick falls back to the default member), and a pure host-rule behaviour that fails closed; every rule keeps one open turn, members only, the max_bot_turns bound (also for bot and peer messages), escalation, handoff, a bounded window, the rollover carry and unique action IDs; check_start/2, restart_carry/1 and pick_schema/0. No clock, I/O, store, process or model call.",
+  "limits": [
+    "A pick and an answer are model output: the step checks their shape and membership, not their quality; a model may pick or mention a member badly. from, reply_to_member and the member kinds are host-vouched.",
+    "The bound counts turns, not cost; a stalled turn holds the room until its deadline. Messages reach the step only between turns, one at a time; there is one open action at a time.",
+    "A host rule is host code run inside the step: it must be pure and deterministic, which the step cannot check; a raise, throw, exit or bad answer fails closed.",
+    "At link 2^31-1 no carry is asked and restart_carry/1 refuses: the room cannot roll over past it.",
+    "workflow/typed-decision and core/payload-schema are test-only dependencies (a decided finish of the real step and a check of pick_schema/0); the lib files call neither.",
+    "Test-grounded plain Elixir: no Cure law; finite scenarios, not a universal proof."
+  ],
+  "files": [
+    "lib/elzoo/turn_policy.ex",
+    "lib/elzoo/turn_policy/rules.ex",
+    "test/elzoo/turn_policy_test.exs",
+    "examples/turn_policy.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/turn_policy_test.exs",
+      "claim": "Listed scenarios pass: addressed_lead_bot_and_mention_only, round_robin_carries_its_position, everyone_in_member_order, decided_asks_only_for_an_unaddressed_message, reply_to, pick_is_untrusted_output (one finish from Elzoo.TypedDecision with pick_schema/0), host_rules_fail_closed, one_open_turn_at_a_time, members_only, bot_turn_bound_at_its_edge, everyone_exactly_at_the_bound_posts_no_notice, two_rooms_stop_at_the_bound, escalation, bound_then_escalation_posts_one_notice, handoff, window_eviction_at_its_edges, start_edges_agree, carry_at_max_turns_and_the_successor, carry_continues_default_rule_state_bot_turns_and_sequences, restart_carry, failed_carry_then_message_then_completed_carry, carrying_queue_keeps_max_bot_turns, decided_while_carrying_asks_no_decision, link_limit, action_ids_are_distinct, sizes_fit_the_engine_bounds, malformed_inputs_give_fixed_reasons, random_inputs_never_raise and example, with four negative controls (bound, peer counting, non-member mention, pick membership). Finite scenarios, not a universal proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Pinned Elixir immutable maps, term equality and :erlang.term_to_binary/2 sizes; the ready Contracts of workflow/pattern-step, workflow/untrusted-content and assembly/run-engine are reused unchanged."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "Pinned Jason compact encoding measures the window, summary, context, rule state and carry bounds, as core/payload-schema measures payloads."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The engine records each input before the step reads it, gives a message only while no action is open, and checks each action; the host vouches for from, reply_to_member and the member kinds, builds each turn's agent-loop spec and each decision's typed-decision spec with the turn or decision ID as its id, echoes the carry payload as the completed local-work outcome, and never binds a post to the room's own chain."
+    }
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure step emits no observations; the engine owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "The rule, bounds and members are intrinsic start operands; host rules are a new/1 operand; no ambient settings."},
+    "control": {"status": "not_applicable", "contract": "No independent process; cancel and run_ended are pattern inputs, not operational commands."}
+  }
+}
