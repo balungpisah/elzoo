@@ -1928,8 +1928,16 @@ defmodule Elzoo.Wave8.Helper do
   give the parent's tool call its outcome while the item was running, and unpin its version.
   """
   def child_ended(w, child) do
+    case entry(w, child) do
+      nil -> nil
+      e -> locked(w, e.tenant, fn -> ended(w, child, e) end)
+    end
+  end
+
+  # Under the tenant lock, so a child that ends while its child-start still runs is read only
+  # after `WorkItem.start/4`, and two callers cannot both see `ended: false`.
+  defp ended(w, child, e) do
     b = Agent.get(w.books, & &1[child])
-    e = entry(w, child)
 
     with %{ended: false} <- b,
          {:ok, %{phase: :terminal}} <- RunEngine.status(e.engine) do

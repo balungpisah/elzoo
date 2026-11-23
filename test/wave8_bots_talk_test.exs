@@ -705,8 +705,9 @@ defmodule Elzoo.Wave8.BotsTalkTest do
       # after both wait on the chain row that the harness holds as elzoo_app in T1's scope.
       parent = self()
 
+      # Linked: a failure of this test ends the holder and rolls back its lock.
       holder =
-        spawn(fn ->
+        spawn_link(fn ->
           Elzoo.TenantIsolation.transact(AppRepo, %{tenant: "T1"}, fn ->
             H.q!(
               AppRepo,
