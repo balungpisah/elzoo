@@ -16,10 +16,12 @@ grants follow ELZ-323's `grant_store!/2`.
 
 One Contract sentence was corrected during the build, before the first release (coordinator
 decision A on the issue). Case 4 had said that after the `wake` at the child-start tool deadline
-"A's turn reads three failed tool results and finishes". The ready engine does not report an
-expired slot to the nested callable that asked it: an input that settles no slot is given "to the
-root pattern only" ([run-engine README](../../pieces/assembly/run-engine/README.md), lines
-502–503), and the expiry pass drops the callable of each slot it settles. Case 4 now states what
+"A's turn reads three failed tool results and finishes". By default the engine reports no expired
+slot: an input that settles no slot is given "to the root pattern only" ([run-engine
+README](../../pieces/assembly/run-engine/README.md), lines 521–533), and the expiry pass drops the
+callable of each slot it settles. The option `expiry_reports: :owner` (ELZ-351) reports each
+expired slot to its owning callable (the README's "Expiry reports" paragraphs, lines 539–598), and
+the root acceptance does not turn it on, so case 4 holds as recorded. Case 4 now states what
 the engine does, and the test asserts it: A's turn stays `running`, with no second model call and
 no post, and settles `expired` at the `wake` at its own deadline. The task gains the matching
 Limit and a kept-open engine option. The engine is unchanged.
@@ -232,8 +234,10 @@ model results are scripted, so there is no claim about answer quality, a pick or
 following a turn. The reserve is the worst case of the scripted recipes. The harness code named
 above is harness code. Identities are pinned test identities, and every principal, revocation,
 epoch and authority fact is host-built. A cancel request reaches only an idle child, and a cancel
-of an Attempt does not stop a sent Effect. An expired tool slot is not reported to the nested
-callable that asked it, so a bot's turn whose tool calls expire waits until its own deadline. A
+of an Attempt does not stop a sent Effect. By default the engine reports no expired slot, so a
+bot's turn whose tool calls expire waits until its own deadline. The option `expiry_reports:
+:owner` (ELZ-351) reports each expired slot to its owning callable; the root acceptance does not
+turn it on, so case 4 holds as recorded. A
 room gives a message at most once per Run, not end to end. The concurrent-rollover case is
 outside the room's one-deliverer Need and shows only the mailbox's guards. One tenant's
 recipe-store stream bounds its Runs (#821). Mail, carries and intents have no erasure in Wave 8.
