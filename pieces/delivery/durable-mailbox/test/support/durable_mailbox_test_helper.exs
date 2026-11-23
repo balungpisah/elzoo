@@ -11,6 +11,10 @@ defmodule Elzoo.DurableMailbox.RepeatableRepo do
   use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
 end
 
+defmodule Elzoo.DurableMailbox.LogRepo do
+  use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
+end
+
 defmodule Elzoo.DurableMailbox.CrashRepo do
   use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
 end
@@ -58,7 +62,7 @@ defmodule Elzoo.DurableMailbox.Harness do
   def start!(repo, opts) do
     url = url!()
     configured = url |> URI.parse() |> Map.fetch!(:path) |> String.trim_leading("/")
-    {:ok, pid} = repo.start_link([url: url, log: false] ++ opts)
+    {:ok, pid} = repo.start_link(Keyword.merge([url: url, log: false], opts))
     Process.unlink(pid)
 
     ExUnit.Callbacks.on_exit(fn ->

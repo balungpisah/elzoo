@@ -74,20 +74,16 @@ defmodule Elzoo.DurableMailbox do
   `Elzoo.TenantIsolation.verify/3` for the chains, links and messages tables: `:ok` or
   `{:error, {table, reason}}` for the first failing one. Runs inside a caller's transaction too.
   """
-  def verify(mailbox) do
-    if mailbox?(mailbox) do
-      floor = [prefix: mailbox.prefix, tenant_column: "tenant", space_column: nil]
+  def verify(%__MODULE__{} = mailbox) do
+    floor = [prefix: mailbox.prefix, tenant_column: "tenant", space_column: nil]
 
-      Enum.zip([:chains, :links, :messages], Migration.tables())
-      |> Enum.reduce_while(:ok, fn {name, table}, :ok ->
-        case TenantIsolation.verify(mailbox.repo, {mailbox.prefix, table}, floor) do
-          :ok -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, {name, reason}}}
-        end
-      end)
-    else
-      {:error, :invalid}
-    end
+    Enum.zip([:chains, :links, :messages], Migration.tables())
+    |> Enum.reduce_while(:ok, fn {name, table}, :ok ->
+      case TenantIsolation.verify(mailbox.repo, {mailbox.prefix, table}, floor) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {name, reason}}}
+      end
+    end)
   end
 
   @doc """

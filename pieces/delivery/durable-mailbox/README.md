@@ -313,7 +313,11 @@ violation of `rollover/3` to a result: it is `:unavailable`.
   `in_transaction?/0` instead of returning an error atom. A stored state, kind or reason that
   the running copy does not know (a row written outside the Piece) raises at read.
 - The Piece emits no telemetry and no log, and its queries pass `log: false`; the consumer
-  Repo's query telemetry still receives their parameters (tenant, IDs, payloads and carries).
+  Repo's query telemetry still receives their parameters (tenant, IDs, payloads and carries),
+  and a Repo that logs queries still logs the `begin` and `commit` of each transaction.
+- Two concurrent rollovers of different chains of one tenant that name the same successor
+  `run_id` or `unit_identity` can both pass step 5; the later one then fails on the unique
+  index as `:unavailable`, and its retry is `:identity_in_use`.
 - No Run start, engine call, timer, notifier, priority, expiry or dead-lettering; each is a
   later in-place addition.
 

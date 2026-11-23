@@ -5,7 +5,9 @@ defmodule Elzoo.DurableMailboxTest do
   use ExUnit.Case, async: false
   alias Ecto.Adapters.SQL
   alias Elzoo.DurableMailbox, as: MB
-  alias Elzoo.DurableMailbox.{AdminRepo, AppRepo, CrashRepo, Harness, Migration, RepeatableRepo}
+  import ExUnit.CaptureLog
+  alias Elzoo.DurableMailbox.{AdminRepo, AppRepo, CrashRepo, Harness, LogRepo, Migration}
+  alias Elzoo.DurableMailbox.RepeatableRepo
   alias Elzoo.TenantIsolation, as: TI
 
   @chains "elzoo_mailbox_chains"
@@ -274,6 +276,56 @@ defmodule Elzoo.DurableMailboxTest do
 
       # The undeclared name and the failing payload left no row of their message ID.
       assert Enum.sort(for row <- messages(p, "T1"), do: Enum.at(row, 2)) == ["m0", "s0"]
+    end
+
+    test "two failing steps of put/3 give the earlier step's refusal", %{mb: mb, p: p} do
+      {:ok, :applied} = MB.open(mb, "T1", opening("c1"))
+      {:ok, :applied} = MB.put(mb, "T1", mail("m0"))
+      other = mailbox(p, %{@decl | version: 2})
+      small = mailbox(p, %{@decl | max_pending: 1})
+      {:ok, :applied} = MB.open(small, "T1", opening("c-small"))
+      {:ok, :applied} = MB.put(small, "T1", mail("s0", %{address: {:chain, "c-small"}}))
+      rr = mailbox(p, @decl, RepeatableRepo)
+      before = rows(p, "T1")
+
+      # Steps 1-4 before 5: no query inside a caller's transaction.
+      {:ok, inside} =
+        AppRepo.transact(fn ->
+          {:ok,
+           [
+             MB.put(mb, "T1", mail(String.duplicate("m", 156), %{name: "chat.delete"})),
+             MB.put(mb, "T1", mail("m1", %{name: "chat.delete", schema_version: 9})),
+             MB.put(mb, "T1", mail("m1", %{schema_version: 2, payload: %{"text" => 5}})),
+             MB.put(mb, "T1", mail("m1", %{payload: %{"text" => 5}})),
+             MB.put(mb, "T1", mail("m1"))
+           ]}
+        end)
+
+      assert inside == [
+               {:error, :invalid},
+               {:error, :undeclared_name},
+               {:error, :schema_version},
+               {:error, :invalid_payload},
+               {:error, :in_transaction}
+             ]
+
+      # 5 before 6, 6 before 7, 7 before 8, 8 before 9.
+      assert MB.put(rr, "T1", mail("m1", %{address: {:chain, "absent"}})) == {:error, :isolation}
+
+      assert MB.put(other, "T1", mail("m1", %{address: {:chain, "absent"}})) ==
+               {:error, :unknown_chain}
+
+      assert MB.put(other, "T1", mail("m0", %{payload: %{"text" => "edited"}})) ==
+               {:error, :declaration_mismatch}
+
+      assert MB.put(
+               small,
+               "T1",
+               mail("s0", %{address: {:chain, "c-small"}, payload: %{"text" => "x"}})
+             ) ==
+               {:error, :conflict}
+
+      assert rows(p, "T1") == before
     end
 
     test "new/2 refuses a declaration that does not build or breaks a bound", %{p: p} do
@@ -1160,6 +1212,39 @@ defmodule Elzoo.DurableMailboxTest do
       assert rows(p, "T1") == before
       # Reads do not check the isolation level.
       assert {:ok, %{state: :pending}} = status(rr, "T1", "c1", "m0")
+    end
+
+    test "no statement of the Piece is logged by a Repo that logs its queries",
+         %{p: p, role: role} do
+      Harness.start!(LogRepo,
+        pool_size: 2,
+        log: :error,
+        after_connect: {Harness, :connect, [role, []]}
+      )
+
+      lb = mailbox(p, @decl, LogRepo)
+
+      log =
+        capture_log([level: :debug], fn ->
+          assert MB.verify(lb) == :ok
+          {:ok, :applied} = MB.open(lb, "T1", opening("c1"))
+          {:ok, :applied} = MB.put(lb, "T1", mail("m1"))
+          {:ok, %{link_seq: 1}} = MB.claim(lb, "T1", %{chain_id: "c1"})
+          {:ok, :applied} = settle(lb, "T1", "c1", "m1", 1, :applied)
+          {:ok, _} = MB.plan_rollover(lb, "T1", %{chain_id: "c1", link_seq: 1, change: nil})
+          {:ok, %{seq: 2}} = MB.rollover(lb, "T1", rolling("c1", 1))
+          {:ok, _} = MB.chain(lb, "T1", %{chain_id: "c1", after_seq: nil, limit: 1})
+          {:ok, _} = status(lb, "T1", "c1", "m1")
+        end)
+
+      # Only the Repo's own transaction statements are logged, never a statement of the Piece.
+      statements = Regex.scan(~r/QUERY OK[^\n]*\n([^\n]*)/, log, capture: :all_but_first)
+      assert statements != []
+      assert Enum.uniq(List.flatten(statements)) -- ["begin []", "commit []"] == []
+      refute log =~ "elzoo_mailbox"
+      # The Repo does log a statement without log: false.
+      assert capture_log([level: :debug], fn -> SQL.query!(LogRepo, "SELECT 'logged'") end) =~
+               "SELECT 'logged'"
     end
 
     test "a database failure is :unavailable", %{p: p} do
