@@ -197,17 +197,7 @@ defmodule Elzoo.RunEngine do
          not state.control.generation_closed and is_nil(state.control.stop_pending) and
          not state.control.callables[slot.callable].closed do
       record = slot.pending_input.record
-      state = update_in(state.slots[key], &Map.delete(&1, :pending_input))
-
-      # With expiry reports, the last held input given with no slot open makes the
-      # Run active again before the call, as settle_protocol/3 does (ELZ-351).
-      state =
-        if state.control[:expiry_reports] == :owner and active_count(state) == 0 and
-             map_size(state.control.lifecycle.waits) == 0 and
-             state.control.lifecycle.phase == :waiting,
-           do: put_in(state.control.lifecycle.phase, :active),
-           else: state
-
+      state = state |> update_in([:slots, key], &Map.delete(&1, :pending_input)) |> resume_phase()
       invoke(state, %{record | input: Jason.decode!(record.input)}, slot.callable)
     else
       {state, :none}
@@ -1030,6 +1020,18 @@ defmodule Elzoo.RunEngine do
      decision not in [:unchanged, :late] and
        (not match?({:request_outcome, _}, decision) or
           decision == {:request_outcome, :out_of_budget})}
+  end
+
+  # With expiry reports, a :resume_input that leaves no slot active and no wait listed
+  # makes a waiting Run active again before its pattern call, as settle_protocol/3 does
+  # before the call of a settling input (ELZ-351). Without the option it is unchanged.
+  # The event-wait reader projects the same step through it.
+  defp resume_phase(state) do
+    if state.control[:expiry_reports] == :owner and active_count(state) == 0 and
+         map_size(state.control.lifecycle.waits) == 0 and
+         state.control.lifecycle.phase == :waiting,
+       do: put_in(state.control.lifecycle.phase, :active),
+       else: state
   end
 
   defp restore_waiting(state) do
@@ -4817,6 +4819,21 @@ defmodule Elzoo.RunEngine do
       %{kind: kind}
       when kind in [:configure, :event_activation, :continuation, :lifecycle, :run_view, :finish] ->
         project_pure_event_wait_transition(state, record)
+
+      # The part of a :resume_input step before its pattern call; with expiry reports
+      # it can switch the lifecycle phase (resume_phase/1). The call itself is not
+      # projected, as for a settling protocol input.
+      %{kind: :resume_input, occurrence: key} ->
+        case event_wait_pattern_invocation(state, record) do
+          {:ok, _} when state.control.expiry_reports == :owner ->
+            {:ok,
+             state
+             |> update_in([:slots, key], &Map.delete(&1, :pending_input))
+             |> resume_phase()}
+
+          _ ->
+            {:ok, state}
+        end
 
       _ ->
         {:ok, state}

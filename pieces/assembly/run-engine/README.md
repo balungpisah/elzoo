@@ -590,7 +590,9 @@ the startup drain gives them before any new input, in the same order, under the 
 IDs and with the same pattern inputs. A record that another owner writes at startup
 (a local-work loss, a Resource cursor, an intent change) comes first. After the
 reports are given, a host input with a report ID is `{:error, :input_id_conflict}`;
-a host input with the ID `"expire:" <> occurrence` is ordinary.
+a host input with the ID `"expire:" <> occurrence` is ordinary. The readers that
+rerun pure engine code, `transcript/3` and `event_waits/3`, project a `:resume_input`
+with the same phase switch, so they reach the state of the fold.
 
 At a change of Attempt the engine settles, in the same fold step and at the
 time of the view record, every slot of the older Attempt that is not settled,
@@ -735,10 +737,12 @@ request map <=4456448 bytes; slot map <=8 MiB; callable state within its state b
 an input that settles no slot needs room in control for its invocation entry (its ID
 and 42 bytes: 43 bytes for a 1-byte ID and 202 bytes for a 160-byte ID), else it is
 classified `record_size` and not given to a pattern. With `expiry_reports: :owner`
-a held report adds at most 1,266 ETF bytes (1,280 bytes of slot growth) to its slot
-(a 200-byte Run ID, a 200-byte action ID, a 128-byte gate ID, a 200-byte Attempt ID,
-the bound of `workflow/run-approval-release`'s `id?/1`, occurrence `{257, 63}`,
-gate version 2,147,483,647 and `at_ms` and `pause_deadline` taken at 2^53 − 1); it is
+a held report adds at most 2,906 ETF bytes (2,920 bytes of slot growth) to its slot
+(a 200-byte Run ID, a 200-byte action ID and a 128-byte gate ID of control characters,
+which the JSON text of the report escapes as `\u00XX`, six bytes each, a 200-byte
+Attempt ID, the bound of `workflow/run-approval-release`'s `id?/1`, occurrence
+`{257, 63}`, gate version 2,147,483,647 and `at_ms` and `pause_deadline` taken at
+2^53 − 1; with ASCII letters it is 1,266 bytes); it is
 held only when the slot bound and the 8,388,608-byte slot map still hold. Its
 invocation entry, 113 bytes (the 71-byte report ID and 42), is placed at the give
 inside the 4,096-byte reserve that leaves with the held report, and it stays until a
@@ -1174,14 +1178,17 @@ within one report of its bound), `paused_reports_wait`, `replay_is_equal (expiry
 reports)`, `recovery_gives_the_same_reports` (a death after a directly committed
 expiring wake gives the same reports, records and Unit state as an engine that did not
 die, with the clock moved 1,000 ms), `report_id_is_the_resume_id` and
-`native_v2_wait_report`. Eleven temporary negative controls each made a named test
+`native_v2_wait_report` (also a wait held while paused and given after `continue`,
+read by `event_waits/3` and `transcript/3`). Twelve temporary negative controls each made a named test
 fail and were reverted: the default flipped on, delivery to the root, descending
 order, no open-owner condition, giving after generation closed (the `:pause` item; the
 `:finish` item drops the report by the pending stop and the parent's deny), a held
 report not counted as active, a hold with no `fits?/1` check (`step/2` raises), the
 time read from the clock at the give, no lifecycle switch at `:resume_input`, the ID
 `"expire:" <> occurrence` (the later host input halts the engine) and a report with an
-empty context (the expiring `wake` returns `{:error, :durable_unit_transition_failed}`).
+empty context (the expiring `wake` returns `{:error, :durable_unit_transition_failed}`)
+and the event-wait reader without its projection of `:resume_input` (`event_waits/3`
+returns `{:error, :history}`).
 
 Limits of expiry reports. Reports come only from the expiry pass, and the engine has
 no timer, so an expiry and its report need an input of the current Attempt at or after

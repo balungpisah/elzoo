@@ -577,6 +577,33 @@ defmodule Elzoo.RunEngineExpiryReportTest do
   end
 
   describe "native_v2_wait_report" do
+    test "a wait_event report held while paused and given after continue leaves the readers equal to the fold" do
+      {c, bindings} =
+        reports_setup([request_v2([action("wait", "wait_event")]), :wait], %{}, %{},
+          protocol_version: 2
+        )
+
+      engine = start(c, bindings: bindings, protocol_version: 2, expiry_reports: :owner)
+      assert {:ok, :applied} = RunEngine.input(engine, "start", start_input_v2(), verified())
+      [wait] = for {k, s} <- unit_state(c).slots, s.kind == "wait_event", do: k
+      assert {:ok, :applied} = pause(engine)
+      at(c, 40_000)
+      wake_v2 = %{"type" => "input", "version" => 2, "kind" => "wake"}
+      assert {:ok, _} = RunEngine.input(engine, "w", wake_v2, verified())
+      assert held(c) == [wait]
+      assert {:ok, :applied} = continue(engine)
+
+      assert [%{"kind" => "start"}, report] = inputs_of(pattern_inputs(), "root")
+      assert report == expired("wait", wait, 40_000, 2)
+      assert view(engine).phase == :active
+      assert resume_records(c) == [{resume_id(wait), wait}]
+
+      assert {:ok, %{waits: [w]}} = RunEngine.event_waits(engine, scope(), limits())
+      assert {w.status, w.outcome, w.accepted_event} == {:settled, "expired", nil}
+      assert {:ok, %{entries: entries}} = RunEngine.transcript(engine, scope(), limits())
+      assert [%{by: :protocol, reason: nil}] = for(e <- entries, e.type == :settlement, do: e)
+    end
+
     test "an expired positive wait_event is reported to the root with its settlement unchanged" do
       {c, bindings} =
         reports_setup([request_v2([action("wait", "wait_event")]), :wait], %{}, %{},
