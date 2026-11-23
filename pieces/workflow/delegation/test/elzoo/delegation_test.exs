@@ -9,14 +9,15 @@ defmodule Elzoo.DelegationTest do
          id \\ "root",
          tenant \\ "t1",
          scopes \\ ["admin", "read", "write"],
-         spaces \\ ["s1", "s2"]
+         spaces \\ ["s1", "s2"],
+         epoch \\ 3
        ) do
     {:ok, p} =
       Principal.new(%{
         kind: :human,
         id: id,
         tenant: tenant,
-        auth_epoch: 3,
+        auth_epoch: epoch,
         allowed_scopes: scopes,
         allowed_spaces: spaces
       })
@@ -120,6 +121,17 @@ defmodule Elzoo.DelegationTest do
       assert {:ok, _} = grant(facts(revoked_ids: ["bot-z", "other-root"]))
     end
 
+    test "an agent parent below the root's epoch is stale; at or above it is granted" do
+      at = fn epoch -> agent("bot-c", human("root", "t1", ["read", "write"], ["s1"], epoch)) end
+
+      assert {:error, :stale} = grant(facts(parent: at.(2)))
+      assert {:error, :stale} = grant(facts(parent: at.(0)))
+      assert {:ok, %{principal: %{auth_epoch: 3}}} = grant(facts(parent: at.(3)))
+      assert {:ok, %{principal: %{auth_epoch: 3}}} = grant(facts(parent: at.(4)))
+      # A root parent is the root: no epoch to compare.
+      assert {:ok, %{principal: %{auth_epoch: 3}}} = grant(root_facts())
+    end
+
     test "a scope or a space the parent does not hold, with the others held" do
       # The root holds "admin" and "s2"; the agent parent does not.
       assert {:error, :escalation} = grant(facts(), request(scopes: ["read", "admin"]))
@@ -178,6 +190,11 @@ defmodule Elzoo.DelegationTest do
       assert {:error, :malformed} = grant(facts(revoked_ids: ["bot-b"], max_depth: 0))
       # revoked middle bot in a too-deep request
       assert {:error, :revoked} = grant(facts(revoked_ids: ["bot-b"], max_depth: 3))
+      stale = agent("bot-c", human("root", "t1", ["read", "write"], ["s1"], 2))
+      # revoked middle bot under a stale parent
+      assert {:error, :revoked} = grant(facts(parent: stale, revoked_ids: ["bot-b"]))
+      # stale parent in a too-deep request
+      assert {:error, :stale} = grant(facts(parent: stale, max_depth: 3))
       # too deep with a cycle
       assert {:error, :depth} = grant(facts(max_depth: 3), request(child_bot: "bot-a"))
       # cycle with an escalated scope

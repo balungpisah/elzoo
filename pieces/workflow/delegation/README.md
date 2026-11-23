@@ -80,26 +80,32 @@ The first failure is returned, and a refusal refuses the whole request.
 2. `:revoked`: the root, the parent, `child_bot` or any bot of the lineage is
    in `revoked_ids`. The child's `delegated_by` names the root only, so the
    lineage is where a revoked middle bot is seen.
-3. `:depth`: the length of the lineage plus 1 is over `max_depth`.
-4. `:cycle`: `child_bot` is the root's ID or is already in the lineage. Because
+3. `:stale`: `parent` is an `:agent` whose `auth_epoch` is below the root's
+   `auth_epoch`. The child copies the root's epoch, so without this rule a
+   parent left behind by a revocation by epoch of the root would mint a child
+   with the newer epoch. A root parent has no epoch to compare.
+4. `:depth`: the length of the lineage plus 1 is over `max_depth`.
+5. `:cycle`: `child_bot` is the root's ID or is already in the lineage. Because
    of this rule, `domain/principal`'s `:self_delegation` is never reached.
-5. `:escalation`: a requested scope or space is not held by the parent. The
+6. `:escalation`: a requested scope or space is not held by the parent. The
    parent's own `allowed_scopes` and `allowed_spaces` decide this (the root's
    own for a root parent), by exact bytes.
-6. `:budget`: `budget` is not a positive integer of at most `budget_remaining`.
-7. `:version_change`: `change` is not `nil`, and its `ref` is `nil` or is not
+7. `:budget`: `budget` is not a positive integer of at most `budget_remaining`.
+8. `:version_change`: `change` is not `nil`, and its `ref` is `nil` or is not
    1..256 bytes of valid UTF-8 without a C0 or C1 control character. The `ref`
    is a reference of the host's authorised, recorded action. The Piece checks
    only that it is there.
-8. `Principal.delegate/2` from the root. A refusal is
-   `{:error, {:principal, reason}}` with its reason unchanged. After rules 1–7
+9. `Principal.delegate/2` from the root. A refusal is
+   `{:error, {:principal, reason}}` with its reason unchanged. After rules 1–8
    only `:escalation` stays reachable. That happens when the host-vouched agent
    parent holds a label that the given root no longer holds. Rule 1 has
    already validated the root, the IDs and the labels, so the other reasons of
    `domain/principal` cannot occur.
 
-Errors are fixed atoms, or `{:principal, atom}`, and never echo an ID, scope or
-space.
+Errors are the fixed atoms `:malformed`, `:revoked`, `:stale`, `:depth`,
+`:cycle`, `:escalation`, `:budget` and `:version_change`, or
+`{:principal, atom}` with an unchanged reason of `domain/principal` (rule 9).
+None echoes an ID, scope or space.
 
 ## `on_parent_close/1`
 
@@ -140,11 +146,12 @@ finish, so it sees no cancel request before it ends.
 Plain Elixir. No Cure law: the subset rule of the delegated scopes and spaces
 is the selected Cure law of `domain/principal`, which `grant/2` reaches through
 `Principal.delegate/2`. The decisions of this Piece (rule order, depth, cycle,
-revocation, the lineage checks and the parent-close mapping) are grounded by
-finite tests only. `mix test pieces/workflow/delegation/test` runs the listed
-scenarios:
+revocation, the epoch rule, the lineage checks and the parent-close mapping)
+are grounded by finite tests only. `mix test pieces/workflow/delegation/test`
+runs the listed scenarios:
 
-- each rule at its edge;
+- each rule at its edge, including an agent parent below, at and above the
+  root's epoch;
 - the rule order;
 - the grant from an agent or root parent;
 - an exhaustive 16×16 table of requested scope and space subsets against an
@@ -158,10 +165,11 @@ scenarios:
 - `on_parent_close/1` for each rule, a mixed list, 0, 256 and 257 entries and
   a repeated ID.
 
-Three negative controls make these tests fail:
+Four negative controls make these tests fail:
 
-- skipping the lineage check of rule 4;
+- skipping the lineage check of rule 5;
 - skipping the lineage check of rule 2;
+- skipping rule 3, so that a stale parent is granted;
 - delegating from the parent instead of the root, which `domain/principal`
   refuses `:nested_delegation`.
 
@@ -170,12 +178,6 @@ Three negative controls make these tests fail:
 - Every fact is host-vouched: the root, the parent, the authority, the
   remaining budget, the lineage, the revocations and the pin. The Piece checks
   their shape and their consistency, not their truth.
-- Epochs are not compared. Rule 1 revalidates the root and the parent with
-  `current_epoch: 0`. The child copies the root's `auth_epoch`, as
-  `Principal.delegate/2` does. So an agent parent with an older epoch than its
-  root is accepted, and its child gets the root's newer epoch. The host runs
-  `Principal.check/2` on the parent with its current epoch before it calls
-  `grant/2`.
 - A grant is a decision, not a reservation. The engine's nested binding or the
   host reserves the budget.
 - A `:request_cancel` reaches a child only when it is idle. A `:cancel` of an

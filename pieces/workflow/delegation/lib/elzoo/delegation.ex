@@ -34,6 +34,7 @@ defmodule Elzoo.Delegation do
   def grant(facts, request) do
     with {:ok, authority} <- well_formed(facts, request),
          :ok <- not_revoked(facts, request),
+         :ok <- current(facts),
          :ok <- within_depth(facts),
          :ok <- acyclic(facts, request),
          :ok <- held(facts.parent, request),
@@ -122,18 +123,25 @@ defmodule Elzoo.Delegation do
        else: :ok
   end
 
-  # Rule 3.
+  # Rule 3: an agent parent older than its root's epoch mints no child with the newer epoch.
+  defp current(%{root: root, parent: parent}) do
+    if parent.kind == :agent and parent.auth_epoch < root.auth_epoch,
+      do: {:error, :stale},
+      else: :ok
+  end
+
+  # Rule 4.
   defp within_depth(facts),
     do: if(length(facts.lineage) + 1 > facts.max_depth, do: {:error, :depth}, else: :ok)
 
-  # Rule 4.
+  # Rule 5.
   defp acyclic(facts, request) do
     if request.child_bot == facts.root.id or request.child_bot in facts.lineage,
       do: {:error, :cycle},
       else: :ok
   end
 
-  # Rule 5: exact-byte membership in the parent's own scopes and spaces.
+  # Rule 6: exact-byte membership in the parent's own scopes and spaces.
   defp held(parent, request) do
     if Enum.all?(request.scopes, &(&1 in parent.allowed_scopes)) and
          Enum.all?(request.spaces, &(&1 in parent.allowed_spaces)),
@@ -141,14 +149,14 @@ defmodule Elzoo.Delegation do
        else: {:error, :escalation}
   end
 
-  # Rule 6.
+  # Rule 7.
   defp budget(facts, request) do
     if request.budget >= 1 and request.budget <= facts.budget_remaining,
       do: :ok,
       else: {:error, :budget}
   end
 
-  # Rule 7: a change needs the reference of the host's authorised, recorded action.
+  # Rule 8: a change needs the reference of the host's authorised, recorded action.
   defp version_change(nil), do: :ok
 
   defp version_change(%{ref: ref}) do
@@ -157,7 +165,7 @@ defmodule Elzoo.Delegation do
       else: {:error, :version_change}
   end
 
-  # Rule 8: one delegation level, always from the root.
+  # Rule 9: one delegation level, always from the root.
   defp delegate(root, request) do
     case Principal.delegate(root, %{
            id: request.child_bot,
