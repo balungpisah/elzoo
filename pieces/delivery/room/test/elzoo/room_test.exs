@@ -207,6 +207,51 @@ defmodule Elzoo.RoomTest do
       end
     end
 
+    test "a step-4 release that did not finish, repeated, removes its pin; link 1's own pin stays",
+         %{role: role} do
+      w = world(role)
+      [v1, v2 | _] = w.versions
+      run = ids(w, "differ", 1)
+      crash = crash_on(w, &kind?(&1, "recipe_unpinned", run))
+
+      hook(w, fn _stream, _expected, records ->
+        if kind?(records, "recipe_pinned") do
+          hook(w, crash)
+
+          assert {:ok, :applied} =
+                   DurableMailbox.open(w.mailbox, w.tenant, %{
+                     chain_id: "differ",
+                     run_id: run,
+                     unit_identity: run,
+                     pin: v2,
+                     carry: %{"other" => true}
+                   })
+        end
+
+        :pass
+      end)
+
+      request = %{chain_id: "differ", start: start(), pin: v1}
+      assert {:crashed, _} = isolated(fn -> Room.open(w.room, w.tenant, request) end)
+      hook(w, nil)
+      assert pins_of(w, run) == [v1]
+      assert Room.open(w.room, w.tenant, request) == {:error, {:mailbox, :conflict}}
+      assert pins_of(w, run) == []
+
+      # Link 1 holds the request's pin: a conflicting start keeps link 1's record.
+      run = open!(w, "equal", start())
+      before = records(w)
+
+      assert Room.open(w.room, w.tenant, %{
+               chain_id: "equal",
+               start: start(max_bot_turns: 3),
+               pin: v1
+             }) == {:error, {:mailbox, :conflict}}
+
+      assert pins_of(w, run) == [v1]
+      assert records(w) == before
+    end
+
     test "an equal open/3 after the first rollover returns link 1's IDs and pins nothing", %{
       role: role
     } do
@@ -215,7 +260,7 @@ defmodule Elzoo.RoomTest do
       end_by_deadline(w, "c", run)
 
       assert {:ok, %{seq: 2, carry_kind: :restarted}} =
-               Room.rollover(w.room, w.tenant, %{chain_id: "c", change: nil})
+               Room.rollover(w.room, w.tenant, %{chain_id: "c", link_seq: 1, change: nil})
 
       assert pins_of(w, run) == []
       before = records(w)
@@ -265,7 +310,7 @@ defmodule Elzoo.RoomTest do
         &Room.open(room, &1, %{chain_id: "c", start: start(), pin: pin}),
         &Room.deliver(room, &1, ok),
         &Room.wake(room, &1, %{chain_id: "c", wake_id: "w"}),
-        &Room.rollover(room, &1, %{chain_id: "c", change: nil}),
+        &Room.rollover(room, &1, %{chain_id: "c", link_seq: 1, change: nil}),
         &Room.resume(room, &1, ok)
       ]
 
@@ -287,9 +332,13 @@ defmodule Elzoo.RoomTest do
         Room.wake(room, t, %{chain_id: "c", wake_id: ""}),
         Room.wake(room, t, %{chain_id: "c", wake_id: String.duplicate("w", 161)}),
         Room.wake(room, t, %{chain_id: "c", wake_id: "w\u0085"}),
-        Room.rollover(room, t, %{chain_id: "c", change: %{pin: pin}}),
-        Room.rollover(room, t, %{chain_id: "c", change: %{pin: "x", ref: "r"}}),
-        Room.rollover(room, t, %{chain_id: "c", change: %{pin: pin, ref: ""}}),
+        Room.rollover(room, t, %{chain_id: "c", link_seq: 1, change: %{pin: pin}}),
+        Room.rollover(room, t, %{chain_id: "c", link_seq: 1, change: %{pin: "x", ref: "r"}}),
+        Room.rollover(room, t, %{chain_id: "c", link_seq: 1, change: %{pin: pin, ref: ""}}),
+        Room.rollover(room, t, %{chain_id: "c", link_seq: 0, change: nil}),
+        Room.rollover(room, t, %{chain_id: "c", link_seq: 2_147_483_648, change: nil}),
+        Room.rollover(room, t, %{chain_id: "c", link_seq: "1", change: nil}),
+        Room.rollover(room, t, %{chain_id: "c", change: nil}),
         Room.rollover(room, t, %{chain_id: "c"}),
         Room.resume(room, t, %{chain_id: "c", more: 1}),
         Room.deliver(:room, t, ok)
@@ -319,8 +368,8 @@ defmodule Elzoo.RoomTest do
     end
   end
 
-  defp rollover(w, chain_id, change \\ nil),
-    do: Room.rollover(w.room, w.tenant, %{chain_id: chain_id, change: change})
+  defp rollover(w, chain_id, change \\ nil, link_seq \\ 1),
+    do: Room.rollover(w.room, w.tenant, %{chain_id: chain_id, link_seq: link_seq, change: change})
 
   defp resume(w, chain_id), do: Room.resume(w.room, w.tenant, %{chain_id: chain_id})
 
@@ -462,7 +511,7 @@ defmodule Elzoo.RoomTest do
       send(worker, :release)
       assert actions(w, run2) == ["t/2/2/turn"]
 
-      assert {:ok, %{seq: 3, carry_kind: :restarted}} = rollover(w, "c")
+      assert {:ok, %{seq: 3, carry_kind: :restarted}} = rollover(w, "c", nil, 2)
       settle_engine(w, run3)
       carry = tip(w, "c").carry["carry"]
       assert carry["queue"] == []
@@ -493,7 +542,7 @@ defmodule Elzoo.RoomTest do
       before = {chain(w, "c"), pins(w), records(w)}
       larger = room(w, w.turn_policy, reserve: reserve({200, 1}))
 
-      assert Room.rollover(larger, w.tenant, %{chain_id: "c", change: nil}) ==
+      assert Room.rollover(larger, w.tenant, %{chain_id: "c", link_seq: 1, change: nil}) ==
                {:error, {:invalid_start, :reserve}}
 
       assert {chain(w, "c"), pins(w), records(w)} == before
@@ -537,7 +586,7 @@ defmodule Elzoo.RoomTest do
       before = chain(w, "none")
       tiny = room(w, w.turn_policy, read_limits: %{max_records: 1, max_bytes: 1})
 
-      assert Room.rollover(tiny, w.tenant, %{chain_id: "none", change: nil}) ==
+      assert Room.rollover(tiny, w.tenant, %{chain_id: "none", link_seq: 1, change: nil}) ==
                {:error, {:transcript, :read_limit}}
 
       assert status(w, "none", "m-1").state == :delivering
@@ -796,6 +845,30 @@ defmodule Elzoo.RoomTest do
       assert_one_successor(w, "s3", run1, run2, v1, 2)
     end
 
+    test "a successor that ends before resume/3: the repeated rollover/3 is :not_tip and records the change once",
+         %{role: role} do
+      w = world(role)
+      [_, b, _] = w.versions
+      run1 = open!(w, "c", start())
+      {run2, run3} = {ids(w, "c", 2), ids(w, "c", 3)}
+      end_by_deadline(w, "c", run1)
+      request = %{chain_id: "c", link_seq: 1, change: %{pin: b, ref: "change-b"}}
+
+      # After step 5: the successor has its start input; the crash comes before step 6.
+      hook(w, crash_on(w, &kind?(&1, "recipe_unpinned", run1)))
+      assert {:crashed, _} = isolated(fn -> Room.rollover(w.room, w.tenant, request) end)
+      hook(w, nil)
+      end_by_deadline(w, "c", run2)
+      assert {:ok, :terminal} = resume(w, "c")
+      before = {chain(w, "c"), records(w)}
+      assert Room.rollover(w.room, w.tenant, request) == {:error, {:not_tip, 2}}
+      assert {chain(w, "c"), records(w)} == before
+
+      assert {:ok, %{seq: 3}} = rollover(w, "c", nil, 2)
+      assert for(link <- chain(w, "c").links, do: link.change_ref) == [nil, "change-b", nil]
+      assert {pins_of(w, run1), pins_of(w, run2), pins_of(w, run3)} == {[], [], [b]}
+    end
+
     test "a crash after the start Need of open/3, before its start input: deliver/3 is :not_started",
          %{role: role} do
       w = world(role)
@@ -865,7 +938,7 @@ defmodule Elzoo.RoomTest do
 
       assert %{pin: ^v1, change_ref: nil} = tip(w, "c")
       end_by_deadline(w, "c", run2)
-      assert {:ok, %{seq: 3}} = rollover(w, "c", %{pin: v2, ref: "change-1"})
+      assert {:ok, %{seq: 3}} = rollover(w, "c", %{pin: v2, ref: "change-1"}, 2)
       assert %{pin: ^v2, change_ref: "change-1"} = tip(w, "c")
       assert pins_of(w, ids(w, "c", 3)) == [v2]
       assert pins_of(w, run2) == []

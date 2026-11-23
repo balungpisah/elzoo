@@ -60,9 +60,10 @@ have exactly the keys listed.
   tip it does what `deliver/3` does, then gives a v1 `wake` input under `wake_id`, and returns
   what `deliver/3` returns. A tip that is not idle gets the wake at once and the result is
   `{:ok, :busy}`; a terminal tip gives `{:ok, :terminal}`.
-- `rollover(room, tenant, %{chain_id, change})`: the rollover sequence of a terminal tip,
-  `change` `nil` or `%{pin, ref}` (`ref` the host's authorised, recorded action).
-  `{:ok, %{seq: successor_seq, carry_kind: :finished | :restarted}}`.
+- `rollover(room, tenant, %{chain_id, link_seq, change})`: the rollover sequence of the
+  terminal tip `link_seq` (1..2^31−1), `change` `nil` or `%{pin, ref}` (`ref` the host's
+  authorised, recorded action). `{:ok, %{seq: successor_seq, carry_kind: :finished |
+  :restarted}}`, or `{:error, {:not_tip, seq}}` when the tip is link `seq` instead.
 - `resume(room, tenant, %{chain_id})`: finishes the tip's start (and, for a link after the
   first, the predecessor's unpin). `{:ok, :live}` or `{:ok, :terminal}`.
 
@@ -107,14 +108,17 @@ for `{:indeterminate, _}`); an exit of an engine call (its 60,000 ms limit, or a
 process) is caught and is `{:error, {:engine, :no_reply}}`; a halted engine is
 `{:error, {:engine, reconciliation}}`. Other errors: `:invalid`, `:invalid_binding` (only from
 `new/1`), `{:invalid_start, reason}`, `:reserve`, `:not_started`, `:not_terminal`,
-`:link_limit`, `{:result, reason}`, `{:transcript, reason}`. Every function can be called again
+`:link_limit`, `{:not_tip, seq}`, `{:result, reason}`, `{:transcript, reason}`. Every function can be called again
 with the same request after any error or crash.
 
 **`open/3`:** (1) the shape; `check_start/2`; `link` 1; `carry` `null`; `A + 2 <= 256` and
 `R + 2 <= request_cap` (`:reserve`): a refusal writes nothing. (2) For an existing chain the
 room pins nothing and gives the mailbox's `open/3` the request, which compares the bytes: a
 duplicate goes to step 5 while link 1 is the tip and otherwise returns link 1's IDs; a conflict
-is `{:mailbox, :conflict}`. (3) `pin/4` of `pin` for link 1's Run ID. (4) The mailbox's
+reads link 1 with `chain/3` and unpins the request's `pin` for link 1's Run ID unless link 1
+holds that pin, then is `{:mailbox, :conflict}` (so a repeat after a step 4 release that did not
+finish removes the record it left; an ordinary conflict has no such record, and the unpin
+appends nothing). (3) `pin/4` of `pin` for link 1's Run ID. (4) The mailbox's
 `open/3`; on a conflict (a chain that appeared after step 2) the room unpins its pin unless that
 chain's first link holds this Run ID and this pin. (5) The `start` Need, then the start input.
 
@@ -144,6 +148,11 @@ An error of that delivery is returned and no wake is given.
 
 **`rollover/3`,** each step safe to repeat:
 
+0. **The link.** `chain/3` reads the tip. When its `seq` is not `link_seq` (the link rolled
+   over already, so this repeats a sequence that passed step 4, or the request is stale), the
+   result is `{:error, {:not_tip, seq}}` with nothing called or written: the host calls
+   `resume/3` and, for a terminal tip, `rollover/3` of link `seq`, with a change only when it
+   authorises one for that link. So a change is recorded on one link only.
 1. **The result.** The `engine` Need, `status/1` (a halted engine is an error and gets no
    other call), then `result/3`: `{:pending, :not_completed}` is
    `:not_terminal`, an error `{:result, reason}`. A completed Run whose outcome is
@@ -173,15 +182,21 @@ from a `status/1` read after the start input.
 
 ## Host sequence and Needs
 
-The minimal host: `open/3`; `deliver/3` after each `put/3` of the mailbox and each time the tip
-becomes idle; `wake/3` from the timer; on `{:ok, :terminal}` `rollover/3`; after a crash
-`resume/3` and, for a terminal tip, `rollover/3` with the same request.
+The minimal host: `open/3`, repeated with the same request after an error; `deliver/3` after
+each `put/3` of the mailbox and each time the tip becomes idle; `wake/3` from the timer, and
+after a `wake/3` at the Run deadline, `deliver/3` (a wake that ends the Run can still return
+`:busy` or `:rollover`; `deliver/3` then gives `{:ok, :terminal}`); on `{:ok, :terminal}`
+`rollover/3` with the tip's `seq` as `link_seq`; after a crash `resume/3` and, for a terminal
+tip, `rollover/3` with the same request (on `{:not_tip, seq}`, `rollover/3` of link `seq`).
 
 The room checks none of these Needs:
 
 - **One deliverer per chain.** The host runs no two calls of this Piece for one chain at a time,
   gives a tip no input except through them and the action outcomes of its own bindings, and
   gives no control (an Attempt change, a cancel) while a call for that chain runs.
+- **An `open/3` error is repeated.** After an error of `open/3` the host repeats it with the
+  same request (or calls `resume/3` once the chain exists): an open that pinned and failed
+  (`{:mailbox, :unavailable}` that did not commit) leaves its pin record until it is repeated.
 - **A halted engine** is the host's to reconcile, fence and start again under the same Unit
   identity and Run ID, as the run-engine README requires; the `engine` Need returns the
   restarted engine.
@@ -222,11 +237,9 @@ The room checks none of these Needs:
   re-given `mail:<message_id>` differ from the first, lost, one, so the engine answers
   `input_id_conflict` and the room settles `{:refused, :input_id_conflict}`. The host decides
   whether to put it again under a new `message_id`.
-- `open/3` can leave its pin record for the first Run ID: when its step 4 conflict release does
-  not finish (the `chain/3` read or the unpin fails, or the process ends between the conflict
-  and the unpin), a repeat takes step 2, which writes nothing and returns `{:mailbox,
-  :conflict}`; and when an open that pinned fails (`{:mailbox, :unavailable}` that did not
-  commit) and is never repeated. That version then cannot be deleted while the record stays.
+- An `open/3` that pinned, failed (`{:mailbox, :unavailable}` that did not commit) and is never
+  repeated leaves its pin record for the first Run ID, and that version then cannot be deleted
+  (the host Need above).
 - The room claims no exactly-once delivery: a message is given at most once per Run by the
   engine's input IDs and to exactly one link by the mailbox.
 - A tip whose carry does not complete gets no more mail and ends at its Run deadline, then

@@ -123,13 +123,23 @@ defmodule Elzoo.Room do
   def wake(_, _, _), do: {:error, :invalid}
 
   @doc """
-  The rollover sequence of a terminal tip, `change` `nil` or `%{pin, ref}`:
-  `{:ok, %{seq: successor_seq, carry_kind: :finished | :restarted}}`.
+  The rollover sequence of the terminal tip `link_seq`, `change` `nil` or `%{pin, ref}`:
+  `{:ok, %{seq: successor_seq, carry_kind: :finished | :restarted}}`, or
+  `{:error, {:not_tip, seq}}` with nothing written when the tip is link `seq` instead.
   """
-  def rollover(%__MODULE__{} = room, tenant, %{chain_id: chain_id, change: change} = request)
-      when map_size(request) == 2 do
-    with :ok <- valid(tenant?(tenant) and text?(chain_id, 128) and change?(change)),
+  def rollover(
+        %__MODULE__{} = room,
+        tenant,
+        %{chain_id: chain_id, link_seq: link_seq, change: change} = request
+      )
+      when map_size(request) == 3 do
+    with :ok <-
+           valid(
+             tenant?(tenant) and text?(chain_id, 128) and int?(link_seq, 1, @max_int32) and
+               change?(change)
+           ),
          {:ok, tip} <- tip(room, tenant, chain_id),
+         :ok <- if(tip.seq == link_seq, do: :ok, else: {:error, {:not_tip, tip.seq}}),
          {:ok, host} <- engine(room, tenant, tip),
          {:ok, _view} <- status(host.engine),
          {:ok, outcome, carry, kind} <- ending(room, tip, host),
@@ -188,7 +198,9 @@ defmodule Elzoo.Room do
     end
   end
 
-  # An existing chain: the mailbox compares the bytes and writes nothing; no pin.
+  # An existing chain: the mailbox compares the bytes and writes nothing; no pin. A conflict
+  # removes the request's pin record for the first Run ID unless link 1 holds that pin: a
+  # record that a step-4 release which did not finish left (else the unpin appends nothing).
   defp reopen(room, tenant, opening, tip, first) do
     case DurableMailbox.open(room.mailbox, tenant, opening) do
       {:ok, _} ->
@@ -199,6 +211,9 @@ defmodule Elzoo.Room do
               do: {:ok, first}
             ),
           else: {:ok, first}
+
+      {:error, :conflict} ->
+        with :ok <- release_conflict(room, tenant, opening), do: {:error, {:mailbox, :conflict}}
 
       {:error, reason} ->
         {:error, {:mailbox, reason}}
@@ -221,8 +236,8 @@ defmodule Elzoo.Room do
     end
   end
 
-  # A chain that appeared between the read and the open: keep the pin only when its first
-  # link holds this Run ID and this pin.
+  # A conflicting open: keep the pin only when the chain's first link holds this Run ID and
+  # this pin.
   defp release_conflict(room, tenant, opening) do
     case DurableMailbox.chain(room.mailbox, tenant, %{
            chain_id: opening.chain_id,

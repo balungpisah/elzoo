@@ -85,7 +85,7 @@ defmodule Elzoo.RoomBoundsTest do
       assert status(w, "c", "m").state == :pending
 
       assert {:ok, %{seq: 2, carry_kind: :finished}} =
-               Room.rollover(w.room, w.tenant, %{chain_id: "c", change: nil})
+               Room.rollover(w.room, w.tenant, %{chain_id: "c", link_seq: 1, change: nil})
     end
   end
 
@@ -140,7 +140,7 @@ defmodule Elzoo.RoomBoundsTest do
       room_clock(w, nil)
 
       assert {:ok, %{seq: 2, carry_kind: :finished}} =
-               Room.rollover(w.room, w.tenant, %{chain_id: "c", change: nil})
+               Room.rollover(w.room, w.tenant, %{chain_id: "c", link_seq: 1, change: nil})
 
       settle_engine(w, run2)
       fill(w, "c", run2, 209)
@@ -181,7 +181,7 @@ defmodule Elzoo.RoomBoundsTest do
       assert %{phase: :terminal, outcome: :out_of_time} = view(w, run)
 
       assert {:ok, %{seq: 2, carry_kind: :restarted}} =
-               Room.rollover(w.room, w.tenant, %{chain_id: "c", change: nil})
+               Room.rollover(w.room, w.tenant, %{chain_id: "c", link_seq: 1, change: nil})
 
       assert posts(w) == []
     end
