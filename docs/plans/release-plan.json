@@ -9379,6 +9379,55 @@
       "issue": 851,
       "url": "https://github.com/balungpisah/elzoo/issues/851",
       "issue_body_sha256": "7b2f2073e96a859e93d5376ef5bfe9fd7d9d6d4f7cfdd41f7fb95aff06a80e53"
+    },
+    {
+      "id": "ELZ-357",
+      "title": "ELZ-357 — delivery/retry-timeout takes a retry delay from a not-dispatched failure, with optional full jitter",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-003",
+        "ELZ-006"
+      ],
+      "status": "published 2026-11-23",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-357-retry-delay-from-failure.md"
+      ],
+      "outputs": [],
+      "acceptance": "In-place delivery/retry-timeout (settled owner decision 2 of the Wave 9 plan): policy/1 gains jitter (:none default | :full; else invalid_jitter) and max_failure_delay_ms (0..4,294,967,295, default 3,600,000; else invalid_max_failure_delay), checked after the existing checks; the Cure RetryPolicy record gains both fields (erasure a 7-tuple; today's 5-tuple is invalid_policy, no in-repo caller builds one); classify/1, decide/3 and backoff/2 keep their bodies and results. New pure delay(policy, attempts_made, class, %{failure_delay_ms: nil | n, random: 0..2^32-1}) -> {:ok, ms} (errors invalid_policy, invalid_attempt, invalid_class, invalid_delay_input in that order): with b = backoff and j = random*(b+1) div 2^32 under :full (0 under :none), a retryable class gives b or j without a failure delay and max(min(fd, max_failure_delay_ms), b) (+ j under :full) with one; completed, permanent and dispatched give exactly b. The Runner calls delay/4 with no failure delay and a :rand value drawn in its process (timers unchanged under :none). Selected Cure laws: delay of completed, permanent and dispatched equals backoff; the :none and :full retryable equalities; range bounds are test evidence (the pinned Cure rejects integer-inequality laws). Golden backoff/decide table recorded on the base, failure-delay edges under and over b and the clamp, jitter at random 0, 2^31 and 2^32-1 plus a sweep, dispatched keeps backoff, input boundary and order, two rejected Cure mutations in the audit test, a jittered Runner; three negative controls (failure delay on dispatched, no clamp, jitter under :none). Unknown-outcome policy: local small gate and full review. Output none.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 855,
+      "url": "https://github.com/balungpisah/elzoo/issues/855",
+      "issue_body_sha256": "e67143a1856ab96165e45c9379c7f3cfa758a0d7f96e1303dedee0ea72dc7773"
+    },
+    {
+      "id": "ELZ-358",
+      "title": "ELZ-358 — state/recipe-store carries a full tenant stream into a new generation with only the live state, so settled pin records no longer bound a tenant's Runs",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-009",
+        "ELZ-171",
+        "ELZ-348"
+      ],
+      "status": "published 2026-11-23",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-358-recipe-store-generations.md"
+      ],
+      "outputs": [],
+      "acceptance": "In-place repair of state/recipe-store (#821): generation 1 is the stream recipe-store/<tenant>, generation n >= 2 is recipe-store/<tenant>/<n>; a generation holds at most 10,000 records and a full one never changes; a change that would append to a full generation first writes its carry as the next generation (a recipe_carried header {from, records, v} then, per version in stored order, stored, checked with the latest upper cost, deleted and one pinned record per live pin, then published), in batches at the head revision, or is stream_full with nothing written when the carry passes 5,000 records; the live generation is the highest non-empty one when its carry is complete, else the one before it, found by O(log G) head reads; a later change completes a stopped carry after checking the written prefix (malformed otherwise); reads never write; every conflict of a change's appends is one of its 3 tries and an indeterminate append is not tried again in that call; interface, results, refusal order, Cure table and pin-before-delete order unchanged. Carry golden rows, carry equals fold over 50 random sequences, head-search bounds, stopped and contended carries, one order of pin and delete across a carry, a frozen full generation, the 5,000/5,001 carry edge, and delivery/room's full-stream case split into a carried rollover and a stream_full carry; five negative controls. Durable state, concurrency and unknown outcomes: local small gate on an a1.medium orb and full review; also delivery/room's test and #821 limit text. Output none.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 856,
+      "url": "https://github.com/balungpisah/elzoo/issues/856",
+      "issue_body_sha256": "51a8e520625dd2b0419eafeadc4604bd468e7cf1efd8a518fb857bf8fb052376"
     }
   ],
   "entries": [
