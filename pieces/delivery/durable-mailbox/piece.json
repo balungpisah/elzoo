@@ -55,7 +55,13 @@
       "kind": "upstream",
       "provider": "otp",
       "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html#hash/2",
-      "claim": "OTP 29.1.2 crypto:hash(sha256, Data) computes the declaration identity over the canonical encoding, and json:decode/3 with null as nil reads stored payloads and carries back, keeping integers of any length."
+      "claim": "OTP 29.1.2 crypto:hash(sha256, Data) computes the declaration identity over the canonical encoding."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/stdlib/json.html#decode/3",
+      "claim": "OTP 29.1.2 json:decode/3 with the null decoder set to nil reads stored payloads and carries back, keeping integers of any length."
     },
     {
       "kind": "upstream",
