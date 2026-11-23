@@ -1049,7 +1049,8 @@
       "summary": "Durable record of one delegated item: intent, assignee, evidence and acceptance",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/work-item/piece.json",
       "reason": "ELZ-347: Wave 8 (P13). Replaces RC-11, narrowed to one item per child Run (owner Q4 A); plain Ecto/Postgrex table under state/tenant-isolation; dependencies between items and lease-bound completion stay addable."
     },
     {
@@ -1057,7 +1058,8 @@
       "summary": "Grant a child Run narrowed authority, a budget share and a parent-close rule",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/delegation/piece.json",
       "reason": "ELZ-346: Wave 8 (P13). Pure (owner Q3 A, Q6 A); one delegation level through domain/principal; absorbs the delegation part of workflow/loop-guard."
     },
     {
