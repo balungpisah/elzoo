@@ -105,6 +105,7 @@ New groups go in a new test file, for example `test/elzoo/retry_delay_test.exs`,
 7. **`runner_jitter`**:
    - A Runner with `jitter: :full` and `base_backoff_ms` 5, given a not-dispatched result and then a completed one, settles `{:completed, _}` after two attempts.
    - A Runner with `mode: :redispatch_idempotent`, `jitter: :full` and `base_backoff_ms` = `max_backoff_ms` = 3,600,000, given a failed, dispatched, retryable result: its retry timer (`:sys.get_state(pid).ops[ref].timers.retry`, whose third element is the monotonic target, as the existing runner tests read the deadline timer) is armed for `b` = 3,600,000 ms: with `t0` = `System.monotonic_time(:millisecond)` taken before the submit and `t1` after the state read, `t0 + b <= target <= t1 + b`. So the Runner passes the class of the result, and a possibly dispatched retry is not jittered.
+   - A Runner with `jitter: :full` and `base_backoff_ms` = `max_backoff_ms` = 3,600,000, given a not-dispatched result: its retry target is jittered, `t0 <= target <= t1 + b` and `target < t0 + b`. So the Runner calls `delay/4` with its own random value. The case fails by chance only when the drawn `j` is within `t1 − t0` of `b`, about (`t1 − t0` + 1) / 3,600,001; state that in the test.
    - A Runner with the default policy keeps every existing timer test unchanged.
 
 **Negative controls**, each by a temporary edit of the production Cure function in the worktree, run, recorded and reverted (`AGENTS.md` section 4). With the laws in place each edit fails compilation; record that, then remove for the same run only the laws that the edit breaks, and record the ExUnit failure:
@@ -113,8 +114,9 @@ New groups go in a new test file, for example `test/elzoo/retry_delay_test.exs`,
 2. Drop the `max_failure_delay_ms` clamp: the `fd` 5,001 and 10^12 cases of group 2 fail.
 3. Give `:none` the jitter (use `j` under both kinds): group 2's `random` case fails.
 4. In the Runner (an Elixir edit; no law breaks), pass `:retryable` to `delay/4` for every `:retry` decision: group 7's dispatched case fails (except when the jitter falls within the elapsed time `t1 − t0` of `b`).
+5. In the Runner (an Elixir edit; no law breaks), keep calling `backoff/2` for every retry: group 7's not-dispatched jitter case fails.
 
-Groups 2 to 4 carry the delay rule; group 7 carries the Runner's use of it.
+Groups 2 to 4 carry the delay rule; group 7 carries the Runner's use of it (controls 4 and 5).
 
 ## Documents
 
