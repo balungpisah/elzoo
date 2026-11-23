@@ -40,7 +40,7 @@ Piece's test helper.
   on the application Repo, and every RunEngine, recipe-store and artifact Store is on it.
 - Fail, never skip: `setup_all` flunks when `ELZOO_TEST_APP_ROLE` is unset or is not
   `elzoo_app`. It also flunks when the application connection's `current_user` is not that role,
-  equals the session role, holds the owner's privileges, or is a superuser, `BYPASSRLS`,
+  equals the session role, is a member of the session role, or is a superuser, `BYPASSRLS`,
   `LOGIN`, `INHERIT`, `CREATEROLE` or `CREATEDB` role. The setup test also shows that the guard
   fails for an unset variable, `elzoo_test` and `postgres`.
 - One shared schema holds the mailbox and work-item installs (one each, from consumer
@@ -75,8 +75,12 @@ Piece's test helper.
 - Engines. The run-engine fixture hosts one engine at a time, so the harness copies its
   construction. There is one Run owner per tenant for the room tips and their children, with
   `attach_child` given `child_pid: nil`. A Unit directory routes each offer to the engine of its
-  Unit identity. A per-tenant re-entrant lock runs one Run-owner command at a time: one engine
-  input or one harness Run command, because the owner's revision covers its whole stream.
+  Unit identity. The owner's revision covers its whole stream, so a per-tenant re-entrant lock
+  holds every command that the harness sends: each engine input and each harness Run command.
+  It does not hold the `:complete` command that an engine sends to the owner on its own after a
+  `local_work` outcome (the carry's echo and the parent-close children's work). No case runs
+  such a completion together with another command of the same tenant; if one did, the engine
+  would halt on the revision race and `settle!/2` would fail the test, not pass it.
 - One shared test clock is the engines' clock and the room's clock. The slot deadlines are tool
   20,000 ms, effect 100,000 ms and turn 200,000 ms; the Run deadline is 1,000,000 ms after the
   start; the margin is 1,000 ms.
@@ -114,7 +118,8 @@ per `{label, member}` as a queue.
 - **group 2, turns.** Ann addresses A; A mentions B; B answers and mentions A; then A's second
   turn, with new action IDs and no refused action. Three turns fill the bound with no notice.
   An A–B exchange stops at `max_bot_turns` with one notice, and Ann's next message resumes it.
-  Escalation gives one notice and no bot turn after a peer's message until Ann writes. Handoff
+  Escalation gives one notice and no bot turn after a peer's message or a bot member's message
+  until Ann writes. Handoff
   gives B the next unaddressed turn.
 - **group 2, `:decided`** (R3, `max_bot_turns` 2, `rollover.max_turns` 3). A valid pick gives
   the turn to the picked bot. A schema-valid pick of a non-member falls back to
@@ -140,7 +145,7 @@ per `{label, member}` as a queue.
   item is `cancelled`. `:request_cancel`: one message on the child's own chain, given only when
   idle; the child finishes, and its item goes `cancel_requested`, then `cancelled`.
   `:abandon`: the child finishes, its item stays `abandoned`, and its offer is
-  `{:error, {:state, :abandoned}}`. No item stays open. A's turn still waits; the `wake` at its
+  `{:error, {:state, :abandoned}}`. No item stays open, and no child keeps a pin. A's turn still waits; the `wake` at its
   own deadline settles it `expired`, and the tip is idle with no post of that turn.
 - **group 5, rollover.** The request edge gives `{:ok, :rollover}`; the tip asks its carry
   (`c/1/1`) and finishes. `rollover/3` of link 1 gives `{:ok, %{seq: 2, carry_kind: :finished}}`,
@@ -153,7 +158,7 @@ per `{label, member}` as a queue.
   the chain row that the harness holds as `elzoo_app` (both seen waiting in `pg_locks`); after
   the release both answer `{:ok, %{seq: 4, carry_kind: :finished}}`, the later one replaying
   the committed step. The chain then has one link after link 3 and four links in all, link 4
-  has one start, and `v1` stays pinned. A tip that started with a queued B turn from its carry
+  has one start and exactly one pin record, of `v1`. A tip that started with a queued B turn from its carry
   (R1r) stalls in that turn and reaches its Run deadline with `out_of_time`. It rolls over
   `:restarted`, and the successor's start has an empty queue, the `restarted_queue_dropped`
   note, and no turn.
@@ -169,12 +174,33 @@ per `{label, member}` as a queue.
 - PostgreSQL 16.16 (Debian 16.16-1.pgdg13+1), and MinIO RELEASE.2025-09-07T16-13-09Z as the
   disposable S3 test server, on the worker's orb (4 vCPU, 7 GB).
 - `elzoo_app`: `NOSUPERUSER`, `NOBYPASSRLS`, `NOLOGIN`, `NOINHERIT`, `NOCREATEROLE`,
-  `NOCREATEDB`, without the session role's privileges (read by the setup test).
-- `MIX_ENV=test mix test test/wave8_bots_talk_test.exs --trace`: 7 tests, 0 failures. The times
-  of the acceptance module are in the pull request body. Every test is well within the root
-  suite's per-test limit of 120,000 ms, so no test sets `@tag timeout:`.
-- The local gate, `mix check --affected origin/main` and `git diff --check`, and the roadmap and
-  claims checks, with their exit codes, are in the pull request body.
+  `NOCREATEDB`, and not a member of the session role (`pg_has_role(…, 'MEMBER')` is false; read
+  by the setup test and on each Store's Repo).
+- The time of the acceptance module, `MIX_ENV=test mix test test/wave8_bots_talk_test.exs
+  --trace --warnings-as-errors` on that orb, alone on its database server (exit 0, 7 tests,
+  0 failures):
+
+  | Test | Time |
+  | --- | --- |
+  | setup | 900 ms |
+  | group 1: mail in | 3,333 ms |
+  | group 2: turns | 7,568 ms |
+  | group 2: `:decided` | 2,486 ms |
+  | groups 3 and 4: delegation and parent close | 2,052 ms |
+  | group 5: rollover | 4,279 ms |
+  | group 6: isolation | 1,492 ms |
+  | module total | 25.5 s |
+
+  Every test is well within the root suite's per-test limit of 120,000 ms, so no test sets
+  `@tag timeout:`. Group 5 passed 3 of 3 in one `--repeat-until-failure 3` launch.
+- The local gate, holding the one database slot: `mix check --affected origin/main` exited 0
+  (4,700 s; `ELZOO AFFECTED CHECK PASSED`; the root suite 3,925 passed, 114 excluded, in
+  4,115 s; the aggregate consumer of 142 ready Pieces 1,554 s), and `git diff --check` exited 0.
+  That run was on the head reviewed first. The first review's repairs change only the two test
+  files and this report; on the repaired head, `mix format --check-formatted`, `mix compile
+  --warnings-as-errors`, the acceptance module above, `scripts/check-roadmap.py` (with
+  `--live`), `scripts/check-claims.py`, `scripts/test-ci-change-class.py` and `git diff --check`
+  each exited 0, and the hosted full check runs on the exact head.
 
 ## Harness negative controls
 
@@ -212,6 +238,7 @@ outside the room's one-deliverer Need and shows only the mailbox's guards. One t
 recipe-store stream bounds its Runs (#821). Mail, carries and intents have no erasure in Wave 8.
 The RunEngine Stores, the recipe-store stream and the artifact records are not under row
 security. `log: false` silences only the Logger. READ COMMITTED is a consumer Need. The shared
-Run owner serializes its commands. The restarts are a host's bookkeeping dropped or a Need
+Run owner needs its commands serialized; the harness lock covers the commands that the harness
+sends, not an engine's own completion after local work (see "Engines" above). The restarts are a host's bookkeeping dropped or a Need
 failing in one VM, not a database restart. Races inside one Piece are that Piece's tests. These
 are finite scenarios, not proofs, and no complete-Wave claim is made.

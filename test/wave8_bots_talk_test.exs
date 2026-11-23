@@ -123,7 +123,7 @@ defmodule Elzoo.Wave8.BotsTalkTest do
                inherit: false,
                createrole: false,
                createdb: false,
-               inherits_owner: false
+               member_of_owner: false
              } = facts
 
       assert facts.session != "elzoo_app"
@@ -302,7 +302,7 @@ defmodule Elzoo.Wave8.BotsTalkTest do
       pump.()
       assert [{_, "A", "m-3"}] = Enum.drop(H.turns(w, run), 6)
 
-      # Escalation: one notice, and no bot turn after a peer's message until Ann writes.
+      # Escalation: one notice, and no bot turn after a peer's or a bot's message until Ann writes.
       Host.queue({"R1/1", "A"}, [H.say("I need a person", [], escalate: true), H.say("thanks")])
       ann(w, "R1", "m-4", "A, decide this", ["A"])
       pump.()
@@ -312,8 +312,14 @@ defmodule Elzoo.Wave8.BotsTalkTest do
                  sender: %{kind: :service, id: "R2"}
                )
 
+      assert {:ok, :applied} =
+               H.put(w, "T1", "R1", "bot-1", "B", "A, from B", ["A"],
+                 sender: %{kind: :agent, id: "B"}
+               )
+
       pump.()
       assert %{state: :consumed} = H.status(w, "T1", "R1", "peer-1")
+      assert %{state: :consumed} = H.status(w, "T1", "R1", "bot-1")
       assert [{_, "A", "m-4"}] = Enum.drop(H.turns(w, run), 7)
       assert [_, {_, _, %{"reason" => "escalated", "members" => ["Ann"]}}] = H.notices("R1")
       ann(w, "R1", "m-5", "I am here, A", ["A"])
@@ -614,7 +620,7 @@ defmodule Elzoo.Wave8.BotsTalkTest do
       assert {:ok, %{items: [], more: false}} =
                WorkItem.list_open(w.items, "T1", %{parent_run_id: run, after: nil, limit: 256})
 
-      for child <- [ka, kr], do: assert(H.pins_of(w, "T1", child) == [])
+      for child <- [ka, kr, kc], do: assert(H.pins_of(w, "T1", child) == [])
       clean!()
     end
   end
@@ -736,6 +742,7 @@ defmodule Elzoo.Wave8.BotsTalkTest do
       links = H.chain(w, "T1", "R1").links
       assert [%{seq: 4, run_id: ^run4}] = for(l <- links, l.predecessor_seq == 3, do: l)
       assert length(links) == 4
+      assert pins_record(w, "T1", "recipe_pinned", run4) == [v1]
       assert H.pins_of(w, "T1", run4) == [v1]
       assert H.pins_of(w, "T1", run3) == []
       assert Enum.count(H.inputs(w, run4), &(&1 == "start:" <> run4)) == 1
