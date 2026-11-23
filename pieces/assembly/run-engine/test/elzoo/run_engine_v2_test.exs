@@ -714,6 +714,70 @@ defmodule Elzoo.RunEngineV2Test do
            )
   end
 
+  # ELZ-359 (#843): the readers project a resumed v2 input with the fold's phase switch.
+  test "native_v2_resumed_input: after continue a resumed answer leaves the Run active, the readers agree, and the next wake reaches the root" do
+    Process.register(self(), :run_engine_observer)
+
+    c =
+      fixture(
+        protocol_version: 2,
+        pattern:
+          {TestPattern, :waiting,
+           %{name: "root", script: [request_v2([action("answer", "ask_person")]), :wait, :wait]}}
+      )
+
+    c = %{
+      c
+      | opts:
+          Keyword.put(c.opts, :result_reader, %{
+            evidence_store: c.evidence_store,
+            retention_count: 1_024
+          })
+    }
+
+    engine = start(c)
+    assert {:ok, :applied} = RunEngine.input(engine, "start", start_input_v2(), verified())
+    assert_receive {:pattern_input, "root", %{"kind" => "start"}}
+    wait_for(engine, &(&1.slots[{1, 0}][:phase] == :waiting))
+
+    assert {:ok, :applied} =
+             RunEngine.control(
+               engine,
+               "pause-v2",
+               %{kind: :pause, pause_deadline: 50_000},
+               verified()
+             )
+
+    assert {:ok, :applied} =
+             RunEngine.input(
+               engine,
+               "person-answer-v2",
+               person_answer_v2("answer", "person", %{"value" => 7}),
+               verified(%{occurrence: {1, 0}, verified_person: "person"})
+             )
+
+    assert {:ok, :applied} =
+             RunEngine.control(
+               engine,
+               "continue-v2",
+               %{kind: :continue, person_id: "person", run_deadline: 60_000},
+               verified(%{verified_person: "person"})
+             )
+
+    assert_receive {:pattern_input, "root", %{"kind" => "person_answer", "version" => 2}}
+    assert view(engine).phase == :active
+
+    scope = %{tenant: "tenant", principal: "principal", run_id: "run"}
+    limits = %{max_records: 65_536, max_bytes: 536_870_912}
+    assert {:ok, %{run_id: "run", waits: []}} = RunEngine.event_waits(engine, scope, limits)
+    assert {:ok, %{run_id: "run"}} = RunEngine.transcript(engine, scope, limits)
+
+    assert {:ok, _} = RunEngine.input(engine, "wake-v2", wake_v2(), verified())
+    assert_receive {:pattern_input, "root", %{"kind" => "wake", "version" => 2}}
+    refute_receive {:pattern_input, _, _}, 200
+    Process.unregister(:run_engine_observer)
+  end
+
   test "v2 tool and model actions use effect completion without changing protocol tags" do
     c =
       fixture(
