@@ -2,7 +2,7 @@
 
 - Phase: Wave 8 Level 1
 - Dependencies: ELZ-033, ELZ-137, ELZ-270, ELZ-285
-- Release: V1B
+- Release: V1B (RC-11 was V1; the replacement is V1B because its dependencies ELZ-137, ELZ-270 and ELZ-285 are V1B, and a job cannot depend on a later release; RC-37 keeps RC-11, which stays V1)
 - Output: `workflow/work-item` (the deferred catalogue row, narrowed; this task replaces the proposal RC-11, as ELZ-105 replaced RC-05)
 - Change class: Piece-only
 - Owned paths: `pieces/workflow/work-item/**` and its own catalogue/release-plan rows and generated views only. Do not edit root/shared code, another Piece (including `state/tenant-isolation`, `workflow/untrusted-content`, `workflow/delegation` and `workflow/run`), `mix.exs`, `mix.lock` or CI.
@@ -24,7 +24,7 @@ Checked at `main` `bce5ea99`: `Elzoo.UntrustedContent.decode/1` is the only way 
 Module `Elzoo.WorkItem`.
 
 - `Elzoo.WorkItem.Migration.install(prefix)`, called from a consumer migration's `up/0` by the table owner, installs the `state/tenant-isolation` readers in `prefix`, creates one item table in the existing schema `prefix` with `PRIMARY KEY (tenant, item_id)`, `UNIQUE (tenant, child_run_id)` and an index on `(tenant, parent_run_id, item_id)` for the open items, and protects it with `Elzoo.TenantIsolation.Migration.protect/2` (`space_column: nil`). `prefix` follows the tenant-isolation identifier rule; anything else raises `ArgumentError` with one fixed message before any DDL.
-- `new(opts)` takes exactly `repo:` and `prefix:` and returns an items value, or raises the same fixed `ArgumentError`. `verify(items)` runs `Elzoo.TenantIsolation.verify/3` for the table and returns its result.
+- `new(opts)` takes exactly `repo:` and `prefix:` and returns an items value, or raises the same fixed `ArgumentError`. `verify(items)` runs `Elzoo.TenantIsolation.verify/3` for the table and returns its result; it has no `:in_transaction` check, since `verify/3` also runs inside a caller's transaction.
 - An **item** is `%{item_id, parent_run_id, child_run_id, owner, intent, acceptance, parent_close, state, revision, evidence, decided_by}`: `owner` the ID of the parent Run's principal (host-vouched); `intent` a marked value whose content is 1..4,096 bytes, stored whole and returned as its neutral map with trust class, sources and bound; `acceptance` `:parent`, the one member of a closed set in this version; `parent_close` `:abandon`, `:request_cancel` or `:cancel`; `state` below; `revision` an integer from 1; `evidence` `nil` or an opaque reference of 1..256 bytes (for example the child's completed outcome reference); `decided_by` `nil` or the deciding principal's ID.
 - **States:** `open → running → offered → accepted | rejected`; from `open`, `running` or `offered` to `cancel_requested`, `cancelled` or `abandoned`; from `cancel_requested` to `cancelled` or `abandoned`. `accepted`, `rejected`, `cancelled` and `abandoned` are final.
 - `create(items, tenant, item)` with `item` exactly `%{item_id, parent_run_id, child_run_id, owner, intent, acceptance, parent_close}` stores it `open` at revision 1. Idempotent by `(tenant, item_id)`: equal canonical bytes `{:ok, :duplicate}`, other bytes `:conflict`. A `child_run_id` of another item is `:conflict`, so a new child Run is a new item.
@@ -54,7 +54,7 @@ A transition reads the item in its transaction and checks, in this order:
 5. The expected revision is not the item's: `:stale_revision`.
 6. Write the new state, the facts and `revision + 1` with one `UPDATE ... WHERE tenant = ... AND item_id = ... AND revision = expected`; zero rows is `:stale_revision`. Under READ COMMITTED a second writer of the same revision waits for the first and then updates no row, so two concurrent decisions commit one.
 
-Cancelling an Attempt of the child changes no item: the item keeps its intent; only `close/4` changes its state. A Run result is evidence only through `offer/4`; no function completes an item without `decide/4`.
+Cancelling an Attempt of the child changes no item (the Piece has no Attempt input): the item keeps its intent; only `close/4` changes its state. A Run result is evidence only through `offer/4`; no function completes an item without `decide/4`.
 
 The README states the minimum grants for the application role: `USAGE` on `prefix`, `SELECT, INSERT, UPDATE` on the table, no `DELETE`, and the PUBLIC defaults that the floor needs (`CONNECT` and `TEMP` on the database, `EXECUTE` on `elzoo_tenant_id()`). `piece.json` declares telemetry and control `not_applicable`, the config of the items value and the fixed bounds, and the dependencies `state/tenant-isolation` and `workflow/untrusted-content`. The README replaces the catalogue's RC-11 text with this Contract and says what of RC-11 is kept open.
 
@@ -73,14 +73,14 @@ Each option below can be added in place before the first release without breakin
 
 Tests run on the worker's disposable PostgreSQL 16 (`ELZOO_TEST_DATABASE_URL`) with a `DBConnection.ConnectionPool` Repo, not the Sandbox, in random schemas dropped afterwards.
 
-1. RC-11's list for this narrowing: a stale holder cannot offer (`:not_assignee`); a duplicate offer is `:unchanged`, also with a stale revision; a no-op writes nothing (the row's `revision` and `xmin` are unchanged, read inside `Elzoo.TenantIsolation.transact/3` with the tenant's scope); a cancelled child Attempt leaves the item and its intent unchanged.
+1. RC-11's list for this narrowing: a stale holder cannot offer (`:not_assignee`); a duplicate offer is `:unchanged`, also with a stale revision; a no-op writes nothing (the row's `revision` and `xmin` are unchanged, read inside `Elzoo.TenantIsolation.transact/3` with the tenant's scope); an Attempt cancel cannot erase the intent (RC-11): the Piece has no Attempt input, and an item closed to `cancel_requested` and then `cancelled` keeps its intent bytes, read back with `get/3`.
 2. The lifecycle: create, start, offer, accept; and offer, reject; each transition that the state set does not allow is refused with the current state, including an offer after `abandoned` and after `cancel_requested`; each of the three parent-close mappings; a decision by another principal is `:not_owner`; an offer of other evidence is `:conflict`.
 3. Two concurrent decisions behind a barrier (another connection holds the item's row lock with `SELECT ... FOR UPDATE` until both `UPDATE`s wait on it, seen in `pg_locks`): one commits and the other is `:stale_revision`, also for an accept against a reject.
 4. `create/3` duplicate and conflict, and a second item for the same `child_run_id` is `:conflict`.
 5. `list_open/3` after a crash (a new Repo and connection after the writer's process ends) returns the open items of one parent with their parent-close rules and no item of another parent; paging at `limit` 1 and 256 with `more`; a final item is not listed.
 6. The intent survives a round trip: the returned neutral map equals `Elzoo.UntrustedContent.encode/1` of the stored value, for `"untrusted"` and `"derived"` content; content of 0 and 4,097 bytes is `:invalid`, of 1 and 4,096 accepted.
 7. Row security as `elzoo_app` (ELZ-285: `SET ROLE` to `ELZOO_TEST_APP_ROLE` on every connection, only the README grants on the random schema; the test fails, not skips, when the variable is unset): `verify/1` passes; under T1 a T2 item is `:unknown_item` and absent from `list_open/3`; a direct SQL insert of a T2 row fails with SQLSTATE 42501; `DELETE` fails with 42501; every function succeeds with only the README grants.
-8. A caller's open transaction gives `:in_transaction` for every function before any query; a Repo whose connections default to `repeatable read` gets `:isolation` from every write with nothing committed.
+8. A caller's open transaction gives `:in_transaction` for every function except `new/1` and `verify/1` before any query; a Repo whose connections default to `repeatable read` gets `:isolation` from every write with nothing committed.
 9. Bounds at their edges: each ID at 0, 1, its maximum and one over, invalid UTF-8, a NUL, and a C0 and C1 character where the rule forbids them; `evidence` at 256 and 257 bytes; a revision of 0 and 2^31; an unknown acceptance, parent-close, decision or `to` value.
 10. Negative controls, one at a time, each restored before the final gates: drop the revision check from the `UPDATE` (case 3 commits both decisions); skip the assignee check (case 1's stale holder offers); make a no-op write (case 1's `xmin` changes).
 

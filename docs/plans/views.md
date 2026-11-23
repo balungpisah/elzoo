@@ -86,7 +86,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-07 | V1 / pieces | ELZ-033, RC-06, ELZ-024, RC-10 | superseded for domain/membership by published ELZ-269 and for domain/entitlement by published ELZ-300; outputs moved; no remaining output | one claimed task worker after admission |
 | RC-08 | V1 / pieces | ELZ-033, ELZ-022, RC-07, ELZ-009 | superseded for domain/quota by published ELZ-303 (output moved; storage under owner Q1 A, Wave 6 plan); no remaining output | one claimed task worker after admission |
 | RC-09 | V1 / pieces | ELZ-033, ELZ-024, RC-06 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-11 | V1 / pieces | ELZ-033, ELZ-026, ELZ-028, ELZ-024, RC-10 | superseded for workflow/work-item by published ELZ-347 (narrowed to one item per child Run); output moved | one claimed task worker after admission |
+| RC-11 | V1 / pieces | ELZ-033, ELZ-026, ELZ-028, ELZ-024, RC-10 | superseded for workflow/work-item by published ELZ-347 (narrowed to one item per child Run; V1B, since its dependencies are V1B); output moved | one claimed task worker after admission |
 | RC-12 | V1 / pieces | ELZ-033, ELZ-010, ELZ-023, ELZ-024, ELZ-026, ELZ-028, ELZ-055, ELZ-009 | superseded for workflow/run by published ELZ-116; output moved | one claimed task worker after admission |
 | RC-13 | V1 / pieces | ELZ-033, ELZ-009, ELZ-024, RC-05 | superseded for state/artifact by published ELZ-096 (output moved); no remaining output | one claimed task worker after admission |
 | RC-14 | V1 / pieces | ELZ-033, ELZ-006 | superseded for delivery/data-stream by published ELZ-101; broader transfer gaps remain deferred | one claimed task worker after admission |

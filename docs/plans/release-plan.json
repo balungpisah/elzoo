@@ -2212,7 +2212,7 @@
         "ELZ-024",
         "RC-10"
       ],
-      "status": "superseded for workflow/work-item by published ELZ-347 (narrowed to one item per child Run); output moved",
+      "status": "superseded for workflow/work-item by published ELZ-347 (narrowed to one item per child Run; V1B, since its dependencies are V1B); output moved",
       "contract": "Work Item has stable intent, acceptance revision, assignee/authority and explicit lifecycle. A Run result is evidence offered for acceptance, never automatic business completion.",
       "acceptance": "Stale holder cannot accept, duplicate completion is idempotent, no-op writes nothing, dependency failure policy explicit, cancellation of an Attempt does not erase intent.",
       "reuse": "Ash resource/action/state facilities; reuse provider ownership when ELZ-028 determines it suffices.",
@@ -9072,7 +9072,7 @@
       ],
       "issue": 822,
       "url": "https://github.com/balungpisah/elzoo/issues/822",
-      "issue_body_sha256": "c719a2bc7babb2017dbeb5253292e629babfb18a556dc43cfe51bf5d4ca99414"
+      "issue_body_sha256": "1ebf7b0a087cd9e0275205851e3c4b529660b14550a0db5ab1844410dfc67bbf"
     },
     {
       "id": "ELZ-345",
@@ -9101,7 +9101,7 @@
       ],
       "issue": 823,
       "url": "https://github.com/balungpisah/elzoo/issues/823",
-      "issue_body_sha256": "71108e4525ae770f9781652e4859436618552da4bc3462fb328177985946af04"
+      "issue_body_sha256": "471e1635dbfa6e6d0bafd7c45e9b9fdcd2dafec01178d75cac710bb8132518e2"
     },
     {
       "id": "ELZ-346",
@@ -9128,7 +9128,7 @@
       ],
       "issue": 824,
       "url": "https://github.com/balungpisah/elzoo/issues/824",
-      "issue_body_sha256": "cb609fa7b57459e3b67caee3026be7ae209cb1200dfd27317df3db6e41b35cac"
+      "issue_body_sha256": "09c71b8a27e26d3a54409a85c4b0316dee491dafce40e4a5287a9a493c94e5ee"
     },
     {
       "id": "ELZ-347",
@@ -9156,7 +9156,7 @@
       ],
       "issue": 825,
       "url": "https://github.com/balungpisah/elzoo/issues/825",
-      "issue_body_sha256": "9861837969456e14d34d3831854e53699c874ae00cc5c95a569bc8fc3a173971"
+      "issue_body_sha256": "703d309a703d587f2d484379dccd5d6b07d7812b971d721f35b6fd2819ef44dd"
     }
   ],
   "entries": [
