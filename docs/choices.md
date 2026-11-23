@@ -1124,7 +1124,11 @@ no Piece ID; only a change of a Piece follows the ID rule.
 - **Why.** These are the stated Needs and limits of `delivery/room` and
   `delivery/durable-mailbox`.
 - **For you.** Run one deliverer per chain, and serialize every command to a
-  tenant's shared Run owner, as the harness does.
+  tenant's shared Run owner, as the harness does; the harness lock covers the
+  commands that the harness sends, not an engine's own completion after local
+  work. Repeat `open/3` after an error until it returns a stop: the exact
+  stop set is open wording in issue #834, and the acceptance relies on no
+  stop other than `{:ok, _}`.
 - **To change.** A stated lifetime count (Q8 C) is additive.
 
 ### A tenant's pinned Runs are bounded
