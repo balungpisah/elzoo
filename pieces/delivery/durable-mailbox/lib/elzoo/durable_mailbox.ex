@@ -702,7 +702,7 @@ defmodule Elzoo.DurableMailbox do
                do: link_term(link)
              ),
            more: tip_seq > after_seq + limit,
-           tip: Map.put(link_term(tip), :carry, Jason.decode!(carry))
+           tip: Map.put(link_term(tip), :carry, decode(carry))
          }}
 
       {:error, _} ->
@@ -767,7 +767,7 @@ defmodule Elzoo.DurableMailbox do
       sender: %{kind: Map.fetch!(@terms, kind), id: sender_id},
       name: name,
       schema_version: version,
-      payload: Jason.decode!(payload),
+      payload: decode(payload),
       seq: seq
     }
   end
@@ -914,6 +914,13 @@ defmodule Elzoo.DurableMailbox do
   defp elements?([], _), do: true
   defp elements?([h | rest], depth), do: json?(h, depth) and elements?(rest, depth)
   defp elements?(_, _), do: false
+
+  # OTP's :json decoder keeps integers of any length (Jason 1.4.5 refuses more than 1,024
+  # digits, which a stored term may hold within 65,536 bytes); null is nil.
+  defp decode(text) do
+    {term, :ok, ""} = :json.decode(text, :ok, %{null: nil})
+    term
+  end
 
   # Compact Jason 1.4 encoding with the keys of every object sorted by their bytes.
   defp canonical(term), do: Jason.encode!(ordered(term))

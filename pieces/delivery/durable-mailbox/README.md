@@ -22,7 +22,8 @@ host composes it with the engine (for example `delivery/room`): the old Run is t
 Select `delivery/durable-mailbox` with `mix elzoo.take`; the dependency-closed copy is owned by
 the consuming application. See [consuming](../../../docs/consuming.md). Piece dependencies:
 `state/tenant-isolation` (the floor, its migration helper, `transact/3` and `verify/3`) and
-`core/payload-schema` (`build/2` and `check/3`). No Cure source. Providers: `ecto_sql` 3.14.0 and
+`core/payload-schema` (`build/2` and `check/3`). No Cure source of its own; the copy includes
+the Cure source of `core/port`, a dependency of `core/payload-schema`. Providers: `ecto_sql` 3.14.0 and
 `postgrex` 0.22.4, `jason` 1.4.5 (the canonical encoding), `elixir`, `otp` (`:crypto` SHA-256);
 the tests also use `telemetry`. Exact versions and claim-level grounding are in
 [piece.json](piece.json).
@@ -186,7 +187,8 @@ as UTF-8 with `"` and `\` escaped, U+0000–U+001F escaped (`\b`, `\t`, `\n`, `\
 shortest form that reads back as the same float (`:erlang.float_to_binary(f, [:short])`, for
 example `1.0`), so `1` and `1.0` differ. It decides every equal-bytes comparison, the
 65,536-byte bounds, and what `carry` and `payload` are stored as; `claim/3` and `chain/3`
-decode them with Jason.
+decode them with OTP's `:json` (`null` as `nil`), which keeps integers of any length: Jason
+1.4.5's decoder refuses an integer of more than 1,024 digits.
 
 The **declaration identity** is `{id, version, sha256}`, `sha256` the lowercase hex SHA-256 of
 the canonical JSON of

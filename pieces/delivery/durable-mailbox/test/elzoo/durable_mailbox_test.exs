@@ -408,6 +408,20 @@ defmodule Elzoo.DurableMailboxTest do
     end
   end
 
+  describe "1c long integers" do
+    test "an integer past Jason's 1,024-digit decode limit is claimed and read back", %{mb: mb} do
+      big = Integer.pow(10, 1024)
+      {:ok, :applied} = MB.open(mb, "T1", opening("c1", %{carry: %{"n" => big, "z" => nil}}))
+      {:ok, :applied} = MB.put(mb, "T1", mail("m1", %{payload: %{"text" => "hi", "n" => -big}}))
+      {:ok, :applied} = MB.put(mb, "T1", mail("m2"))
+      assert %{carry: %{"n" => ^big, "z" => nil}} = tip(mb, "T1", "c1")
+      assert %{message_id: "m1", message: %{payload: %{"n" => n}}} = claim!(mb, "T1", "c1")
+      assert n == -big
+      {:ok, :applied} = settle(mb, "T1", "c1", "m1", 1, :applied)
+      assert %{message_id: "m2"} = claim!(mb, "T1", "c1")
+    end
+  end
+
   describe "2 bounds" do
     test "message_id, payload and carry at the bound and one past it", %{mb: mb, p: p} do
       {:ok, :applied} = MB.open(mb, "T1", opening("c1"))
