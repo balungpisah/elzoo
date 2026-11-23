@@ -9379,6 +9379,30 @@
       "issue": 851,
       "url": "https://github.com/balungpisah/elzoo/issues/851",
       "issue_body_sha256": "7b2f2073e96a859e93d5376ef5bfe9fd7d9d6d4f7cfdd41f7fb95aff06a80e53"
+    },
+    {
+      "id": "ELZ-356",
+      "title": "ELZ-356 — After continue, a resumed paused input that leaves nothing open makes the Run active again",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-127",
+        "ELZ-351"
+      ],
+      "status": "published 2026-11-23",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-356-run-engine-resumed-input-phase.md"
+      ],
+      "outputs": [],
+      "acceptance": "Repair of assembly/run-engine for #843, same Piece ID (bug fix restoring the Contract): a :resume_input step that gives its input (an input retained while paused or a held expiry report) switches a waiting Run to active before its pattern call when active_count/1 is 0 and no wait is listed, for every Run and not only with expiry_reports: :owner, and the event-wait projection of that step does the same; no record, ID, option, control, fingerprint, pattern input, charge or bound changes. Tests: resumed_input_reopens_the_root (v1, after continue the phase is active and the next wake reaches the root; restart equal), resumed_input_with_open_work_stays_waiting (running local work, a waiting ask), native_v2_resumed_input (event_waits/3 and transcript/3 read, next v2 wake reaches the root); every existing test, ELZ-351's golden default-off trace included, passes unchanged. Three negative controls: the option condition kept, the active_count/1 condition removed, the projection still guarded. Durable state: local small gate and full review. Output none. #854 not folded in.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 857,
+      "url": "https://github.com/balungpisah/elzoo/issues/857",
+      "issue_body_sha256": "02e0b6b6755b507141239b71a82c00ba56d0237fcbd598b62568f7351b15d624"
     }
   ],
   "entries": [
