@@ -123,16 +123,17 @@ defmodule Elzoo.QuotaTest.Harness do
 
   @doc """
   The application connection is the application role: no superuser, no BYPASSRLS, not the
-  session (owner) role and without the owner's privileges. Any other answer fails.
+  session (owner) role and no member of it (direct or indirect, with or without INHERIT). Any
+  other answer fails.
   """
   def role_guard!(role) do
-    [[current, session, super, bypass, inherits]] =
+    [[current, session, super, bypass, member_of_owner]] =
       q!(
         AppRepo,
-        "SELECT current_user, session_user, r.rolsuper, r.rolbypassrls, pg_has_role(current_user, session_user, 'USAGE') FROM pg_roles r WHERE r.rolname = current_user"
+        "SELECT current_user, session_user, r.rolsuper, r.rolbypassrls, pg_has_role(current_user, session_user, 'MEMBER') FROM pg_roles r WHERE r.rolname = current_user"
       )
 
-    if current != role or current == session or super or bypass or inherits,
+    if current != role or current == session or super or bypass or member_of_owner,
       do: flunk("the application connection is not the non-owner application role")
   end
 
