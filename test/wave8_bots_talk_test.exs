@@ -381,7 +381,6 @@ defmodule Elzoo.Wave8.BotsTalkTest do
   # ------------------------------------------------------------ groups 3 and 4
 
   describe "groups 3 and 4: delegation and parent close" do
-    @tag timeout: 240_000
     test "a granted child, each refusal whole, offered then accepted; each parent-close rule once",
          %{w: w} do
       peers!(w)
@@ -623,7 +622,6 @@ defmodule Elzoo.Wave8.BotsTalkTest do
   # ------------------------------------------------------------ group 5
 
   describe "group 5: rollover" do
-    @tag timeout: 240_000
     test "the request edge, one successor on a fresh Unit, mail once, concurrent rollovers, a crash, pins, a Run deadline",
          %{w: w} do
       # The request edge (Q8): R1's per-message reserve is R = 3 × (2 + 8) + 1 = 31, so with
@@ -729,10 +727,9 @@ defmodule Elzoo.Wave8.BotsTalkTest do
 
       send(holder, :go)
 
-      for result <- Task.await_many(racers, 60_000) do
-        assert match?({:ok, %{seq: 4, carry_kind: :finished}}, result) or
-                 match?({:error, _}, result)
-      end
+      # Both answer the one successor: the later one replays the committed step.
+      assert [{:ok, %{seq: 4, carry_kind: :finished}}, {:ok, %{seq: 4, carry_kind: :finished}}] =
+               Task.await_many(racers, 60_000)
 
       assert {:ok, :live} = H.resume(w, "T1", room1, "R1")
       run4 = H.ids("T1", "R1", 4)
@@ -778,7 +775,6 @@ defmodule Elzoo.Wave8.BotsTalkTest do
   # ------------------------------------------------------------ group 6
 
   describe "group 6: isolation" do
-    @tag timeout: 240_000
     test "owner-only DDL is refused; each tenant's scope reads its own rows; a T2 row cannot be written in T1's scope",
          %{w: w} do
       # T1: R1, where A starts a child; T2: one room with one delivered message, one rollover
