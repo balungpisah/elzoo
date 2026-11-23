@@ -10397,7 +10397,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/work-item/piece.json",
-      "manifest_sha256": "f56015e6d4ac01eb2b88b8ace5ed95d15784ec3f16917544dd65b222110d0412"
+      "manifest_sha256": "9ed85d7e47fa61d73e41fd006387bc58f4774f3d62efb1c94f5c08206e19b207"
     },
     {
       "id": "workflow/pattern-step",
