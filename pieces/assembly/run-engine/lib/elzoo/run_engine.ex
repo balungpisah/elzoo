@@ -197,7 +197,7 @@ defmodule Elzoo.RunEngine do
          not state.control.generation_closed and is_nil(state.control.stop_pending) and
          not state.control.callables[slot.callable].closed do
       record = slot.pending_input.record
-      state = update_in(state.slots[key], &Map.delete(&1, :pending_input))
+      state = state |> update_in([:slots, key], &Map.delete(&1, :pending_input)) |> resume_phase()
       invoke(state, %{record | input: Jason.decode!(record.input)}, slot.callable)
     else
       {state, :none}
@@ -693,7 +693,7 @@ defmodule Elzoo.RunEngine do
         {:done, {classify(state, :duplicate), :none}}
 
       true ->
-        state = expire_waits(state, input["at_ms"])
+        state = expire_and_report(state, input["at_ms"], record.context)
         {state, accepted, callable} = protocol(state, record)
 
         state =
@@ -1020,6 +1020,18 @@ defmodule Elzoo.RunEngine do
      decision not in [:unchanged, :late] and
        (not match?({:request_outcome, _}, decision) or
           decision == {:request_outcome, :out_of_budget})}
+  end
+
+  # With expiry reports, a :resume_input that leaves no slot active and no wait listed
+  # makes a waiting Run active again before its pattern call, as settle_protocol/3 does
+  # before the call of a settling input (ELZ-351). Without the option it is unchanged.
+  # The event-wait reader projects the same step through it.
+  defp resume_phase(state) do
+    if state.control[:expiry_reports] == :owner and active_count(state) == 0 and
+         map_size(state.control.lifecycle.waits) == 0 and
+         state.control.lifecycle.phase == :waiting,
+       do: put_in(state.control.lifecycle.phase, :active),
+       else: state
   end
 
   defp restore_waiting(state) do
@@ -1477,6 +1489,65 @@ defmodule Elzoo.RunEngine do
     end)
   end
 
+  # The expiry pass and, with `expiry_reports: :owner` in control, its reports
+  # (ELZ-351): after the whole pass, each slot that it settled and whose callable is
+  # still open holds the expiry input as its pending_input, in ascending occurrence
+  # order, under the ID of the :resume_input record that will give it, when the state
+  # with it placed still fits; otherwise the slot settles as without the option. A
+  # report carries the pause deadline of the expiring input, so that a first excess
+  # under budget_rule :pause can enter the pause; under :pause an input whose pause
+  # deadline is not after its time holds no report. Without the option this is
+  # expire_waits/2 alone.
+  defp expire_and_report(state, at, context) do
+    expired = expire_waits(state, at)
+
+    if state.control[:expiry_reports] == :owner and
+         (state.control.budget_rule == :finish or
+            (is_integer(context[:pause_deadline]) and context.pause_deadline > at)) do
+      state.slots
+      |> Enum.filter(fn {key, slot} ->
+        slot.phase != :settled and expired.slots[key].phase == :settled
+      end)
+      |> Enum.sort()
+      |> Enum.reduce(expired, fn {key, slot}, acc ->
+        if acc.control.callables[slot.callable].closed do
+          acc
+        else
+          order =
+            Enum.reduce(acc.slots, 0, fn {_, s}, n ->
+              max(n, (s[:pending_input] || %{order: 0}).order)
+            end)
+
+          record = %{
+            version: acc.version,
+            kind: :protocol,
+            id: stable_id("resume:", {acc.control.run_id, key}),
+            run_id: acc.control.run_id,
+            attempt_id: slot.attempt_id,
+            input:
+              Jason.encode!(
+                outcome(
+                  acc.version,
+                  slot.action_id,
+                  "expired",
+                  @refusal_schema,
+                  refusal(acc, key, "expired"),
+                  at
+                )
+              ),
+            correlation: %{occurrence: key, loss: :timed_out},
+            context: Map.take(context, [:pause_deadline])
+          }
+
+          candidate = put_in(acc.slots[key][:pending_input], %{order: order + 1, record: record})
+          if fits?(candidate), do: candidate, else: acc
+        end
+      end)
+    else
+      expired
+    end
+  end
+
   # Whether the own effect of protocol `record` settles slot `key` of `state`: the
   # slot is still open after the expiry pass of the same fold step and settled after
   # the record's own protocol rule, before the end of a Run closes what is left.
@@ -1484,7 +1555,7 @@ defmodule Elzoo.RunEngine do
   # it reads no reason from an outcome that came too late to apply.
   @doc false
   def own_settlement?(state, record, key) do
-    expired = expire_waits(state, record.input["at_ms"])
+    expired = expire_and_report(state, record.input["at_ms"], record.context)
 
     if expired.slots[key].phase == :settled do
       false
@@ -1542,6 +1613,7 @@ defmodule Elzoo.RunEngine do
          true <- valid_result_reader_options?(opts),
          true <- length(Keyword.get_values(opts, :protocol_version)) <= 1,
          true <- length(Keyword.get_values(opts, :event_source)) <= 1,
+         reports when reports in [[], [:owner]] <- Keyword.get_values(opts, :expiry_reports),
          protocol_version when protocol_version in [1, 2] <- Keyword.get(opts, :protocol_version, 1),
          event_source = Keyword.get(opts, :event_source),
          true <-
@@ -1576,6 +1648,13 @@ defmodule Elzoo.RunEngine do
         if protocol_version == 1,
           do: digest(identity),
           else: digest({:run_engine_v2, identity, Map.take(event_source, [:id, :version])})
+
+      # The option is recorded in control and in the fingerprint; absent, both are
+      # unchanged.
+      fingerprint =
+        if reports == [:owner],
+          do: digest({:expiry_reports, :owner, fingerprint}),
+          else: fingerprint
 
       control = %{
         fingerprint: fingerprint,
@@ -1631,6 +1710,9 @@ defmodule Elzoo.RunEngine do
               principal: opts[:principal]
             }),
           else: control
+
+      control =
+        if reports == [:owner], do: Map.put(control, :expiry_reports, :owner), else: control
 
       s = %{
         opts: Map.new(opts),
@@ -4740,6 +4822,21 @@ defmodule Elzoo.RunEngine do
       %{kind: kind}
       when kind in [:configure, :event_activation, :continuation, :lifecycle, :run_view, :finish] ->
         project_pure_event_wait_transition(state, record)
+
+      # The part of a :resume_input step before its pattern call; with expiry reports
+      # it can switch the lifecycle phase (resume_phase/1). The call itself is not
+      # projected, as for a settling protocol input.
+      %{kind: :resume_input, occurrence: key} ->
+        case event_wait_pattern_invocation(state, record) do
+          {:ok, _} when state.control.expiry_reports == :owner ->
+            {:ok,
+             state
+             |> update_in([:slots, key], &Map.delete(&1, :pending_input))
+             |> resume_phase()}
+
+          _ ->
+            {:ok, state}
+        end
 
       _ ->
         {:ok, state}

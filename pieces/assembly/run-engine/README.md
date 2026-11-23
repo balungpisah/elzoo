@@ -58,6 +58,21 @@ retained state, and a v1 Unit cannot be converted to v2. The v2 fingerprint
 includes source ID and version, not callback identity; replacement callbacks
 with the same descriptor retain that identity.
 
+Optional `expiry_reports: :owner` (with `protocol_version` 1 or 2) gives each slot
+that the engine settles `expired` to the callable that owns it as an action
+outcome ("Expiry reports" below). `:owner` is the only value. Absent, the engine
+is the engine without the option, byte for byte: the same `:configure` record,
+control and fingerprint, records, Unit state, pattern calls and charges. A
+second `expiry_reports` key or any other value is
+`{:stop, :invalid_options_or_recovery}` (`{:error, ...}` from `start_link/1`)
+before any Unit starts. The option holds for the whole Run and every callable of
+it. It is recorded as one more control key, `expiry_reports: :owner`, and in the
+fingerprint, so a restart of the same Run with the option added or removed is
+`:incompatible_recovery`, and a new Run configured on the same Unit takes the
+option of its own start. The pure `step/2` reads it from the recorded control
+only. The start options may gain members in a later in-place version; a caller
+matches on the ones it uses.
+
 The native protocol is selected explicitly: authentic v2 frames decode as
 `PatternStepV2` through `PatternStep.decode/2`; their
 `PatternStepTrackerV2` is restored and validated as v2 history. The only
@@ -333,6 +348,10 @@ outcome came too late) or
 actual is recorded. Gate and precheck records settle no slot; a refusal settles
 later through the engine's outcome record. A span of an action is its `:action`
 entry to its `:settlement` entry in recorded time; the reader reads no clock.
+A `:resume_input` record that gives a held expiry report (`expiry_reports:
+:owner`) gives no entry, as for a resumed paused input: the slot's `:settlement`
+entry stays in the expiring input's record with `by: :protocol` and `reason: nil`,
+and the actions that the report's request opens appear from their own records.
 Entry types, fields and `by` kinds may gain members in a later in-place version;
 a caller matches on the ones it uses.
 
@@ -508,11 +527,75 @@ no receipt and no request is kept. Its classification in `status/1` is `record_s
 `input/4` answers as for every committed input, and the engine goes on. An input
 that settles a slot is given to its pattern as before. An invocation entry stays in
 control until a new Run is configured on the unit, so room comes back only when
-other state leaves control. `cancel` needs no entry.
+other state leaves control. `cancel` needs no entry. Such an input (`wake`,
+`start`, `message`, granted `resource_event`) is given to the root only when no
+slot is active: a slot is active while it is not settled or while it holds a
+pending input (a settling input kept while paused, or a held expiry report).
 
 Paused accepted results retain their pattern input until
 continue, without dispatch while paused; monetary exhaustion still takes
 lifecycle precedence below the request-count cap.
+
+Expiry reports (`expiry_reports: :owner`). Without the option, the expiry pass of
+an input settles each slot past its deadline `expired` and tells no pattern. With
+it, after the whole pass and before the input's own rule, each slot that the pass
+settled (not one that it left open as `late`) and whose callable is still open
+holds a report as its `pending_input`, in ascending occurrence `{request, index}`
+order, each with the next `order`, when the state with it placed still satisfies
+every bound; otherwise the slot settles as without the option. A slot whose
+callable the same pass closed (its `nested_callable` parent expired too) gets none.
+The report is the expiry input itself: an `action_outcome` with outcome
+`"expired"`, the refusal schema `elzoo.run-engine.refusal` version 1, the payload
+`reason` `"expired"`, `gate_id`, `gate_version`, `request` and `index`, and
+`at_ms` the time of the expiring input. It is kept under the ID of the
+`:resume_input` record that gives it, `"resume:"` and the hex SHA-256 of the ETF of
+`{run_id, occurrence}`, with correlation `%{occurrence: key, loss: :timed_out}` and
+the `pause_deadline` of the expiring input's context. Under `budget_rule: :pause` a
+report is held only when that deadline is after the input's time: an outcome of
+local work carries the deadline of its dispatch, which can have passed, and its
+expired slots then settle as without the option. The settlement itself is as
+without the option: its outcome, join entry, tracker acceptance, Budget step (no
+actual, entry held until the Budget expires it; a `wait_event` actual 0 with its
+reservation released) and the close of an expired parent's child.
+
+A held report counts as active (one of 64 places and 4,096 reserved control
+bytes), so an input that settles no slot and whose own pass holds a report is not
+given to the root: the root learns of its own expired slots from their reports.
+The drain gives the held reports, lowest `order` first, after a pending stop and
+before a finished child or any slot progress, only while the Run is neither paused
+nor terminal, generation is open, no stop is pending and the owning callable is
+open; `input/4` and `control/4` reply after it. Each give is one ordinary call of
+that callable's pattern only, never of a parent or the root in its place: `:none`
+charges nothing, `{:some, request}` charges one count of the sealed request cap
+with a receipt whose `input_id` is the report ID, and its request runs the ordinary
+admission. A report's output is folded before the next report, and the slots that
+it opens progress after every report held at that point. At a first excess the
+existing rule applies (receipt `over_cap`, generation closed, the unsettled parent
+refused `out_of_budget`; under `budget_rule: :pause` the Run enters the pause with
+the report's `pause_deadline`, under `:finish` it stops) and every report still held
+is dropped. A held report is dropped with no record, call, charge, receipt or request
+at the end of the first step after which generation is closed, the view is terminal,
+its Attempt is not current or its callable is closed: a request-cap stop (including
+a `wake` at the cap), a cancel, the Run deadline, a `:finish` Budget exhaustion, a
+change of Attempt and the close of the owner. An expiry pass while paused holds its
+reports; after `continue` they are given in `order` with the inputs retained while
+paused (in one paused step, reports first, then the retained input). Only the pass of
+the current Attempt holds reports. With the option, the fold of each `:resume_input`
+record makes the lifecycle `:active` again before its pattern call when the Run is
+`:waiting`, no slot is active and no wait is listed, so the next permitted `wake`
+reaches the root. Without the option that step is unchanged (a Run that resumes a
+retained input after `continue` and then opens nothing stays `:waiting`).
+
+Reports replay: the hold is part of the fold of the expiring input and the give is a
+`:resume_input` record; the fold reads no clock, process or start option. If the
+engine dies after the expiring input committed and before its reports were given,
+the startup drain gives them before any new input, in the same order, under the same
+IDs and with the same pattern inputs. A record that another owner writes at startup
+(a local-work loss, a Resource cursor, an intent change) comes first. After the
+reports are given, a host input with a report ID is `{:error, :input_id_conflict}`;
+a host input with the ID `"expire:" <> occurrence` is ordinary. The readers that
+rerun pure engine code, `transcript/3` and `event_waits/3`, project a `:resume_input`
+with the same phase switch, so they reach the state of the fold.
 
 At a change of Attempt the engine settles, in the same fold step and at the
 time of the view record, every slot of the older Attempt that is not settled,
@@ -656,7 +739,21 @@ reserved per active action and cap+1 receipt reservations); complete compact
 request map <=4456448 bytes; slot map <=8 MiB; callable state within its state bound (<=65536 bytes), reserved in control while the callable is open;
 an input that settles no slot needs room in control for its invocation entry (its ID
 and 42 bytes: 43 bytes for a 1-byte ID and 202 bytes for a 160-byte ID), else it is
-classified `record_size` and not given to a pattern.
+classified `record_size` and not given to a pattern. With `expiry_reports: :owner`
+a held report adds at most 2,909 ETF bytes (2,923 bytes of slot growth) to its slot
+when `at_ms` and `pause_deadline` are below 2^53 (a larger time adds its extra
+digits and bytes; the engine bounds neither): a 200-byte Run ID, a 200-byte action ID
+and a 128-byte gate ID of control characters, which the JSON text of the report
+escapes as `\u00XX`, six bytes each, a 200-byte Attempt ID, the bound of
+`workflow/run-approval-release`'s `id?/1`, occurrence `{257, 63}`, gate version
+2,147,483,647 and `order` 256 (each slot holds at most one pending input, and a Run
+has at most 256 slots, so `order` is at most 256; it takes 3 bytes more than an
+`order` up to 255); with ASCII letters it is 1,269 bytes. It is
+held only when the slot bound and the 8,388,608-byte slot map still hold. Its
+invocation entry, 113 bytes (the 71-byte report ID and 42), is placed at the give
+inside the 4,096-byte reserve that leaves with the held report, and it stays until a
+new Run is configured, so a Run with the option keeps up to 256 × 113 = 28,928 bytes
+more control than the same Run without it.
 Whole encoded candidates remain authoritative, including JSON-to-ETF expansion
 and framing. Oversized outcomes become bounded failure/loss, never truncation,
 payload logging or resend. Future settlement capacity cannot fund new requests.
@@ -1061,6 +1158,67 @@ entry of an input that settles a slot is taken to be covered by the 4,096 bytes 
 that slot. A state at the exact byte of the control bound can still fail a step by
 a change of a few bytes. A Run recorded before this repair can fold to another state
 (Elzoo is not released).
+
+`test/elzoo/run_engine_expiry_report_test.exs` exercises `expiry_reports: :owner`
+on disposable PostgreSQL with one pinned engine identity:
+`default_off_is_unchanged` (a recorded scenario without the option, with a child's
+three tool slots expiring while paused, a root ask, `continue`, the parent's later
+expiry, one restart and the end of the Run, has the SHA-256 and byte length of its
+trace, recorded on the base commit before the change; the configure control differs
+only by the option key and the fingerprint; a restart with the option added or
+removed is `:incompatible_recovery`; `:nested`, `true`, `nil` and a second key are
+refused with no Unit started), `nested_turn_reads_its_expiries` (a child is given its
+three expiries in order and finishes, charged one count; the parent completes with no
+actual; the tool entries stay held; the root is not given them; three report records;
+the transcript keeps the settlements in the wake's record), `several_expiries_in_one_wake`
+(reports of the root, C and D in occurrence order, a request of C's first report
+progressing after the last; a root whose only open slot expires gets its report and
+not the wake, then the next wake), `closed_owner_gets_nothing` (a child and its parent
+expiring together; reports held while paused dropped by the parent's expiry; a change
+of Attempt), `ending_drops_reports` (a cancel's own step; reports held while paused
+dropped by the Run deadline; an input at the Run deadline holds none), `bound_edges`
+(a report's first excess under `:finish` and under `:pause`, which pauses with the
+expiring input's deadline and gives no later report after `continue`; under `:pause`
+a lost local work whose outcome carries a passed deadline holds no report, and the
+next `wake` pauses with its own deadline; a `wake` at the cap; a give at 64 bytes of control headroom through `step/2`; a crafted slot map
+within one report of its bound), `paused_reports_wait`, `replay_is_equal (expiry
+reports)`, `recovery_gives_the_same_reports` (a death after a directly committed
+expiring wake gives the same reports, records and Unit state as an engine that did not
+die, with the clock moved 1,000 ms), `report_id_is_the_resume_id` and
+`native_v2_wait_report` (also a wait held while paused and given after `continue`,
+read by `event_waits/3` and `transcript/3`). Thirteen temporary negative controls each made a named test
+fail and were reverted: the default flipped on, delivery to the root, descending
+order, no open-owner condition, giving after generation closed (the `:pause` item; the
+`:finish` item drops the report by the pending stop and the parent's deny), a held
+report not counted as active, a hold with no `fits?/1` check (`step/2` raises), the
+time read from the clock at the give, no lifecycle switch at `:resume_input`, the ID
+`"expire:" <> occurrence` (the later host input halts the engine) and a report with an
+empty context (the expiring `wake` returns `{:error, :durable_unit_transition_failed}`)
+the event-wait reader without its projection of `:resume_input` (`event_waits/3`
+returns `{:error, :history}`) and a hold under `:pause` whatever its deadline (the
+root is given the report of the lost local work).
+
+Limits of expiry reports. Reports come only from the expiry pass, and the engine has
+no timer, so an expiry and its report need an input of the current Attempt at or after
+the deadline; an input at or after the Run deadline holds none, because the lifecycle
+takes the expiry itself as `Expired` and the end of the Run settles the open slots
+`run_closed`. Under `:pause` an input whose `pause_deadline` is not after its time (an
+outcome of local work dispatched before that deadline) holds none. A report is an engine-made outcome, not a provider result: it says that
+the deadline passed, not that nothing was sent, and the cost stays unknown, not zero. A
+dropped report leaves no trace other than the slot's settlement. The bound edge of a
+hold is shown on a crafted state through `step/2`, not on a reachable Run; the stop of a
+`:finish` Budget exhaustion drops held reports by the pending-stop rule and has no case
+of its own. A slot past its deadline counts as active until its report is given. A Run
+with the option keeps up to 113 control bytes more per reported slot, so a later
+admission can be refused `record_size` where the same Run without it fits. After a
+restart, a record that another owner writes at startup comes before the held reports.
+The 60,000 ms call limit covers the extra drain work (at most one pattern call and its
+admission per expired slot); no time bound is claimed. The report ID is in the
+engine's stable-ID space: a host that uses such an ID for an unrelated input before the
+report is given is outside its Need. Per-callable choice, the expiring input given to
+the root as well, reports of other closers, a report for a closed owner given to an
+ancestor, more facts in the report, an engine timer, and a transcript entry or status
+key for reports stay addable in place. Finite listed scenarios, not a proof.
 
 `test/elzoo/run_engine_transcript_test.exs` exercises the read-only Run transcript
 on disposable PostgreSQL (the bounds group on the in-memory Store): `nested_tree`
