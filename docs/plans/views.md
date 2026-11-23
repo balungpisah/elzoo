@@ -401,6 +401,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-349](https://github.com/balungpisah/elzoo/issues/835) | V1B / pieces | ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-053, ELZ-096, ELZ-114, ELZ-115, ELZ-116, ELZ-126, ELZ-127, ELZ-137, ELZ-141, ELZ-142, ELZ-170, ELZ-171, ELZ-267, ELZ-270, ELZ-285, ELZ-344, ELZ-345, ELZ-346, ELZ-347, ELZ-348 | published 2026-11-23 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-350](https://github.com/balungpisah/elzoo/issues/839) | V2 / pieces | ELZ-286, ELZ-323, ELZ-338 | published 2026-11-23 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 | [ELZ-351](https://github.com/balungpisah/elzoo/issues/841) | V1B / pieces | ELZ-033, ELZ-114, ELZ-124, ELZ-127, ELZ-234, ELZ-241, ELZ-298, ELZ-349 | published 2026-11-23 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-353](https://github.com/balungpisah/elzoo/issues/846) | V2 / pieces | ELZ-297 | published 2026-11-23 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -603,7 +604,7 @@ Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350, ELZ-353.
 
 Prior release gate: V1-ACCEPT.
 
@@ -4887,3 +4888,13 @@ Publication copy: [tasks/ELZ-351-run-engine-expiry-reports.md](../../tasks/ELZ-3
 **Product aims:** P13.
 
 **Acceptance:** In-place assembly/run-engine (owner approval 24 Nov): optional start option expiry_reports: :owner, recorded in the Run's configure control and fingerprint, absent = today's engine byte for byte; each slot that the expiry pass settles is held as its pending_input (counted active) when its callable is open and given to that callable by a :resume_input record as the existing expiry action_outcome (outcome expired, refusal schema, reason expired, the expiring input's time), in ascending occurrence order, charged as any pattern output, its 113-byte invocation entry inside the held slot's reserve; dropped with no record, call or charge on generation close, terminal view, change of Attempt, closed owner or pending stop; held while paused and given after continue; with the option a :resume_input step switches the lifecycle from waiting to active when nothing is open (#843, the same defect without the option, is not repaired here); report ID = resume record ID; golden default-off trace, nested reaction, several expiries, closed owner, ending, cap and room edges, paused, replay, recovery, ID and native v2 cases with ten negative controls including the default flipped on and delivery to the root; last commit updates the ELZ-349 case-4 Limit in docs/research/wave8-bots-talk.md and docs/plans/bot-platform-wave8.md. Durable state, concurrency and unknown outcomes: local small gate on an a1.medium orb and full review. Output none.
+
+### ELZ-353
+
+ELZ-353 — The domain/journal role guard refuses any membership in the session role
+
+Publication copy: [tasks/ELZ-353-journal-role-guard-membership.md](../../tasks/ELZ-353-journal-role-guard-membership.md).
+
+**Product aims:** P09.
+
+**Acceptance:** The domain/journal test helper's role guard reads pg_has_role(current_user, session_user, 'MEMBER') as member_of_owner and fails on it; only that test file changes, no Contract, lib, README, manifest or index change. Negative control (elzoo_app a member of a disposable session role WITH INHERIT FALSE, SET TRUE passes the old guard and fails the new one), the Piece's tests as elzoo_app, the small gate, git diff --check, ci-change-class and the index step 3 checks; one light review and exact-head check-piece.
