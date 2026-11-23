@@ -10394,10 +10394,12 @@
     {
       "id": "workflow/work-item",
       "job": "ELZ-347",
-      "note": "Planned durable work items over a consumer-owned Ecto Repo on PostgreSQL 16 in one Piece-owned table under the state/tenant-isolation floor (ELZ-347 replaces RC-11, narrowed): one item per child Run with a stable workflow/untrusted-content intent, the assignee child_run_id, the parent-close rule, an explicit lifecycle with a revision (open, running, offered, accepted or rejected; cancel_requested, cancelled, abandoned), the child's result offered as evidence and acceptance or rejection by the parent Run's principal; a no-op writes nothing; list_open/3 finds a parent's open children after a crash. A Run result is evidence, never completion. Dependencies between items, lease-bound completion and acceptance by a person stay addable.",
+      "note": "Durable work items over a consumer-owned Ecto Repo on PostgreSQL 16 in one Piece-owned table that Migration.install/1 creates with PRIMARY KEY (tenant, item_id), UNIQUE (tenant, child_run_id) and an open-item index, protected with the state/tenant-isolation floor (ELZ-347 replaces RC-11, narrowed to one item per child Run): create/3 stores an item open at revision 1 with a stable workflow/untrusted-content intent of 1..4,096 bytes, the assignee child_run_id, the host-vouched owner, acceptance :parent and a parent-close rule (:abandon, :request_cancel, :cancel), idempotent by item_id (equal canonical bytes duplicate, else conflict) and conflict for another item's child_run_id; start/4, offer/4 (only from the assignee, evidence an opaque 1..256-byte reference), decide/4 (accepted or rejected, only by the owner) and close/4 (cancel_requested, cancelled, abandoned) move it through open, running, offered, accepted or rejected and the closing states, checking in order unknown_item, the no-op (target state with equal facts: {:ok, :unchanged}, nothing written, whatever the revision), not_assignee or not_owner, {:state, state}, stale_revision, then one UPDATE guarded by the expected revision, so two concurrent decisions commit one; get/3 returns the item with its intent as the neutral map; list_open/3 returns the non-final items of one parent Run in item_id byte order after a cursor, limit 1..256, with more. A Run result is evidence only through offer/4, never completion; an Attempt cancel changes no item. Shape, then the caller's open transaction, before any query; writes refuse an isolation other than READ COMMITTED; fixed errors that echo no ID or intent; log: false, no telemetry.",
       "baseline_status": "deferred",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/work-item/piece.json",
+      "manifest_sha256": "9ed85d7e47fa61d73e41fd006387bc58f4774f3d62efb1c94f5c08206e19b207"
     },
     {
       "id": "workflow/pattern-step",
