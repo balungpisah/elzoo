@@ -9167,7 +9167,7 @@
       "baseline_status": "planned",
       "disposition": "ready-contract",
       "manifest": "pieces/delivery/durable-mailbox/piece.json",
-      "manifest_sha256": "6ad9c2d247ff5d3be37aafea2a9ed84a1290f0bff68fe226315611d0f178e65a",
+      "manifest_sha256": "f42b3a8b021e69579c195bf27e92c5812470e06d6fa8a66f9bc62cf6e12a108a",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
