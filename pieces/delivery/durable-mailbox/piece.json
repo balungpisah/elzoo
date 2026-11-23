@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "id": "delivery/durable-mailbox",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": ["ecto_sql", "postgrex", "jason", "telemetry", "elixir", "otp"],
+  "dependencies": ["state/tenant-isolation", "core/payload-schema"],
+  "applications": ["crypto"],
+  "contract": "Durable mail and room continuation chains over a consumer-owned Ecto Repo on PostgreSQL 16 in three Piece-owned tables (chains, links, messages) that Migration.install/1 creates and protects with the state/tenant-isolation floor. new/2 binds a declaration of 1..64 message names, each built with core/payload-schema, and its identity {id, version, SHA-256 of the canonical JSON}; verify/1 runs the floor check per table. open/3 creates a chain and its first link (equal bytes and declaration duplicate, else conflict; a held run_id or unit_identity is identity_in_use). put/3 refuses, in order and before any write, a bad shape, an undeclared name, another schema version, a payload that fails the schema, a caller transaction, another isolation level, an unknown chain, another declaration, a stored message_id with other bytes (equal bytes duplicate, wherever addressed) and a chain at max_pending open messages; mail to any link's run_id goes to the chain. Every write after open/3 takes the chain row FOR UPDATE first: claim/3 gives the delivering message again, else stopped, else the oldest pending message to the live tip; settle/3 records applied, not_applied (pending again) or one of four refusals (record_size also stops the link), repeats are duplicate or not_delivering; plan_rollover/3 records the successor's pin on the tip; rollover/3 closes the tip and inserts exactly one successor that keeps the pin unless an explicit change, refusing unknown_link, already_rolled_over (equal bytes repeat the answer), delivery_unsettled, plan_mismatch and identity_in_use. chain/3 pages links (1..256) with the tip and its carry; status/3 reads a message's state. Canonical JSON (compact Jason, keys sorted by bytes) decides every comparison and the 65,536-byte bounds; fixed error atoms, log: false, no telemetry, no Run start, engine call or timer.",
+  "limits": [
+    "The state/tenant-isolation limits apply: the table owner can turn forcing off or drop the policies, and a superuser or BYPASSRLS role ignores them.",
+    "READ COMMITTED is a consumer Need that the Piece checks but cannot set.",
+    "The sender, the terminal outcome, the change reference and the not_applied and refused readings are host-vouched.",
+    "A message is delivered to exactly one link, not exactly once end to end; the engine's input IDs decide what a Run saw.",
+    "Mail payloads hold people's text and have no delete, expiry or erasure; dead tuples, WAL and backups keep content until PostgreSQL reclaims them. Links are never pruned, so a chain grows by one row per rollover.",
+    "An :unavailable result can be an unknown outcome when the connection is lost during COMMIT; a retry with the same request is safe.",
+    "log: false silences only the Logger: the consumer Repo's query telemetry still receives the parameters, including payloads and carries, and a Repo that logs queries logs each transaction's begin and commit.",
+    "Two concurrent rollovers of different chains of one tenant naming the same successor run_id or unit_identity can both pass the identity check; the later one fails on the unique index as unavailable and its retry is identity_in_use.",
+    "No Run start, engine call, timer, notifier, priority, expiry or dead-lettering.",
+    "Finite listed scenarios on one local PostgreSQL 16, including barrier-controlled races; not proofs of isolation, ordering or atomicity."
+  ],
+  "files": [
+    "lib/elzoo/durable_mailbox.ex",
+    "lib/elzoo/durable_mailbox/migration.ex",
+    "test/elzoo/durable_mailbox_test.exs",
+    "test/support/durable_mailbox_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/durable_mailbox_test.exs",
+      "claim": "Listed scenarios on the worker's own disposable PostgreSQL 16 database behind a fail-closed target guard, with DBConnection.ConnectionPool Repos (not the Sandbox) whose every application connection SET ROLEs to the ELZ-285 application role (ELZOO_TEST_APP_ROLE; fail, not skip, when unset) with only the README grants, in random schemas dropped afterwards: 1 each refusal of put/3 steps 1-4 and 6-9 leaves the three tables, read inside transact/3 under the tenant's scope, unchanged, two failing steps give the earlier step's refusal (1-4 inside a caller transaction, 5 before 6, 6 before 7, 7 before 8, 8 before 9), and new/2 refuses a schema that does not build, 0 and 65 names, bad names and bounds; the declaration identity equals SHA-256 of a hand-written canonical text, and stored payload and carry texts equal hand-written canonical JSON (sorted keys, escapes, floats, big integers), and a 1,025-digit integer in a payload and a carry is claimed, settled and read back exactly; 2 message_id 155 and 156 bytes, payload and carry of 65,536 and 65,537 canonical bytes, depth 32 and 33, max_pending 0, 1, 65,536 and 65,537, text, unit identity, outcome and ref bounds; 3 duplicate and conflict for open/3 (each field, another declaration, after a rollover) and put/3 (each field, the chain and closed and live link run_ids), and two open/3 calls held behind a SHARE lock until both inserts wait in pg_locks give one chain and one duplicate, or one conflict; 4 FIFO over three messages and a not_applied settle; 5 mailbox_full at max_pending 1 and 2 with duplicates at the bound; 6 mail to a closed link's run_id is claimed for the tip; 7 a claim and a rollover queued behind another connection's chain row lock, each seen waiting in pg_locks: claim first gives delivery_unsettled, rollover first gives a claim for the successor; 8 two rollovers of one link behind the same barrier commit one successor, equal bytes give the same seq and other bytes already_rolled_over, and direct inserts of a second successor fail on the predecessor index and the primary key; 9 a connection dropped after claim/3 gives the same message to the same link; 10 settle with each result and reason, duplicate and not_delivering repeats, another link, refused messages do not block a rollover, record_size stops the link and claim/3 returns stopped; 11 the pin kept, changed with change_ref, plans replaced with previous, plan_mismatch, not_tip and unknown_link; 12 identity_in_use for successors and opens within a tenant, accepted in another; 13 chain/3 paging at limit 1 and 256 over 258 links with more and the tip carry, status/3 of each state and unknown_message; 14 verify/1 passes and names a table without forced row security, T1 gets unknown_chain for T2's chain, direct T2 inserts and DELETEs fail 42501, every function succeeds with only the README grants; 15 a caller transaction gives in_transaction for every function with no query on the Repo's telemetry and verify/1 the same inside and outside, a repeatable-read Repo gives isolation for every write with nothing written, a missing schema gives unavailable, a bad prefix raises the fixed ArgumentError, and a Repo started with log: :error logs only begin and commit, no Piece statement. Skipping the payload check fails case 1; dropping the chain row lock of rollover/3 with the barrier on the link row lets both rollovers wait on the link UPDATE and the second fail on the key (unavailable), failing case 8; removing the delivery_unsettled check leaves a message delivering to a closed link, failing case 7; dropping log: false from the Piece's queries fails the log case (negative controls). Finite scenarios, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/16/explicit-locking.html#LOCKING-ROWS",
+      "claim": "PostgreSQL 16 SELECT ... FOR UPDATE row locks queue waiters in order, read-committed statement snapshots read the committed row after a lock wait, INSERT ... ON CONFLICT DO NOTHING waits for a concurrent insert of the same key, unique and primary key indexes refuse a duplicate row, and row-level security and table privileges fail with 42501; upstream server contracts reached through Postgrex 0.22.4."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "Ecto SQL 3.14.0 Repo.transact/2 commit and rollback on an error tuple, in_transaction?/0, Ecto.Adapters.SQL.query/4 with log: false and migration execute/1 are upstream behavior."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "Jason 1.4.5 encode!/1 with default options and Jason.OrderedObject give the compact encoding in the given key order with the README escapes and shortest float form."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html#hash/2",
+      "claim": "OTP 29.1.2 crypto:hash(sha256, Data) computes the declaration identity over the canonical encoding."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/stdlib/json.html#decode/3",
+      "claim": "OTP 29.1.2 json:decode/3 with the null decoder set to nil reads stored payloads and carries back, keeping integers of any length."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir String.valid?/1, the utf8 binary pattern and Regex anchors for the text and name rules, and binary term order for the canonical key sort."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The consumer runs the migration as the table owner in an existing schema, connects the application as a non-owner, non-bypass role with only the README grants and READ COMMITTED transactions, calls verify/1 at startup, keeps one declaration per chain, and vouches for senders, outcomes, change references and settle readings."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "The Piece emits no events and no logs; its queries pass log: false, and the consumer Repo's query telemetry is unchanged (a limit: it receives the parameters)."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "The binding from new/2 (exactly repo: and prefix:, and a declaration of id, version, max_pending 1..65,536 and 1..64 message names with schema versions and schemas, else invalid_declaration) is the only configuration, fixed for the value's life. Contract bounds are fixed: 128-byte tenant, chain, Run, pin and sender IDs, 155-byte message_id, 160-byte unit identity, 256-byte change ref, 64-byte outcome, 65,536 canonical bytes and depth 32 for payload and carry, chain/3 limit 1..256, 63-byte prefix.",
+      "evidence": ["test/elzoo/durable_mailbox_test.exs"]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle; the consumer owns the Repo, the migration and the database roles."
+    }
+  }
+}

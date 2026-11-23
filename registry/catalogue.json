@@ -240,8 +240,9 @@
       "summary": "Declared durable mail and the continuation chain of a room's Runs",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-344: Wave 8 (P13). Plain Ecto/Postgrex tables under state/tenant-isolation (owner Q1 A, Q5 A); closed input surface and one successor per link (2026-11-21); no Run start or engine call."
+      "status": "ready",
+      "reason": "ELZ-344: Wave 8 (P13). Plain Ecto/Postgrex tables under state/tenant-isolation (owner Q1 A, Q5 A); closed input surface and one successor per link (2026-11-21); no Run start or engine call.",
+      "manifest": "pieces/delivery/durable-mailbox/piece.json"
     },
     {
       "id": "delivery/debounce",
