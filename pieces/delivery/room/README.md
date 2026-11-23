@@ -194,9 +194,11 @@ The room checks none of these Needs:
 - **One deliverer per chain.** The host runs no two calls of this Piece for one chain at a time,
   gives a tip no input except through them and the action outcomes of its own bindings, and
   gives no control (an Attempt change, a cancel) while a call for that chain runs.
-- **An `open/3` error is repeated.** After an error of `open/3` the host repeats it with the
-  same request (or calls `resume/3` once the chain exists): an open that pinned and failed
-  (`{:mailbox, :unavailable}` that did not commit) leaves its pin record until it is repeated.
+- **An `open/3` error is repeated.** After an error of `open/3` the host repeats `open/3` with
+  the same request until it returns `{:ok, _}` or a refusal that writes nothing; `resume/3` does
+  not take its place, because only a repeated `open/3` releases the pin of a conflicting open
+  whose release did not finish. An open that pinned and failed (`{:mailbox, :unavailable}` that
+  did not commit) leaves its pin record until it is repeated.
 - **A halted engine** is the host's to reconcile, fence and start again under the same Unit
   identity and Run ID, as the run-engine README requires; the `engine` Need returns the
   restarted engine.
