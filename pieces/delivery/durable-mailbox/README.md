@@ -112,7 +112,9 @@ Every function takes the binding, the tenant and one request map, except `new/2`
 - `verify(mailbox)`: `Elzoo.TenantIsolation.verify/3` for the chains, links and messages tables
   in that order; `:ok` or `{:error, {table, reason}}` for the first failing one (`table` is
   `:chains`, `:links` or `:messages`, `reason` one of `verify/3`'s). No `:in_transaction`
-  check: it also runs inside a caller's transaction, with the same result.
+  check: it also runs inside a caller's transaction, with the same result. A first argument that
+  is not a mailbox from `new/2` raises `FunctionClauseError`, and an identifier that
+  `verify/3` refuses raises its `ArgumentError`; neither is an error tuple.
 - `open(mailbox, tenant, %{chain_id, run_id, unit_identity, pin, carry})`: creates the chain
   with the binding's declaration identity and its first link (`seq` 1, `carry_kind: :opened`,
   `state: :live`). `{:ok, :applied}`; `{:ok, :duplicate}` for an equal request under the same

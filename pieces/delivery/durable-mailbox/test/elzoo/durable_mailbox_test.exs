@@ -1277,6 +1277,7 @@ defmodule Elzoo.DurableMailboxTest do
           do: assert(result == {:error, :unavailable})
 
       assert MB.verify(missing) == {:error, {:chains, :not_enabled}}
+      assert_raise FunctionClauseError, fn -> MB.verify(%{repo: AppRepo, prefix: p}) end
     end
 
     test "install/1 refuses a bad prefix with one fixed message before any DDL" do
