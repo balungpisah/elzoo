@@ -154,13 +154,14 @@ defmodule Elzoo.Wave5.TenancyHelper do
 
   @doc """
   The application connection is the application role, which is no superuser, no BYPASSRLS
-  role, not the session (owner) role and holds no owner's privileges. Any other answer fails.
+  role, not the session (owner) role and no member of it (direct or indirect, with or without
+  INHERIT). Any other answer fails.
   """
   def role_facts(repo) do
-    [[current, session, super, bypass, inherits_owner]] =
+    [[current, session, super, bypass, member_of_owner]] =
       q!(
         repo,
-        "SELECT current_user, session_user, r.rolsuper, r.rolbypassrls, pg_has_role(current_user, session_user, 'USAGE') FROM pg_roles r WHERE r.rolname = current_user"
+        "SELECT current_user, session_user, r.rolsuper, r.rolbypassrls, pg_has_role(current_user, session_user, 'MEMBER') FROM pg_roles r WHERE r.rolname = current_user"
       )
 
     %{
@@ -168,7 +169,7 @@ defmodule Elzoo.Wave5.TenancyHelper do
       session: session,
       super: super,
       bypass: bypass,
-      inherits_owner: inherits_owner
+      member_of_owner: member_of_owner
     }
   end
 
@@ -176,7 +177,7 @@ defmodule Elzoo.Wave5.TenancyHelper do
     facts = role_facts(AppRepo)
 
     if facts.current != role or facts.current == facts.session or facts.super or facts.bypass or
-         facts.inherits_owner,
+         facts.member_of_owner,
        do:
          flunk(
            "the application connection is not the non-owner application role: #{inspect(facts)}"
@@ -269,7 +270,7 @@ defmodule Elzoo.Wave5.TenancyHelper do
     for store <- Enum.uniq(stores) do
       assert {Postgres, %{repo: repo}} = store
 
-      assert %{current: ^role, super: false, bypass: false, inherits_owner: false} =
+      assert %{current: ^role, super: false, bypass: false, member_of_owner: false} =
                facts = role_facts(repo)
 
       assert facts.current != facts.session

@@ -214,7 +214,7 @@ defmodule Elzoo.Wave6.CountAndSeeTest do
     assert {:output_tokens, :unknown, 10_000, 0, 1} in totals.()
     refute {:output_tokens, :unknown, 0, 1, 1} in totals.()
 
-    assert %{current: ^role, super: false, bypass: false, inherits_owner: false} =
+    assert %{current: ^role, super: false, bypass: false, member_of_owner: false} =
              H.role_facts(AppRepo)
   end
 

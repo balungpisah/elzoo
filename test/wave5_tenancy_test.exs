@@ -191,7 +191,7 @@ defmodule Elzoo.Wave5.TenancyTest do
       assert length(H.truth(p, table, "tenant, id")) > 0, table
     end
 
-    assert %{current: ^role, super: false, bypass: false, inherits_owner: false} =
+    assert %{current: ^role, super: false, bypass: false, member_of_owner: false} =
              H.role_facts(AppRepo)
   end
 
