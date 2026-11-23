@@ -75,8 +75,11 @@ A host rule's callbacks get `view = %{message, addressed, reply_to, members,
 default_member}` (`members` as `%{id, kind}` with kind atoms) and the rule
 state (`nil` at the room's start). A raise, throw or exit, another shape, a
 second `{:decide, _}` from `read/3`, more than 16 IDs, a `context` over 4,096
-bytes or a rule state over 1,024 bytes of compact JSON is a bad answer: no
-turn, the rule state unchanged, the note `host_rule_failed`.
+bytes or a rule state over 1,024 bytes of compact JSON, or either nested more than
+30 deep (a scalar is 0 and each object or array adds 1, as `core/payload-schema`
+counts depth, so the decide and carry payloads that wrap them stay within its 32
+levels), is a bad answer: no turn, the rule state unchanged, the note
+`host_rule_failed`. A carried rule state over either bound is `:malformed`.
 
 ## Guards, for every rule
 
@@ -160,9 +163,12 @@ the decision binding and of the bot recipes, over every rule the room may use.
 `piece.json`, including one finish of the real `Elzoo.TypedDecision` with
 `pick_schema/0`, the size case (the largest start fits the root state bound as
 the engine measures it, and each payload stays within 65,536 bytes), and the
-checked example `examples/turn_policy.exs`. Four negative controls were run by
+checked example `examples/turn_policy.exs`. Six negative controls were run by
 a temporary edit and reverted: dropping the bound, counting a peer as a
-person, letting a non-member's mention open a turn, and accepting any pick ID.
+person, letting a non-member's mention open a turn, accepting any pick ID,
+dropping the carry's bot-turn check, and dropping the nesting bound (a host
+rule state 41 levels deep then makes the carry fail the engine's depth check,
+so the room cannot roll over).
 
 Dependencies: `workflow/pattern-step` and `workflow/untrusted-content`;
 `workflow/typed-decision` and `core/payload-schema` are test-only (the library

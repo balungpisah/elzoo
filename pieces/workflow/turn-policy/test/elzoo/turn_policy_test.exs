@@ -52,6 +52,21 @@ defmodule Elzoo.TurnPolicyTest do
         "outsider" ->
           {{:turns, ["zz", "h1", "p1", "b1", "b1"]}, rule_state}
 
+        "nest-30" ->
+          {{:turns, ["b1"]}, Elzoo.TurnPolicyTest.nested(30)}
+
+        "nest-31" ->
+          {{:turns, ["b1"]}, Elzoo.TurnPolicyTest.nested(31)}
+
+        "nest-41" ->
+          {{:turns, ["b1"]}, Elzoo.TurnPolicyTest.nested(41)}
+
+        "context-nest-30" ->
+          {{:decide, %{"x" => Elzoo.TurnPolicyTest.nested(29)}}, rule_state}
+
+        "context-nest-31" ->
+          {{:decide, %{"x" => Elzoo.TurnPolicyTest.nested(30)}}, rule_state}
+
         "view" ->
           {{:turns, []}, %{"addressed" => view.addressed, "reply_to" => inspect(view.reply_to)}}
 
@@ -84,6 +99,22 @@ defmodule Elzoo.TurnPolicyTest do
     %{"id" => "p1", "kind" => "peer"}
   ]
   @max_link 2_147_483_647
+
+  # A JSON array nested n deep: [[...[1]...]].
+  def nested(n), do: Enum.reduce(1..n//1, 1, fn _, acc -> [acc] end)
+
+  # The engine checks every action payload with core/payload-schema, at most 32 levels deep.
+  defp engine_check(action) do
+    port = %{
+      "id" => "p",
+      "direction" => "input",
+      "schema_id" => action["schema_id"],
+      "schema_version" => 1
+    }
+
+    {:ok, checked} = PayloadSchema.build(port, %{})
+    PayloadSchema.check(checked, port, action["payload"])
+  end
 
   ## Inputs
 
@@ -558,6 +589,32 @@ defmodule Elzoo.TurnPolicyTest do
     assert {:error, :invalid_spec} = TurnPolicy.new(%{host_rules: %{}, extra: 1})
   end
 
+  test "host_rule_nesting_keeps_the_carry" do
+    state = started(%{"rule" => "script", "default_member" => "b1"})
+
+    for id <- ~w(nest-31 nest-41 context-nest-31) do
+      {next, nil} = step(state, msg(id, "h1"))
+      assert notes(next) == [{:host_rule_failed, id}], id
+      assert next.rule_state == nil
+    end
+
+    # At the edge, the decide payload and the carry payload stay within 32 levels.
+    {_, decide} = step(state, msg("context-nest-30", "h1"))
+    assert decide["id"] == "d/1/1" and engine_check(decide) == :ok
+
+    {next, _} = feed(state, [msg("nest-30", "h1")])
+    assert next.rule_state == nested(30)
+    {_, carry} = step(next, rollover())
+    assert carry["id"] == "c/1/1" and engine_check(carry) == :ok
+
+    # A rule state 41 levels deep never reaches the carry, so the room can still roll over.
+    {next, _} = feed(state, [msg("nest-41", "h1")])
+    {next, carry} = step(next, rollover())
+    assert carry["id"] == "c/1/1" and engine_check(carry) == :ok
+    {_, finish} = step(next, outcome("c/1/1", "completed", "elzoo.room.carry", carry["payload"]))
+    assert finish["payload"] == %{"action_id" => "c/1/1"}
+  end
+
   ## 5. The guards under each rule
 
   test "one_open_turn_at_a_time" do
@@ -940,6 +997,13 @@ defmodule Elzoo.TurnPolicyTest do
     {state, first} = step(new!(), start(carried.(3, 3, 3)))
     {_, log} = drive(state, first, host(fn _ -> %{"mentions" => ["b2"]} end))
     assert turns(log) == ["b1", "b1", "b1"] and length(notices(log)) == 1
+
+    # A carried rule state keeps the nesting bound: 30 levels pass, 31 are malformed.
+    deep = fn n -> put_in(carried.(3, 0, 0), ["carry", "rule_state"], nested(n)) end
+    assert TurnPolicy.check_start(new!(), deep.(30)) == :ok
+    assert TurnPolicy.check_start(new!(), deep.(31)) == {:error, :malformed}
+    {state, nil} = step(new!(), start(deep.(31)))
+    assert state.invalid_start == :malformed
 
     # A host rule name is known only from the state of new/1.
     assert TurnPolicy.check_start(new!(%{}), room(%{"rule" => "script"})) == {:error, :unknown_rule}
@@ -1359,6 +1423,74 @@ defmodule Elzoo.TurnPolicyTest do
 
     for {_, schema, payload_bytes} <- Enum.filter(measured, &(tuple_size(&1) == 3)),
         do: assert(payload_bytes <= 65_536, schema)
+  end
+
+  test "sizes_with_a_full_window" do
+    for {fill, text} <- [{"x", "y"}, {"\"", "\""}] do
+      name = fn prefix, n -> prefix <> String.duplicate(fill, n - byte_size(prefix)) end
+      humans = for i <- 10..25, do: %{"id" => name.("h#{i}", 128), "kind" => "human"}
+      bots = for i <- 10..25, do: %{"id" => name.("b#{i}", 128), "kind" => "bot"}
+      bot_ids = Enum.map(bots, & &1["id"])
+      mid = fn i -> name.("m#{i}", 155) end
+      plain = fill == "x"
+
+      start = %{
+        "room_id" => name.("r", 128),
+        "link" => 5,
+        "members" => humans ++ bots,
+        "policy" => %{
+          "rule" => "decided",
+          "default_member" => hd(bot_ids),
+          "max_bot_turns" => 16,
+          "handoff" => "allowed",
+          "post_to" => name.("p", 256),
+          "window" => %{"messages" => 8, "bytes" => 24_576},
+          # 16 carried turns, 7 messages and the first picked turn reach the threshold.
+          "rollover" => %{"max_turns" => 24}
+        },
+        "summary" => if(plain, do: id(8_190, "s"), else: id(4_094, "\"")),
+        "carry" => %{
+          "window" => [],
+          "bot_turns" => 16,
+          "default_member" => hd(bot_ids),
+          "rule_state" => if(plain, do: id(1_022, "r"), else: id(510, "\"")),
+          "awaiting_person" => false,
+          "queue" => for(id <- bot_ids, do: %{"member" => id, "message_id" => mid.(0)}),
+          "seq" => %{"turn" => 9_007_199_254_740_000, "notice" => 0, "decision" => 0},
+          "notes" => for(_ <- 1..16, do: %{"code" => "restarted_queue_dropped", "ref" => mid.(0)})
+        }
+      }
+
+      assert TurnPolicy.check_start(new!(), start) == :ok
+      fail = fn action -> outcome(action["id"], "failed") end
+      {state, first} = step(new!(), start(start))
+      {state, _} = drive(state, first, fail)
+
+      say = fn i, mentions ->
+        msg(mid.(i), hd(humans)["id"], mentions, %{"text" => id(3_400, text)})
+      end
+
+      state =
+        Enum.reduce(1..7, state, fn i, state ->
+          {state, action} = step(state, say.(i, [hd(bot_ids)]))
+          elem(drive(state, action, fail), 0)
+        end)
+
+      # An unaddressed message that mentions every person opens a decision; its view holds them.
+      {state, decide} = step(state, say.(8, Enum.map(humans, & &1["id"])))
+      assert decide["schema_id"] == "elzoo.room.decide"
+      assert json(state.window) <= 24_576 and length(state.window) >= 3
+      assert bytes(state) <= 65_536 and engine_check(decide) == :ok
+      if plain, do: assert(bytes(state) > 45_000)
+
+      {state, turn} = step(state, pick(decide["id"], %{"pick" => "several"}))
+      assert length(state.queue) == 15 and json(turn["payload"]) <= 65_536
+      {state, carry} = step(state, outcome(turn["id"], "failed"))
+      assert carry["schema_id"] == "elzoo.room.carry" and length(state.queue) == 15
+      assert bytes(state) <= 65_536 and json(carry["payload"]) <= 65_536
+      assert engine_check(carry) == :ok and TurnPolicy.check_start(new!(), carry["payload"]) == :ok
+      unless plain, do: assert(json(carry["payload"]) > 55_000)
+    end
   end
 
   defp measure(state, nil, _reply, measured), do: {state, measured}

@@ -18,6 +18,7 @@ defmodule Elzoo.TurnPolicy do
   @note_codes Map.new(@notes, &{Atom.to_string(&1), &1})
   @max_link 2_147_483_647
   @max_seq 9_007_199_254_740_991
+  @max_nesting 30
   @fresh_seq %{"turn" => 0, "notice" => 0, "decision" => 0}
   @pick_schema %{
     "type" => "object",
@@ -593,19 +594,25 @@ defmodule Elzoo.TurnPolicy do
 
   defp rule_state?(value), do: json?(value) and json_bytes(value) <= 1_024
 
-  defp json?(value) when is_binary(value), do: String.valid?(value)
-  defp json?(value) when is_number(value) or is_boolean(value) or is_nil(value), do: true
-  defp json?(value) when is_list(value), do: json_list?(value)
+  # A JSON term nested at most @max_nesting deep (a scalar is 0, each object or array adds 1, as
+  # core/payload-schema counts depth), so each payload that wraps it stays within its 32 levels.
+  defp json?(value), do: json?(value, @max_nesting)
 
-  defp json?(value) when is_map(value) and not is_struct(value),
+  defp json?(value, _) when is_binary(value), do: String.valid?(value)
+  defp json?(value, _) when is_number(value) or is_boolean(value) or is_nil(value), do: true
+  defp json?(value, room) when is_list(value) and room > 0, do: json_list?(value, room - 1)
+
+  defp json?(value, room) when is_map(value) and not is_struct(value) and room > 0,
     do:
-      Enum.all?(value, fn {key, item} -> is_binary(key) and String.valid?(key) and json?(item) end)
+      Enum.all?(value, fn {key, item} ->
+        is_binary(key) and String.valid?(key) and json?(item, room - 1)
+      end)
 
-  defp json?(_), do: false
+  defp json?(_, _), do: false
 
-  defp json_list?([]), do: true
-  defp json_list?([item | rest]), do: json?(item) and json_list?(rest)
-  defp json_list?(_), do: false
+  defp json_list?([], _), do: true
+  defp json_list?([item | rest], room), do: json?(item, room) and json_list?(rest, room)
+  defp json_list?(_, _), do: false
 
   defp json_bytes(value), do: byte_size(Jason.encode!(value))
 
