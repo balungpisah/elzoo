@@ -737,12 +737,15 @@ request map <=4456448 bytes; slot map <=8 MiB; callable state within its state b
 an input that settles no slot needs room in control for its invocation entry (its ID
 and 42 bytes: 43 bytes for a 1-byte ID and 202 bytes for a 160-byte ID), else it is
 classified `record_size` and not given to a pattern. With `expiry_reports: :owner`
-a held report adds at most 2,906 ETF bytes (2,920 bytes of slot growth) to its slot
-(a 200-byte Run ID, a 200-byte action ID and a 128-byte gate ID of control characters,
-which the JSON text of the report escapes as `\u00XX`, six bytes each, a 200-byte
-Attempt ID, the bound of `workflow/run-approval-release`'s `id?/1`, occurrence
-`{257, 63}`, gate version 2,147,483,647 and `at_ms` and `pause_deadline` taken at
-2^53 − 1; with ASCII letters it is 1,266 bytes); it is
+a held report adds at most 2,909 ETF bytes (2,923 bytes of slot growth) to its slot
+when `at_ms` and `pause_deadline` are below 2^53 (a larger time adds its extra
+digits and bytes; the engine bounds neither): a 200-byte Run ID, a 200-byte action ID
+and a 128-byte gate ID of control characters, which the JSON text of the report
+escapes as `\u00XX`, six bytes each, a 200-byte Attempt ID, the bound of
+`workflow/run-approval-release`'s `id?/1`, occurrence `{257, 63}`, gate version
+2,147,483,647 and `order` 256 (each slot holds at most one pending input, and a Run
+has at most 256 slots, so `order` is at most 256; it takes 3 bytes more than an
+`order` up to 255); with ASCII letters it is 1,269 bytes. It is
 held only when the slot bound and the 8,388,608-byte slot map still hold. Its
 invocation entry, 113 bytes (the 71-byte report ID and 42), is placed at the give
 inside the 4,096-byte reserve that leaves with the held report, and it stays until a
