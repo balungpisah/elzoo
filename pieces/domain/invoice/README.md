@@ -100,7 +100,9 @@ the listed keys.
   - `{:adjustment, line_id, amount, description, source_ref}`.
 
   `:usage` and `:fee` amounts are zero or positive, `:adjustment` amounts non-zero; a negative
-  amount only on a credit note (`:invalid` on an invoice). Another currency is `:currency`; a
+  amount only on a credit note (`:invalid` on an invoice). A draft credit note takes lines of
+  any kind and sign here too; its `finalize/3` refuses a total that is not negative
+  (`:invalid_total`) and checks its magnitude against the payable again. Another currency is `:currency`; a
   document that is not `:draft` is `{:state, state}`; at most 256 lines. Idempotent by
   `line_id`.
 - `finalize(inv, tenant, %{invoice_id, issued_at_ms, due_at_ms})`, `due_at_ms ≥ issued_at_ms`,
@@ -150,7 +152,10 @@ Every write checks shape and bounds (`:invalid`), then `repo.in_transaction?()`
 `Elzoo.TenantIsolation.transact/3`, checks READ COMMITTED (`:isolation`), and takes the
 invoice row with `SELECT ... FOR UPDATE` before it reads lines or payments. Every statement
 passes `log: false`; a database failure, including a lost connection, is `:unavailable` and
-says nothing about whether the write committed, so retry with the same request.
+says nothing about whether the write committed, so retry with the same request. A refusal that
+depends on stored state comes after those checks and the row lock, `:invalid` among them: a
+negative line on an invoice, a 257th line, a finalize with no line, or a sum outside the
+`domain/money` range.
 
 **Numbering.** `finalize/3` locks the invoice row (for a credit note, first the corrected
 invoice's row, then its own), then inserts the series row on its first use (`ON CONFLICT DO
@@ -193,7 +198,9 @@ so a repeated post is `{:ok, :duplicate}`), with two postings of `total` and its
 between the receivable of the billing account and a revenue account; the host chooses the
 accounts and the sign convention. A credit note posts its negative total the same way, under its
 own `invoice/<invoice_id>/issue`. A zero total posts nothing (the journal refuses a zero
-posting) and names no operation. Then the host calls `mark_posted/3` with the journal's result.
+posting) and names no operation. Then the host calls `mark_posted/3` with the journal's result. `void/3` takes an `:open`
+invoice whose posting is pending or posted and keeps the posting as it was: the host reverses a
+posted operation with `domain/journal` `reverse/3`, or does not post a pending one.
 An `invoice_id` of at most 100 bytes keeps the operation ID within the journal's 128 bytes.
 
 ## Limits

@@ -160,6 +160,16 @@ defmodule Elzoo.InvoiceTest do
       amount: money(minor, alpha)
     }
 
+  # Two calls started while another connection holds the invoice row `id`, released once both
+  # wait in pg_locks: the results, sorted.
+  defp behind_row(p, id, calls) do
+    holder = Harness.hold_invoice!(p, "T1", id)
+    tasks = Enum.map(calls, &Task.async/1)
+    Harness.await_waiting!(length(calls))
+    Harness.release!(holder)
+    Enum.sort(Enum.map(tasks, &Task.await(&1, 20_000)))
+  end
+
   # ------------------------------------------------------------ 1 numbering
 
   test "1 two concurrent finalizations of one series behind the series lock get 1 and 2",
@@ -311,6 +321,17 @@ defmodule Elzoo.InvoiceTest do
     refused(p, {:state, :draft}, fn -> pay(inv, "d", "p1", 1) end)
   end
 
+  test "4 two concurrent payments that together pass the payable: one over_payment",
+       %{inv: inv, p: p} do
+    open!(inv, "i", 100)
+
+    assert behind_row(p, "i", [fn -> pay(inv, "i", "a", 60) end, fn -> pay(inv, "i", "b", 60) end]) ==
+             [{:error, :over_payment}, {:ok, :applied}]
+
+    assert %{state: :open, paid: paid} = get!(inv, "i")
+    assert paid == money(60)
+  end
+
   # ------------------------------------------------------------ 5 reversals
 
   test "5 reversal by amount and by the remaining amount", %{inv: inv, p: p} do
@@ -344,6 +365,20 @@ defmodule Elzoo.InvoiceTest do
     # Paid again by a new payment, the invoice is :paid again.
     assert pay(inv, "i", "p2", 100) == {:ok, :applied}
     assert get!(inv, "i").state == :paid
+  end
+
+  test "5 two concurrent reversals that together pass the applied amount: one over_reversal",
+       %{inv: inv, p: p} do
+    open!(inv, "i", 100)
+    assert pay(inv, "i", "p1", 100) == {:ok, :applied}
+
+    assert behind_row(p, "i", [
+             fn -> reverse(inv, "i", "r1", "p1", 60) end,
+             fn -> reverse(inv, "i", "r2", "p1", 60) end
+           ]) == [{:error, :over_reversal}, {:ok, :applied}]
+
+    assert %{state: :open, paid: paid} = get!(inv, "i")
+    assert paid == money(40)
   end
 
   # ------------------------------------------------------------ 6 void and credit notes
@@ -421,6 +456,18 @@ defmodule Elzoo.InvoiceTest do
     assert {:ok, %{number: 2}} = finalize(inv, "a")
     refused(p, :over_credit, fn -> finalize(inv, "b") end)
     assert get!(inv, "i").credited == money(60)
+  end
+
+  test "6 two concurrent finalizations of drafts that together pass the payable", %{inv: inv, p: p} do
+    open!(inv, "i", 100)
+    assert credit(inv, "a", "i", [adj("c1", -60)]) == {:ok, :applied}
+    assert credit(inv, "b", "i", [adj("c1", -50)]) == {:ok, :applied}
+
+    # Both wait on the corrected invoice's row, which each finalize/3 locks first.
+    assert [{:error, :over_credit}, {:ok, %{number: 2}}] =
+             behind_row(p, "i", [fn -> finalize(inv, "a") end, fn -> finalize(inv, "b") end])
+
+    assert get!(inv, "i").credited in [money(60), money(50)]
   end
 
   test "6 a credit note on a paid invoice shows a credit balance", %{inv: inv} do

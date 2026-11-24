@@ -363,19 +363,31 @@ defmodule Elzoo.InvoiceTest.Harness do
   # ------------------------------------------------------------ concurrency
 
   @doc "Another connection (the owner, under the tenant scope) holds one series row's lock."
-  def hold_series!(p, tenant, series) do
+  def hold_series!(p, tenant, series),
+    do:
+      hold!(
+        tenant,
+        "SELECT 1 FROM #{table(p, "elzoo_invoice_series")} WHERE tenant = $1 AND series = $2 FOR UPDATE",
+        [tenant, series]
+      )
+
+  @doc "Another connection (the owner, under the tenant scope) holds one invoice row's lock."
+  def hold_invoice!(p, tenant, invoice_id),
+    do:
+      hold!(
+        tenant,
+        "SELECT 1 FROM #{table(p, "elzoo_invoices")} WHERE tenant = $1 AND invoice_id = $2 FOR UPDATE",
+        [tenant, invoice_id]
+      )
+
+  defp hold!(tenant, sql, params) do
     parent = self()
 
     pid =
       spawn_link(fn ->
         {:ok, :released} =
           TI.transact(OwnerRepo, %{tenant: tenant}, fn ->
-            [[_]] =
-              q!(
-                OwnerRepo,
-                "SELECT last_number FROM #{table(p, "elzoo_invoice_series")} WHERE tenant = $1 AND series = $2 FOR UPDATE",
-                [tenant, series]
-              )
+            [[1]] = q!(OwnerRepo, sql, params)
 
             send(parent, {:holding, self()})
 
