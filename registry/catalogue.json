@@ -1446,7 +1446,8 @@
       "summary": "Elzoo's bots as MCP tools: a verified caller lists the bots it may run, a call is one Run",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/integration/mcp-server/piece.json",
       "reason": "ELZ-363: Wave 9 (P13). One tool per runnable bot (owner Q4 A) over the pinned ex_mcp server side; a host-mounted Plug, no server of its own."
     },
     {
