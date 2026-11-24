@@ -200,13 +200,24 @@ accounts and the sign convention. A credit note posts its negative total the sam
 own `invoice/<invoice_id>/issue`. A zero total posts nothing (the journal refuses a zero
 posting) and names no operation. Then the host calls `mark_posted/3` with the journal's result.
 
+An `invoice_id` of at most 100 bytes keeps the operation ID within the journal's 128 bytes.
+
 `void/3` takes an `:open` invoice whose posting is pending or posted and keeps the posting as it
 was. A pending posting may already be committed in the journal, since the post and
-`mark_posted/3` are two transactions. So after a void of a document with a posting the host
-posts its operation ID again (the journal answers `:duplicate` when the first post committed),
-records the result with `mark_posted/3` (also on the void document), and then reverses the
-operation with `domain/journal` `reverse/3`, which reverses an operation at most once.
-An `invoice_id` of at most 100 bytes keeps the operation ID within the journal's 128 bytes.
+`mark_posted/3` are two transactions. So after a void of a document with a posting the host:
+
+1. posts its operation ID again with the same request as its first post (the same postings,
+   `actor_ref` and `reason`, kept by the host), so the journal answers `:duplicate` when the
+   first post committed and applies it when it did not; another request is the journal's
+   `:conflict`;
+2. records the result with `mark_posted/3`, which also takes a void document;
+3. reverses the operation with `domain/journal` `reverse/3` under an ID derived from the
+   document, such as `invoice/<invoice_id>/void`, with a request it keeps equal on every try.
+
+The Piece does not record the reversal: a void document with a `:posted` posting looks the same
+before and after step 3. The journal records it, so the host reconciles a void document by
+repeating steps 1 to 3; a repeated reversal with an equal request is the journal's
+`:duplicate`.
 
 ## Limits
 
