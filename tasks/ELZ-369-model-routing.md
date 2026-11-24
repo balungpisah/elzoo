@@ -13,7 +13,7 @@ One pure Piece in plain Elixir that decides two things for a host's model-call b
 
 The Piece does no I/O, reads no clock and holds no state. A route holds candidate references only; each candidate's binding, credential Need and provider account are the host's, so no credential of one candidate can reach another's intent through this Piece. The caller is the host's model-call binding (the binding that runs `integration/ai-text` for a `model_call` action), not the pattern step: the binding waits a `{:retry_same, ms}` between its EffectIntent commands. After a `{:next, _}` for an Attempt that made no intent (an admission refusal, `{:not_admitted, _}`), it adds the ref to `tried` and calls `select/3` again inside the same action, so the next candidate gets the request with no new action. It ends the action with its refusal only after a `{:next, _}` for a refused outcome of a sent request, putting the candidate's ref in the outcome it gives back (`workflow/agent-loop`'s Attempts task, ELZ-376, reads it; its `move_on` set holds only refusals of a sent request). When the `select/3` after an admission refusal returns `{:error, {:no_candidate, _}}`, or `after_failure/3` returns `{:stop, _}`, the binding ends the action with the last Attempt's refusal (an admission refusal as a refused outcome with its reason), so the loop stops.
 
-No durable state, I/O or concurrency: a low-risk Piece (`AGENTS.md` section 5). It may use the hosted `check-piece` run as its small-gate evidence and gets one light review.
+No durable state, I/O or concurrency, but `after_failure/3` decides what follows an unknown outcome, one of the weights that `AGENTS.md` section 5 lists, so the Piece keeps the local small gate and gets the full review of the coordinator guide ("Reviewer by risk").
 
 ## Facts on `main` that this task builds on
 
@@ -81,7 +81,7 @@ RC-25's list, through the public functions with literal inputs:
 9. An `{:unknown, :timeout}` first Attempt gives `{:stop, :unknown_outcome}`; `invalid_request`, `too_large`, `{:not_admitted, :invalid_request}` and `{:not_admitted, :too_large}` give `{:stop, :request_fault}`; `{:not_admitted, :unsupported_feature}` gives `{:next, nil}`; `{:not_admitted, :input_unavailable}` gives `{:retry_same, ms}`. `select/3` with a `tried` ref not on the route, a malformed `data_policy` and a future `observed_at_ms` is `{:error, :invalid_input}` also when another candidate would be excluded first.
 10. Negative controls, one at a time, each restored before the final gates: fall back after `unknown` (case 9 fails); skip the data-policy check (case 4 fails); drop the `tried` exclusion (case 7's `authentication_failed` case fails).
 
-Run the Piece tests and the small gate (locally, or the hosted `check-piece` run as `AGENTS.md` section 5 allows for a low-risk Piece), the roadmap and claims checks and the diff check. One light review, the exact-head hosted check and the merge queue are required.
+Run the Piece tests and the small gate locally (`mix check --piece "$(git merge-base origin/main HEAD)"`), the roadmap and claims checks and the diff check. The full independent review, the exact-head hosted check and the merge queue are required.
 
 ## Limits to state
 

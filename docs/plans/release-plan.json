@@ -9724,14 +9724,14 @@
       "outputs": [
         "delivery/model-routing"
       ],
-      "acceptance": "New pure delivery/model-routing (Wave 9 Q6 A, Q8 A; replaces RC-25 for this output): new/1 checks a route of 1..16 candidate refs (provider, region, retention, model_id, ai-text features, unique rank 1..1,000), on_unknown :stop, max_health_age_ms, cool_down_ms and a retry-timeout policy without mode (known keys only, max_attempts at most 256); select/3 gives eligible refs in rank order and each excluded one with the first reason of tried, capability, {data_policy, deny} (domain/provider-data-policy decide/2), stale_health, circuit_open, cooling_down, budget, or no_candidate; after_failure/3 maps an ai-text outcome to done, {retry_same, ms} for a not-sent refusal or a local rate refusal (RetryTimeout.delay/4 with the failure delay, capped at max_failure_delay_ms), {next, cool_down} for throttled/overloaded (retry_after seconds or cool_down_ms), {next, nil} for authentication_failed/permission_denied/not_found, {next, nil} also for the admission refusal unsupported_feature (per provider), {stop, request_fault} for invalid_request/too_large and {stop, unknown_outcome} (no fallback after unknown). Coordinator checks: unsupported_feature is an admission refusal, retry_after is seconds, health facts are host-stamped; circuit-breaker, rate-limit and budget are host facts, so no dependency on ELZ-100/280/022; the PR #853 :tried answer carried. Low risk: hosted check-piece allowed, light review.",
+      "acceptance": "New pure delivery/model-routing (Wave 9 Q6 A, Q8 A; replaces RC-25 for this output): new/1 checks a route of 1..16 candidate refs (provider, region, retention, model_id, ai-text features, unique rank 1..1,000), on_unknown :stop, max_health_age_ms, cool_down_ms and a retry-timeout policy without mode (known keys only, max_attempts at most 256); select/3 gives eligible refs in rank order and each excluded one with the first reason of tried, capability, {data_policy, deny} (domain/provider-data-policy decide/2), stale_health, circuit_open, cooling_down, budget, or no_candidate; after_failure/3 maps an ai-text outcome to done, {retry_same, ms} for a not-sent refusal or a local rate refusal (RetryTimeout.delay/4 with the failure delay, capped at max_failure_delay_ms), {next, cool_down} for throttled/overloaded (retry_after seconds or cool_down_ms), {next, nil} for authentication_failed/permission_denied/not_found, {next, nil} also for the admission refusal unsupported_feature (per provider), {stop, request_fault} for invalid_request/too_large and {stop, unknown_outcome} (no fallback after unknown). Coordinator checks: unsupported_feature is an admission refusal, retry_after is seconds, health facts are host-stamped; circuit-breaker, rate-limit and budget are host facts, so no dependency on ELZ-100/280/022; the PR #853 :tried answer carried. It decides what follows an unknown outcome: local small gate and full review.",
       "product_aims": [
         "P09",
         "P13"
       ],
       "issue": 893,
       "url": "https://github.com/balungpisah/elzoo/issues/893",
-      "issue_body_sha256": "7062c81ce9c25e816ad98be7df2ae988cbba82149db56497f28ef3b511c36f69"
+      "issue_body_sha256": "0282e5cde192c13df9e947b99e447888b9f978001d5fea54797ee049bf3ded54"
     },
     {
       "id": "ELZ-370",
@@ -9907,7 +9907,7 @@
       ],
       "issue": 900,
       "url": "https://github.com/balungpisah/elzoo/issues/900",
-      "issue_body_sha256": "2e994013b428c1b9c94ab008e08fae56e61ee986340f3ab1e53c85cb08df6029"
+      "issue_body_sha256": "7f0e6c0f1efe6c5122338fd626e16d9ec0d83c3e9eba7e15c4b67a7d8c8e5c22"
     },
     {
       "id": "ELZ-377",
@@ -9962,7 +9962,7 @@
       ],
       "issue": 902,
       "url": "https://github.com/balungpisah/elzoo/issues/902",
-      "issue_body_sha256": "9dfdfb2993f33825c59a2a18ed4ce71bfb9d3bdc55518624c4f62695c64b6bf7"
+      "issue_body_sha256": "9eea95858071ba72405e4edd3a14259a7cc51ccdbf6f78ca89755c42bfd79c66"
     }
   ],
   "entries": [
