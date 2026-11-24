@@ -414,6 +414,11 @@ defmodule Elzoo.AiText.GoogleTest do
            "properties" => %{"root" => %{"$ref" => "#/$defs/a"}}
          }
        }, :unsupported_feature},
+      # Boolean subschemas: valid JSON Schema, no generateContent form.
+      {%{"output_schema" => %{"type" => "object", "properties" => %{"x" => true}}},
+       :unsupported_feature},
+      {%{"output_schema" => %{"anyOf" => [true, %{"type" => "string"}]}}, :unsupported_feature},
+      {%{"output_schema" => %{"type" => "array", "prefixItems" => [false]}}, :unsupported_feature},
       # $id or $defs below the root: a nested resource whose #/$defs/a is its
       # own, self-cyclic a (jsv resolves p.q there), and nested $defs alone.
       {%{

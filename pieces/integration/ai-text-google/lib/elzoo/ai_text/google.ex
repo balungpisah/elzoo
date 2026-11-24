@@ -179,7 +179,11 @@ defmodule Elzoo.AiText.Google do
   # Below the root, no $id (a new resource, where #/$defs/<name> would name
   # that subschema's own $defs) and no $defs: every $ref then resolves against
   # the root $defs that acyclic?/1 checks.
-  defp inner?(s), do: not (is_map_key(s, "$id") or is_map_key(s, "$defs")) and supported?(s)
+  defp inner?(%{} = s),
+    do: not (is_map_key(s, "$id") or is_map_key(s, "$defs")) and supported?(s)
+
+  # A boolean subschema (true or false) has no generateContent form.
+  defp inner?(_), do: false
 
   defp keyword?("enum", v), do: is_list(v) and Enum.all?(v, &(is_binary(&1) or is_number(&1)))
   defp keyword?(_, _), do: true

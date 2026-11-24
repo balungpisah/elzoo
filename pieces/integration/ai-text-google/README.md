@@ -127,7 +127,8 @@ or a `.env` file.
   Every `$ref` must name a root `$defs` entry (`#/$defs/<name>`); `$id` and
   `$defs` are accepted only at the root (a nested `$id` starts a resource whose
   `#/$defs/<name>` is its own); and the references must have no cycle: the reference unrolls cycles only to a
-  limited degree, which is an approximation. Any other schema is refused
+  limited degree, which is an approximation. A boolean subschema (`true` or
+  `false`) has no form there either. Any other schema is refused
   `unsupported_feature`, never rewritten (a `$ref` that does not compile is
   refused `invalid_request` by the interface first). Structured output
   together with tools is refused `unsupported_feature`.
