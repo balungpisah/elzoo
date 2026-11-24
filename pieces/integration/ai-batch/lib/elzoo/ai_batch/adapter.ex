@@ -128,8 +128,9 @@ defmodule Elzoo.AiBatch.SubmitAdapter do
   **exactly those bytes** and the manifest's provider metadata (no translation
   or encoding happens here: the body was prepared once at admission); the
   volatile sink; the envelope. A missing or mismatched body is `adapter_error`
-  before the credential is read (nothing is sent, but no further no-send tag
-  exists, so the result is conservatively unknown). The Adapter never retries.
+  before the credential is read (nothing is sent, but the batch Adapter has no
+  no-send tag for it, so the result is conservatively unknown). The Adapter
+  never retries.
 
   Delivered outcomes: `{:submitted, %{job_ref, item_count, orphans}}`,
   `{:refused, reason, %{retry_after, orphans}}`, `{:unknown, reason, %{orphans}}`.
