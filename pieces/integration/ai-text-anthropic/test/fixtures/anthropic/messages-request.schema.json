@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$comment": "Hand-derived by ELZ-079 from Anthropic's documentation fetched 2026-11-09: Messages API reference, 'Create a Message', Headers and Body parameters, and Domain types 'Cache Control Ephemeral', 'Tool', 'Tool Choice', 'Thinking Config', 'Output Config' (https://platform.claude.com/docs/en/api/messages); 'Prompt caching' (https://platform.claude.com/docs/en/build-with-claude/prompt-caching); 'Versions' (https://platform.claude.com/docs/en/api/versioning); 'Migrating to API version 2026-10-21' (https://platform.claude.com/docs/en/api/migration-2026-10-21). Covers only the request members this provider may send for anthropic-version 2026-10-21; temperature, top_p and top_k are absent because that version rejects them. No official machine-readable specification was found; conformance beyond the documented examples is not claimed.",
+  "$comment": "Hand-derived by ELZ-079 from Anthropic's documentation fetched 2026-11-09: Messages API reference, 'Create a Message', Headers and Body parameters, and Domain types 'Cache Control Ephemeral', 'Tool', 'Tool Choice', 'Thinking Config', 'Output Config' (https://platform.claude.com/docs/en/api/messages); 'Prompt caching' (https://platform.claude.com/docs/en/build-with-claude/prompt-caching); 'Versions' (https://platform.claude.com/docs/en/api/versioning); 'Migrating to API version 2026-10-21' (https://platform.claude.com/docs/en/api/migration-2026-10-21). The image block was added by ELZ-371 from the Messages API reference, 'Create a Message', Body parameters, ImageBlockParam and Base64ImageSource, and 'Vision' (https://platform.claude.com/docs/en/build-with-claude/vision), fetched 2026-11-24: base64 sources only, the source types url and file and the member transformations are not sent by this provider. Covers only the request members this provider may send for anthropic-version 2026-10-21; temperature, top_p and top_k are absent because that version rejects them. No official machine-readable specification was found; conformance beyond the documented examples is not claimed.",
   "type": "object",
   "required": ["model", "messages", "max_tokens"],
   "additionalProperties": false,
@@ -70,6 +70,25 @@
         "cache_control": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/cache_control"}]}
       }
     },
+    "image_block": {
+      "type": "object",
+      "required": ["type", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "image"},
+        "source": {
+          "type": "object",
+          "required": ["type", "media_type", "data"],
+          "additionalProperties": false,
+          "properties": {
+            "type": {"const": "base64"},
+            "media_type": {"enum": ["image/jpeg", "image/png", "image/gif", "image/webp"]},
+            "data": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9+/]*={0,2}$"}
+          }
+        },
+        "cache_control": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/cache_control"}]}
+      }
+    },
     "tool_use_block": {
       "type": "object",
       "required": ["type", "id", "name", "input"],
@@ -113,6 +132,7 @@
               "items": {
                 "oneOf": [
                   {"$ref": "#/$defs/text_block"},
+                  {"$ref": "#/$defs/image_block"},
                   {"$ref": "#/$defs/tool_use_block"},
                   {"$ref": "#/$defs/tool_result_block"}
                 ]
