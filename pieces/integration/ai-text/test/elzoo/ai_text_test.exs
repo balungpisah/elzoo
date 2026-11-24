@@ -532,6 +532,133 @@ defmodule Elzoo.AiTextTest do
     assert r.sampling == %{temperature: 0.5, top_p: 0.9}
   end
 
+  ## Golden text-only request (recorded on the base before Contract amendment 2)
+
+  @golden_request %{
+    "version" => 1,
+    "model" => "test-model",
+    "messages" => [
+      %{"role" => "system", "text" => "s"},
+      %{"role" => "user", "text" => "u"},
+      %{
+        "role" => "assistant",
+        "text" => "",
+        "tool_calls" => [%{"id" => "a", "name" => "lookup", "arguments" => %{"q" => "x"}}]
+      },
+      %{"role" => "tool_result", "tool_use_id" => "a", "text" => "result", "is_error" => false}
+    ],
+    "tools" => [
+      %{
+        "name" => "lookup",
+        "description" => "Look up a term.",
+        "input_schema" => %{
+          "type" => "object",
+          "properties" => %{"q" => %{"type" => "string"}},
+          "required" => ["q"],
+          "additionalProperties" => false
+        }
+      }
+    ],
+    "tool_choice" => %{"type" => "tool", "name" => "lookup"},
+    "output_schema" => %{
+      "type" => "object",
+      "properties" => %{"answer" => %{"type" => "integer"}},
+      "required" => ["answer"],
+      "additionalProperties" => false
+    },
+    "max_output_tokens" => 64,
+    "stop_sequences" => ["END"],
+    "sampling" => %{"temperature" => 0.5, "top_p" => 0.9},
+    "reasoning" => "low",
+    "cache_hint" => %{
+      "tenant" => "tenant-a",
+      "local_key" => "k",
+      "ttl" => "5m",
+      "breakpoints" => ["tools", %{"message" => 1}]
+    },
+    "provider_options" => %{"flavour" => "plain"}
+  }
+
+  @golden_bytes ~S({"cache_hint":{"breakpoints":["tools",{"message":1}],"local_key":"k","tenant":"tenant-a","ttl":"5m"},"max_output_tokens":64,"messages":[{"role":"system","text":"s"},{"role":"user","text":"u"},{"role":"assistant","text":"","tool_calls":[{"arguments":{"q":"x"},"id":"a","name":"lookup"}]},{"is_error":false,"role":"tool_result","text":"result","tool_use_id":"a"}],"model":"test-model","output_schema":{"additionalProperties":false,"properties":{"answer":{"type":"integer"}},"required":["answer"],"type":"object"},"provider_options":{"flavour":"plain"},"reasoning":"low","sampling":{"temperature":0.5,"top_p":0.9},"stop_sequences":["END"],"tool_choice":{"name":"lookup","type":"tool"},"tools":[{"description":"Look up a term.","input_schema":{"additionalProperties":false,"properties":{"q":{"type":"string"}},"required":["q"],"type":"object"},"name":"lookup"}],"version":1})
+
+  @golden_term %{
+    model: "test-model",
+    messages: [
+      %{role: :system, text: "s"},
+      %{role: :user, text: "u"},
+      %{
+        role: :assistant,
+        text: "",
+        tool_calls: [%{id: "a", name: "lookup", arguments: %{"q" => "x"}}]
+      },
+      %{role: :tool_result, tool_use_id: "a", text: "result", is_error: false}
+    ],
+    tools: [
+      %{
+        name: "lookup",
+        description: "Look up a term.",
+        input_schema: %{
+          "additionalProperties" => false,
+          "properties" => %{"q" => %{"type" => "string"}},
+          "required" => ["q"],
+          "type" => "object"
+        }
+      }
+    ],
+    tool_choice: {:tool, "lookup"},
+    output_schema: %{
+      "additionalProperties" => false,
+      "properties" => %{"answer" => %{"type" => "integer"}},
+      "required" => ["answer"],
+      "type" => "object"
+    },
+    max_output_tokens: 64,
+    stop_sequences: ["END"],
+    sampling: %{temperature: 0.5, top_p: 0.9},
+    reasoning: :low,
+    cache_hint: %{
+      tenant: "tenant-a",
+      local_key: "k",
+      ttl: "5m",
+      breakpoints: [:tools, {:message, 1}]
+    },
+    provider_options: %{"flavour" => "plain"}
+  }
+
+  @golden_minimal ~S({"max_output_tokens":64,"messages":[{"role":"user","text":"prompt-SECRET-p33"}],"model":"test-model","version":1})
+
+  test "golden text-only request: canonical bytes, translated wire term, admission and Adapter results are unchanged (Request, check, admission, Adapter)",
+       ctx do
+    # Equality, not a pattern: a map pattern would accept extra keys.
+    assert Request.decode(Jason.encode!(@golden_request)) == {:ok, @golden_term, @golden_bytes}
+    assert Request.decode(@golden_bytes) == {:ok, @golden_term, @golden_bytes}
+    assert Request.canonical(request()) == @golden_minimal
+
+    parent = self()
+
+    c =
+      config(
+        respond: fn r ->
+          send(parent, {:sent, r})
+          {:ok, {:raw, TestHelper.raw()}}
+        end
+      )
+
+    assert AiText.check(c, @golden_term) == {:ok, %{request: @golden_term, cfg: c.provider_config}}
+
+    {:ok, a} = admit(c, @golden_request)
+    assert a.arguments == @golden_bytes
+    assert a.identity == ["tenant-a", "test:account", "ai-text-test", "generate", "req-1"]
+    assert a.deadline == 10_000
+
+    {_pid, _a, status, delivery} = dispatch(c, @golden_request, ctx, "golden")
+    assert_received {:sent, sent}
+    assert sent == @golden_term
+    assert {:outcome, _, {:completed, %{content: "hello", finish: :stop}}} = delivery
+    assert {:Confirmed, 1} = status.phase
+    assert calls() == 1
+  end
+
   ## Configuration and redaction
 
   test "configuration is fixed and validated; Config inspect, errors and status carry no credential or prompt (configure, Inspect)",
