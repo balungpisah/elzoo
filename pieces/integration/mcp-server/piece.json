@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "id": "integration/mcp-server",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": ["ex_mcp", "plug", "plug_cowboy", "req", "jason", "jose", "elixir", "otp"],
+  "dependencies": [
+    "integration/token-verify",
+    "domain/authorization",
+    "domain/principal",
+    "core/payload-schema",
+    "integration/mcp-client"
+  ],
+  "contract": "Elzoo's bots as MCP tools: a Plug the host forwards to (init a module-function-arguments triple returning {:ok, server} from Elzoo.McpServer.new/1, else HTTP 503) that reads exactly one authorization header Bearer <token> (scheme ASCII case-insensitive, b64token of 1..8,192 bytes) and verifies it with integration/token-verify (JWT or API key) at the host's trusted clock, else HTTP 401 with www-authenticate Bearer and a fixed body, before the body is read and before any MCP handling; then ExMCP.HttpPlug 1.8.1 with Elzoo.McpServer.Handler, the principal through handler_opts, handler_call_timeout call_timeout_ms + 5,000, body_limit (over it HTTP 413), legacy SSE off, oauth_enabled false and validate_origin false. tools/list: each of the host's 0..64 bots of the principal's tenant whose domain/authorization decision on bot/<bot_id> run is :allow, in name byte order, one page. tools/call: the bot decided again (else unknown tool, JSON-RPC -32602), the arguments without ex_mcp's _meta checked by core/payload-schema against the start schema (else invalid_arguments), one host start Need with a fresh 16-byte call_id (else start_failed), then the host result Need at once and every poll_interval_ms up to call_timeout_ms (1..60,000): a completion as the canonical JSON {payload, run_id}; terminal {outcome, run_id}; {run_id, state: running} at the bound, the Run going on; {run_id, state: unknown} for a result error, raise, throw or exit; {run_id, state: result_too_large} over 65,536 bytes. Each call is a new Run.",
+  "limits": [
+    "The token verifier's configuration, the trusted clock, the policy, the authority Need, the bot list and the start and result Needs are the host's; the Piece decides only on what they give.",
+    "MCP gives no idempotency key: a retried call starts a second Run. A Run still open at the bound goes on, and its result is read by the host, not over MCP. The bounded wait polls; a Need that blocks is bounded only by ex_mcp's handler timeout (call_timeout_ms + 5,000), which the host's HTTP server must outlast. Upstream observation (ex_mcp 1.8.1, OTP 29.1.2): a handler that ends within about a millisecond of ex_mcp's 1,000 ms stop timeout after a handler timeout makes proc_lib:stop/3 raise timeout_value, which ex_mcp does not catch, so that request is HTTP 500 instead of -32603.",
+    "Every call pins a recipe version: the host must unpin finished Runs, or state/recipe-store's live-state bound refuses new pins.",
+    "Sessions are ex_mcp's and are not bound to the principal (oauth_enabled false); every request is verified and decided on its own token, and the handler process lives for one request.",
+    "Results and errors hold no token in the tested scenarios (checked on the wire bytes); a host Need that puts a token in a Run ID or payload is the host's. ex_mcp's own debug logs are upstream.",
+    "Evidence is the ready integration/mcp-client in :loopback mode and raw HTTP against the Plug on a loopback socket with scripted Run Needs; no live MCP host, TLS, public endpoint or engine is exercised. Finite scenarios and negative controls, not proofs.",
+    "No resources, prompts, progress notifications, idempotency key, MCP authorization flow (protected-resource metadata, authorization server) or stdio."
+  ],
+  "files": [
+    "examples/mcp_server.exs",
+    "lib/elzoo/mcp_server.ex",
+    "lib/elzoo/mcp_server/handler.ex",
+    "lib/elzoo/mcp_server/plug.ex",
+    "test/elzoo/mcp_server_test.exs",
+    "test/support/mcp_server_test_helper.exs"
+  ],
+  "applications": ["crypto"],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/mcp_server_test.exs",
+      "claim": "Listed scenarios pass against the Plug in a host router on Plug.Cowboy at 127.0.0.1 with an ephemeral port: the ready client lists only allowed bots and calls one (payload and Run ID); two principals of one tenant, an :ask bot and another tenant; a failed Need, decision, bot list or schema; no token, malformed headers, the 8,192/8,193-byte token bound, an expired token, another key, an unknown subject and a failing clock are 401 with no handler started (call counts) and no Need beyond the verifier's; an API-key verifier reaches the handler with its principal and refuses a wrong secret with 401; a bad init triple is 503; raw calls of unlisted, other-tenant, :ask and unknown names, and after the authority is withdrawn, are unknown tool with no start; a schema failure, 65,537 bytes and depth 33 are invalid_arguments with no start, 65,536 bytes and depth 32 start; a pending Run past the bound returns running with its Run ID and later completes; call_timeout_ms 1 and 60,000 taken, 0 and 60,001 refused, and the other bounds; the handler timeout at call_timeout_ms + 5,000; each terminal outcome, result errors, raises and exits, start failures, a result of 65,536 bytes and of 65,537; no token on the wire; 413 over body_limit; two equal calls start two Runs. Skipping the authorization decision, skipping the schema check and calling the handler before the token check each make these tests fail (negative controls)."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ex_mcp",
+      "reference": "https://hexdocs.pm/ex_mcp/1.8.1/ExMCP.HttpPlug.html",
+      "claim": "ex_mcp 1.8.1 as read at the pinned version: ExMCP.HttpPlug answers and halts, resolves a one-arity handler_opts with the conn after the body is read, bounds the body by body_limit (413), starts one unlinked handler process per request and stops it afterwards, bounds each handler call by handler_call_timeout (-32603 handler_timeout), maps an error reason containing unknown tool to -32602, merges _meta into handler-mode arguments and does not check arguments against inputSchema."
+    },
+    {
+      "kind": "upstream",
+      "provider": "plug",
+      "reference": "https://hexdocs.pm/plug/1.20.3/Plug.Router.html#forward/2",
+      "claim": "Plug 1.20.3 forward passes init_opts to the target Plug and strips the mount prefix into script_name."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host keeps its verifier configuration, clock, policy, authority Need and bot list truthful, starts each Run with the given principal as its acting principal, answers the result Need with the engine's result/3 shapes for that Run, keeps the HTTP request open longer than call_timeout_ms + 5,000, and unpins finished Runs."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "The Piece emits no events of its own; ex_mcp's upstream [:ex_mcp, ...] events reach consumer handlers (the consumer's responsibility)."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time new/1 with exactly verifier ({:jwt, JwtConfig} or {:api_key, ApiKeyConfig}), clock, policy, authority, bots, start, result, call_timeout_ms 1..60,000, optional poll_interval_ms 10..5,000 (default 250) and body_limit 1,024..1,048,576 (default 131,072); anything else is {:error, :invalid}. The Plug applies the host's init triple on each request; no hot update of its own.",
+      "evidence": ["test/elzoo/mcp_server_test.exs"]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle of its own; the host's HTTP server owns the connections and the Run owner owns the Runs."
+    }
+  }
+}
