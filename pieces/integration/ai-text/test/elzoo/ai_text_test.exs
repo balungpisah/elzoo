@@ -1058,6 +1058,8 @@ defmodule Elzoo.AiTextTest do
     c = image_config(%{"img" => empty_at_dispatch})
     {:ok, a} = admit(c, parts_request([image_part("img")]))
     _ = needs()
+    # Admission translated the non-empty image; dispatch must not translate.
+    assert_received {:translate, _}
     pid = owner(c, a, ctx)
     {:ok, :dispatched} = Intent.advance(pid, :dispatch)
     status = settled(pid)
@@ -1067,6 +1069,7 @@ defmodule Elzoo.AiTextTest do
                     {:outcome, _, {:refused, :input_unavailable, %{retry_after: nil}}}}
 
     assert needs() == 1
+    refute_received {:translate, _}
     refute_received :credential_read
     refute_received {:sent, _}
     assert calls() == 0
