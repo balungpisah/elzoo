@@ -361,7 +361,7 @@ defmodule Elzoo.LedgerCheckout do
            not Enum.all?(unit, &(state_of(c, &1) == :succeeded))
          end) do
       nil ->
-        with :ok <- settle(b, tenant, c.declaration.checkout_id, :running, :completed),
+        with :ok <- move(b, tenant, c.declaration.checkout_id, :running, :completed),
              do: :next
 
       unit ->
@@ -372,7 +372,7 @@ defmodule Elzoo.LedgerCheckout do
              :ok <- start(b, tenant, c, open) do
           outcomes =
             Enum.map(open, fn name ->
-              {name, outcome(b, tenant, name, perform(b, tenant, c.declaration, name))}
+              {name, outcome(name, perform(b, tenant, c.declaration, name))}
             end)
 
           Enum.reduce_while(outcomes, :next, fn
@@ -400,13 +400,13 @@ defmodule Elzoo.LedgerCheckout do
 
   # A Piece's :unavailable and a Need's other answer wait :retry with nothing recorded; a
   # Piece's :in_transaction and :isolation are resume/3's own error.
-  defp outcome(_b, _tenant, name, :retry),
+  defp outcome(name, :retry),
     do: {:wait, %{step: name, for: :retry, admission: nil}}
 
-  defp outcome(_b, _tenant, name, {:wait, for, admission}),
+  defp outcome(name, {:wait, for, admission}),
     do: {:wait, %{step: name, for: for, admission: admission}}
 
-  defp outcome(_b, _tenant, _name, other), do: other
+  defp outcome(_name, other), do: other
 
   defp perform(b, tenant, d, :charge), do: charge(b, tenant, d, payment_id(d), 3)
 
@@ -531,11 +531,11 @@ defmodule Elzoo.LedgerCheckout do
          |> Enum.filter(&(&1.state == :succeeded))
          |> Enum.max_by(& &1.position, fn -> nil end) do
       nil ->
-        with :ok <- settle(b, tenant, c.declaration.checkout_id, :compensating, :compensated),
+        with :ok <- move(b, tenant, c.declaration.checkout_id, :compensating, :compensated),
              do: :next
 
       step ->
-        case outcome(b, tenant, step.step, compensate(b, tenant, c.declaration, step)) do
+        case outcome(step.step, compensate(b, tenant, c.declaration, step)) do
           :compensated ->
             with :ok <- record(b, tenant, c, step.step, :compensated), do: :next
 
@@ -734,7 +734,7 @@ defmodule Elzoo.LedgerCheckout do
 
   # A move of the checkout itself, :running to :completed or :compensating to :compensated,
   # when no step row changes.
-  defp settle(b, tenant, id, from, to) do
+  defp move(b, tenant, id, from, to) do
     transact(b, tenant, fn ->
       with {:ok, ^from, _steps} <- locked(b, tenant, id) do
         bump(b, tenant, id, to, :keep)

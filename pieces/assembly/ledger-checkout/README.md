@@ -33,6 +33,11 @@ no compensation, and every row with a result has its compensation. No row is del
 `prefix` (not `^[a-z_][a-z0-9_]{0,62}$`) raises `ArgumentError` with a fixed message before any
 DDL.
 
+The step keys (`checkout.<id>`, `checkout/<id>`, `checkout/<id>/settle`, ...) are not
+namespaced by the checkout's prefix, while the lock key is. So use one checkout prefix per set
+of reused Piece tables: two checkout prefixes over the same payment, invoice or journal tables
+would share one payment, application and journal operation for an equal `checkout_id`.
+
 ### Grants
 
 The minimum grants for the application role, beside those of the reused Pieces' READMEs:
@@ -205,7 +210,9 @@ first step failed, with none to run). All steps succeeded makes it `:completed`.
   checkouts wait for each other). It holds the lock for the whole call, every call to another
   Piece or Need included, and releases it before it returns. A caller that does not get the
   lock calls no Piece and no Need and returns the stored state with
-  `wait: %{step, for: :busy, admission: nil}`; `step` is the step it would run next. So two
+  `wait: %{step, for: :busy, admission: nil}`; `step` is the step it would run next, the step
+  whose compensation runs next, or the step whose compensation failed, and `nil` for a
+  `:completed` or `:compensated` checkout. So two
   concurrent `resume/3` calls never both call another Piece for one checkout, and a refusal
   that depends on another's state (an invoice paid by another payment, a journal account
   opened or funded later) is read by one holder only. Answer `:busy` by resuming later.
@@ -234,6 +241,10 @@ first step failed, with none to run). All steps succeeded makes it `:completed`.
   record (it returns `{:error, :unavailable}`), the effect of its call in flight stays
   unrecorded by it, and a refusal that the second holder reads may disagree with that effect.
   This is not fenced.
+- `resume/3` releases the lock with `pg_advisory_unlock` before it returns and does not check
+  the answer. If that query fails while the connection stays open, the session lock stays on a
+  pooled connection, and every other `resume/3` of that checkout answers `:busy` until that
+  connection closes.
 - A query that waits without end (no `statement_timeout` or `lock_timeout` on the role) holds
   the lock, and every other `resume/3` of that checkout answers `:busy`.
 - `:compensated` covers the checkout's own refund, not a host refund still pending.
