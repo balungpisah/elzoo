@@ -204,17 +204,22 @@ canceled subscription takes none. `change/3` and `cancel/3` are allowed from `:t
   of the subscription that has not expired at `now_ms`: the period before the current one while
   the current one has not started (after a renewal ahead), and the current one, in index order;
   no refund. When the current period has not started its fee line is `withdrawn_fee_line`.
+  After a period-end cancel inside the ahead window, a cancel now keeps that cancel's
+  withdrawal: the current period's grant is revoked at the earlier of its `start_ms` and
+  `now_ms`, also once that grant has expired, and its fee line stays `withdrawn_fee_line`.
 
 The same transaction stores `revocations` and `withdrawn_fee_line` in the row as `last_cancel`,
-which no later renewal or transition changes, so a host whose cancel committed without a reply
+which no later renewal or transition changes (a cancel now after a period-end cancel stores its
+own result, which keeps the earlier revocation and withdrawal as above), so a host whose cancel committed without a reply
 (`:unavailable`, or a retry refused as `:stale_revision` or `{:state, :canceled}`) reads its
 result with `get/3`, before and after the renewal that ends the subscription.
 
 A past-due subscription renews like an active one; when to cancel it is the host's dunning
 policy. A refusal commits nothing. A database failure, including a lost connection, is
 `{:error, :unavailable}` and says nothing about whether the write committed; a retry with the
-same request is safe (create and renew are idempotent, and a transition's retry with the old
-revision is `:stale_revision`, after which `get/3` shows the committed state).
+same request is safe: create and an advancing renewal return their first result again; a
+retried renewal that ended the subscription is `{:state, :canceled}`, and a transition's retry
+with the old revision is `:stale_revision`, after which `get/3` shows the committed state.
 
 ## Consumer Needs
 

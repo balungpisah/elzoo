@@ -11,11 +11,6 @@ mod Elzoo.PlanPeriod
 
   type Interval = Month | Year
 
-  @total true
-  @reducible
-  fn civil(year: Int, month: Int, day: Int) -> CivilDate =
-    CivilDate{year: year, month: month, day: day}
-
   # n divides y, for the non-negative years the boundary admits.
   @total true
   @reducible

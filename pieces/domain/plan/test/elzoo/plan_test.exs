@@ -156,11 +156,11 @@ defmodule Elzoo.PlanTest do
   end
 
   # A renewal ahead, then a period-end cancel inside the ahead window.
-  defp ahead_window!(ahead) do
-    c = create!(ahead, "s1")
+  defp ahead_window!(ahead, tenant \\ "T1") do
+    c = create!(ahead, "s1", tenant: tenant)
     end1 = c.subscription.period.end_ms
-    r1 = renew!(ahead, "s1", 1, end1 - @hour)
-    {:ok, x} = cancel(ahead, "s1", 2, :period_end, end1 - 1_000)
+    r1 = renew!(ahead, "s1", 1, end1 - @hour, tenant)
+    {:ok, x} = cancel(ahead, "s1", 2, :period_end, end1 - 1_000, tenant)
     {c, r1, x}
   end
 
@@ -290,6 +290,12 @@ defmodule Elzoo.PlanTest do
     second = renew!(b, "s1", 2, first.subscription.period.end_ms)
     assert unchanged(p, fn -> renew(b, "s1", 2, 0) end) == {:ok, %{second | duplicate: true}}
     assert [%{"revision" => 3}] = Harness.truth(p)
+
+    # After a change the repeat keeps its fee line and grant; its subscription is the current one.
+    {:ok, %{subscription: changed}} = change(b, "s1", 3, @team, usd(9))
+
+    assert unchanged(p, fn -> renew(b, "s1", 2, 0) end) ==
+             {:ok, %{second | duplicate: true, subscription: changed}}
 
     refused(p, :stale_period, fn -> renew(b, "s1", 1, second.subscription.period.end_ms) end)
     refused(p, :stale_period, fn -> renew(b, "s1", 4, second.subscription.period.end_ms) end)
@@ -434,6 +440,62 @@ defmodule Elzoo.PlanTest do
 
       assert unchanged(p, fn -> renew(ahead, "s1", 1, end1) end) ==
                {:ok, %{withdrawn | subscription: e.subscription}}
+    end
+
+    test "a cancel now after a period-end cancel inside the window keeps the withdrawal", %{
+      p: p,
+      ahead: ahead
+    } do
+      # After the boundary and before the renewal that ends it, and after the withdrawn period.
+      for {tenant, after_start} <- [{"T1", 10 * @hour}, {"T2", 40 * 24 * @hour}] do
+        {c, r1, x} = ahead_window!(ahead, tenant)
+        p2 = r1.subscription.period
+        {:ok, n} = cancel(ahead, "s1", 3, :now, p2.start_ms + after_start, tenant)
+        assert n.subscription.state == :canceled
+        assert n.revocations == x.revocations
+        assert n.withdrawn_fee_line == r1.fee_line
+        {:ok, %{last_cancel: last}} = Plan.get(ahead, tenant, %{subscription_id: "s1"})
+        assert last == Map.take(n, [:revocations, :withdrawn_fee_line])
+        grants = c.grants ++ r1.grants
+        assert resolve(grants, n.revocations, tenant, p2.start_ms) == {:not_entitled, :revoked}
+
+        assert unchanged(p, fn -> renew(ahead, "s1", 1, p2.start_ms, tenant) end) ==
+                 {:ok,
+                  %{
+                    r1
+                    | subscription: n.subscription,
+                      fee_line: nil,
+                      grants: [],
+                      duplicate: true,
+                      withdrawn_fee_line: r1.fee_line
+                  }}
+      end
+
+      # Before the boundary: both grants revoked at now_ms, the next period still withdrawn.
+      {_c, r1, _x} = ahead_window!(ahead, "T3")
+      now = r1.subscription.period.start_ms - 500
+      {:ok, n} = cancel(ahead, "s1", 3, :now, now, "T3")
+
+      assert n.revocations == [
+               %{grant_id: "s1/1", revoked_at_ms: now},
+               %{grant_id: "s1/2", revoked_at_ms: now}
+             ]
+
+      assert n.withdrawn_fee_line == r1.fee_line
+    end
+
+    test "a period-end cancel before a future start withdraws period 1", %{p: p, b: b} do
+      start = ms(@jan31)
+      c = create!(b, "s1")
+      {:ok, x} = cancel(b, "s1", 1, :period_end, start - @hour)
+      assert x.revocations == [%{grant_id: "s1/1", revoked_at_ms: start}]
+      assert x.withdrawn_fee_line == c.fee_line
+      assert x.subscription.cancel_ms == start
+      refused(p, :not_due, fn -> renew(b, "s1", 1, start - 1) end)
+      {:ok, e} = renew(b, "s1", 1, start)
+      assert e.subscription.state == :canceled
+      # A duplicate create still returns the first result.
+      assert create(b, "s1") == {:ok, Map.put(c, :duplicate, true)}
     end
 
     test "a cancel now revokes the running grant; inside the ahead window both", %{

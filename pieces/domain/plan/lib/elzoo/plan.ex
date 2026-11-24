@@ -362,16 +362,27 @@ defmodule Elzoo.Plan do
   end
 
   # One revocation at now_ms for each grant that is not expired at now_ms: the period before
-  # the current one while the current one has not started, and the current one.
+  # the current one while the current one has not started, and the current one. After a
+  # period-end cancel, whose only revocation is of the current period's grant, that revocation
+  # keeps the earlier of its time and now_ms and its withdrawn fee line stays withdrawn, so a
+  # cancel now never serves or bills a withdrawn period.
   defp cancel_row(p, tenant, row, s, :now, now) do
     i = s.period.index
     before? = now < s.period.start_ms and (i >= 2 or (i == 1 and s.trial_end_ms != nil))
+    earlier = Map.new((row.last_cancel || %{revocations: []}).revocations, &{&1.grant_id, &1})
+    current = grant_id(s, i)
 
     revocations =
       if(before?, do: [revocation(s, i - 1, now)], else: []) ++
-        if(now < s.period.end_ms, do: [revocation(s, i, now)], else: [])
+        case earlier do
+          %{^current => r} -> [%{r | revoked_at_ms: min(r.revoked_at_ms, now)}]
+          _ -> if(now < s.period.end_ms, do: [revocation(s, i, now)], else: [])
+        end
 
-    withdrawn = if now < s.period.start_ms, do: fee_line(s), else: nil
+    withdrawn =
+      (row.last_cancel && row.last_cancel.withdrawn_fee_line) ||
+        if(now < s.period.start_ms, do: fee_line(s), else: nil)
+
     last = %{revocations: revocations, withdrawn_fee_line: withdrawn}
     s = save(p, tenant, %{row | last_cancel: last}, %{s | state: :canceled})
     {:ok, Map.put(last, :subscription, s)}
