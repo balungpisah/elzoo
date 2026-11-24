@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: Apache-2.0
+# domain/plan (ELZ-366): the period rule of a subscription over UTC civil dates.
+# Pure: no I/O, no clock. The Elixir boundary (Elzoo.Plan) converts a Unix
+# millisecond time to a UTC civil date and time of day with OTP :calendar,
+# passes the anchor's date here and keeps the anchor's time of day.
+mod Elzoo.PlanPeriod
+  rec CivilDate
+    year: Int
+    month: Int
+    day: Int
+
+  type Interval = Month | Year
+
+  @total true
+  @reducible
+  fn civil(year: Int, month: Int, day: Int) -> CivilDate =
+    CivilDate{year: year, month: month, day: day}
+
+  # n divides y, for the non-negative years the boundary admits.
+  @total true
+  @reducible
+  fn divides(n: Int, y: Int) -> Bool =
+    pickup
+      y - (y / n) * n == 0 -> True()
+      else -> False()
+
+  # The Gregorian rule.
+  @total true
+  @reducible
+  fn leap(year: Int) -> Bool =
+    pickup
+      divides(400, year) -> True()
+      divides(100, year) -> False()
+      divides(4, year) -> True()
+      else -> False()
+
+  @total true
+  @reducible
+  fn february(year: Int) -> Int =
+    pickup
+      leap(year) -> 29
+      else -> 28
+
+  @total true
+  @reducible
+  fn days_in_month(year: Int, month: Int) -> Int =
+    pickup
+      month == 2 -> february(year)
+      month == 4 -> 30
+      month == 6 -> 30
+      month == 9 -> 30
+      month == 11 -> 30
+      else -> 31
+
+  @total true
+  @reducible
+  fn min_int(a: Int, b: Int) -> Int =
+    pickup
+      a <= b -> a
+      else -> b
+
+  # The months that boundary k lies after the anchor's month.
+  @total true
+  @reducible
+  fn months(interval: Interval, k: Int) -> Int =
+    match interval
+      Month() -> k
+      Year() -> 12 * k
+
+  # The date of a month index (year * 12 + month - 1) with the anchor's day
+  # clamped to that month's last day.
+  @total true
+  @reducible
+  fn clamped(index: Int, anchor_day: Int) -> CivilDate =
+    let year = index / 12
+    let month = index - year * 12 + 1
+    CivilDate{year: year, month: month, day: min_int(anchor_day, days_in_month(year, month))}
+
+  # Boundary k >= 0, always computed from the anchor, never from the boundary
+  # before it.
+  @total true
+  @reducible
+  fn boundary(anchor_year: Int, anchor_month: Int, anchor_day: Int, interval: Interval, k: Int) -> CivilDate =
+    clamped(anchor_year * 12 + anchor_month - 1 + months(interval, k), anchor_day)
+
+  # A date as the integer yyyymmdd (one-to-one for months 1..12 and days
+  # 1..31), so a law compares a boundary with an Int literal: the pinned Cure
+  # reduces a comparison over literals, not a record equality whose indices
+  # are numerals.
+  @total true
+  @reducible
+  fn date_number(d: CivilDate) -> Int =
+    d.year * 10000 + d.month * 100 + d.day
+
+  # ── selected laws (over literals; the rule over every day is test evidence)
+
+  @total true
+  fn february_2024_has_29_days() -> Equivalent(Bool, days_in_month(2024, 2) == 29, True()) =
+    reflexive(True())
+
+  @total true
+  fn february_2100_has_28_days() -> Equivalent(Bool, days_in_month(2100, 2) == 28, True()) =
+    reflexive(True())
+
+  @total true
+  fn february_2000_has_29_days() -> Equivalent(Bool, days_in_month(2000, 2) == 29, True()) =
+    reflexive(True())
+
+  @total true
+  fn february_2027_has_28_days() -> Equivalent(Bool, days_in_month(2027, 2) == 28, True()) =
+    reflexive(True())
+
+  @total true
+  fn january_31_month_1_is_february_28() -> Equivalent(Bool, date_number(boundary(2027, 1, 31, Month(), 1)) == 20270228, True()) =
+    reflexive(True())
+
+  @total true
+  fn january_31_month_2_is_march_31() -> Equivalent(Bool, date_number(boundary(2027, 1, 31, Month(), 2)) == 20270331, True()) =
+    reflexive(True())
+
+  @total true
+  fn january_31_month_13_is_february_29() -> Equivalent(Bool, date_number(boundary(2027, 1, 31, Month(), 13)) == 20280229, True()) =
+    reflexive(True())
+
+  @total true
+  fn february_29_year_1_is_february_28() -> Equivalent(Bool, date_number(boundary(2024, 2, 29, Year(), 1)) == 20250228, True()) =
+    reflexive(True())
+
+  @total true
+  fn february_29_year_4_is_february_29() -> Equivalent(Bool, date_number(boundary(2024, 2, 29, Year(), 4)) == 20280229, True()) =
+    reflexive(True())
+
+  @total true
+  fn march_15_k_0_is_the_anchor() -> Equivalent(Bool, date_number(boundary(2026, 3, 15, Month(), 0)) == 20260315, True()) =
+    reflexive(True())
+end

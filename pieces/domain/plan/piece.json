@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "id": "domain/plan",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": ["cure", "ecto_sql", "postgrex", "telemetry", "elixir", "otp"],
+  "dependencies": ["state/tenant-isolation", "domain/money", "domain/entitlement"],
+  "contract": "Durable subscriptions in a plain Ecto/Postgrex table on PostgreSQL 16 under the state/tenant-isolation floor: one subscription per tenant at a time (a unique partial index on tenant for rows not canceled) to a plan version {plan_id, version} with a non-negative domain/money fee per period stored as its Codec bytes; UTC calendar monthly or yearly periods counted from an anchor (trial_end_ms, or start_ms without a trial) and clamped to the month's last day, each boundary computed from the anchor by the Cure period rule and keeping the anchor's UTC time of day; an optional trial as period 0 with a grant and no fee line; create/3 idempotent by subscription_id (equal bytes return the stored first result as duplicate, other bytes conflict, an open subscription of the tenant subscription_exists); renew/3 under the row lock advances exactly one period when now_ms >= end_ms - renew_ahead_ms (0..86,400,000, default 0), applies the pending change, makes a trialing subscription active and returns the new period's fee line {subscription_id, period, plan, amount} and its domain/entitlement grant <subscription_id>/<index>, a repeat of the same from_index returns that result as duplicate and writes nothing (with no fee line or grant and the withdrawn fee line after a cancel withdrew the period), other indexes stale_period, a cancel at period end never taken ahead and ending the subscription at cancel_ms with no fee line; change/3 takes effect at the next renewal without proration; cancel/3 at :period_end fixes cancel_ms at the end of the period running at now_ms (the start of a period renewed ahead that has not started, revoking its grant there and withdrawing its fee line) and at :now cancels with one revocation at now_ms for each grant not yet expired, storing the result as last_cancel for get/3; mark_past_due/3 and mark_paid/3 take the host's invoice reading; every transition names the expected revision (stale_revision, then {:state, state}); fixed error atoms that echo no ID; a database failure is unavailable and safe to retry. No proration, refund, tax, dunning, timer, invoice, grant or journal write.",
+  "limits": [
+    "The trusted time, the storage of the returned grants and fee lines, the application of revocations and withdrawn fee lines, and the past-due reading are the host's; the Piece has no timer and with renew_ahead_ms 0 the time between end_ms and the host's renewal is a gap in the tenant's entitlement.",
+    "UTC only, monthly and yearly intervals only; a period boundary keeps the anchor's UTC time of day. One open subscription per tenant. No proration, refund, tax, dunning or invoice.",
+    "The selected Cure laws are equalities over literal dates; the rule over every anchor day and month is test evidence (an exhaustive test against an independent oracle), not a proof. The :calendar conversion, the renewal and cancel decisions and every SQL step are test-grounded.",
+    "The state/tenant-isolation limits apply: the table owner can turn forcing off or drop the policies, and a superuser or BYPASSRLS role ignores them, so production connects as a non-owner, non-bypass application role with the README grants. The consumer Repo's query telemetry still receives the scope parameters (the tenant).",
+    "READ COMMITTED is a consumer Need that the Piece checks (current_setting('transaction_isolation') before any table query of a write) but cannot set.",
+    "domain/entitlement is a dependency for its grant shape and the tests' resolve/3 calls; the library code does not call it.",
+    "A database failure, including a lost connection, is {:error, :unavailable} and says nothing about whether the write committed; the outcome is left to a retry or to get/3.",
+    "Concurrency and row-security evidence are finite scenarios on one local PostgreSQL 16 with repeated runs, not proofs."
+  ],
+  "files": [
+    "cure/elzoo/plan_period.cure",
+    "lib/elzoo/plan.ex",
+    "lib/elzoo/plan/migration.ex",
+    "test/elzoo/plan_test.exs",
+    "test/support/plan_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/plan_period.cure",
+      "symbol": "february_2024_has_29_days",
+      "claim": "days_in_month(2024, 2) == 29 reduces to True() (a year divisible by 4 and not by 100)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/plan_period.cure",
+      "symbol": "february_2100_has_28_days",
+      "claim": "days_in_month(2100, 2) == 28 reduces to True() (divisible by 100, not by 400)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/plan_period.cure",
+      "symbol": "february_2000_has_29_days",
+      "claim": "days_in_month(2000, 2) == 29 reduces to True() (divisible by 400)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/plan_period.cure",
+      "symbol": "february_2027_has_28_days",
+      "claim": "days_in_month(2027, 2) == 28 reduces to True() (not divisible by 4)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/plan_period.cure",
+      "symbol": "january_31_month_1_is_february_28",
+      "claim": "The monthly boundary 1 of a 31 January 2027 anchor is 28 February 2027 (clamped)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/plan_period.cure",
+      "symbol": "january_31_month_2_is_march_31",
+      "claim": "The monthly boundary 2 of a 31 January 2027 anchor is 31 March 2027 (from the anchor, not from 28 February)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/plan_period.cure",
+      "symbol": "january_31_month_13_is_february_29",
+      "claim": "The monthly boundary 13 of a 31 January 2027 anchor is 29 February 2028 (clamped in a leap year)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/plan_period.cure",
+      "symbol": "february_29_year_1_is_february_28",
+      "claim": "The yearly boundary 1 of a 29 February 2024 anchor is 28 February 2025."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/plan_period.cure",
+      "symbol": "february_29_year_4_is_february_29",
+      "claim": "The yearly boundary 4 of a 29 February 2024 anchor is 29 February 2028."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/plan_period.cure",
+      "symbol": "march_15_k_0_is_the_anchor",
+      "claim": "Boundary 0 of a 15 March 2026 anchor is the anchor's date."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/plan_period.cure",
+      "claim": "Pinned Cure checks the CivilDate and Interval types and the production days_in_month/2 and boundary/5 (every function @total) with a clean audit: no axioms, holes, unresolved, unaudited, opaque or unproven-total items. Skipping the clamp makes the module fail to compile (negative control run by temporary edit)."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/plan_test.exs",
+      "claim": "Listed scenarios on the worker's own disposable PostgreSQL 16 database with DBConnection.ConnectionPool Repos (not the Sandbox) connected as the ELZ-285 application role with only the README grants (fails when ELZOO_TEST_APP_ROLE is unset), in random schemas dropped afterwards. 1 the selected laws compile and audit clean and are exports of the loaded module; days_in_month equals Calendar.ISO for every month of 1900..2400; boundary/5 equals an independent oracle (the month index year * 12 + month - 1 shifted by integer arithmetic, the day min(anchor_day, Date.days_in_month)) for every anchor day 1..31 of every month of 2024, 2027, 1999 and 2096, k 0..24 monthly and 0..8 yearly (25,296 cases); 2 renewal at end_ms - 1 not_due with nothing written and at end_ms one period with its fee line and grant, a renewal far past due advancing one period, with renew_ahead_ms 3,600,000 not_due at end_ms - 3,600,001 and advancing at end_ms - 3,600,000 into a period that starts in the future, a 31 January 2027 anchor ending 28 February, 31 March and 30 April at 10:00:00.123 UTC, a 29 February 2024 yearly anchor ending 28 February 2025 to 29 February 2028; 3 a repeat of the same from_index equal with duplicate true at any now_ms and nothing written (revision unchanged), two behind and ahead stale_period, a from_index of a period that create made stale_period; 4 a trial in period 0 with a grant and no fee line, active in period 1 at the trial's end with its fee line; 5 a change taken at the next renewal and not before; a cancel at period end ending at the renewal at end_ms with no fee line, not_due at end_ms - 3,600,000 and end_ms - 1 with renew_ahead_ms, a second period-end cancel keeping cancel_ms and writing nothing; a period-end cancel inside the ahead window revoking the next grant at its start_ms and withdrawing its fee line, the repeat of the ahead renewal with no fee line and no grant and the withdrawn line (before and after the ending renewal), second cancels inside the window and after the boundary returning the same revocation and line, the renewal not_due before start_ms and canceling at it, Elzoo.Entitlement.resolve/3 revoked at and after the boundary; a cancel now revoking the running grant, inside the ahead window two revocations and the withdrawn line, resolve/3 revoked at now_ms and after the boundary; each dropped reply read back from get/3's last_cancel (the period-end cancels before and after the ending renewal) while the old revision is stale_revision; a canceled subscription refusing every transition and the renewal, and the tenant creating another; 6 the grants of three consecutive periods, plain and renewed ahead, resolving at the start, middle and last millisecond of each period to that period's grant and never to overlap; 7 two renewals behind another connection's row lock until both wait in pg_locks commit one advance and the other returns the duplicate; 8 create duplicate returning the first result also after a renewal and a change, conflict on each create field, subscription_exists, another tenant independent; stale_revision and {:state, state} for each transition, a past-due subscription renewing and staying past due; 9 verify/1, another tenant's subscription unknown_subscription for every function, a direct insert of a T2 row under the T1 scope SQLSTATE 42501; a caller transaction gives in_transaction for every function with no query on the Repo, a repeatable read Repo isolation from every write with nothing written, a missing schema unavailable from every function; 10 inner and outer bounds of every field, new/1 and migration prefix refusals. Negative controls by temporary edit, each restored: skipping the clamp in boundary/5 fails case 1's exhaustive test and case 2's 31 January case (with the laws it breaks removed for that run; with them the module fails to compile), chaining a boundary from the previous boundary instead of the anchor fails case 2's 31 March case, dropping the revision check of change/3 fails case 8's stale case, and fixing a period-end cancel inside the ahead window at the current period's end_ms fails case 5 (not canceled at the boundary). Finite scenarios, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/16/explicit-locking.html",
+      "claim": "PostgreSQL 16 row locks (SELECT ... FOR UPDATE), READ COMMITTED re-reads after a lock wait, INSERT ... ON CONFLICT DO NOTHING over the primary key and a unique partial index waiting on a concurrent uncommitted insert, and row-level security are upstream server contracts reached through Postgrex 0.22.4."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "Ecto SQL 3.14.0 Repo.transact/2 results and rollback, in_transaction?/0 and Ecto.Migration.execute/1 are upstream behavior, reached through Elzoo.TenantIsolation.transact/3."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Relies on the pinned Cure compiler, kernel and audit for the selected laws and the compiled period rule, including Int division that truncates toward zero (floor division for the non-negative month indexes the boundary admits)."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/stdlib/calendar.html",
+      "claim": "OTP 29.1.2 :calendar.gregorian_days_to_date/1 and date_to_gregorian_days/3 convert between a day count and a proleptic Gregorian date; the Piece converts Unix milliseconds by whole days from 1970-01-01."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir String.valid?/1, the utf8 binary pattern and integer arithmetic for the text rule and times; the test oracle uses Calendar.ISO through Date.days_in_month/1."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The consumer runs the migration as the table owner, connects the application as a non-owner, non-bypass role with only the README grants at READ COMMITTED, calls verify/1 at startup, keeps code that holds the connection from calling set_config itself, supplies its trusted time, stores the returned grants and applies the revocations and withdrawn fee lines, and retries an unavailable result or reads get/3."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "The Piece emits no event and no log; its queries pass log: false. The consumer Repo's query telemetry still receives the scope parameters, the tenant-isolation limit."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "The binding from new/1: exactly repo: and prefix: (the identifier rule) and optional renew_ahead_ms: 0..86,400,000 (default 0), fixed for the binding's life; no ambient or hot configuration. Fixed Contract bounds: 1..128-byte tenant and plan_id, 1..100-byte subscription_id, version 1..2^31-1, times 0..2^63-1.",
+      "evidence": ["test/elzoo/plan_test.exs"]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle; renew/3 and the transitions are data operations, and the consumer owns the Repo, the migrations and the database roles."
+    }
+  }
+}
