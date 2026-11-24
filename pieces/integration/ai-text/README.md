@@ -146,9 +146,12 @@ result, because no provider supplies a replay-safe ground.
   when the record names the referenced `artifact_id` and `version`,
   `byte_size(bytes)` equals `size_bytes` and `sha256` equals the lowercase hex
   SHA-256 of `<<hash_format::8, bytes>>`. A record media type other than the
-  part's is `invalid_request`; an image over `max_image_bytes`, or all images
-  over `max_total_image_bytes`, is `too_large`; any other failure (an error, a
-  raise, another shape, a mismatch) is `input_unavailable`. At admission these
+  part's, or an image of zero bytes, is `invalid_request`, decided after the
+  hash, so an empty answer whose record or hash does not match stays
+  `input_unavailable`, and no provider is sent an empty image. An image over
+  `max_image_bytes`, or all images over `max_total_image_bytes`, is
+  `too_large`; any other failure (an error, a raise, another shape, a
+  mismatch) is `input_unavailable`. At admission these
   are local refusals before any intent; in the Adapter any of them is the tag
   `input_unavailable`, attested no-send, before the credential Need.
 - The provider's `translate/2` gets each image part as `%{type: :image,
