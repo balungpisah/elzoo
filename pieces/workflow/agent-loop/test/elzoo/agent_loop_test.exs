@@ -1582,15 +1582,23 @@ defmodule Elzoo.AgentLoopTest do
       {written_state, outputs} = trace(inputs, written)
       assert outputs == plain
       # The state differs only by the two spec keys written out.
-      assert drop_keys(written_state) == drop_keys(plain_state)
+      assert written_state == plain_state
       refute Map.has_key?(plain_state, :later)
     end
+
+    # At the state bound: the defaults written out cost no byte, so new/1 accepts both.
+    size = fn state ->
+      byte_size(:erlang.term_to_binary(state, [:deterministic, {:minor_version, 2}]))
+    end
+
+    room = 65_536 - size.(new!(%{role_instructions: ["r"]}))
+    role = [String.duplicate("r", 1 + room)]
+    assert {:ok, at_bound} = AgentLoop.new(spec(%{role_instructions: role}))
+    assert size.(at_bound) == 65_536
+
+    assert AgentLoop.new(spec(%{role_instructions: role, model_attempts: 1, image_input: false})) ==
+             {:ok, at_bound}
   end
-
-  defp drop_keys(%{spec: spec} = state),
-    do: %{state | spec: Map.drop(spec, [:model_attempts, :image_input])}
-
-  defp drop_keys(state), do: state
 
   test "attempt_after_throttle" do
     {_, [first]} = trace([start("What is 2+2?")], attempts())

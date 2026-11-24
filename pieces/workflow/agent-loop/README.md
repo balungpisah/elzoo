@@ -30,7 +30,8 @@ and optionally `image_input`, `model_attempts` and `move_on`:
 With `model_attempts` over 1, `max_request_bytes` must be at most 64,512, so that an
 Attempt payload fits the engine's 65,536 bytes; a larger one is `:invalid_spec`. A
 spec without the three optional keys, or with `model_attempts: 1` and `image_input:
-false` written out, gives the same requests and finishes as before they existed.
+false` written out, gives the same requests, finishes and state as before they
+existed: written-out defaults are not stored.
 
 A spec that is not plain data (a struct, a pid, a function) is `:invalid_spec`.
 
@@ -220,8 +221,9 @@ member. A non-empty list is copied to the `:user` entry of that message as
 key. `images` to a spec without `image_input`, nine references or a malformed one
 make the payload malformed: no change, no request. `build/2` renders the images of
 the newest `:user` entry as image parts, so they are sent with each model call
-until a newer message arrives; a tool result's image reference stays a marked
-reference block.
+until a newer message arrives, unless the drop order of `build/2` removes that
+entry to fit the request (then its images go with it, and no older entry's images
+take their place); a tool result's image reference stays a marked reference block.
 
 ## Declarations
 
@@ -277,7 +279,7 @@ are held in the state and sent in every request whole.
 ## State form (for source-copy owners)
 
 Plain data. While open: `%{phase: :new | :model | :tools | :stores, spec:
-spec_without_sources, snapshot: tool_registry_snapshot, skills: [{name,
+spec_without_sources_and_written_defaults, snapshot: tool_registry_snapshot, skills: [{name,
 instructions}], history: [prompt_assembly_entry], waiting: [user_entry], users: k,
 turns: n, open: nil | open}`, and `later: m` from the first Attempt 2 of the Run on:
 the Attempts asked after the first of their call, so that `turns + later` is the
@@ -370,7 +372,8 @@ deterministic estimate; an Attempt's possible cost is the host's to record. A
 request at the engine's depth bound of 32 gets no Attempt 2. Each candidate's model
 and window are the binding's: the request is fitted to `spec.window` only. A tool
 call that did not complete is never tried again. The newest user message's images
-are sent with each model call of its turns; no images in older turns. With
+are sent with each model call of its turns, unless the drop order of `build/2`
+removes that entry; no images in older turns. With
 `integration/ai-token-count` as the estimate, an image build stops
 `request_not_built`. `answered` is not evidence that the work is
 done. No engine claim: the ready `assembly/run-engine` completes a Run with a root

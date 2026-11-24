@@ -22,6 +22,8 @@ defmodule Elzoo.AgentLoop do
     :turn_limit
   ]
   @optional_keys [:image_input, :model_attempts, :move_on]
+  # Written-out defaults are not stored, so that they cost no state bytes.
+  @defaults [image_input: false, model_attempts: 1]
   @build_keys [
     :model,
     :max_output_tokens,
@@ -60,7 +62,7 @@ defmodule Elzoo.AgentLoop do
          true <- ask?(snapshot, spec.ask) || {:error, :invalid_spec} do
       state = %{
         phase: :new,
-        spec: Map.delete(spec, :sources),
+        spec: spec |> Map.delete(:sources) |> Map.reject(&(&1 in @defaults)),
         snapshot: snapshot,
         skills: [],
         history: [],
