@@ -21,14 +21,19 @@ defmodule Elzoo.AgentLoop do
     :ask,
     :turn_limit
   ]
+  @optional_keys [:image_input, :model_attempts, :move_on]
   @build_keys [
     :model,
     :max_output_tokens,
     :role_instructions,
     :window,
     :max_request_bytes,
-    :max_image_refs
+    :max_image_refs,
+    :image_input
   ]
+  @move_on ~w(throttled overloaded authentication_failed permission_denied not_found)
+  @candidate ~r/\A[a-z0-9_.-]{1,64}\z/
+  @media_types ~w(image/png image/jpeg image/webp image/gif)
   @state_bound 65_536
   @instruction_bound 16_384
   @mark_bound 65_536
@@ -43,6 +48,7 @@ defmodule Elzoo.AgentLoop do
   @answer_key "elzoo.agent-loop.answer"
   @result_key "elzoo.agent-loop.tool-result"
   @model_result_key "elzoo.ai-text.result"
+  @attempt_key "elzoo.agent-loop.model-attempt"
 
   @doc """
   Checks a spec; `{:ok, state}` or `{:error, :invalid_spec | {:sources, reason} |
@@ -95,17 +101,21 @@ defmodule Elzoo.AgentLoop do
     do: {:Transition, closed(state), :none}
 
   defp transition(%{phase: :new} = state, %{"kind" => "start"} = input, _, estimate) do
-    case start_form(input) do
-      {:ok, text, nil} -> state |> arrive(text) |> flush() |> model_call(estimate)
-      {:ok, text, skill} -> state |> arrive(text) |> flush() |> start_load(skill, estimate)
+    with {:ok, input, images} <- images(state, input),
+         {:ok, text, skill} <- start_form(input) do
+      state = state |> arrive(text, images) |> flush()
+      if skill, do: start_load(state, skill, estimate), else: model_call(state, estimate)
+    else
       :error -> unchanged(state)
     end
   end
 
   defp transition(%{phase: phase} = state, %{"kind" => "message"} = input, _, _)
        when phase != :new do
-    case message(input) do
-      {:ok, text} -> {:Transition, arrive(state, text), :none}
+    with {:ok, input, images} <- images(state, input),
+         {:ok, text} <- message(input) do
+      {:Transition, arrive(state, text, images), :none}
+    else
       :error -> unchanged(state)
     end
   end
@@ -214,14 +224,14 @@ defmodule Elzoo.AgentLoop do
       cond do
         result.finish == "stop" and result.proposals == [] and state.waiting == [] ->
           if result.content != "",
-            do: finish(state, "answered", nil, call_id(state, state.turns)),
+            do: finish(state, "answered", nil, input["action_id"]),
             else: stop(state, "model_stopped")
 
         result.finish not in ["stop", "tool_calls"] or
             (result.finish == "tool_calls" and result.proposals == []) ->
           stop(state, "model_stopped")
 
-        state.turns == state.spec.turn_limit ->
+        asked(state) == state.spec.turn_limit ->
           stop(state, "turn_limit")
 
         true ->
@@ -229,9 +239,79 @@ defmodule Elzoo.AgentLoop do
       end
     else
       :error -> stop(state, "model_stopped")
-      _ -> stop(state, "model_call_not_completed")
+      _ -> not_completed_call(state, input, estimate)
     end
   end
+
+  # A model call that did not complete: one more Attempt only after a declared refusal
+  # whose reason is in move_on, below model_attempts; else it stops as without Attempts.
+  defp not_completed_call(state, input, estimate) do
+    earlier = Map.get(state.open, :attempts, [])
+    k = length(earlier) + 1
+    bound = Map.get(state.spec, :model_attempts, 1)
+
+    case refusal(input, Map.get(state.spec, :move_on, [])) do
+      {:ok, entry} when k < bound ->
+        if asked(state) == state.spec.turn_limit,
+          do: stop(state, "turn_limit"),
+          else: attempt(state, earlier ++ [Map.put(entry, "attempt", k)], estimate)
+
+      _ ->
+        stop(state, "model_call_not_completed")
+    end
+  end
+
+  # Reason, retry_after and candidate are read only under the ai-text result schema.
+  defp refusal(
+         %{
+           "outcome" => class,
+           "schema_id" => @model_result_key,
+           "schema_version" => 1,
+           "payload" => %{"reason" => reason} = p
+         },
+         move_on
+       )
+       when class in ["refused", "failed"] and not is_struct(p) do
+    if reason in move_on do
+      retry = p["retry_after"]
+      candidate = p["candidate"]
+
+      {:ok,
+       %{
+         "reason" => reason,
+         "retry_after" => if(is_integer(retry) and retry in 0..86_400, do: retry),
+         "candidate" =>
+           if(is_binary(candidate) and Regex.match?(@candidate, candidate), do: candidate)
+       }}
+    else
+      :error
+    end
+  end
+
+  defp refusal(_, _), do: :error
+
+  # Attempt k + 1 of the open call N: the rebuilt request with the earlier Attempts.
+  defp attempt(state, attempts, estimate) do
+    n = state.turns
+
+    with {:ok, state, request} <- build(state, estimate),
+         true <- depth(request) <= 31 do
+      id = "#{call_id(state, n)}:#{length(attempts) + 1}"
+      payload = %{"request" => request, "attempts" => attempts}
+      state = Map.put(%{state | open: %{attempts: attempts}}, :later, later(state) + 1)
+      open_request(state, :model, [action(id, "model_call", @attempt_key, payload)], %{id => n})
+    else
+      :error -> stop(state, "request_not_built")
+      false -> stop(state, "model_call_not_completed")
+    end
+  end
+
+  # The JSON depth of core/payload-schema: each object and each array is one level.
+  defp depth(value) when is_map(value),
+    do: 1 + Enum.reduce(value, 0, fn {_, v}, d -> max(d, depth(v)) end)
+
+  defp depth(value) when is_list(value), do: 1 + Enum.reduce(value, 0, &max(depth(&1), &2))
+  defp depth(_), do: 0
 
   # The JSON view of the ai-text completed map; only content, finish and
   # tool_proposals are read, and each proposal only for id, name, arguments and malformed.
@@ -621,6 +701,20 @@ defmodule Elzoo.AgentLoop do
   defp model_call(state, estimate) do
     state = %{state | history: prune(state.history, state.snapshot)}
 
+    case build(state, estimate) do
+      {:ok, state, request} ->
+        n = state.turns + 1
+        state = %{state | turns: n}
+        action = action(call_id(state, n), "model_call", "elzoo/ai-text-request", request)
+        open_request(state, :model, [action], %{action["id"] => n})
+
+      :error ->
+        stop(state, "request_not_built")
+    end
+  end
+
+  # The request of build/2 from the history and the tools; dropped entries leave the history.
+  defp build(state, estimate) do
     input =
       state.spec
       |> Map.take(@build_keys)
@@ -634,13 +728,10 @@ defmodule Elzoo.AgentLoop do
     case PromptAssembly.build(input, estimate) do
       {:ok, built} ->
         gone = for %{part: :history, id: id} <- built.dropped, do: id
-        n = state.turns + 1
-        state = %{state | history: Enum.reject(state.history, &(&1.id in gone)), turns: n}
-        action = action(call_id(state, n), "model_call", "elzoo/ai-text-request", built.request)
-        open_request(state, :model, [action], %{action["id"] => n})
+        {:ok, %{state | history: Enum.reject(state.history, &(&1.id in gone))}, built.request}
 
       {:error, _} ->
-        stop(state, "request_not_built")
+        :error
     end
   end
 
@@ -706,7 +797,7 @@ defmodule Elzoo.AgentLoop do
       "status" => status,
       "reason" => reason,
       "action_id" => action_id,
-      "turns" => state.turns
+      "turns" => asked(state)
     }
 
     action = action(state.spec.id <> ":finish", "finish", "elzoo.agent-loop.result", payload)
@@ -715,7 +806,7 @@ defmodule Elzoo.AgentLoop do
      {:some, %{"type" => "request", "version" => 1, "actions" => [action]}}}
   end
 
-  defp closed(state), do: %{phase: :closed, id: state.spec.id, turns: state.turns}
+  defp closed(state), do: %{phase: :closed, id: state.spec.id, turns: asked(state)}
 
   defp action(id, kind, schema_id, payload),
     do: %{
@@ -725,6 +816,11 @@ defmodule Elzoo.AgentLoop do
       "schema_version" => 1,
       "payload" => payload
     }
+
+  # The model-call actions asked: each call, and each Attempt after its first. `later`
+  # joins the state only with the first such Attempt, so a Run without one keeps its form.
+  defp asked(state), do: state.turns + later(state)
+  defp later(state), do: Map.get(state, :later, 0)
 
   defp call_id(state, n), do: "#{state.spec.id}:m:#{n}"
 
@@ -761,14 +857,37 @@ defmodule Elzoo.AgentLoop do
     end
   end
 
-  defp arrive(state, text) do
-    k = state.users + 1
+  # With image_input, a start or message may also hold `images`: taken out of the payload
+  # before the form is read, so that a payload with a malformed list is no message.
+  defp images(state, %{"payload" => %{"images" => refs} = p} = input) when not is_struct(p) do
+    if Map.get(state.spec, :image_input, false) and is_list(refs) and not List.improper?(refs) and
+         length(refs) <= 8 and Enum.all?(refs, &image?/1) do
+      images =
+        for %{"artifact" => %{"id" => id, "version" => v}, "media_type" => m} <- refs,
+            do: %{artifact_id: id, version: v, media_type: m}
 
-    %{
-      state
-      | users: k,
-        waiting: state.waiting ++ [%{kind: :user, id: "#{state.spec.id}:u:#{k}", text: text}]
-    }
+      {:ok, %{input | "payload" => Map.delete(p, "images")}, images}
+    else
+      :error
+    end
+  end
+
+  defp images(_, input), do: {:ok, input, []}
+
+  # ai-text's image reference rule.
+  defp image?(%{"artifact" => %{"id" => id, "version" => v} = a, "media_type" => m} = ref)
+       when map_size(ref) == 2 and map_size(a) == 2 and not is_struct(ref) and not is_struct(a) do
+    is_binary(id) and byte_size(id) in 1..64 and Regex.match?(~r/\A[A-Za-z0-9._-]+\z/, id) and
+      id not in [".", ".."] and is_integer(v) and v in 1..2_147_483_647 and m in @media_types
+  end
+
+  defp image?(_), do: false
+
+  defp arrive(state, text, images) do
+    k = state.users + 1
+    entry = %{kind: :user, id: "#{state.spec.id}:u:#{k}", text: text}
+    entry = if images == [], do: entry, else: Map.put(entry, :images, images)
+    %{state | users: k, waiting: state.waiting ++ [entry]}
   end
 
   defp flush(state), do: %{state | history: state.history ++ state.waiting, waiting: []}
@@ -796,13 +915,32 @@ defmodule Elzoo.AgentLoop do
   ## Spec checks
 
   defp spec?(%{} = spec) when not is_struct(spec) do
-    map_size(spec) == length(@spec_keys) and Enum.all?(@spec_keys, &is_map_key(spec, &1)) and
+    Enum.all?(@spec_keys, &is_map_key(spec, &1)) and
+      Enum.all?(Map.keys(spec), &(&1 in @spec_keys or &1 in @optional_keys)) and
       text?(spec.id) and byte_size(spec.id) in 1..128 and limits?(spec.result_limits) and
       (is_nil(spec.ask) or (is_binary(spec.ask) and Regex.match?(@alias, spec.ask))) and
-      is_integer(spec.turn_limit) and spec.turn_limit in 1..256 and plain?(spec)
+      is_integer(spec.turn_limit) and spec.turn_limit in 1..256 and
+      is_boolean(Map.get(spec, :image_input, false)) and attempts?(spec) and plain?(spec)
   end
 
   defp spec?(_), do: false
+
+  # model_attempts 1..4; move_on only over 1, and then the request must leave room for
+  # the Attempt payload within the engine's 65,536 bytes.
+  defp attempts?(spec) do
+    case {Map.get(spec, :model_attempts, 1), Map.fetch(spec, :move_on)} do
+      {1, :error} ->
+        true
+
+      {n, {:ok, move_on}} when is_integer(n) and n in 2..4 ->
+        is_list(move_on) and move_on != [] and not List.improper?(move_on) and
+          Enum.all?(move_on, &(&1 in @move_on)) and Enum.uniq(move_on) == move_on and
+          is_integer(spec.max_request_bytes) and spec.max_request_bytes <= 64_512
+
+      _ ->
+        false
+    end
+  end
 
   defp limits?(%{max_bytes: max, artifact_max_bytes: artifact_max} = limits),
     do:

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.AgentLoopTest do
   use ExUnit.Case, async: true
-  alias Elzoo.{AgentLoop, PatternStep, ToolRegistry, UntrustedContent}
+  alias Elzoo.{AgentLoop, PatternStep, PayloadSchema, ToolRegistry, UntrustedContent}
   alias Elzoo.AiText.{Anthropic, OpenAI, Request}
 
   # Recorded-trace tests: every input is a literal neutral map; no model, no network.
@@ -28,6 +28,19 @@ defmodule Elzoo.AgentLoopTest do
   }
   @limits %{max_bytes: 1_024, artifact_max_bytes: 1_000_000}
   @system %{"role" => "system", "text" => @role}
+  @attempt_key "elzoo.agent-loop.model-attempt"
+  @attempt_port %{
+    "id" => "model-attempt",
+    "direction" => "output",
+    "schema_id" => @attempt_key,
+    "schema_version" => 1
+  }
+  @attempt_schema %{
+    "type" => "object",
+    "properties" => %{"request" => %{"type" => "object"}, "attempts" => %{"type" => "array"}},
+    "required" => ["request", "attempts"],
+    "additionalProperties" => false
+  }
 
   ## Fixtures
 
@@ -277,8 +290,16 @@ defmodule Elzoo.AgentLoopTest do
     with {:some, request} <- output do
       assert {:ok, _} = PatternStep.decode(request)
 
-      for %{"kind" => "model_call", "payload" => payload} <- request["actions"],
-          do: assert({:ok, _, _} = Request.decode(Request.canonical(payload), 65_536))
+      for %{"kind" => "model_call", "payload" => payload} = action <- request["actions"] do
+        if action["schema_id"] == @attempt_key do
+          # The engine's payload check of an Attempt: JSON form, depth 32, 65,536 bytes.
+          {:ok, schema} = PayloadSchema.build(@attempt_port, @attempt_schema)
+          assert PayloadSchema.check(schema, @attempt_port, payload) == :ok
+          assert {:ok, _, _} = Request.decode(Request.canonical(payload["request"]), 65_536)
+        else
+          assert {:ok, _, _} = Request.decode(Request.canonical(payload), 65_536)
+        end
+      end
     end
   end
 
@@ -1513,5 +1534,436 @@ defmodule Elzoo.AgentLoopTest do
       assert AgentLoop.step(state, later, &estimate/1) == {:Transition, state, :none}
       assert AgentLoop.step(loading, later, &estimate/1) == {:Transition, loading, :none}
     end
+  end
+
+  ## Attempts (ELZ-376)
+
+  defp attempts(extra \\ %{}),
+    do: Map.merge(%{model_attempts: 2, move_on: ["throttled"], max_request_bytes: 64_512}, extra)
+
+  defp not_done(id, class, schema, payload), do: outcome(id, class, schema, payload)
+
+  defp throttled(id, extra \\ %{}),
+    do:
+      not_done(id, "refused", "elzoo.ai-text.result", Map.merge(%{"reason" => "throttled"}, extra))
+
+  defp entry(k, reason, retry \\ nil, candidate \\ nil),
+    do: %{"attempt" => k, "reason" => reason, "retry_after" => retry, "candidate" => candidate}
+
+  defp attempt_call(id, request, entries),
+    do:
+      request([
+        action(id, "model_call", @attempt_key, %{"request" => request, "attempts" => entries})
+      ])
+
+  defp ids({:some, %{"actions" => actions}}), do: Enum.map(actions, & &1["id"])
+  defp ids(:none), do: []
+
+  test "attempts_golden" do
+    tool_turn = [
+      start(),
+      message("more"),
+      model(1, "Working.", "tool_calls", [call("c1", "files_read")]),
+      result("run:t:1:1", "r1"),
+      model(2, "Done.", "stop", [])
+    ]
+
+    traces = [
+      {[start("What is 2+2?"), model(1, "4.", "stop", [])], %{}},
+      {tool_turn, %{}},
+      {[start(), outcome("run:m:1", "unknown", "elzoo.run-engine.refusal", nil)], %{}},
+      {[start(), throttled("run:m:1", %{"retry_after" => 30})], %{}},
+      {[start(), not_done("run:m:1", "failed", "elzoo.ai-text.result", %{"reason" => "x"})], %{}},
+      {Enum.take(tool_turn, 3) ++ [result("run:t:1:1", "r1")], %{turn_limit: 1}},
+      {[skill_start(), declared("run:t:0:1", guide(), nil), model(1, "ok", "stop", [])],
+       skill_spec()}
+    ]
+
+    for {inputs, extra} <- traces do
+      {plain_state, plain} = trace(inputs, extra)
+      written = Map.merge(extra, %{model_attempts: 1, image_input: false})
+      {written_state, outputs} = trace(inputs, written)
+      assert outputs == plain
+      # The state differs only by the two spec keys written out.
+      assert drop_keys(written_state) == drop_keys(plain_state)
+      refute Map.has_key?(plain_state, :later)
+    end
+  end
+
+  defp drop_keys(%{spec: spec} = state),
+    do: %{state | spec: Map.drop(spec, [:model_attempts, :image_input])}
+
+  defp drop_keys(state), do: state
+
+  test "attempt_after_throttle" do
+    {_, [first]} = trace([start("What is 2+2?")], attempts())
+    request = payload(first)
+
+    refusal = throttled("run:m:1", %{"retry_after" => 30, "candidate" => "a"})
+    {state, [_, second]} = trace([start("What is 2+2?"), refusal], attempts())
+    assert second == {:some, attempt_call("run:m:1:2", request, [entry(1, "throttled", 30, "a")])}
+    # The Attempt 1 request byte for byte: the rebuilt request equals it.
+    assert payload(second)["request"] == request
+
+    {closed, [done]} = run(state, [model("1:2", "4.", "stop", [])])
+    assert done == {:some, finish("answered", nil, "run:m:1:2", 2)}
+    assert closed == %{phase: :closed, id: "run", turns: 2}
+
+    # An outcome of Attempt 1 after Attempt 2 is asked is not open: no change.
+    assert AgentLoop.step(state, model(1, "4.", "stop", []), &estimate/1) ==
+             {:Transition, state, :none}
+
+    # A failed outcome with a reason in move_on moves on too; retry_after and candidate
+    # that the binding did not give, or gave outside their form, are null.
+    for p <- [%{}, %{"retry_after" => 86_401, "candidate" => "A"}, %{"retry_after" => "30"}] do
+      failed =
+        not_done("run:m:1", "failed", "elzoo.ai-text.result", Map.put(p, "reason", "throttled"))
+
+      out = last(trace([start("What is 2+2?"), failed], attempts()))
+      assert out == {:some, attempt_call("run:m:1:2", request, [entry(1, "throttled")])}
+    end
+  end
+
+  test "attempt_bound" do
+    spec = attempts(%{model_attempts: 3, move_on: ["overloaded", "throttled"]})
+
+    inputs = [
+      start(),
+      throttled("run:m:1", %{"retry_after" => 1}),
+      not_done("run:m:1:2", "refused", "elzoo.ai-text.result", %{"reason" => "overloaded"}),
+      throttled("run:m:1:3")
+    ]
+
+    {closed, [first, second, third, stopped]} = trace(inputs, spec)
+    request = payload(first)
+    assert second == {:some, attempt_call("run:m:1:2", request, [entry(1, "throttled", 1)])}
+
+    assert third ==
+             {:some,
+              attempt_call("run:m:1:3", request, [
+                entry(1, "throttled", 1),
+                entry(2, "overloaded")
+              ])}
+
+    assert stopped == {:some, finish("stopped", "model_call_not_completed", nil, 3)}
+    assert closed.turns == 3
+
+    # A call at the turn_limit stops turn_limit instead of asking.
+    assert last(trace([start(), throttled("run:m:1")], attempts(%{turn_limit: 1}))) ==
+             {:some, finish("stopped", "turn_limit", nil, 1)}
+
+    tool_turn = [
+      start(),
+      model(1, "", "tool_calls", [call("c1", "files_read")]),
+      result("run:t:1:1", "r1")
+    ]
+
+    assert last(trace(tool_turn ++ [throttled("run:m:2")], attempts(%{turn_limit: 2}))) ==
+             {:some, finish("stopped", "turn_limit", nil, 2)}
+
+    # Each Attempt counts as one model call: after Attempt 2 of call 1, a tool turn
+    # at turn_limit 2 stops turn_limit, as a second call would.
+    inputs = [
+      start(),
+      throttled("run:m:1"),
+      model("1:2", "", "tool_calls", [call("c1", "files_read")])
+    ]
+
+    assert last(trace(inputs, attempts(%{turn_limit: 2}))) ==
+             {:some, finish("stopped", "turn_limit", nil, 2)}
+
+    assert {:some, %{"actions" => [%{"kind" => "tool_call"}]}} =
+             last(trace(inputs, attempts(%{turn_limit: 3})))
+  end
+
+  # A value of `levels` JSON levels, objects and arrays in turn.
+  defp nest(0), do: "x"
+  defp nest(levels) when rem(levels, 2) == 1, do: %{"a" => nest(levels - 1)}
+  defp nest(levels), do: [nest(levels - 1)]
+
+  defp schema_check(payload) do
+    {:ok, schema} = PayloadSchema.build(@attempt_port, %{"type" => "object"})
+    PayloadSchema.check(schema, @attempt_port, payload)
+  end
+
+  test "attempt_refusals" do
+    stop = {:some, finish("stopped", "model_call_not_completed", nil, 1)}
+    spec = attempts(%{move_on: ["throttled", "not_found"]})
+
+    for outcome <- [
+          not_done("run:m:1", "unknown", "elzoo.ai-text.result", %{"reason" => "throttled"}),
+          not_done("run:m:1", "refused", "elzoo.ai-text.result", %{"reason" => "invalid_request"}),
+          not_done("run:m:1", "refused", "elzoo.ai-text.result", %{"retry_after" => 30}),
+          not_done("run:m:1", "refused", "elzoo.ai-text.result", nil),
+          not_done("run:m:1", "refused", "elzoo.run-engine.refusal", %{"reason" => "throttled"}),
+          not_done("run:m:1", "out_of_budget", "elzoo.ai-text.result", %{"reason" => "throttled"}),
+          not_done("run:m:1", "refused", "elzoo.ai-text.result", %{"reason" => "overloaded"})
+        ] do
+      assert last(trace([start(), outcome], spec)) == stop
+    end
+
+    # A request at the engine's depth bound gets no Attempt 2; one level less does.
+    deep = fn levels ->
+      args = %{"q" => "x", "deep" => nest(levels)}
+
+      [
+        start(),
+        model(1, "", "tool_calls", [proposal("c1", "files_read", args)]),
+        result("run:t:1:1", "r1")
+      ]
+    end
+
+    {_, [_, _, at_32]} = trace(deep.(26), attempts())
+    {_, [_, _, at_31]} = trace(deep.(25), attempts())
+    # Depth by core/payload-schema's count: 32 levels pass, one wrapper more does not.
+    assert schema_check(payload(at_32)) == :ok
+    assert schema_check(%{"request" => payload(at_32)}) == {:error, :too_deep}
+    assert schema_check(%{"request" => payload(at_31)}) == :ok
+    assert schema_check(%{"request" => %{"w" => payload(at_31)}}) == {:error, :too_deep}
+
+    assert last(trace(deep.(26) ++ [throttled("run:m:2")], attempts())) ==
+             {:some, finish("stopped", "model_call_not_completed", nil, 2)}
+
+    # checked!/2 runs the engine's payload check on the Attempt payload.
+    assert last(trace(deep.(25) ++ [throttled("run:m:2")], attempts())) ==
+             {:some, attempt_call("run:m:2:2", payload(at_31), [entry(1, "throttled")])}
+  end
+
+  test "attempt_spec" do
+    move = %{move_on: ["throttled"]}
+
+    for extra <- [
+          %{model_attempts: 0},
+          %{model_attempts: 0, move_on: ["throttled"]},
+          %{model_attempts: 5, move_on: ["throttled"]},
+          %{model_attempts: "2", move_on: ["throttled"]},
+          %{model_attempts: 2},
+          %{model_attempts: 1, move_on: ["throttled"]},
+          move,
+          %{model_attempts: 2, move_on: ["throttled", "timeout"]},
+          %{model_attempts: 2, move_on: ["throttled", "throttled"]},
+          %{model_attempts: 2, move_on: []},
+          %{model_attempts: 2, move_on: "throttled"},
+          %{model_attempts: 2, move_on: ["throttled" | "overloaded"]},
+          %{model_attempts: 2, move_on: [:throttled]},
+          %{model_attempts: 2, move_on: ["throttled"], max_request_bytes: 64_513},
+          %{image_input: nil},
+          %{image_input: "true"},
+          %{other: 1}
+        ] do
+      assert AgentLoop.new(spec(extra)) == {:error, :invalid_spec}, inspect(extra)
+    end
+
+    for reason <- ~w(timeout transport malformed_response provider_error invalid_request
+                     too_large credentials_unavailable input_unavailable unsupported_feature) do
+      assert AgentLoop.new(spec(attempts(%{move_on: [reason]}))) == {:error, :invalid_spec}
+    end
+
+    all = ~w(throttled overloaded authentication_failed permission_denied not_found)
+    assert {:ok, _} = AgentLoop.new(spec(attempts(%{model_attempts: 4, move_on: all})))
+    assert {:ok, _} = AgentLoop.new(spec(%{model_attempts: 1}))
+    assert {:ok, _} = AgentLoop.new(spec(%{image_input: true}))
+
+    # A request of 64,512 bytes, and an Attempt payload with three entries at their largest.
+    spec = attempts(%{model_attempts: 4, move_on: all})
+    size = fn text -> byte_size(Request.canonical(payload(last(trace([start(text)], spec))))) end
+    room = 64_512 - size.("a")
+    # Escaped text: each quote is one byte in the state and two in the JSON request.
+    text = "a" <> String.duplicate("a", rem(room, 2)) <> String.duplicate("\"", div(room, 2))
+    assert size.(text) == 64_512
+
+    largest = %{
+      "reason" => "authentication_failed",
+      "retry_after" => 86_400,
+      "candidate" => String.duplicate("c", 64)
+    }
+
+    inputs =
+      [start(text)] ++
+        for id <- ["run:m:1", "run:m:1:2", "run:m:1:3"],
+            do: not_done(id, "refused", "elzoo.ai-text.result", largest)
+
+    {_, outputs} = trace(inputs, spec)
+    fourth = payload(List.last(outputs))
+    assert length(fourth["attempts"]) == 3
+    assert byte_size(Request.canonical(fourth["request"])) == 64_512
+    # Counted by hand: 13 + 3 entries of 145 bytes and 2 commas + 12 + 64,512 + 1.
+    assert byte_size(Jason.encode!(fourth)) == 64_975
+  end
+
+  test "attempt_identities" do
+    inputs = [
+      start(),
+      message("more"),
+      throttled("run:m:1"),
+      model("1:2", "Working.", "tool_calls", [call("c1", "files_read")]),
+      result("run:t:1:1", "r1"),
+      throttled("run:m:2"),
+      model("2:2", "Done.", "stop", [])
+    ]
+
+    {_, outputs} = trace(inputs, attempts())
+
+    assert Enum.map(outputs, &ids/1) == [
+             ["run:m:1"],
+             [],
+             ["run:m:1:2"],
+             ["run:t:1:1"],
+             ["run:m:2"],
+             ["run:m:2:2"],
+             ["run:finish"]
+           ]
+
+    [first, _, second, _, third, fourth, done] = outputs
+    # The message that arrived during Attempt 1 waits until call 1 is done.
+    assert payload(second)["request"] == payload(first)
+    refute user("more") in messages(first)
+    assert payload(fourth)["attempts"] == [entry(1, "throttled")]
+
+    assert messages(third) == [
+             @system,
+             user("go"),
+             %{
+               "role" => "assistant",
+               "text" => "Working.",
+               "tool_calls" => [echo("c1", "files_read")]
+             },
+             tool_result("c1", block(["tool:test"], "r1")),
+             user("more")
+           ]
+
+    assert payload(fourth)["request"] == payload(third)
+    assert done == {:some, finish("answered", nil, "run:m:2:2", 4)}
+
+    # The assistant entry of call 1 keeps the id of the call, not of its Attempt.
+    {open, _} = trace(Enum.take(inputs, 5), attempts())
+    assert {:assistant, "run:m:1"} in history(open)
+  end
+
+  ## Images (ELZ-376)
+
+  defp ref(id, media \\ "image/png"),
+    do: %{"artifact" => %{"id" => id, "version" => 1}, "media_type" => media}
+
+  defp part(id, media \\ "image/png"),
+    do: %{"type" => "image", "artifact" => %{"id" => id, "version" => 1}, "media_type" => media}
+
+  defp with_images(kind, text, images),
+    do: payload_input(kind, %{"text" => text, "images" => images})
+
+  test "person_images" do
+    images = %{image_input: true}
+    binary = Base.encode64("\x89PNG")
+    sha = :crypto.hash(:sha256, "\x89PNG") |> Base.encode16(case: :lower)
+
+    image_result =
+      outcome("run:t:1:1", "completed", "elzoo.agent-loop.tool-result", %{
+        "content" => marked(["tool:test"], binary),
+        "media_type" => "image/png",
+        "encoding" => "base64"
+      })
+
+    inputs = [
+      start(),
+      model(1, "", "tool_calls", [call("c1", "files_read")]),
+      with_images("message", "see these", [ref("img-1"), ref("img.2", "image/jpeg")]),
+      image_result
+    ]
+
+    {state, [_, _, :none, store]} = trace(inputs, images)
+    stored = payload(store)
+    assert stored["media_type"] == "image/png" and stored["sha256"] == sha
+
+    {state, [next]} = run(state, [receipt("run:s:1:1", stored)])
+
+    reference =
+      block(["tool:test"], "[binary result: 4 bytes, image/png; artifact a1 version 1]")
+
+    assert messages(next) == [
+             @system,
+             user("go"),
+             %{"role" => "assistant", "text" => "", "tool_calls" => [echo("c1", "files_read")]},
+             tool_result("c1", reference),
+             %{
+               "role" => "user",
+               "parts" => [
+                 %{"type" => "text", "text" => "see these"},
+                 part("img-1"),
+                 part("img.2", "image/jpeg")
+               ]
+             }
+           ]
+
+    assert Enum.find(state.history, &(&1.id == "run:u:2")).images == [
+             %{artifact_id: "img-1", version: 1, media_type: "image/png"},
+             %{artifact_id: "img.2", version: 1, media_type: "image/jpeg"}
+           ]
+
+    # A start may hold images, in both start forms; an empty list adds no key.
+    {_, [first]} = trace([with_images("start", "look", [ref("i1")])], images)
+
+    assert messages(first) == [
+             @system,
+             %{"role" => "user", "parts" => [%{"type" => "text", "text" => "look"}, part("i1")]}
+           ]
+
+    skill_images =
+      payload_input("start", %{
+        "text" => "go",
+        "skill" => %{"tool" => "sk_load_skill", "name" => "guide"},
+        "images" => [ref("i1")]
+      })
+
+    {loading, [load]} = trace([skill_images], Map.merge(skill_spec(), images))
+    assert load == {:some, load_request()}
+    assert hd(loading.history).images == [%{artifact_id: "i1", version: 1, media_type: "image/png"}]
+
+    {empty, [_]} = trace([with_images("start", "look", [])], images)
+    assert hd(empty.history) == %{kind: :user, id: "run:u:1", text: "look"}
+
+    # Malformed: images without image_input, nine images, a malformed reference.
+    {open, _} = trace([start()], images)
+    {plain, _} = trace([start()])
+
+    assert AgentLoop.step(plain, with_images("message", "see", [ref("i1")]), &estimate/1) ==
+             {:Transition, plain, :none}
+
+    assert AgentLoop.step(plain, with_images("message", "see", []), &estimate/1) ==
+             {:Transition, plain, :none}
+
+    new_plain = new!(%{})
+
+    assert AgentLoop.step(new_plain, with_images("start", "see", [ref("i1")]), &estimate/1) ==
+             {:Transition, new_plain, :none}
+
+    malformed = [
+      for(k <- 1..9, do: ref("i#{k}")),
+      [ref("..")],
+      [ref(".")],
+      [ref(String.duplicate("i", 65))],
+      [ref("i/1")],
+      [ref("i1", "image/svg+xml")],
+      [%{"artifact" => %{"id" => "i1", "version" => 0}, "media_type" => "image/png"}],
+      [Map.put(ref("i1"), "extra", 1)],
+      [%{"artifact" => %{"id" => "i1", "version" => 1, "x" => 1}, "media_type" => "image/png"}],
+      [ref("i1") | ref("i2")],
+      "i1",
+      nil
+    ]
+
+    for refs <- malformed do
+      assert AgentLoop.step(open, with_images("message", "see", refs), &estimate/1) ==
+               {:Transition, open, :none},
+             inspect(refs)
+    end
+
+    assert {:Transition, waiting, :none} =
+             AgentLoop.step(
+               open,
+               with_images("message", "see", for(k <- 1..8, do: ref("i#{k}"))),
+               &estimate/1
+             )
+
+    assert length(List.last(waiting.waiting).images) == 8
   end
 end
