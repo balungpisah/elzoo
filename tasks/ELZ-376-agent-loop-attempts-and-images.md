@@ -1,0 +1,77 @@
+# ELZ-376 — workflow/agent-loop asks a bounded number of model-call Attempts after a declared refusal, and passes a person's images to the model
+
+- Phase: in-place change of a ready Piece before the first release (Wave 9, Level 2; owner answers Q7 A and Q8 A of [the Wave 9 plan](../docs/plans/bot-platform-wave9.md#owner-answers-2026-11-24))
+- Dependencies: ELZ-142, ELZ-375
+- Release: V1B
+- Output: none. A change in place of the ready Piece `workflow/agent-loop` (ELZ-142), before the first release, with the same Piece ID (`AGENTS.md` section 4). A spec without the new keys behaves exactly as today against the existing tests' literal traces.
+- Change class: Piece-only implementation
+- Owned paths: `pieces/workflow/agent-loop/**`; in `docs/plans/release-plan.json` the `manifest_sha256` and `note` of the `workflow/agent-loop` row of `entries`; the generated `LEDGER.md`, `docs/plans/views.md` and `docs/plans/dependencies.mmd`. No other Piece (not `workflow/prompt-assembly`, `workflow/skill`, `runtime/recipe-test`, `workflow/eval`, `delivery/model-routing` or `assembly/run-engine`), no root test or helper (`test/support/wave8_bots_talk_helper.exs` stays unchanged and its tests must pass), no `mix.exs`, `mix.lock` or CI.
+
+## Outcome and boundary
+
+Two additions, both opt-in in the spec.
+
+- **Attempts (Q8 A).** Today a model call that is not completed stops the loop, "`model_call_not_completed`. No second try" (README line 99). With `model_attempts` over 1, a model call refused for a reason in the spec's `move_on` set gets a new `model_call` action, a new Attempt with its own identity, whose payload carries the request and the earlier Attempts of that call. The host's model-call binding reads them and asks `delivery/model-routing` (ELZ-369) for the next candidate; this Piece decides only whether to ask. An `unknown` outcome, a reason outside `move_on` or the bound ends the loop as today, so a request that may have reached a provider is never asked again.
+- **Images (Q7 A).** With `image_input: true`, the `start` and `message` payloads may carry the person's images by artifact reference; the step copies them to that message's `:user` history entry, and `workflow/prompt-assembly` (ELZ-375) renders the newest user message's images as image parts.
+
+The step stays pure: no model call, clock or wait. It decides when a request may be asked again, so it keeps the local small gate and gets the full review of the coordinator guide.
+
+## Facts on `main` that this task builds on
+
+Checked at `main` `b9d1c9d5`. Confirm each before you start; if one differs, stop and comment on the issue. `workflow/prompt-assembly` is as ELZ-375 leaves it.
+
+- The spec (`lib/elzoo/agent_loop.ex`, lines 11–23, 798–803; README lines 14–26) is exactly `id, model, max_output_tokens, role_instructions, window, max_request_bytes, max_image_refs, sources, result_limits, ask, turn_limit`, all required (`map_size(spec) == length(@spec_keys)`), plain data, `turn_limit` 1..256; `new/1` returns `{:error, :invalid_spec | {:sources, reason} | :state_too_large}` (lines 47–71). The state is `%{phase, spec, snapshot, skills, history, waiting, users, turns, open}` (lines 55–65) within 65,536 bytes (`@state_bound`, lines 32, 67, 87).
+- `model_call/2` (lines 621–645) builds with `Map.take(spec, @build_keys)` (`model, max_output_tokens, role_instructions, window, max_request_bytes, max_image_refs`, lines 24–31) plus `skill_instructions`, `memory: []`, `history` and `tools`, calls `PromptAssembly.build/2`, removes the dropped history ids, increments `turns` to `n` and asks `action(call_id(state, n), "model_call", "elzoo/ai-text-request", built.request)`; `call_id/2` is `"#{id}:m:#{n}"` (line 729). A build error stops `request_not_built`. `open_request/4` (lines 695–700) keeps a `PatternStep` tracker that holds each action's id and kind only, not its payload (`pieces/workflow/pattern-step/lib/elzoo/pattern_step.ex`, lines 56–62).
+- `model_result/3` (lines 211–234) reads only `"completed"` with an `elzoo.ai-text.result` v1 view; every other class gives `stop(state, "model_call_not_completed")` (line 232). The `turn_limit` is checked after a completed `tool_calls` result (`state.turns == state.spec.turn_limit`, line 224). An answered finish names `call_id(state, state.turns)` (line 217); the finish payload is `{status, reason, action_id, turns}` under `elzoo.agent-loop.result` (lines 702–716), and README lines 61–65 say "`turns` counts the model calls made". A tool outcome that is not completed is read for its class and an optional `"reason"` matching `@reason ~r/\A[a-z0-9_]{1,64}\z/` (lines 40, 442–448).
+- Message forms (lines 732–762; README lines 43–44): `message/1` takes exactly `%{"text" => text}`, non-empty; `start_form/1` takes that or exactly `%{"text", "skill" => %{"tool", "name"}}`; a malformed payload leaves the state unchanged (lines 99–109). `arrive/2` (lines 764–772) appends `%{kind: :user, id: "<id>:u:<k>", text: text}` to `waiting`; `flush/1` (line 774) moves `waiting` into the history before each model call, so a message that arrives while a call is open waits.
+- `assembly/run-engine` chooses a binding by action kind and, for a schema map, by `schema_id` alone (`pieces/assembly/run-engine/README.md`, lines 98–111); a binding's `facts`/`proposal` functions receive the whole action, payload included (`lib/elzoo/run_engine.ex`, lines 3187–3205, 4251–4268); every outcome of the action must carry the binding's result schema, whatever its class (lines 2492–2577), and its payload is whatever the host's binding puts there within that schema. Action and outcome payloads are at most 65,536 bytes of JSON at depth 32 (README line 748). The engine adds no reason, `retry_after` or candidate to a host outcome. No host model-call binding over `integration/ai-text` exists in the repository; the tests' bindings are scripted.
+- `integration/ai-text`'s refused reasons are `credentials_unavailable`, `input_unavailable`, `invalid_request`, `too_large`, `authentication_failed`, `permission_denied`, `not_found`, `throttled` and `overloaded`, with `retry_after` in seconds (0..86,400) for the last two (`lib/elzoo/ai_text/outcome.ex`, lines 32–84; `adapter.ex`, lines 119–120, 235–247). `delivery/model-routing` (ELZ-369) returns `{:next, _}` exactly for `throttled`, `overloaded`, `authentication_failed`, `permission_denied` and `not_found`, and handles the not-dispatched refusals inside the action.
+- Callers that build a spec or a message payload, each unchanged by this task and each run by the small gate: `test/support/wave8_bots_talk_helper.exs` (`AgentLoop.new/1` at lines 1198 and 1909, `step/3` at 115 and 158, `agent_spec/2` at 1154–1175, message payloads at 1205–1207 and 1879–1884, its single `model_call` binding with result `elzoo.ai-text.result` at 1102); `pieces/workflow/skill/test/elzoo/skill_test.exs` (lines 1527, 1579–1590, 1721); `pieces/runtime/recipe-test` (`lib/elzoo/recipe_test/glue.ex` lines 21–25 and 137–147; `test/support/recipe_test_helper.exs` lines 333–339 and 402–419; its README line 71 fixes its own `agents` config to eight keys, so it passes no new key); `pieces/workflow/eval/test/elzoo/eval_test.exs` (lines 157–174). The READMEs of `delivery/room`, `workflow/turn-policy`, `workflow/delegation` and `workflow/eval` mention the loop without code. The new keys are optional, so each keeps today's behaviour.
+
+## The Contract change
+
+**Spec.** Three optional keys; a spec without them is today's.
+
+- `image_input`: a boolean, default `false`; passed unchanged to `build/2` as its `image_input` input.
+- `model_attempts`: 1..4, default 1 (today's "no second try").
+- `move_on`: a non-empty list without duplicates of `throttled`, `overloaded`, `authentication_failed`, `permission_denied` and `not_found` (strings), required when `model_attempts` is over 1 and refused when it is 1. Any other member, among them an unknown reason (`timeout`, `transport`, `malformed_response`, `provider_error`), a request fault and a no-send reason, is `:invalid_spec`.
+- With `model_attempts` over 1, `max_request_bytes` must be at most 64,512, so the Attempt payload below fits the engine's 65,536 bytes; a larger one is `:invalid_spec`.
+
+**Images.** With `image_input: true`, each start form and the message form may hold one more member, `images`: 0..8 references `{"artifact": {"id": id, "version": v}, "media_type": m}` with ai-text's rules (ELZ-375's facts). The step copies a non-empty list to the `:user` entry it makes, as `images: [%{artifact_id, version, media_type}]`; an empty list adds no key. A payload with `images` to a spec without `image_input`, or with a malformed reference, is malformed and leaves the state unchanged, as today. The README states that the newest user entry's images are sent with each model call until a newer message arrives.
+
+**Attempts.** Attempt 1 of model call `N` is today's action, `id:m:N` under `elzoo/ai-text-request` with the request as its payload, byte for byte. When the outcome of Attempt `k` of call `N` is not completed:
+
+- it is of class `refused` or `failed`, its payload's `"reason"` (matching `@reason`) is in `move_on`, `k < model_attempts`, and the model-call actions asked so far are fewer than `turn_limit`: the step asks Attempt `k + 1` as the action `id:m:N:<k+1>` of kind `model_call` under the new schema `elzoo.agent-loop.model-attempt` v1, with the payload `{"request": request, "attempts": [one entry per earlier Attempt]}`, each entry `{"attempt": j, "reason": r, "retry_after": s | null, "candidate": ref | null}`, where `retry_after` (an integer 0..86,400) and `candidate` (1..64 bytes of `[a-z0-9_.-]`) are read from the outcome payload when the binding put them there and are `null` otherwise. `request` is rebuilt with `build/2` from the same history and tools: the state holds no payload, and a message that arrived during the call stays waiting, as today, so with a deterministic estimate it equals the earlier Attempt's request; a rebuild error stops `request_not_built`;
+- else (an `unknown` or other class, a reason outside `move_on` or none, the bound): `stop(state, "model_call_not_completed")`, as today; at the `turn_limit` it is `turn_limit`.
+
+The README states the host's side: a binding for `elzoo.agent-loop.model-attempt` (a schema map entry or the same single binding), whose result schema is `elzoo.ai-text.result` v1, sends `request` and reads `attempts` for `delivery/model-routing`, and puts `reason`, `retry_after` and `candidate` in the payload of a refused outcome. A completed Attempt is read as today. The `:assistant` history entry of call `N` keeps the id `id:m:N`; an answered finish names the action ID of the completed Attempt.
+
+**Turn limit.** Each Attempt counts as one model call: the state gains a counter of model-call actions asked, the `turn_limit` check after a completed `tool_calls` result compares that counter, and the finish's `turns` is that counter ("the model calls made"). Under `model_attempts: 1` it equals today's `turns`.
+
+`piece.json` and the README state the keys, the schema, the payload, the refusal reading and the host's side; the limit "no rule for a second Attempt" becomes the bounded rule above.
+
+## Kept open (owner's "no corner" rule)
+
+The spec, the payload, the attempt entry and the finish may gain keys in place before the first release.
+
+- *A per-reason policy* (more Attempts for one reason than another); *Attempts in `workflow/typed-decision`*; *a new Attempt after `unknown`* (Q8 B).
+- *Images in `runtime/recipe-test`'s `agents` config* and in the Wave 8 room composition.
+
+## Acceptance
+
+Literal neutral maps through `new/1` and `step/3`, as the existing tests drive the step:
+
+1. **Golden:** every existing test passes unchanged, and a spec with `model_attempts: 1` and `image_input: false` written out gives the same traces as one without them.
+2. A throttled Attempt 1 (class `refused`, payload `{"reason": "throttled", "retry_after": 30, "candidate": "a"}`) with `move_on: ["throttled"]` and `model_attempts: 2` gives the action `id:m:1:2` under `elzoo.agent-loop.model-attempt` with the same request and one attempt entry `{1, throttled, 30, a}`; its completed outcome finishes `answered` with `action_id` `id:m:1:2` and `turns` 2.
+3. The bound at its edge: `model_attempts: 3` with three throttled Attempts asks `id:m:1:2` and `id:m:1:3`, then stops `model_call_not_completed`; a call at the `turn_limit` stops `turn_limit` instead of asking.
+4. An `unknown` outcome with a reason in `move_on`, a `refused` outcome with `invalid_request`, and a payload with no `reason` each stop `model_call_not_completed` with no new action.
+5. `new/1`: `model_attempts` 0 and 5, `move_on` with `timeout`, with a duplicate, empty, missing when over 1, present when 1, and `max_request_bytes` 64,513 with `model_attempts: 2` are `:invalid_spec`; 64,512 is accepted, and an Attempt payload with three entries and a request of 64,512 bytes is at most 65,536 bytes of JSON.
+6. Distinct action IDs across calls and Attempts (`id:m:1`, `id:m:1:2`, `id:m:2`), and a message that arrives during Attempt 1 stays waiting until the call is done.
+7. Images: with `image_input: true`, a `message` with two images gives a model call whose newest user message has those two image parts; a tool result's image reference in the same turn stays a marked reference; `images` without the key, nine images and a malformed reference leave the state unchanged.
+8. Negative controls, one at a time, each restored before the final gates: move on after `unknown` (case 4 fails); drop the copy of `images` to the `:user` entry (case 7 fails).
+
+Run the Piece tests and the small gate locally (`mix check --piece "$(git merge-base origin/main HEAD)"`), which runs the ready dependents (`workflow/skill`, `runtime/recipe-test`, `workflow/eval`) and the root tests that read the index, the roadmap and claims checks and the diff check. The full independent review, the exact-head hosted check and the merge queue are required.
+
+## Limits to state
+
+The host's model-call binding sends each Attempt, chooses its candidate and puts the refusal facts in the outcome; the step trusts their shape only. A rebuilt request equals the earlier one only under a deterministic estimate. A new Attempt follows only a declared refusal that the provider reported; an Attempt's possible cost is the host's to record. The newest user message's images are sent with each model call of its turns. No per-reason policy, no Attempts after `unknown`, no images in older turns.
