@@ -379,9 +379,13 @@ canonical repository through the API, so a rename lists both paths). It requires
 split by content). An empty, failed or odd path list (absolute, parent, newline, backslash) requires the Gleam run. When it is
 not required the queue logs `Gleam run not required for PR #N: ...` and prints `ELZOO GLEAM GATE not required pr=N
 head=<sha> (...)` instead of the `ELZOO GLEAM EVIDENCE` line. `gleam-hosted` has no job-level `if:`: it always runs and
-reports, so branch protection can require both checks. Protection and the queue can differ. When no Gleam
-path changes, the queue does not wait for `gleam-hosted`, but protection (when it requires that check) still waits for the
-run that GitHub starts for the pull request. The fallback is a `workflow_dispatch` run, and **a dispatch fallback run does not satisfy branch protection**: GitHub
+reports, so branch protection can require both checks. When no Gleam path changes, the Gleam run is no evidence, but
+protection still refuses the merge while `gleam-hosted` runs (#877, #881). So before the merge the queue reads the required
+checks of `main` (`protection.required_status_checks.checks` of `GET repos/balungpisah/elzoo/branches/main`) and waits
+until the newest check run of each one on the exact head (by name, and by app when the check names one) has completed
+(ELZ-368). Any conclusion other than `success` stops it with `Required check <name> (check run <id>) on head <sha>
+concluded <conclusion>; ...`; an unreadable list refuses. The re-read of the PR, the fetch and the freeze check follow the
+wait. The fallback is a `workflow_dispatch` run, and **a dispatch fallback run does not satisfy branch protection**: GitHub
 does not count it as a status of the pull request (reported by the coordinator for PR #122, see "Branch protection change"),
 so the merge can be refused even though the queue accepts the run. The queue says so whenever it falls back, with the log line
 `Fallback for PR #N: a workflow_dispatch run is valid evidence for this queue but does NOT satisfy branch protection ...`.

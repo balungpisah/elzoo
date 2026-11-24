@@ -795,6 +795,44 @@ class Queue:
                 return True, f"changes {path}"
         return False, f"{len(paths)} changed paths, none a Gleam path"
 
+    def required_checks(self):
+        """The required status checks of main as (name, app ID or None), from the branch of the canonical repository.
+        An unreadable or malformed list refuses."""
+        branch = self.api("branches/main")
+        protection = branch.get("protection") if isinstance(branch, dict) else None
+        checks = protection.get("required_status_checks") if isinstance(protection, dict) else None
+        checks = checks.get("checks") if isinstance(checks, dict) else None
+        require(isinstance(checks, list) and all(
+            isinstance(check, dict) and isinstance(check.get("context"), str) and check["context"] and
+            (check.get("app_id") is None or type(check.get("app_id")) is int) for check in checks),
+            "Unreadable required status checks of main; refusing")
+        # GitHub writes "any source" as a null or -1 app ID.
+        return [(check["context"], check["app_id"] if (check.get("app_id") or 0) > 0 else None) for check in checks]
+
+    def await_required_checks(self, pr):
+        """ELZ-368: branch protection refuses the merge while a required check of main is not complete on the head,
+        also gleam-hosted when the Gleam run is not required here. Wait until the newest check run of each required
+        check on the exact head is completed; any conclusion other than success refuses."""
+        head = pr["headRefOid"]
+        for name, app_id in self.required_checks():
+            query = urlencode({"check_name": name, "filter": "all", "per_page": 100})
+            while True:
+                pages = self.data("gh", "api", "--paginate", "--slurp", f"repos/{REPO}/commits/{head}/check-runs?{query}")
+                require(isinstance(pages, list) and all(isinstance(page, dict) and isinstance(page.get("check_runs"), list)
+                                                        for page in pages), "Invalid check run pages")
+                runs = [run for page in pages for run in page["check_runs"]
+                        if isinstance(run, dict) and run.get("name") == name and run.get("head_sha") == head and
+                        (app_id is None or isinstance(run.get("app"), dict) and run["app"].get("id") == app_id)]
+                require(all(type(run.get("id")) is int for run in runs), "Invalid check run ID")
+                latest = max(runs, key=lambda run: run["id"]) if runs else None
+                if latest is not None and latest.get("status") == "completed":
+                    break
+                self.pause(f"required check {name} on head {head[:7]} "
+                           f"status={latest.get('status') if latest else 'not started'}")
+            require(latest.get("conclusion") == "success",
+                    f"Required check {name} (check run {latest['id']}) on head {head} concluded "
+                    f"{latest.get('conclusion')}; branch protection refuses the merge; refusing")
+
     def unchanged_pr(self, pr):
         fresh = self.pr(pr["number"])
         require(fresh["headRefOid"] == pr["headRefOid"] and
@@ -864,6 +902,7 @@ class Queue:
             gleam_job = self.gleam_evidence(pr) if required else None
             if not required:
                 self.emit(f"Gleam run not required for PR #{number}: {why}", flush=True)
+            self.await_required_checks(pr)
             fresh = self.unchanged_pr(pr)
             if not self.fetch(fresh):
                 self.emit("Main moved during check; updating and validating a new head", flush=True)

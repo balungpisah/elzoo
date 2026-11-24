@@ -154,6 +154,20 @@ class Fake:
         self.canonical_main = M
         self.gleam_reads = 0
         self.gleam_rerun = False
+        # ELZ-368: the required checks of main (as GitHub lists them on the branch) and the check runs of the head.
+        self.protection = {"enabled": True, "required_status_checks": {
+            "checks": [{"app_id": 15368, "context": "check-hosted"}, {"app_id": 15368, "context": "gleam-hosted"}],
+            "contexts": ["check-hosted", "gleam-hosted"], "enforcement_level": "non_admins"}}
+        self.branch = None             # None: the main branch with self.protection; else the raw body
+        self.check_runs = {}           # name -> listings; the n-th listing of a name shows the n-th, the last repeats
+        self.check_run_pages = None    # raw pages instead
+        self.check_run_calls = []      # the name of each check run listing
+
+    def check_run(self, run_id, name, status="completed", conclusion="success", **changes):
+        run = dict(id=run_id, name=name, head_sha=self.pr["headRefOid"], status=status,
+                   conclusion=conclusion if status == "completed" else None, app={"id": 15368})
+        run.update(changes)
+        return run
 
     def main_head_run(self, run_id=9000, **changes):
         run = dict(id=run_id, event="push", head_branch="main", head_sha=self.canonical_main, status="completed",
@@ -397,6 +411,16 @@ class Fake:
                 out = [{"workflow_runs": runs}]  # malformed bodies are passed through as they are
             elif path.endswith("git/ref/heads/main"):
                 out = {"object": {"sha": self.canonical_main}}
+            elif path.endswith("/branches/main"):
+                out = self.branch if self.branch is not None else {"name": "main", "protected": True,
+                                                                    "protection": self.protection}
+            elif "/check-runs?" in path:
+                name = path.split("check_name=")[1].split("&")[0]
+                self.check_run_calls.append(name)
+                listings = self.check_runs.get(name) or [[self.check_run(700, name)]]
+                runs = listings[min(self.check_run_calls.count(name), len(listings)) - 1]
+                out = self.check_run_pages if self.check_run_pages is not None else [
+                    {"total_count": len(runs), "check_runs": runs}]
             elif "/workflows/symbolic-gleam.yml/runs?" in path:
                 out = [{"workflow_runs": [] if self.gleam_missing else [self.gleam_run()]}]
             elif path.endswith("/workflows/symbolic-gleam.yml"):
@@ -1715,6 +1739,130 @@ class GleamPathGate(unittest.TestCase):
         self.fake.diff_paths = ["spikes/gleam_ui/src/old.gleam", "docs/new.gleam"]
         self.q.process(79)
         self.assertTrue(any(m.startswith("ELZOO GLEAM EVIDENCE") for m in self.fake.messages))
+
+
+class RequiredChecksBeforeMerge(unittest.TestCase):
+    """ELZ-368: the queue merges only once each required check of main is complete and green on the exact head,
+    also gleam-hosted when no Gleam path changed (#877 at f02dfea4, #881 at 65d099b5)."""
+
+    def setUp(self):
+        self.fake = Fake()
+        self.fake.diff_paths = ["scripts/merge-queue.py"]   # no Gleam path: the Gleam run is not evidence
+        self.q = self.fake.make_queue(timeout=600)
+
+    def index(self, predicate):
+        return [i for i, call in enumerate(self.fake.calls) if predicate(call)]
+
+    def refuses(self, pattern):
+        with self.assertRaisesRegex(queue.QueueError, pattern):
+            self.q.process(79)
+        self.assertFalse(self.fake.merged)
+        self.assertEqual([], self.fake.commands(["gh", "pr", "merge"]))
+
+    def test_a_running_gleam_check_is_awaited_when_the_gleam_run_is_not_required(self):
+        f = self.fake
+        f.check_runs["gleam-hosted"] = [[f.check_run(700, "gleam-hosted", status="in_progress")]] * 3 + [
+            [f.check_run(700, "gleam-hosted")]]
+        self.q.process(79)
+        self.assertTrue(f.merged)
+        self.assertTrue(any(m.startswith("Gleam run not required for PR #79") for m in f.messages))
+        self.assertEqual(3, f.messages.count(f"Waiting: required check gleam-hosted on head {A[:7]} status=in_progress"))
+        self.assertEqual(["check-hosted"] + ["gleam-hosted"] * 4, f.check_run_calls)
+        self.assertIn(["gh", "api", "--paginate", "--slurp",
+                       f"repos/{queue.REPO}/commits/{A}/check-runs?check_name=gleam-hosted&filter=all&per_page=100"],
+                      f.calls)
+        # The checks before the merge (head, main, freeze) are read after the wait, not before it.
+        listing = self.index(lambda c: "/check-runs?" in c[-1])[-1]
+        merge = self.index(lambda c: c[:3] == ["gh", "pr", "merge"])[0]
+        for later in (lambda c: c[:2] == ["git", "fetch"], lambda c: c[:3] == ["gh", "pr", "view"],
+                      lambda c: "event=push" in c[-1] and "head_sha=" not in c[-1]):
+            self.assertTrue(any(listing < i < merge for i in self.index(later)))
+
+    def test_a_required_check_that_has_not_started_is_awaited(self):
+        f = self.fake
+        f.check_runs["gleam-hosted"] = [[], [], [f.check_run(700, "gleam-hosted")]]
+        self.q.process(79)
+        self.assertTrue(f.merged)
+        self.assertEqual(2, f.messages.count(f"Waiting: required check gleam-hosted on head {A[:7]} status=not started"))
+
+    def test_a_required_check_that_does_not_pass_stops_with_a_clear_message(self):
+        for name in ("check-hosted", "gleam-hosted"):
+            for conclusion in ("failure", "cancelled", "timed_out", "skipped", "neutral", "action_required", None):
+                with self.subTest(name=name, conclusion=conclusion):
+                    self.setUp()
+                    self.fake.check_runs[name] = [[self.fake.check_run(700, name, conclusion=conclusion)]]
+                    self.refuses(rf"^Required check {name} \(check run 700\) on head {A} concluded {conclusion}; "
+                                 "branch protection refuses the merge; refusing$")
+
+    def test_a_required_check_that_never_completes_times_out_without_a_merge(self):
+        for listing, status in (([{"status": "queued"}], "queued"), ([{"status": "in_progress"}], "in_progress"),
+                                ([], "not started")):
+            with self.subTest(status=status):
+                self.setUp()
+                self.fake.check_runs["gleam-hosted"] = [[self.fake.check_run(700, "gleam-hosted", **change)
+                                                         for change in listing]]
+                self.refuses(f"^Timed out: required check gleam-hosted on head {A[:7]} status={status}$")
+
+    def test_the_newest_check_run_of_a_name_decides(self):
+        f = self.fake
+        old_red, new_green = f.check_run(700, "gleam-hosted", conclusion="failure"), f.check_run(701, "gleam-hosted")
+        f.check_runs["gleam-hosted"] = [[new_green, old_red]]
+        self.q.process(79)
+        self.assertTrue(f.merged)
+        for runs, pattern in (([f.check_run(701, "gleam-hosted", conclusion="failure"), f.check_run(700, "gleam-hosted")],
+                               "check run 701.* concluded failure"),
+                              ([f.check_run(700, "gleam-hosted"), f.check_run(701, "gleam-hosted", status="in_progress")],
+                               "Timed out: required check gleam-hosted .* status=in_progress")):
+            with self.subTest(pattern=pattern):
+                self.setUp()
+                self.fake.check_runs["gleam-hosted"] = [runs]
+                self.refuses(pattern)
+
+    def test_only_a_check_run_of_the_exact_head_name_and_app_counts(self):
+        def runs(f):
+            return [f.check_run(705, "gleam-hosted", head_sha=B), f.check_run(704, "gleam-hosted", app={"id": 1}),
+                    f.check_run(703, "gleam-hosted", app=None), f.check_run(702, "gleam-hosted-2"),
+                    f.check_run(700, "gleam-hosted", status="in_progress")]
+        self.fake.check_runs["gleam-hosted"] = [runs(self.fake)]
+        self.refuses("Timed out: required check gleam-hosted .* status=in_progress")
+        for any_source in (None, -1):
+            with self.subTest(app_id=any_source):
+                # A required check of any source counts a check run of any app.
+                self.setUp()
+                self.fake.protection["required_status_checks"]["checks"][1]["app_id"] = any_source
+                self.fake.check_runs["gleam-hosted"] = [runs(self.fake)]
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+
+    def test_the_required_checks_are_those_of_the_protection_of_main(self):
+        self.fake.protection["required_status_checks"]["checks"].append({"app_id": 15368, "context": "check-extra"})
+        self.fake.check_runs["check-extra"] = [[]]
+        self.refuses("Timed out: required check check-extra .* status=not started")
+        self.setUp()
+        self.fake.protection["required_status_checks"]["checks"] = []
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+        self.assertEqual([], self.fake.check_run_calls)
+
+    def test_an_unreadable_protection_or_check_run_listing_refuses(self):
+        checks = lambda *items: {"protection": {"required_status_checks": {"checks": list(items)}}}
+        for branch in ({}, {"protection": None}, {"protection": {}}, {"protection": {"required_status_checks": None}},
+                       {"protection": {"required_status_checks": {"checks": "check-hosted"}}},
+                       checks({"context": ""}), checks({"context": 5}), checks("check-hosted"),
+                       checks({"context": "check-hosted", "app_id": "15368"}),
+                       checks({"context": "check-hosted", "app_id": True}), []):
+            with self.subTest(branch=branch):
+                self.setUp()
+                self.fake.branch = branch
+                self.refuses("^Unreadable required status checks of main; refusing$")
+        for pages, pattern in (({"check_runs": []}, "Invalid check run pages"), ([[]], "Invalid check run pages"),
+                               ([{"check_runs": None}], "Invalid check run pages"),
+                               ([{"check_runs": [self.fake.check_run("700", "check-hosted")]}],
+                                "Invalid check run ID")):
+            with self.subTest(pages=pages):
+                self.setUp()
+                self.fake.check_run_pages = pages
+                self.refuses(pattern)
 
 
 class PieceFastPath(unittest.TestCase):
