@@ -3,14 +3,15 @@ mod Elzoo.AiTextOutcome
   # The exact finite mapping from a text-call failure tag to its Contract
   # outcome and its delivery result (core/envelope outcome, dispatch and
   # error class), consumed by the delivery/effect-intent Binding descriptor.
-  # A tag is either decided by the interface (credentials, adapter fault) or
+  # A tag is either decided by the interface (credentials, image input,
+  # adapter fault) or
   # chosen by a provider's classify_failure from the provider's documented
   # status or the transport result.
-  type TextTag = TagCredentialsUnavailable | TagProviderInvalidRequest | TagProviderTooLarge | TagAuthenticationFailed | TagPermissionDenied | TagNotFound | TagThrottled | TagOverloaded | TagProviderError | TagProviderTimeout | TagTimeout | TagTransport | TagMalformedResponse | TagAdapterError
+  type TextTag = TagCredentialsUnavailable | TagInputUnavailable | TagProviderInvalidRequest | TagProviderTooLarge | TagAuthenticationFailed | TagPermissionDenied | TagNotFound | TagThrottled | TagOverloaded | TagProviderError | TagProviderTimeout | TagTimeout | TagTransport | TagMalformedResponse | TagAdapterError
 
   type TextClass = ClassRefused | ClassUnknown
 
-  type TextReason = ReasonCredentialsUnavailable | ReasonInvalidRequest | ReasonTooLarge | ReasonAuthenticationFailed | ReasonPermissionDenied | ReasonNotFound | ReasonThrottled | ReasonOverloaded | ReasonTimeout | ReasonTransport | ReasonMalformedResponse | ReasonProviderError
+  type TextReason = ReasonCredentialsUnavailable | ReasonInputUnavailable | ReasonInvalidRequest | ReasonTooLarge | ReasonAuthenticationFailed | ReasonPermissionDenied | ReasonNotFound | ReasonThrottled | ReasonOverloaded | ReasonTimeout | ReasonTransport | ReasonMalformedResponse | ReasonProviderError
 
   type DeliveryOutcome = OutRejected | OutFailed | OutUnknown | OutTimedOut
 
@@ -18,11 +19,12 @@ mod Elzoo.AiTextOutcome
 
   type DeliveryErrorClass = ErrorPermanent | ErrorRetryable | ErrorUnavailable | ErrorUnclassified
 
-  # Refused: attested not sent (credentials), or rejected by the provider
+  # Refused: attested not sent (credentials, image input), or rejected by the provider
   # before work by its documented status. Unknown: may have been processed.
   fn class(tag: TextTag) -> TextClass =
     match tag
       TagCredentialsUnavailable() -> ClassRefused()
+      TagInputUnavailable() -> ClassRefused()
       TagProviderInvalidRequest() -> ClassRefused()
       TagProviderTooLarge() -> ClassRefused()
       TagAuthenticationFailed() -> ClassRefused()
@@ -40,6 +42,7 @@ mod Elzoo.AiTextOutcome
   fn reason(tag: TextTag) -> TextReason =
     match tag
       TagCredentialsUnavailable() -> ReasonCredentialsUnavailable()
+      TagInputUnavailable() -> ReasonInputUnavailable()
       TagProviderInvalidRequest() -> ReasonInvalidRequest()
       TagProviderTooLarge() -> ReasonTooLarge()
       TagAuthenticationFailed() -> ReasonAuthenticationFailed()
@@ -59,6 +62,7 @@ mod Elzoo.AiTextOutcome
   fn outcome(tag: TextTag) -> DeliveryOutcome =
     match tag
       TagCredentialsUnavailable() -> OutTimedOut()
+      TagInputUnavailable() -> OutTimedOut()
       TagProviderTimeout() -> OutTimedOut()
       TagTimeout() -> OutTimedOut()
       TagProviderError() -> OutUnknown()
@@ -70,6 +74,7 @@ mod Elzoo.AiTextOutcome
   fn dispatch(tag: TextTag) -> DeliveryDispatch =
     match tag
       TagCredentialsUnavailable() -> DispatchNot()
+      TagInputUnavailable() -> DispatchNot()
       TagProviderTimeout() -> DispatchUnknown()
       TagTimeout() -> DispatchUnknown()
       TagTransport() -> DispatchUnknown()
@@ -79,6 +84,7 @@ mod Elzoo.AiTextOutcome
   fn error_class(tag: TextTag) -> DeliveryErrorClass =
     match tag
       TagCredentialsUnavailable() -> ErrorUnavailable()
+      TagInputUnavailable() -> ErrorUnavailable()
       TagThrottled() -> ErrorRetryable()
       TagOverloaded() -> ErrorRetryable()
       TagProviderInvalidRequest() -> ErrorPermanent()
@@ -88,9 +94,11 @@ mod Elzoo.AiTextOutcome
       TagNotFound() -> ErrorPermanent()
       _ -> ErrorUnclassified()
 
-  # Only a failure before any request byte reached transport is attested.
+  # Only a failure before any request byte reached transport is attested:
+  # the credential Need or the image resolution failed (Contract amendment 2).
   fn no_send(tag: TextTag) -> Bool =
     match tag
       TagCredentialsUnavailable() -> True()
+      TagInputUnavailable() -> True()
       _ -> False()
 end

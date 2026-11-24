@@ -94,6 +94,22 @@ defmodule Elzoo.ProviderStreamTest do
            })
          ), :unsupported_feature},
         {Jason.encode!(Map.put(base, "messages", [user, system])), :unsupported_feature},
+        {Jason.encode!(
+           Map.put(base, "messages", [
+             system,
+             %{
+               "role" => "user",
+               "parts" => [
+                 %{"type" => "text", "text" => "Describe it."},
+                 %{
+                   "type" => "image",
+                   "artifact" => %{"id" => "img", "version" => 1},
+                   "media_type" => "image/png"
+                 }
+               ]
+             }
+           ])
+         ), :unsupported_feature},
         {Jason.encode!(Map.put(base, "model", "claude-other")), :invalid_request},
         {Jason.encode!(
            Map.put(base, "messages", [user, %{"role" => "assistant", "text" => ""}, user])

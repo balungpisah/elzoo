@@ -13,6 +13,7 @@ defmodule Elzoo.AiText.Outcome do
 
   @cure_tags %{
     credentials_unavailable: :TagCredentialsUnavailable,
+    input_unavailable: :TagInputUnavailable,
     provider_invalid_request: :TagProviderInvalidRequest,
     provider_too_large: :TagProviderTooLarge,
     authentication_failed: :TagAuthenticationFailed,
@@ -31,6 +32,7 @@ defmodule Elzoo.AiText.Outcome do
   # tag => {envelope outcome, dispatch, error_class}
   @failures %{
     credentials_unavailable: {"timed_out", "not_dispatched", "unavailable"},
+    input_unavailable: {"timed_out", "not_dispatched", "unavailable"},
     provider_invalid_request: {"failed", "dispatched", "permanent"},
     provider_too_large: {"failed", "dispatched", "permanent"},
     authentication_failed: {"failed", "dispatched", "permanent"},
@@ -46,7 +48,7 @@ defmodule Elzoo.AiText.Outcome do
     adapter_error: {"unknown", "unknown", "unclassified"}
   }
   # Only a failure before any request byte reached transport.
-  @no_send [:credentials_unavailable]
+  @no_send [:credentials_unavailable, :input_unavailable]
 
   @outcomes %{
     OutRejected: "rejected",
@@ -67,6 +69,7 @@ defmodule Elzoo.AiText.Outcome do
   }
   @reasons %{
     ReasonCredentialsUnavailable: :credentials_unavailable,
+    ReasonInputUnavailable: :input_unavailable,
     ReasonInvalidRequest: :invalid_request,
     ReasonTooLarge: :too_large,
     ReasonAuthenticationFailed: :authentication_failed,
@@ -85,7 +88,7 @@ defmodule Elzoo.AiText.Outcome do
   def no_send, do: @no_send
 
   @doc "Tags a provider's `classify_failure/1` may return (not the interface's own)."
-  def provider_tags, do: tags() -- [:credentials_unavailable, :adapter_error]
+  def provider_tags, do: tags() -- [:credentials_unavailable, :input_unavailable, :adapter_error]
 
   @doc "Contract outcome of a tag: `{:refused, reason}` or `{:unknown, reason}` (Cure decision)."
   def contract(tag) do
