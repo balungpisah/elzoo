@@ -10328,7 +10328,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/model-routing/piece.json",
-      "manifest_sha256": "63ecf2ce18503f406ed88e242f0124f3ffec2432813edf46f7cb55f026bc3f7e"
+      "manifest_sha256": "6c81cfe309a36f307480e12e0085d58dcde6d9697a2e41c28d4343fea0cd8955"
     },
     {
       "id": "delivery/pubsub",
