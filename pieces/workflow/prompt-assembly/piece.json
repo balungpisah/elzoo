@@ -27,7 +27,7 @@
   ],
   "operations": {
     "telemetry": {"status": "not_applicable", "contract": "Pure function emits no observations; the host owns instrumentation."},
-    "config": {"status": "supported", "contract": "Per call only, supplied by the caller in the input: max_request_bytes 1..65,536 (the host's ai-text request-byte Config), max_image_refs 0..256, image_input (optional boolean, default false), and the token window (size, estimator_id, estimator_version; unit tokens) with the host's estimate function. No defaults, no ambient or stored setting and no hot reconfiguration.", "evidence": ["test/elzoo/prompt_assembly_test.exs"]},
+    "config": {"status": "supported", "contract": "Per call only, supplied by the caller in the input: max_request_bytes 1..65,536 (the host's ai-text request-byte Config), max_image_refs 0..256, image_input (optional boolean, default false), and the token window (size, estimator_id, estimator_version; unit tokens) with the host's estimate function. No default other than image_input false, no ambient or stored setting and no hot reconfiguration.", "evidence": ["test/elzoo/prompt_assembly_test.exs"]},
     "control": {"status": "not_applicable", "contract": "No process or lifecycle to control."}
   }
 }

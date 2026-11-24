@@ -330,9 +330,13 @@ defmodule Elzoo.PromptAssemblyTest do
     assert built.image_refs_removed == ["i1", "i2", "t1", "i3", "i4"]
     assert block(hd(history).content) in texts(built)
 
-    for key <- [:image, :document, :parts] do
-      assert build(input(history: [Map.put(user("u1"), key, "x")])) == {:error, :invalid_input}
-      assert build(input(memory: [Map.put(memory("m1"), key, "x")])) == {:error, :invalid_input}
+    for key <- [:image, :document, :parts], image_input <- [false, true] do
+      user = Map.put(user("u1"), key, "x")
+      pictured = Map.put(user, :images, [])
+      assert build(input(history: [user], image_input: image_input)) == {:error, :invalid_input}
+      assert build(input(history: [pictured], image_input: true)) == {:error, :invalid_input}
+      mem = [Map.put(memory("m1"), key, "x")]
+      assert build(input(memory: mem, image_input: image_input)) == {:error, :invalid_input}
     end
 
     for built <- [built, built!(build(input(history: history)))],
