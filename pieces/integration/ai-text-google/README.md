@@ -107,10 +107,11 @@ or a `.env` file.
   refused `invalid_request` (the function name is required). A final model turn
   is refused `unsupported_feature` (`req_llm` refuses prefill for Gemini 3 and
   later). Consecutive `user` contents are merged by `req_llm`.
-- Replayed function calls carry `req_llm`'s `thoughtSignature`
-  `skip_thought_signature_validator` (base64), the value the Thought signatures
-  page documents for function calls that Gemini did not sign; the neutral
-  request does not keep Gemini's own signatures.
+- Replayed function calls carry `req_llm`'s `thoughtSignature`: the base64
+  encoding of `skip_thought_signature_validator`. The Thought signatures page
+  names the bare string for function calls that Gemini did not sign; that the
+  API accepts it base64-encoded, as the `byte`-format field is sent, is an
+  assumption. The neutral request does not keep Gemini's own signatures.
 - Images: `inline_data` with `mime_type` (`image/png`, `image/jpeg`,
   `image/webp`, `image/gif`, all listed in the reference's `Blob.mimeType`) and
   the base64 bytes the interface resolved and checked.
@@ -122,8 +123,12 @@ or a `.env` file.
   `type`, `format`, `title`, `description`, `enum` of strings and numbers,
   `items`, `prefixItems`, `minItems`, `maxItems`, `minimum`, `maximum`,
   `anyOf`, `oneOf`, `properties`, `additionalProperties`, `required`,
-  `propertyOrdering`), and a `$ref` subschema only `$` keywords; any other
-  schema is refused `unsupported_feature`, never rewritten. Structured output
+  `propertyOrdering`), and a `$ref` subschema only the listed `$` keywords.
+  Every `$ref` must name a root `$defs` entry (`#/$defs/<name>`), and the
+  references must have no cycle: the reference unrolls cycles only to a
+  limited degree, which is an approximation. Any other schema is refused
+  `unsupported_feature`, never rewritten (a `$ref` that does not compile is
+  refused `invalid_request` by the interface first). Structured output
   together with tools is refused `unsupported_feature`.
 
 ## Usage

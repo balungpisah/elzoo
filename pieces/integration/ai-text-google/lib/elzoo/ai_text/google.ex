@@ -158,10 +158,16 @@ defmodule Elzoo.AiText.Google do
   defp output_schema(nil), do: :ok
 
   defp output_schema(schema),
-    do: if(supported?(schema), do: :ok, else: {:refused, :unsupported_feature})
+    do:
+      if(supported?(schema) and acyclic?(schema),
+        do: :ok,
+        else: {:refused, :unsupported_feature}
+      )
 
+  # Beside $ref, only the listed keywords that start with "$".
   defp supported?(%{"$ref" => _} = s) do
-    Enum.all?(Map.keys(s), &String.starts_with?(&1, "$")) and subschemas?(s)
+    Enum.all?(Map.keys(s), &(&1 in @schema_keywords and String.starts_with?(&1, "$"))) and
+      subschemas?(s)
   end
 
   defp supported?(%{} = s) do
@@ -190,6 +196,76 @@ defmodule Elzoo.AiText.Google do
       _ ->
         true
     end)
+  end
+
+  # Every $ref names a root $defs entry as "#/$defs/<name>", and the references
+  # between those entries have no cycle: the reference unrolls cycles only to a
+  # limited degree, which is an approximation, so a cyclic schema is refused.
+  defp acyclic?(schema) do
+    defs = Map.get(schema, "$defs", %{})
+
+    with {:ok, _} <- targets(refs(schema), defs) do
+      graph =
+        Map.new(defs, fn {name, d} ->
+          {:ok, children} = targets(refs(d), defs)
+          {name, children}
+        end)
+
+      match?(
+        {:ok, _},
+        Enum.reduce_while(Map.keys(graph), {:ok, MapSet.new()}, fn n, {:ok, done} ->
+          case visit(n, graph, done, MapSet.new()) do
+            {:ok, done} -> {:cont, {:ok, done}}
+            :cycle -> {:halt, :cycle}
+          end
+        end)
+      )
+    else
+      _ -> false
+    end
+  end
+
+  defp refs(%{} = m),
+    do:
+      Enum.flat_map(m, fn
+        {"$ref", r} when is_binary(r) -> [r]
+        {_, v} -> refs(v)
+      end)
+
+  defp refs(l) when is_list(l), do: Enum.flat_map(l, &refs/1)
+  defp refs(_), do: []
+
+  defp targets(refs, defs) do
+    Enum.reduce_while(refs, {:ok, []}, fn r, {:ok, acc} ->
+      case Regex.run(~r/\A#\/\$defs\/([^\/~]+)\z/, r) do
+        [_, name] when is_map_key(defs, name) -> {:cont, {:ok, [name | acc]}}
+        _ -> {:halt, :error}
+      end
+    end)
+  end
+
+  defp visit(n, graph, done, stack) do
+    cond do
+      MapSet.member?(done, n) ->
+        {:ok, done}
+
+      MapSet.member?(stack, n) ->
+        :cycle
+
+      true ->
+        graph
+        |> Map.fetch!(n)
+        |> Enum.reduce_while({:ok, done}, fn c, {:ok, done} ->
+          case visit(c, graph, done, MapSet.put(stack, n)) do
+            {:ok, done} -> {:cont, {:ok, done}}
+            :cycle -> {:halt, :cycle}
+          end
+        end)
+        |> case do
+          {:ok, done} -> {:ok, MapSet.put(done, n)}
+          :cycle -> :cycle
+        end
+    end
   end
 
   defp context(messages, names) do

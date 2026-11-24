@@ -371,12 +371,66 @@ defmodule Elzoo.AiText.GoogleTest do
            "$defs" => %{"a" => answer}
          }
        }, :unsupported_feature},
-      {%{"output_schema" => %{"enum" => [true]}}, :unsupported_feature}
+      {%{"output_schema" => %{"enum" => [true]}}, :unsupported_feature},
+      # Beside $ref, a "$" keyword outside the list.
+      {%{
+         "output_schema" =>
+           Map.put(answer, "properties", %{
+             "answer" => %{"$ref" => "#/$defs/n", "$comment" => "c"}
+           })
+           |> Map.put("$defs", %{"n" => %{"type" => "integer"}})
+       }, :unsupported_feature},
+      {%{
+         "output_schema" =>
+           Map.put(answer, "$schema", "https://json-schema.org/draft/2020-12/schema")
+       }, :unsupported_feature},
+      # A $ref that names no $defs entry does not compile: ai-text refuses it.
+      {%{"output_schema" => %{"$ref" => "#/$defs/missing", "$defs" => %{}}}, :invalid_request},
+      # A $ref outside root $defs, and cyclic references (also through a
+      # non-required property).
+      {%{"output_schema" => %{"$ref" => "#"}}, :unsupported_feature},
+      {%{
+         "output_schema" => %{
+           "$defs" => %{
+             "node" => %{
+               "type" => "object",
+               "properties" => %{"next" => %{"$ref" => "#/$defs/node"}}
+             }
+           },
+           "$ref" => "#/$defs/node"
+         }
+       }, :unsupported_feature},
+      {%{
+         "output_schema" => %{
+           "$defs" => %{
+             "a" => %{
+               "type" => "object",
+               "properties" => %{"b" => %{"$ref" => "#/$defs/b"}},
+               "required" => ["b"]
+             },
+             "b" => %{"type" => "array", "items" => %{"$ref" => "#/$defs/a"}}
+           },
+           "type" => "object",
+           "properties" => %{"root" => %{"$ref" => "#/$defs/a"}}
+         }
+       }, :unsupported_feature}
     ]
 
     for {extra, reason} <- cases do
       assert {:error, {:refused, ^reason}} = refused(request(extra)), inspect(extra)
     end
+
+    # The provider's own check, for a "$" keyword that jsv would not compile.
+    {:ok, base, _} = Elzoo.AiText.Request.decode(Jason.encode!(request()))
+
+    dynamic = %{
+      "type" => "object",
+      "properties" => %{"answer" => %{"$ref" => "#/$defs/n", "$dynamicRef" => "#a"}},
+      "$defs" => %{"n" => %{"type" => "integer"}}
+    }
+
+    assert {:refused, :unsupported_feature} =
+             Google.translate(%{base | output_schema: dynamic}, nil)
 
     # The listed keywords, nested, are accepted.
     nested = %{
@@ -574,6 +628,13 @@ defmodule Elzoo.AiText.GoogleTest do
        {:refused, :throttled, %{retry_after: 4}}},
       {{429, [{"retry-after", "90000"}], e.(429, "RESOURCE_EXHAUSTED", "x", [])},
        {:refused, :throttled, nil_ra}},
+      # A header that is not delta-seconds gives nil, with no fallback to the body.
+      {{429, [{"retry-after", "Wed, 21 Oct 2026 07:28:00 GMT"}],
+        e.(429, "RESOURCE_EXHAUSTED", "x", [GoogleStub.retry_info("9s")])},
+       {:refused, :throttled, nil_ra}},
+      {{429, [{"retry-after", "1.5"}],
+        e.(429, "RESOURCE_EXHAUSTED", "x", [GoogleStub.retry_info("9s")])},
+       {:refused, :throttled, nil_ra}},
       {{503, [], e.(503, "UNAVAILABLE", "x", [GoogleStub.retry_info("3s")])},
        {:refused, :overloaded, %{retry_after: 3}}},
       {{503, [], e.(503, "UNAVAILABLE", "x", [])}, {:refused, :overloaded, nil_ra}},
@@ -634,6 +695,39 @@ defmodule Elzoo.AiText.GoogleTest do
       assert {:outcome, _, {:unknown, :malformed_response}} = delivery
       assert length(requests) == 1
     end
+  end
+
+  test "G5 a body req_llm did not encode with one part per neutral call and tool result is not sent (call)" do
+    {agent, plug} = GoogleStub.start(fn _ -> flunk("no request expected") end)
+
+    req =
+      request(%{
+        "tools" => [@lookup],
+        "messages" => [
+          %{"role" => "user", "text" => "Q"},
+          %{
+            "role" => "assistant",
+            "text" => "",
+            "tool_calls" => [%{"id" => "c1", "name" => "lookup", "arguments" => %{"q" => "x"}}]
+          },
+          %{"role" => "tool_result", "tool_use_id" => "c1", "text" => "R"}
+        ]
+      })
+
+    {:ok, normalized, _} = Elzoo.AiText.Request.decode(Jason.encode!(req))
+    {:ok, wire} = Google.translate(normalized, %{plug: plug})
+    call_opts = %{credential: @key, receive_timeout_ms: 1000}
+
+    for edits <- [
+          %{wire.edits | call_ids: []},
+          %{wire.edits | call_ids: ["c1", "c2"]},
+          %{wire.edits | result_ids: []},
+          %{wire.edits | result_ids: ["c1", "c1"]}
+        ] do
+      assert Google.call(%{wire | edits: edits}, call_opts) == {:transport, :not_sent}
+    end
+
+    assert GoogleStub.requests(agent) == []
   end
 
   ## G6 model table, key handling
