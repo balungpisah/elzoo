@@ -11664,10 +11664,12 @@
     {
       "id": "integration/ai-text-compatible",
       "job": "ELZ-374",
-      "note": "Planned OpenAI-compatible Chat Completions text provider for integration/ai-text at one egress-checked HTTPS base URL with a host transport Need pinning the checked addresses and a host model table of per-model features; stub evidence only.",
+      "note": "OpenAI-compatible Chat Completions provider of integration/ai-text at one HTTPS base URL per endpoint: endpoint/1 takes exactly base_url (https, 1..2048 bytes, no userinfo, query or fragment), an egress policy, its resolver Need, a transport Need given %{host, port, addresses} returning {:ok, req_options} and a model table of 1..64 unique ids of 1..256 bytes of UTF-8 without control characters with features from tools, structured_output, stop_sequences, sampling and image_input; shape refusals are :invalid with no resolver call, then one Elzoo.EgressPolicy.resolve/3 gives {:egress, reason} or an endpoint holding the checked host, port and addresses (fixed for its lifetime; inspect shows no Need). translate/2 is pure: a non-endpoint term or a model outside the table invalid_request, a feature the table does not declare for the model unsupported_feature, a tool result with is_error true unsupported_feature, more than 4 stop sequences invalid_request, else a Chat Completions body through req_llm 1.30's LM Studio provider with each image as a data: URL. call/2 makes exactly one exchange: the transport Need's options (a failing, raising or non-keyword answer is {:transport, :unavailable} before any byte, classified transport by ai-text) replace req_llm's dropped finch option, then retry false, redirect false and the receive timeout, max_retries 0, the key only in the authorization header, every response halted by an Elzoo step with the body bounded to 4 MiB of wire bytes while received. decode/2 reads the documented chat.completion object (one choice; refusal, stop, length, tool_calls, content_filter, other finishes), usage from the documented usage object with absent fields :unknown, and the status table of integration/ai-text-openai with Retry-After seconds for 429 and 503.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/ai-text-compatible/piece.json",
+      "manifest_sha256": "f5cd6132a45949f663e36247723467cbf625f6f11d937a39c2a57d80f8fa0fb9"
     }
   ],
   "schema_version": 1,
