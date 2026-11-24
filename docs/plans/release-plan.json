@@ -11360,7 +11360,7 @@
       "baseline_status": "not in baseline (new row, RC-54)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/prompt-assembly/piece.json",
-      "manifest_sha256": "50027e2e114c9d2d1a02635dd04c208169f49b434842346e846b79e998a7158e",
+      "manifest_sha256": "9dcfa2a28861ea1512b0fd76156ff12e975011f59f65566cd0b95a89bf98e29b",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
