@@ -1005,6 +1005,79 @@ defmodule Elzoo.AiTextTest do
     assert calls() == 1
   end
 
+  test "an image of zero bytes is invalid_request at admission before translate; one byte is admitted; an empty answer with a wrong record or hash stays input_unavailable (check, admission)" do
+    req = parts_request([image_part("img")])
+    {:ok, decoded, _} = Request.decode(Jason.encode!(req))
+
+    # Zero bytes, matching record, empty-content hash, the part's media type.
+    c = image_config(Map.new([stored("img", "")]))
+    assert {:error, {:refused, :invalid_request}} = admit(c, req)
+    assert {:error, :invalid_request} = AiText.check(c, decoded)
+    assert needs() == 2
+    refute_received {:translate, _}
+    refute_received :credential_read
+
+    # One byte: admitted, and translate/2 gets the one-byte image.
+    c = image_config(Map.new([stored("img", "1")]))
+    assert {:ok, _} = admit(c, req)
+    assert_received {:translate, _}
+    assert {:ok, %{request: wire}} = AiText.check(c, decoded)
+    assert_received {:translate, _}
+
+    assert [%{parts: [%{type: :image, media_type: "image/png", bytes: "1"}]}] = wire.messages
+
+    # Order: the empty image is decided after the record and hash checks.
+    rec = record("img", "")
+
+    for {answer, i} <-
+          Enum.with_index([
+            {:ok, %{record: %{rec | sha256: record("img", "1").sha256}, bytes: ""}},
+            {:ok, %{record: %{rec | size_bytes: 1}, bytes: ""}},
+            {:ok, %{record: %{rec | version: 2}, bytes: ""}}
+          ]) do
+      c = image_config(%{"img" => answer})
+      assert {:error, {:refused, :input_unavailable}} = admit(c, req), "case #{i}"
+    end
+
+    _ = needs()
+    refute_received {:translate, _}
+  end
+
+  test "an image that answers zero bytes at dispatch is the attested no-send input_unavailable before the credential Need, no provider request (Adapter)",
+       ctx do
+    counter = :counters.new(1, [])
+
+    empty_at_dispatch = fn ->
+      :counters.add(counter, 1, 1)
+
+      if :counters.get(counter, 1) == 1,
+        do: {:ok, %{record: record("img", @bytes_a), bytes: @bytes_a}},
+        else: {:ok, %{record: record("img", ""), bytes: ""}}
+    end
+
+    c = image_config(%{"img" => empty_at_dispatch})
+    {:ok, a} = admit(c, parts_request([image_part("img")]))
+    _ = needs()
+    # Admission translated the non-empty image; dispatch must not translate.
+    assert_received {:translate, _}
+    pid = owner(c, a, ctx)
+    {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+    status = settled(pid)
+    key = a.key
+
+    assert_receive {AiText, ^key,
+                    {:outcome, _, {:refused, :input_unavailable, %{retry_after: nil}}}}
+
+    assert needs() == 1
+    refute_received {:translate, _}
+    refute_received :credential_read
+    refute_received {:sent, _}
+    assert calls() == 0
+    refute match?({:Confirmed, _}, status.phase)
+    # Attested no-send: the owner accepts a rearm of the same intent.
+    assert {:ok, _} = Intent.advance(pid, :rearm)
+  end
+
   test "parts refusals: document part, parts on another role, text with parts, text parts only, malformed parts (Request)" do
     text = %{"type" => "text", "text" => "t"}
     img = image_part("img")
