@@ -181,6 +181,7 @@ defmodule Elzoo.McpServerTest do
   defp reply(:error, _), do: {:error, :history}
   defp reply(:raise, _), do: raise("result store down")
   defp reply(:exit, _), do: exit(:result_store_down)
+  defp reply(:throw, _), do: throw(:result_store_down)
 
   # A completion whose canonical result text {"payload":"z..","run_id":ID} is
   # exactly `total` bytes: 12 + n + 12 + byte_size(ID) + 2.
@@ -496,6 +497,74 @@ defmodule Elzoo.McpServerTest do
     assert names(client(ctx, token(ctx, "alice"))) == ["echo"]
   end
 
+  test "tools/list: each bot-list rule at its edge; a list that breaks one gives no bot", ctx do
+    bot = fn fields ->
+      Map.merge(
+        %{bot_id: "b1", name: "b1", description: "d", start_schema: %{}, schema_version: 1},
+        fields
+      )
+    end
+
+    # One server whose policy and authority allow every listed bot, so only the
+    # bot-list rules decide.
+    serve = fn bots ->
+      own =
+        for %{bot_id: id} when is_binary(id) <- bots,
+            do: %{target: "bot/" <> id, field: "run", value: true}
+
+      policy = %{
+        policy()
+        | rules: [%{id: "any", effect_class: "mcp.run", verdict: :allow}]
+      }
+
+      {:ok, server} =
+        McpServer.new(
+          opts(ctx,
+            policy: policy,
+            authority: fn _ -> {:ok, Enum.uniq(own)} end,
+            bots: fn _ -> {:ok, bots} end
+          )
+        )
+
+      Host.put({:ok, server})
+      names(client(ctx, token(ctx, "alice")))
+    end
+
+    edge =
+      bot.(%{
+        bot_id: String.duplicate("i", 128),
+        name: String.duplicate("n", 64),
+        description: String.duplicate("é", 512),
+        schema_version: 2_147_483_647
+      })
+
+    assert serve.([edge, bot.(%{bot_id: "b2", name: "a-_9"})]) == [
+             "a-_9",
+             String.duplicate("n", 64)
+           ]
+
+    refused = [
+      [bot.(%{}), bot.(%{bot_id: "b2"})],
+      [bot.(%{bot_id: ""})],
+      [bot.(%{bot_id: String.duplicate("i", 129)})],
+      [bot.(%{name: String.duplicate("n", 65)})],
+      [bot.(%{name: ""})],
+      [bot.(%{description: ""})],
+      [bot.(%{description: String.duplicate("d", 1_025)})],
+      [bot.(%{description: <<0xFF>>})],
+      [bot.(%{schema_version: 0})],
+      [bot.(%{schema_version: 2_147_483_648})],
+      [bot.(%{start_schema: [1]})],
+      [Map.put(bot.(%{}), :extra, 1)],
+      [Map.delete(bot.(%{}), :description)],
+      [bot.(%{}), :not_a_bot]
+    ]
+
+    for {bots, n} <- Enum.with_index(refused) do
+      assert serve.([bot.(%{bot_id: "ok", name: "ok"}) | bots]) == [], "case #{n}"
+    end
+  end
+
   defp count(mfa) do
     {:call_count, n} = :erlang.trace_info(mfa, :call_count)
     n
@@ -807,20 +876,29 @@ defmodule Elzoo.McpServerTest do
     assert inspect(elem(McpServer.new(base), 1)) == "#Elzoo.McpServer<redacted>"
   end
 
-  test "6: the ExMCP.HttpPlug handler timeout is call_timeout_ms plus 5,000", ctx do
-    {:ok, server} = McpServer.new(opts(ctx, call_timeout_ms: 1))
+  test "6: the ExMCP.HttpPlug handler timeout is call_timeout_ms plus 5,000, and the bound runs from before the start Need",
+       ctx do
+    # At call_timeout_ms 2,000 the handler timeout is 7,000 ms. A start Need of
+    # 6,000 ms ends past the bound but within the handler timeout: one read,
+    # then running. A constant timeout under 6,000, or a bound measured from
+    # after the start Need (polling to 8,000), gives -32603 instead.
+    {:ok, server} = McpServer.new(opts(ctx, call_timeout_ms: 2_000))
     Host.put({:ok, server})
     mode(ctx, "bot-echo", :pending)
     alice = token(ctx, "alice")
 
-    mode(ctx, {:start, "bot-echo"}, fn _ -> Process.sleep(4_000) && {:ok, "run-9-bot-echo"} end)
+    mode(ctx, {:start, "bot-echo"}, fn _ -> Process.sleep(6_000) && {:ok, "run-9-bot-echo"} end)
+    drain()
 
     assert {true, ~s({"run_id":"run-9-bot-echo","state":"running"})} =
              tool_text(raw(ctx, alice, "tools/call", %{name: "echo", arguments: %{}}))
 
-    # 8,000 ms keeps the handler busy past ex_mcp's 1,000 ms stop timeout, away
-    # from the OTP proc_lib:stop/3 boundary named in the README's limits.
-    mode(ctx, {:start, "bot-echo"}, fn _ -> Process.sleep(8_000) && {:ok, "run-9-bot-echo"} end)
+    assert length(for {:need, :result, _} <- drain(), do: :read) == 1
+
+    # 9,500 ms passes the 7,000 ms handler timeout and ex_mcp's 1,000 ms stop
+    # timeout after it, away from the OTP proc_lib:stop/3 boundary named in the
+    # README's limits. A handler timeout above 9,500 gives running instead.
+    mode(ctx, {:start, "bot-echo"}, fn _ -> Process.sleep(9_500) && {:ok, "run-9-bot-echo"} end)
     {200, %{"error" => error}, _} = raw(ctx, alice, "tools/call", %{name: "echo", arguments: %{}})
     assert %{"code" => -32603, "data" => %{"type" => "handler_timeout"}} = error
   end
@@ -837,7 +915,7 @@ defmodule Elzoo.McpServerTest do
       assert {o, map_size(e)} == {Atom.to_string(outcome), 2}
     end
 
-    for m <- [:error, :raise, :exit, {:terminal, :paused}] do
+    for m <- [:error, :raise, :exit, :throw, {:terminal, :paused}] do
       mode(ctx, "bot-echo", m)
       assert {true, %{"run_id" => _, "state" => "unknown"}} = text(call(ctx, session, "echo", %{}))
     end
@@ -863,6 +941,7 @@ defmodule Elzoo.McpServerTest do
     for start <- [
           fn _ -> raise "engine down" end,
           fn _ -> throw(:x) end,
+          fn _ -> exit(:engine_down) end,
           fn _ -> {:error, :busy} end,
           fn _ -> {:ok, ""} end,
           fn _ -> {:ok, String.duplicate("r", 129)} end,

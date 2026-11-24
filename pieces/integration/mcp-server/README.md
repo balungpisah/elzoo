@@ -89,8 +89,10 @@ The server has a redacted `Inspect`.
    ex_mcp starts one handler process per request and stops it afterwards. The
    handler's `init/1` gets the current request's principal, so every callback
    decides on that principal only. Sessions are ex_mcp's and are not bound to
-   the principal (`oauth_enabled: false`). A session ID grants nothing: every
-   request is verified and decided on its own token.
+   the principal (`oauth_enabled: false`). A session ID grants no tool: every
+   request is verified and decided on its own token. It is not secret from
+   ex_mcp's session operations, though: any verified caller that holds another
+   caller's session ID can end that session with `DELETE`.
 
 ## tools/list
 
@@ -175,9 +177,11 @@ request without a token is HTTP 401.
 - The verifier configuration, the clock, the policy, the authority Need, the
   bot list and the `start` and `result` Needs are the host's. The Piece decides
   only on what they give.
-- The bounded wait polls. A Need that blocks is bounded only by ex_mcp's
-  handler timeout (`call_timeout_ms + 5_000`, JSON-RPC `-32603`
-  `handler_timeout`). Upstream observation at ex_mcp 1.8.1 on OTP 29.1.2:
+- The bounded wait polls. A `start`, `result`, `authority` or `bots` Need that
+  blocks is bounded only by ex_mcp's handler timeout (`call_timeout_ms +
+  5_000`, JSON-RPC `-32603` `handler_timeout`). The `clock` Need and the
+  verifier's own Needs (`subject`, `lookup`, `digest_key`) run in the Plug
+  before ex_mcp, so only the host's HTTP server bounds them. Upstream observation at ex_mcp 1.8.1 on OTP 29.1.2:
   ex_mcp then stops the handler with a 1,000 ms timeout and catches only
   exits. If the handler ends within about a millisecond of that timeout,
   `proc_lib:stop/3` raises `timeout_value`, and the request ends as HTTP 500
@@ -186,6 +190,10 @@ request without a token is HTTP 401.
   socket with scripted Run Needs. No live MCP host, TLS, public endpoint or
   engine is exercised; the Wave 9 root acceptance composes them.
 - ex_mcp's own debug logs and telemetry are upstream.
+- ex_mcp serves a modern-era `subscriptions/listen` request from its own
+  subscription registry, without the handler. It runs only after the token
+  check, but its response stays open (ex_mcp's default lifetime is one hour)
+  and this Piece publishes nothing to it.
 - Not supplied: resources, prompts, progress notifications, an idempotency key
   in `_meta`, the MCP authorization flow (protected-resource metadata and an
   authorization server) and stdio.
