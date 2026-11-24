@@ -11063,11 +11063,11 @@
     {
       "id": "integration/ai-token-count",
       "job": "ELZ-138",
-      "note": "Pure upper bound, as far as recordings through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic, show under a named assumption (not proved), before the call, for the input tokens of one integration/ai-text request to Anthropic: Elzoo.AiTokenCount.Anthropic.estimate/1 decodes the request bytes with Elzoo.AiText.Request.decode/1 and returns size = 3 * canonical bytes, plus 1,024 when the request has a tool, with unit :tokens, direction :upper_bound, provider_id, model_id and estimator elzoo/ai-token-count/anthropic-bytes version 1 (the fields of a workflow/context-selection window); refuses the decoder's reasons unchanged, an output_schema as :unsupported_feature and a model that pinned llm_db does not know for Anthropic as :unknown_model. Not a token count and not a usage fact.",
+      "note": "Pure upper bound, as far as recordings through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic, show under a named assumption (not proved), before the call, for the input tokens of one integration/ai-text request to Anthropic: Elzoo.AiTokenCount.Anthropic.estimate/1 decodes the request bytes with Elzoo.AiText.Request.decode/1 and returns size = 3 * canonical bytes, plus 1,024 when the request has a tool, with unit :tokens, direction :upper_bound, provider_id, model_id and estimator elzoo/ai-token-count/anthropic-bytes version 1 (the fields of a workflow/context-selection window); refuses the decoder's reasons unchanged, an output_schema and a user message with parts (image input) as :unsupported_feature and a model that pinned llm_db does not know for Anthropic as :unknown_model. Not a token count and not a usage fact.",
       "baseline_status": "not in baseline (new row, RC-53)",
       "disposition": "ready-contract",
       "manifest": "pieces/integration/ai-token-count/piece.json",
-      "manifest_sha256": "aec2d679961550b445196a3df3cf1feb34eca4d88fc49a5a2e8dca694f69bd93",
+      "manifest_sha256": "403b2ce627c2391e343e381940cb30270c7b180954fddddacaa01693008cc2e5",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -11137,7 +11137,7 @@
       "baseline_status": "not in baseline (new row, RC-57)",
       "disposition": "ready-contract",
       "manifest": "pieces/delivery/provider-stream/piece.json",
-      "manifest_sha256": "3c5c1c90b2168969b5d1a33f1cc73a8771168cda1248081d98c153b946881433",
+      "manifest_sha256": "b1aba6620815b0e185cc7294c02f8fc0b4bffaf44ab1c511446a76c89c1e22f7",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
