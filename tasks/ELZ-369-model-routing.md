@@ -11,7 +11,7 @@
 
 One pure Piece in plain Elixir that decides two things for a host's model-call binding. `select/3` gives the candidates of a route that may take a request now, in rank order, and the reason each other candidate is left out. `after_failure/3` gives the next step after one Attempt's outcome: done, wait and send the same request to the same candidate again (only when nothing was sent), move to another candidate with a new Attempt, or stop. The Contract source is the `delivery/model-routing` section of the plan's "Level 2", under Q8 A: **no fallback after an unknown outcome**, so a request that may have reached a provider is never sent to a second one.
 
-The Piece does no I/O, reads no clock and holds no state. A route holds candidate references only; each candidate's binding, credential Need and provider account are the host's, so no credential of one candidate can reach another's intent through this Piece. The caller is the host's model-call binding (the binding that runs `integration/ai-text` for a `model_call` action), not the pattern step: the binding waits a `{:retry_same, ms}` between its EffectIntent commands, and ends the action with its refusal after a `{:next, _}`, putting the candidate's ref in the outcome it gives back (`workflow/agent-loop`'s Attempts task, ELZ-376, reads it).
+The Piece does no I/O, reads no clock and holds no state. A route holds candidate references only; each candidate's binding, credential Need and provider account are the host's, so no credential of one candidate can reach another's intent through this Piece. The caller is the host's model-call binding (the binding that runs `integration/ai-text` for a `model_call` action), not the pattern step: the binding waits a `{:retry_same, ms}` between its EffectIntent commands. After a `{:next, _}` for an Attempt that made no intent (an admission refusal, `{:not_admitted, _}`), it adds the ref to `tried` and calls `select/3` again inside the same action, so the next candidate gets the request with no new action. It ends the action with its refusal only after a `{:next, _}` for a refused outcome of a sent request, putting the candidate's ref in the outcome it gives back (`workflow/agent-loop`'s Attempts task, ELZ-376, reads it; its `move_on` set holds only refusals of a sent request).
 
 No durable state, I/O or concurrency: a low-risk Piece (`AGENTS.md` section 5). It may use the hosted `check-piece` run as its small-gate evidence and gets one light review.
 
@@ -53,6 +53,8 @@ Checked at `main` `b9d1c9d5`. Confirm each before you start; if one differs, sto
   - An Attempt that ends with no outcome delivered (the intent's owner reports none) is given by the host as `{:unknown, reason}`.
   - `{:unknown, _}` gives `{:stop, :unknown_outcome}` under `on_unknown: :stop`.
   - Any other term is `{:error, :invalid_input}`.
+
+The README states the binding's duty above: re-select inside the action after an admission refusal, end the action after a refused outcome of a sent request.
 
 `piece.json` declares telemetry, config and control `not_applicable` (pure; the route is the caller's value), the dependencies `delivery/retry-timeout`, `domain/provider-data-policy` and `integration/ai-text` (for `Provider.features/0`), and the providers `elixir` and `otp`. A Cure module is not required: the rules are table lookups over the reused Pieces' pure decisions; if the worker writes one, its laws are named in the PR.
 
