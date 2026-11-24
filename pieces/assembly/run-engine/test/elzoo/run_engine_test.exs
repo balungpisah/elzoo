@@ -1019,7 +1019,7 @@ defmodule Elzoo.RunEngineTest do
 
       contexts = await_local_outcome_contexts(c)
       assert_receive {:pattern_input, "root", %{"kind" => "action_outcome", "action_id" => "slow"}}
-      assert {:ok, :applied} = RunEngine.input(engine, "w", wake(), verified())
+      assert {:ok, :applied} = RunEngine.input(engine, "w", wake(), later_deadline())
       assert_paused_at(c, engine, 50_000)
       assert contexts == [%{pause_deadline: 50_000}]
 
@@ -1045,10 +1045,9 @@ defmodule Elzoo.RunEngineTest do
       # before the root is given the outcome.
       contexts = await_local_outcome_contexts(c)
       refute_receive {:pattern_input, _, _}, 200
-      assert {:ok, :applied} = RunEngine.input(engine, "w", wake(), verified())
+      assert {:ok, :applied} = RunEngine.input(engine, "w", wake(), later_deadline())
       assert_paused_at(c, engine, 50_000)
       assert contexts == [%{pause_deadline: 50_000}]
-      assert_paused_at(c, engine, 50_000)
       Process.unregister(:run_engine_observer)
     end
 
@@ -1066,7 +1065,7 @@ defmodule Elzoo.RunEngineTest do
       :ok = :sys.resume(engine)
 
       contexts = await_local_outcome_contexts(c)
-      assert {:ok, :applied} = RunEngine.input(engine, "w", wake(), verified())
+      assert {:ok, :applied} = RunEngine.input(engine, "w", wake(), later_deadline())
       assert_paused_at(c, engine, 50_000)
       assert contexts == [%{pause_deadline: 50_000}]
       Process.unregister(:run_engine_observer)
@@ -1123,6 +1122,10 @@ defmodule Elzoo.RunEngineTest do
       true -> Process.sleep(5) && await_mailbox(pid, left - 1)
     end
   end
+
+  # A wake whose own pause deadline (70,000) differs from the outcome's, so that a pause
+  # on 50,000 after it comes from the outcome's step.
+  defp later_deadline, do: verified(%{pause_deadline: 70_000})
 
   defp assert_paused_at(c, engine, deadline) do
     assert view(engine).phase == :paused

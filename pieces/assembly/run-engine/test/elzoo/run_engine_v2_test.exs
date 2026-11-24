@@ -1175,7 +1175,10 @@ defmodule Elzoo.RunEngineV2Test do
 
   defp assert_v2_paused_and_read(c, engine) do
     assert_receive {:pattern_input, "root", %{"kind" => "action_outcome", "action_id" => "slow"}}
-    assert {:ok, :applied} = RunEngine.input(engine, "wake-v2", wake_v2(), verified())
+    # The wake gives its own pause deadline (70,000), so a pause on 50,000 after it
+    # comes from the outcome's step.
+    wake_context = verified(%{pause_deadline: 70_000})
+    assert {:ok, :applied} = RunEngine.input(engine, "wake-v2", wake_v2(), wake_context)
     {:ok, unit} = DynamicUnits.find(c.directory, c.opts[:identity])
     lifecycle = DurableUnit.snapshot(unit).control.lifecycle
 
