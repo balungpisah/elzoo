@@ -186,6 +186,85 @@ defmodule Elzoo.AiText.AnthropicTest do
     end
   end
 
+  ## Golden wire requests (ELZ-371 acceptance 1): recorded on the base before
+  ## the image change, so a text-only request translates byte for byte as before.
+
+  @golden_headers [
+    {"accept", "application/json"},
+    {"anthropic-version", "2026-10-21"},
+    {"content-type", "application/json"},
+    {"user-agent", "req/0.7.5"}
+  ]
+
+  @golden_body %{
+    "max_tokens" => 256,
+    "messages" => [%{"content" => "Conformance prompt.", "role" => "user"}],
+    "model" => "claude-sonnet-4-5-20250929",
+    "stream" => false,
+    "system" => "Answer briefly."
+  }
+
+  @golden_tools %{
+    "tool_choice" => %{"type" => "auto"},
+    "tools" => [
+      %{
+        "description" => "Look up a term.",
+        "input_schema" => %{
+          "additionalProperties" => false,
+          "properties" => %{"q" => %{"type" => "string"}},
+          "required" => ["q"],
+          "type" => "object"
+        },
+        "name" => "lookup"
+      }
+    ]
+  }
+
+  @golden_structured %{
+    "output_config" => %{
+      "format" => %{
+        "schema" => %{
+          "additionalProperties" => false,
+          "properties" => %{"answer" => %{"type" => "integer"}},
+          "required" => ["answer"],
+          "type" => "object"
+        },
+        "type" => "json_schema"
+      }
+    }
+  }
+
+  defp golden(id) when id in [:tool_well_formed, :tool_invalid_json, :tool_schema_invalid],
+    do:
+      {[{"anthropic-beta", "tools-2024-05-16"} | @golden_headers],
+       Map.merge(@golden_body, @golden_tools)}
+
+  defp golden(id) when id in [:structured_valid, :structured_invalid],
+    do: {@golden_headers, Map.merge(@golden_body, @golden_structured)}
+
+  defp golden(_), do: {@golden_headers, @golden_body}
+
+  test "golden: the wire request of every A1 scenario (method, path, headers other than the key, decoded body) equals the recording on the base (translate + call)",
+       ctx do
+    assert length(Conformance.scenarios()) == 15
+
+    for s <- Conformance.scenarios() do
+      response = stub_for(s.stub)
+
+      {_, [req], _, _} =
+        run(ctx, Conformance.request(s.id, @model), fn _ -> response end)
+
+      {headers, body} = golden(s.id)
+      assert {req.method, req.path} == {"POST", "/v1/messages"}, inspect(s.id)
+
+      assert Enum.sort(Enum.reject(req.headers, &match?({"x-api-key", _}, &1))) ==
+               Enum.sort(headers),
+             inspect(s.id)
+
+      assert wire(req) == body, inspect(s.id)
+    end
+  end
+
   ## A2 usage and cache counters from the raw usage map
 
   test "A2 usage: reported, omitted fields, cold write, warm read, mixed TTL, below minimum, total and breakdown (raw usage)",
