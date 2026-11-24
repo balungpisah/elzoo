@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "id": "integration/ai-text-compatible",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "req_llm",
+    "llm_db",
+    "req",
+    "jason",
+    "jsv",
+    "abnf_parsec",
+    "texture",
+    "zoi",
+    "splode",
+    "server_sent_events",
+    "websockex",
+    "dotenvy",
+    "plug",
+    "plug_crypto",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "integration/ai-text",
+    "integration/egress-policy"
+  ],
+  "install_configuration": [
+    {
+      "line": "config :req_llm, load_dotenv: false",
+      "reason": "Otherwise req_llm loads a .env file from the working directory when its application starts under Mix."
+    }
+  ],
+  "contract": "OpenAI-compatible Chat Completions provider of integration/ai-text at one HTTPS base URL per endpoint: endpoint/1 takes exactly base_url (https, 1..2048 bytes, no userinfo, query or fragment), an egress policy, its resolver Need, a transport Need given %{host, port, addresses} returning {:ok, req_options} and a model table of 1..64 unique ids of 1..256 bytes of UTF-8 without control characters with features from tools, structured_output, stop_sequences, sampling and image_input; shape refusals are :invalid with no resolver call, then one Elzoo.EgressPolicy.resolve/3 gives {:egress, reason} or an endpoint holding the checked host, port and addresses (fixed for its lifetime; inspect shows no Need). translate/2 is pure: a non-endpoint term or a model outside the table invalid_request, a feature the table does not declare for the model unsupported_feature, a tool result with is_error true unsupported_feature, more than 4 stop sequences invalid_request, else a Chat Completions body through req_llm 1.30's LM Studio provider with each image as a data: URL. call/2 makes exactly one exchange: the transport Need's options (a failing, raising or non-keyword answer is {:transport, :unavailable} before any byte, classified transport by ai-text) replace req_llm's dropped finch option, then retry false, redirect false and the receive timeout, max_retries 0, the key only in the authorization header, every response halted by an Elzoo step with the body bounded to 4 MiB of wire bytes while received. decode/2 reads the documented chat.completion object (one choice; refusal, stop, length, tool_calls, content_filter, other finishes), usage from the documented usage object with absent fields :unknown, and the status table of integration/ai-text-openai with Retry-After seconds for 429 and 503.",
+  "limits": [
+    "Stub evidence only: the endpoint's actual behaviour is the host's or tenant's; stubs show conformance to the documented Chat Completions shape only, and a compatible endpoint may differ from it. No successful public connect is shown; the finch removal is shown by a recording Req adapter, not through Finch.",
+    "Captured requests are validated against a schema hand-derived from CreateChatCompletionRequest of openai/openai-openapi at commit 59f5565459caae84f43c49a738248cf2b268a70f (fetched 2026-11-24), closed to the members this Piece may send; conformance to other revisions or to undocumented members is not claimed.",
+    "The address pinning is the host's transport Need; the resolver, the policy and the model table are the host's. Addresses are checked when the endpoint is built, not per call; a host that needs new addresses builds a new endpoint and Config.",
+    "integration/ai-text reads the image artifacts before translate/2, so a per-model refusal of image input comes after those reads.",
+    "The provider name openai-compatible is the same for every endpoint, so an outcome's provenance does not tell two endpoints apart; a host that routes between endpoints names each by its route candidate.",
+    "Not supplied: per-endpoint quirks as declared options, reasoning and cache hints per declared model, streaming, a refresh of the checked addresses inside one endpoint.",
+    "The task named ReqLLM.Providers.VLLM; at 1.30.0 it declares no provider option and refuses response_format, so this Piece uses ReqLLM.Providers.LMStudio, which shares the default Chat Completions encoding and declares response_format.",
+    "Every consumer must merge config :req_llm, load_dotenv: false into its configuration: the line is declared in install_configuration and written into the generated install file, but the copier never edits a consumer's configuration. The credential invariant holds regardless: only the injected key is passed."
+  ],
+  "files": [
+    "lib/elzoo/ai_text/compatible.ex",
+    "test/elzoo/ai_text_compatible_test.exs",
+    "test/fixtures/openai/chat_completions_request.schema.json"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "test/fixtures/openai/chat_completions_request.schema.json",
+      "claim": "Every captured stub request is validated with jsv against a schema hand-derived from CreateChatCompletionRequest and the schemas it names (messages of the system, user, assistant and tool roles, text and image_url parts, function tools, tool_choice, StopConfiguration, ResponseFormatJsonSchema, sampling bounds) of openai/openai-openapi openapi.json at commit 59f5565459caae84f43c49a738248cf2b268a70f (fetched 2026-11-24, source SHA-256 287f2cbf81b668735c56853b5e2ec40048c8912bead00ac8118190fae9716392, MIT), every object closed to the members this Piece may send; listed negative controls are asserted to be rejected by it. Plus method, the path /chat/completions under the base URL's path, the injected bearer key and the model id."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/ai_text_compatible_test.exs",
+      "claim": "Listed scenarios through a resolver double and a transport Need that returns an in-process function plug (no socket): the interface conformance kit and image scenario for a model declaring tools, structured output and image input, with the image as a data: URL; each undeclared feature (tools, output schema, image parts, stop sequences, sampling) refused unsupported_feature with no request while the declaring model sends; a model outside the table and a non-endpoint term invalid_request; endpoint/1 egress reasons (non-public address, IP literal, name or port not allowed, nxdomain, unavailable resolver) and shape refusals (http, userinfo, query, empty query, fragment, 2049 bytes, keys) with the resolver call count, 2048 bytes and 64 models accepted, 65, a duplicate id, an unknown feature and bad ids refused; the transport Need's exact argument and its failures (raise, throw, exit, error, a map, a non-keyword list, an option Req refuses) with no request; connect_options from the Need reaching the one request with no finch option through a recording Req adapter; each status of the table, 429 with and without Retry-After, a timeout, malformed and oversized bodies with one request each; usage fields; redaction of the key. Negative controls under temporary edits: skipping the table's feature check sends a request, and keeping req_llm's finch option fails the connect_options case. Finite scenarios, no live call, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req_llm",
+      "reference": "https://hexdocs.pm/req_llm/1.30.0/readme.html",
+      "claim": "req_llm 1.30.0 (Hex checksum 1c4b19608aa982de5ea396cc6de3d3738e72480182ba11c184e028a4af305edb) ReqLLM.Providers.LMStudio.prepare_request/4 for a model %{provider: :lmstudio, id: id} outside the catalogue: POST <base_url>/chat/completions with authorization Bearer <api_key>, the default Chat Completions encoding of messages, image_url data: parts, function tools, tool_choice, stop, temperature, top_p, max_tokens and the response_format provider option, and the finch option it sets on the prepared request; observations of the pinned version by probe, not guarantees."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req",
+      "reference": "https://hexdocs.pm/req/0.7.5/Req.Request.html",
+      "claim": "Req 0.7.5 Req.Request.drop_options/2, Req.merge/2 option validation, the refusal of connect_options beside finch, response and error steps, Req.Request.halt/2 and the :plug and :adapter test transports."
+    },
+    {
+      "kind": "assumption",
+      "claim": "A compatible endpoint answers in the documented Chat Completions shape and its usage object follows CompletionUsage; 503 means overload and a 429 or 503 is a rejection that authorizes no redispatch; the host's transport Need connects only to the given addresses with SNI and Host set to host; the host keeps the key Need truthful."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No Elzoo event. req_llm may emit its request start event (payload capture off by default) to consumer-installed handlers; response-side events are not emitted because every response is halted. Own events through runtime/telemetry: future task."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time endpoint from endpoint/1 with fixed bounds: base_url https of 1..2048 bytes without userinfo, query or fragment; an egress policy and its resolver Need; a transport Need; 1..64 models of 1..256-byte ids with features from the five translatable ones; anything else :invalid. Fixed max_retries 0, retry false and redirect false; receive timeout and model allowlist from the interface Config; key from the injected Need. No hot reconfiguration: new addresses or models are a new endpoint and Config.",
+      "evidence": [
+        "test/elzoo/ai_text_compatible_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "Call-scoped; dispatch, rearm and expiry are the delivery/effect-intent owner's Control."
+    }
+  }
+}
