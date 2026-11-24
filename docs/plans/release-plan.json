@@ -11631,7 +11631,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/mcp-server/piece.json",
-      "manifest_sha256": "2855d027c8be241cd102ba872bf1c35fcab7d7e1ff91618d7e6de7b22a9e2ce8"
+      "manifest_sha256": "a66dc6f56ea485075a86c42233d6d1d229f0cc6fcac3d692f78fef472cfc2e9d"
     },
     {
       "id": "domain/plan",
