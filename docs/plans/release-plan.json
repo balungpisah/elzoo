@@ -9586,13 +9586,13 @@
         "tasks/ELZ-364-ai-text-image-input.md"
       ],
       "outputs": [],
-      "acceptance": "In-place integration/ai-text Contract amendment 2 (Wave 9 Q7 A, absorbs integration/ai-multimodal): a user message may hold parts (text, and image by state/artifact reference with media type png/jpeg/webp/gif, at most 8 images); the capability set gains :image_input (undeclared is unsupported_feature); a host artifacts Need resolves each reference before translation at admission and in the Adapter, checking record identity, media type, size and the hash_format-prefixed SHA-256 and per-image/total bounds; a failure is the local refusal input_unavailable at admission and the new attested no-send tag input_unavailable at dispatch (Cure decision, table and no_send updated); document stays refused; a request without parts is byte for byte today's (golden recorded on the base first); a conformance scenario :image_input. Negative controls on the capability check, the hash check and the no-send mark. Local small gate and full review. Output none.",
+      "acceptance": "In-place integration/ai-text Contract amendment 2 (Wave 9 Q7 A, absorbs integration/ai-multimodal): a user message may hold parts (text, and image by state/artifact reference with media type png/jpeg/webp/gif, at most 8 images); the capability set gains :image_input (undeclared is unsupported_feature); a host artifacts Need resolves each reference before translation at admission and in the Adapter, checking record identity, media type, size and the hash_format-prefixed SHA-256 and per-image/total bounds; a failure is the local refusal input_unavailable at admission and the new attested no-send tag input_unavailable at dispatch (Cure decision, table and no_send updated); document stays refused; a request without parts is byte for byte today's (golden recorded on the base first); a conformance scenario :image_input. Coordinator decision 2026-11-24: delivery/provider-stream prepare/2 and integration/ai-token-count estimate/1, which call Request.decode/1 without check/2, refuse a parts message as unsupported_feature (their README and piece.json follow; index rows updated). Negative controls on the capability check, the hash check, the no-send mark and each of the two parts refusals. Local small gate and full review. Output none.",
       "product_aims": [
         "P13"
       ],
       "issue": 871,
       "url": "https://github.com/balungpisah/elzoo/issues/871",
-      "issue_body_sha256": "2aaa2c0632bb0a709184b0e45ac67b960bd5fa123a6bae0cbcb296563c966264"
+      "issue_body_sha256": "42193df963f5c5286fc5c1af58e1abf359d86586282c4f2b1cc84093be5b25c1"
     },
     {
       "id": "ELZ-365",
