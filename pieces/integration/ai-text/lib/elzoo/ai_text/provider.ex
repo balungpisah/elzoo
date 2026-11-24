@@ -7,13 +7,16 @@ defmodule Elzoo.AiText.Provider do
     wire_surface: text, features: [feature], reasoning: [level], cache_ttls:
     [ttl], convention: %{input_includes_cached: boolean}, options: %{key =>
     validator}}`. Features are drawn from `:tools`, `:structured_output`,
-    `:sampling`, `:stop_sequences`, `:cache_hint`, `:reasoning`; a request that
-    uses an undeclared feature is refused `:unsupported_feature` before any
-    credential is read. `options` declares the provider-options keys (strings)
+    `:sampling`, `:stop_sequences`, `:cache_hint`, `:reasoning`, `:image_input`;
+    a request that uses an undeclared feature is refused `:unsupported_feature`
+    before any artifact or credential is read. `options` declares the provider-options keys (strings)
     with a 1-arity validator returning `:ok`; any other key, or a failing value,
     is refused `:invalid_request` (never ignored).
   - `translate(request, provider_config)` is pure: the neutral request to the
-    provider's wire request, or `{:refused, :invalid_request |
+    provider's wire request (for a provider that declares `:image_input`, a
+    user message may hold `parts`: `%{type: :text, text: t}` and `%{type:
+    :image, media_type: m, bytes: bytes}`, the bytes already resolved and
+    checked by the interface), or `{:refused, :invalid_request |
     :unsupported_feature | :too_large}`. It never reads a credential.
   - `call(wire, call_opts)` performs **exactly one** HTTP exchange with the
     injected credential `call_opts.credential` and returns `{:ok, exchange}` or
@@ -33,7 +36,15 @@ defmodule Elzoo.AiText.Provider do
   @callback decode(exchange :: term(), request :: map()) :: {:ok, map()} | {:failure, atom()}
   @callback classify_failure(term()) :: atom()
 
-  @features [:tools, :structured_output, :sampling, :stop_sequences, :cache_hint, :reasoning]
+  @features [
+    :tools,
+    :structured_output,
+    :sampling,
+    :stop_sequences,
+    :cache_hint,
+    :reasoning,
+    :image_input
+  ]
   def features, do: @features
 
   @doc false

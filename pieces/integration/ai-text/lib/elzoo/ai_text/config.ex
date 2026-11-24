@@ -14,7 +14,13 @@ defmodule Elzoo.AiText.Config do
     :sink,
     :seal_key
   ]
-  defstruct @enforce_keys
+  # Optional keys of Contract amendment 2; struct!/2 callers that name only the
+  # enforced keys get no artifact Need, so a request with image parts is refused.
+  defstruct @enforce_keys ++
+              [
+                artifacts: nil,
+                image_bounds: %{max_image_bytes: 5_242_880, max_total_image_bytes: 20_971_520}
+              ]
 
   defimpl Inspect do
     def inspect(c, _opts) do
