@@ -2510,3 +2510,307 @@ defmodule Elzoo.Wave9.Tools do
 
   def recorded(w), do: H.env(w, :recorded) || []
 end
+
+# ------------------------------------------------------------------ group 2: Elzoo's MCP server
+
+defmodule Elzoo.Wave9.McpHost do
+  @moduledoc "The init triple of the router's forward: the server that the running test stored."
+  def put(value), do: :persistent_term.put(__MODULE__, value)
+  def server, do: :persistent_term.get(__MODULE__)
+end
+
+defmodule Elzoo.Wave9.Router do
+  @moduledoc "The host router: Elzoo's MCP server Plug under `forward \"/mcp\"`."
+  use Plug.Router
+
+  plug(:match)
+  plug(:dispatch)
+
+  forward("/mcp", to: Elzoo.McpServer.Plug, init_opts: {Elzoo.Wave9.McpHost, :server, []})
+
+  match _ do
+    send_resp(conn, 404, "")
+  end
+end
+
+defmodule Elzoo.Wave9.Server do
+  @moduledoc """
+  The MCP server wiring: `Elzoo.McpServer.new/1` with a JWT verifier, the shared clock in Unix
+  seconds, a `domain/authorization` policy, and the `authority`, `bots`, `start` and `result`
+  Needs over the engines and the recipe store; the router on `Plug.Cowboy` at 127.0.0.1.
+  """
+  import ExUnit.Assertions
+  alias Elzoo.{McpClient, McpServer, RecipeStore, TokenVerify}
+  alias Elzoo.McpClient.RuntimeBinding
+  alias Elzoo.Wave9.Bots, as: B
+  alias Elzoo.Wave9.Helper, as: H
+
+  @issuer "https://issuer.example"
+  @audience "elzoo-mcp"
+  @call_timeout_ms 3_000
+  @idle_timeout_ms 60_000
+
+  def call_timeout_ms, do: @call_timeout_ms
+  def idle_timeout_ms, do: @idle_timeout_ms
+
+  # P and Q of T1 with different authority sets; D the T2 caller.
+  @people %{
+    "P" => %{tenant: "T1", own: ~w(summarize slow badroot)},
+    "Q" => %{tenant: "T1", own: ~w(summarize translate badroot)},
+    "D" => %{tenant: "T2", own: ~w(invoice summarize)}
+  }
+
+  @strict %{
+    "type" => "object",
+    "properties" => %{"text" => %{"type" => "string"}},
+    "required" => ["text"],
+    "additionalProperties" => false
+  }
+
+  def bots("T1"),
+    do: [
+      bot("summarize", @strict),
+      bot("translate", @strict),
+      bot("slow", @strict),
+      bot("badroot", %{"type" => "array"})
+    ]
+
+  def bots("T2"), do: [bot("invoice", @strict)]
+  def bots(_), do: []
+
+  defp bot(name, schema),
+    do: %{
+      bot_id: "bot-" <> name,
+      name: name,
+      description: "The " <> name <> " bot",
+      start_schema: schema,
+      schema_version: 1
+    }
+
+  def policy do
+    allow = fn bot ->
+      %{
+        id: "allow-" <> bot,
+        effect_class: "mcp.run",
+        target: {:exact, "bot/bot-" <> bot},
+        verdict: :allow
+      }
+    end
+
+    %{
+      id: "mcp-policy",
+      version: 1,
+      content_hash: :crypto.hash(:sha256, "wave9-mcp-policy-1"),
+      effect_classes: ["mcp.run"],
+      rules: Enum.map(~w(summarize translate slow badroot invoice), allow)
+    }
+  end
+
+  def own(id),
+    do: Enum.map(@people[id].own, &%{target: "bot/bot-" <> &1, field: "run", value: true})
+
+  def principal(id),
+    do: %{kind: :human, id: id, tenant: @people[id].tenant, allowed_scopes: [], allowed_spaces: []}
+
+  @doc "The server, mounted, and the listener: `%{url, ref, key, starts}`."
+  def start!(w) do
+    key = JOSE.JWK.generate_key({:okp, :Ed25519})
+    {_, public} = JOSE.JWK.to_public_map(key)
+    H.env(w, :starts, [])
+
+    verifier =
+      TokenVerify.jwt_config(
+        issuer: @issuer,
+        audience: @audience,
+        keys: [%{kid: "k1", alg: "EdDSA", jwk: public}],
+        leeway_s: 0,
+        subject: fn %{subject: id} ->
+          case @people[id] do
+            nil -> {:error, :unknown_subject}
+            _ -> {:ok, %{principal: principal(id), current_epoch: 0}}
+          end
+        end
+      )
+
+    {:ok, server} =
+      McpServer.new(
+        verifier: {:jwt, verifier},
+        clock: fn -> div(H.now(w), 1_000) end,
+        policy: policy(),
+        authority: fn p -> {:ok, own(p.id)} end,
+        bots: fn tenant -> {:ok, bots(tenant)} end,
+        start: &start_need(w, &1),
+        result: &result_need(w, &1),
+        call_timeout_ms: @call_timeout_ms,
+        poll_interval_ms: 50
+      )
+
+    Elzoo.Wave9.McpHost.put({:ok, server})
+    ref = {__MODULE__, make_ref()}
+
+    {:ok, _} =
+      Plug.Cowboy.http(Elzoo.Wave9.Router, [],
+        port: 0,
+        ip: {127, 0, 0, 1},
+        ref: ref,
+        protocol_options: [idle_timeout: @idle_timeout_ms]
+      )
+
+    ExUnit.Callbacks.on_exit(fn ->
+      try do
+        Plug.Cowboy.shutdown(ref)
+      catch
+        _, _ -> :ok
+      end
+    end)
+
+    %{url: "http://127.0.0.1:#{:ranch.get_port(ref)}/mcp", ref: ref, key: key}
+  end
+
+  def ptext(%{kind: kind, id: id}), do: Atom.to_string(kind) <> ":" <> id
+
+  # The start Need: pin the bot's version for the new Run, start one Run with the caller as its
+  # acting principal, give it the caller's text.
+  defp start_need(w, %{
+         tenant: tenant,
+         principal: p,
+         bot_id: bot_id,
+         call_id: call_id,
+         arguments: args
+       }) do
+    H.env_update(w, :starts, [{tenant, p.id, bot_id}], &(&1 ++ [{tenant, p.id, bot_id}]))
+    run_id = "mcp-" <> call_id
+    t = w.tenants[tenant]
+    {:ok, :pinned} = RecipeStore.pin(t.recipes, t.caller, t.version, run_id)
+
+    B.script(
+      w,
+      run_id,
+      if(bot_id == "bot-slow", do: [:hold], else: [B.say("done: " <> args["text"])])
+    )
+
+    H.env(w, {:bot_of, run_id}, bot_id)
+
+    B.start_bot!(w, tenant, run_id, B.agent_spec(run_id, []), args["text"], principal: ptext(p))
+    {:ok, run_id}
+  end
+
+  # The result Need: the engine's result/3 for that Run, with the caller as its principal text.
+  defp result_need(w, %{tenant: tenant, principal: p, run_id: run_id}) do
+    e = B.entry(w, run_id)
+
+    Elzoo.RunEngine.result(
+      e.engine,
+      %{tenant: tenant, principal: ptext(p), run_id: run_id},
+      %{max_records: 65_536, max_bytes: 536_870_912}
+    )
+  end
+
+  def starts(w), do: H.env(w, :starts)
+
+  defp b64(bin), do: Base.url_encode64(bin, padding: false)
+
+  @doc "A bearer JWT of `sub`, signed with the test key; `exp` and `iat` relative to the clock."
+  def token(w, srv, sub, opts \\ []) do
+    now = div(H.now(w), 1_000)
+
+    claims = %{
+      "iss" => @issuer,
+      "sub" => sub,
+      "aud" => @audience,
+      "exp" => now + Keyword.get(opts, :exp, 600),
+      "iat" => now + Keyword.get(opts, :iat, -60)
+    }
+
+    %JOSE.JWK{kty: {_, <<seed::binary-32, _::binary-32>>}} = srv.key
+
+    input =
+      b64(Jason.encode!(%{"alg" => "EdDSA", "kid" => "k1"})) <> "." <> b64(Jason.encode!(claims))
+
+    input <> "." <> b64(:crypto.sign(:eddsa, :none, input, [seed, :ed25519]))
+  end
+
+  @doc "The ready client of a caller: `RuntimeBinding`, `network: :loopback`, its default mode."
+  def client!(w, srv, tenant, token) do
+    {:ok, config} =
+      McpClient.configure(
+        binding: RuntimeBinding,
+        runtime: %{
+          server: "elzoo-bots",
+          endpoint: srv.url,
+          network: :loopback,
+          addresses: [{127, 0, 0, 1}]
+        },
+        tenant: tenant,
+        credentials: fn -> {:ok, token} end,
+        call_timeout_ms: 20_000
+      )
+
+    {:ok, session} = McpClient.connect(config, w.clients)
+    {:ok, snapshot} = McpClient.list_tools(session)
+    %{session: session, snapshot: snapshot}
+  end
+
+  def names(%{snapshot: %{tools: tools}}), do: Enum.map(tools, & &1["name"])
+
+  def text({:completed, %{content: [%{"type" => "text", "text" => text}]} = r}),
+    do: {r.is_error, Jason.decode!(text)}
+
+  def post(srv, headers, body) do
+    Req.post!(srv.url,
+      headers:
+        [{"content-type", "application/json"}, {"accept", "application/json, text/event-stream"}] ++
+          headers,
+      body: body,
+      retry: false,
+      decode_body: false,
+      receive_timeout: 20_000
+    )
+  end
+
+  def rpc(id, method, params),
+    do: Jason.encode!(%{jsonrpc: "2.0", id: id, method: method, params: params})
+
+  @doc "A legacy session: `initialize` and `notifications/initialized`; its session ID."
+  def legacy!(srv, token) do
+    auth = [{"authorization", "Bearer " <> token}]
+
+    init =
+      post(
+        srv,
+        auth,
+        rpc(1, "initialize", %{
+          protocolVersion: "2025-11-25",
+          capabilities: %{},
+          clientInfo: %{name: "raw", version: "1"}
+        })
+      )
+
+    assert init.status == 200
+    [sid] = Req.Response.get_header(init, "mcp-session-id")
+
+    resp =
+      post(
+        srv,
+        auth ++ session_headers(sid),
+        Jason.encode!(%{jsonrpc: "2.0", method: "notifications/initialized"})
+      )
+
+    assert resp.status == 202
+    sid
+  end
+
+  def session_headers(sid), do: [{"mcp-session-id", sid}, {"mcp-protocol-version", "2025-11-25"}]
+
+  @doc "One raw JSON-RPC request on a legacy session: `{status, decoded body}`."
+  def raw(srv, token, sid, method, params, extra \\ []) do
+    resp =
+      post(
+        srv,
+        [{"authorization", "Bearer " <> token}] ++ session_headers(sid) ++ extra,
+        rpc(System.unique_integer([:positive]), method, params)
+      )
+
+    {resp.status, Jason.decode!(resp.body)}
+  end
+end

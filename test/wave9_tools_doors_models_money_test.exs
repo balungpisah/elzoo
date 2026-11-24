@@ -21,8 +21,9 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
   }
 
   alias Elzoo.{McpRuntime, OauthClient, RetryTimeout}
-  alias Elzoo.Wave9.{AppRepo, OwnerRepo, Provider, Recorder, Tools}
+  alias Elzoo.Wave9.{AppRepo, OwnerRepo, Provider, Recorder, Server, Tools}
   alias Elzoo.Wave9.Bots, as: B
+  alias Elzoo.RecipeStore.TestHelper, as: RS
   alias Elzoo.Wave9.Helper, as: H
 
   setup_all do
@@ -759,6 +760,140 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
                  %{account_id: "revenue", amount: H.eur(141)}
                ]
              }) == {:error, :insufficient_funds}
+    end
+  end
+
+  # ------------------------------------------------------------ group 2: the mounted server
+
+  defp allowed(id, tenant) do
+    for bot <- Server.bots(tenant),
+        match?(
+          {:ok, %{verdict: :allow}},
+          Elzoo.Authorization.decide(
+            Server.policy(),
+            %{
+              tenant: tenant,
+              resource: "mcp-server",
+              action_id: "mcp.run/" <> bot.bot_id,
+              payload: nil,
+              writes: [%{target: "bot/" <> bot.bot_id, field: "run", value: true}]
+            },
+            %{proposer: id, effect_class: "mcp.run", own: Server.own(id), parent: :none}
+          )
+        ),
+        bot.start_schema["type"] == "object",
+        do: bot.name
+  end
+
+  describe "group 2: doors" do
+    test "the mounted server: lists, a call, the bound, bad arguments and the refusals", %{w: w0} do
+      w = B.engines!(w0)
+      srv = Server.start!(w)
+      assert Server.idle_timeout_ms() > Server.call_timeout_ms() + 5_000
+
+      # Lists: each caller exactly the bots that domain/authorization allows it, in byte order.
+      p = Server.client!(w, srv, "T1", Server.token(w, srv, "P"))
+      q = Server.client!(w, srv, "T1", Server.token(w, srv, "Q"))
+      d = Server.client!(w, srv, "T2", Server.token(w, srv, "D"))
+      assert Server.names(p) == ["slow", "summarize"]
+      assert Server.names(q) == ["summarize", "translate"]
+      assert Server.names(p) == Enum.sort(allowed("P", "T1"))
+      assert Server.names(q) == Enum.sort(allowed("Q", "T1"))
+      assert Server.names(d) == ["invoice"]
+      refute "badroot" in (Server.names(p) ++ Server.names(q))
+
+      # A call: one pinned Run with P as its acting principal; the completion payload.
+      result = B.mcp_call(w, p.session, p.snapshot, "summarize", %{"text" => "hello"})
+      assert {false, %{"payload" => payload, "run_id" => run_id}} = Server.text(result)
+      assert [{"T1", "P", "bot-summarize"}] = Server.starts(w)
+      assert {:ok, %{payload: ^payload}} = B.result(w, run_id)
+      assert payload["content"] == "done: hello"
+      assert B.entry(w, run_id).scope.principal == "human:P"
+
+      pins =
+        for {"recipe_pinned", %{"run_id" => ^run_id} = r} <-
+              RS.rows(w.rs_owner_store, RS.stream("T1")),
+            do: r
+
+      assert [%{"identity" => identity}] = pins
+      assert identity == w.tenants["T1"].version
+
+      # A Run still open at the bound: the tool error {run_id, state: running}; the Run goes on.
+      slow = B.mcp_call(w, p.session, p.snapshot, "slow", %{"text" => "later"})
+      assert {true, %{"run_id" => slow_run, "state" => "running"}} = Server.text(slow)
+
+      B.release!(
+        w,
+        {:model, slow_run},
+        B.outcome(slow_run <> ":m:1", "completed", "elzoo.ai-text.result", B.say("late"))
+      )
+
+      B.finished!(w, slow_run)
+      assert {:ok, %{payload: %{"content" => "late"}}} = B.result(w, slow_run)
+
+      # Arguments that fail the start schema, as a raw tools/call: invalid_arguments, no Run.
+      starts = length(Server.starts(w))
+      token_p = Server.token(w, srv, "P")
+      sid = Server.legacy!(srv, token_p)
+
+      assert {200, %{"result" => %{"isError" => true, "content" => [%{"text" => text}]}}} =
+               Server.raw(srv, token_p, sid, "tools/call", %{
+                 name: "summarize",
+                 arguments: %{text: 5}
+               })
+
+      assert text =~ "invalid_arguments"
+      assert length(Server.starts(w)) == starts
+
+      # An expired token: 401 before any handler, no start.
+      expired = Server.token(w, srv, "P", exp: -10, iat: -700)
+
+      resp =
+        Server.post(
+          srv,
+          [{"authorization", "Bearer " <> expired}],
+          Server.rpc(1, "tools/list", %{})
+        )
+
+      assert resp.status == 401 and Jason.decode!(resp.body) == %{"error" => "unauthorized"}
+      assert length(Server.starts(w)) == starts
+
+      # Another tenant's valid token is not refused at the door: its caller lists only its own
+      # bots, a T1 bot by name is -32602 with no start, and P's legacy session is 404 -32600.
+      token_d = Server.token(w, srv, "D")
+      sid_d = Server.legacy!(srv, token_d)
+
+      assert {200, %{"error" => %{"code" => -32602}}} =
+               Server.raw(srv, token_d, sid_d, "tools/call", %{
+                 name: "summarize",
+                 arguments: %{text: "x"}
+               })
+
+      assert length(Server.starts(w)) == starts
+
+      assert {404, %{"error" => %{"code" => -32600}}} =
+               Server.raw(srv, token_d, sid, "tools/list", %{})
+
+      # subscriptions/listen with a valid token: -32601 and no stream.
+      listen =
+        Server.post(
+          srv,
+          [{"authorization", "Bearer " <> token_p}, {"mcp-method", "subscriptions/listen"}],
+          Server.rpc(7, "subscriptions/listen", %{})
+        )
+
+      assert listen.status == 200
+      assert %{"error" => %{"code" => -32601}, "id" => nil} = Jason.decode!(listen.body)
+
+      # A session connected while its token was valid, called after exp + leeway: 401.
+      short = Server.client!(w, srv, "T1", Server.token(w, srv, "P", exp: 30))
+      H.tick(w, 31_000)
+
+      assert {:refused, :authentication_failed} =
+               B.mcp_call(w, short.session, short.snapshot, "summarize", %{"text" => "x"})
+
+      assert length(Server.starts(w)) == starts
+      assert H.env(w, :errors) == nil
     end
   end
 
