@@ -1767,7 +1767,7 @@ class RequiredChecksBeforeMerge(unittest.TestCase):
         self.assertTrue(f.merged)
         self.assertTrue(any(m.startswith("Gleam run not required for PR #79") for m in f.messages))
         self.assertEqual(3, f.messages.count(f"Waiting: required check gleam-hosted on head {A[:7]} status=in_progress"))
-        self.assertEqual(["check-hosted"] + ["gleam-hosted"] * 4, f.check_run_calls)
+        self.assertEqual(["check-hosted", "gleam-hosted"] * 4, f.check_run_calls)
         self.assertIn(["gh", "api", "--paginate", "--slurp",
                        f"repos/{queue.REPO}/commits/{A}/check-runs?check_name=gleam-hosted&filter=all&per_page=100"],
                       f.calls)
@@ -1817,6 +1817,22 @@ class RequiredChecksBeforeMerge(unittest.TestCase):
                 self.setUp()
                 self.fake.check_runs["gleam-hosted"] = [runs]
                 self.refuses(pattern)
+
+    def test_a_rerun_of_a_passed_check_during_a_later_wait_is_seen(self):
+        f = self.fake
+        green, rerun = f.check_run(700, "check-hosted"), f.check_run(701, "check-hosted", status="in_progress")
+        f.check_runs["gleam-hosted"] = [[f.check_run(710, "gleam-hosted", status="in_progress")],
+                                        [f.check_run(710, "gleam-hosted")]]
+        f.check_runs["check-hosted"] = [[green], [green, rerun], [green, f.check_run(701, "check-hosted", conclusion="failure")]]
+        self.refuses(rf"^Required check check-hosted \(check run 701\) on head {A} concluded failure; ")
+        self.setUp()
+        f = self.fake
+        f.check_runs["gleam-hosted"] = [[f.check_run(710, "gleam-hosted", status="in_progress")],
+                                        [f.check_run(710, "gleam-hosted")]]
+        f.check_runs["check-hosted"] = [[green], [green, rerun], [green, f.check_run(701, "check-hosted")]]
+        self.q.process(79)
+        self.assertTrue(f.merged)
+        self.assertIn(f"Waiting: required check check-hosted on head {A[:7]} status=in_progress", f.messages)
 
     def test_only_a_check_run_of_the_exact_head_name_and_app_counts(self):
         def runs(f):

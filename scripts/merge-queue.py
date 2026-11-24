@@ -812,11 +812,13 @@ class Queue:
     def await_required_checks(self, pr):
         """ELZ-368: branch protection refuses the merge while a required check of main is not complete on the head,
         also gleam-hosted when the Gleam run is not required here. Wait until the newest check run of each required
-        check on the exact head is completed; any conclusion other than success refuses."""
+        check on the exact head is completed; any conclusion other than success refuses. Every check is read again
+        after each wait, so a re-run that starts while another check is awaited is seen."""
         head = pr["headRefOid"]
-        for name, app_id in self.required_checks():
-            query = urlencode({"check_name": name, "filter": "all", "per_page": 100})
-            while True:
+        checks = self.required_checks()
+        while True:
+            for name, app_id in checks:
+                query = urlencode({"check_name": name, "filter": "all", "per_page": 100})
                 pages = self.data("gh", "api", "--paginate", "--slurp", f"repos/{REPO}/commits/{head}/check-runs?{query}")
                 require(isinstance(pages, list) and all(isinstance(page, dict) and isinstance(page.get("check_runs"), list)
                                                         for page in pages), "Invalid check run pages")
@@ -825,13 +827,15 @@ class Queue:
                         (app_id is None or isinstance(run.get("app"), dict) and run["app"].get("id") == app_id)]
                 require(all(type(run.get("id")) is int for run in runs), "Invalid check run ID")
                 latest = max(runs, key=lambda run: run["id"]) if runs else None
-                if latest is not None and latest.get("status") == "completed":
+                if latest is None or latest.get("status") != "completed":
                     break
-                self.pause(f"required check {name} on head {head[:7]} "
-                           f"status={latest.get('status') if latest else 'not started'}")
-            require(latest.get("conclusion") == "success",
-                    f"Required check {name} (check run {latest['id']}) on head {head} concluded "
-                    f"{latest.get('conclusion')}; branch protection refuses the merge; refusing")
+                require(latest.get("conclusion") == "success",
+                        f"Required check {name} (check run {latest['id']}) on head {head} concluded "
+                        f"{latest.get('conclusion')}; branch protection refuses the merge; refusing")
+            else:
+                return
+            self.pause(f"required check {name} on head {head[:7]} "
+                       f"status={latest.get('status') if latest else 'not started'}")
 
     def unchanged_pr(self, pr):
         fresh = self.pr(pr["number"])
