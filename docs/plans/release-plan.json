@@ -9517,7 +9517,7 @@
       "baseline_status": "planned",
       "disposition": "ready-contract",
       "manifest": "pieces/delivery/room/piece.json",
-      "manifest_sha256": "796bab519bdb1804a7a0bea81f148bdaf280a8de659eb9e38781ec10a3e494f6",
+      "manifest_sha256": "ca1fdcc502b35c6b03dce5e8f3c8af47e20bb471c1854d878f2183ff151c68a8",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -9871,12 +9871,12 @@
     {
       "id": "delivery/retry-timeout",
       "job": "ELZ-006",
-      "note": "Local bounded volatile attempt/deadline runner over pure retry policy; default forbids possibly-dispatched retries; validates and correlates completed results; dead-letter sink failures settle as unsettled.",
+      "note": "Local bounded volatile attempt/deadline runner over pure retry policy; default forbids possibly-dispatched retries; validates and correlates completed results; dead-letter sink failures settle as unsettled. delay/4: a retry delay from a not-dispatched failure, clamped, with optional full jitter; every other class keeps backoff.",
       "baseline_status": "ready",
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/retry-timeout/piece.json",
-      "manifest_sha256": "c4a5b91c649ae8e037138ec79c115c79f3e428bad64cd137d1efadaba8b1d5a5"
+      "manifest_sha256": "6c66629e41b3d2a2d41ca7e96028208e2d95d15076c58c1bd23fa931da9ee2e2"
     },
     {
       "id": "delivery/routing",
@@ -11078,12 +11078,12 @@
     {
       "id": "state/recipe-store",
       "job": "ELZ-171",
-      "note": "Immutable recipe versions of a tenant over the ready Pieces: the bytes of each version are an artifact of state/artifact, and the stored records, check verdicts, published pointer, pin records and delete marks are records of the one stream recipe-store/<tenant> of the ready Store, each change read, decided by the pure Cure table over the folded state and appended at the head revision (at most 3 tries, then contended; an indeterminate append is never tried again). Only a stored, checked, live version is published (go-back is a publish of an older version); a version that a pin record holds or that is published is not deleted; the delete mark is committed before any artifact delete. Refusal order not_found, deleted, not_checked, pinned, published.",
+      "note": "Immutable recipe versions of a tenant over the ready Pieces: the bytes of each version are an artifact of state/artifact, and the stored records, check verdicts, published pointer, pin records and delete marks are records of the tenant stream of the ready Store in generations (recipe-store/<tenant>, then recipe-store/<tenant>/<n>): each change is read from the live generation of the tenant and appended at its head revision; a full generation of 10,000 records is carried into the next with only the live state, at most 5,000 records, else stream_full; each change is decided by the pure Cure table over the folded state (at most 3 tries, then contended; an indeterminate append is not tried again in that call). Only a stored, checked, live version is published (go-back is a publish of an older version); a version that a pin record holds or that is published is not deleted; the delete mark is committed before any artifact delete. Refusal order not_found, deleted, not_checked, pinned, published.",
       "baseline_status": "not in baseline (new row, RC-65)",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/recipe-store/piece.json",
-      "manifest_sha256": "d785fa9fc9621001f91a083ef306f78567ae224f78998d53b86cee05a7714954"
+      "manifest_sha256": "3a7e013944b3cda007bc518f0bd9ea197bd91832293563ca117cac8ce20f1b30"
     },
     {
       "id": "workflow/version-pin",

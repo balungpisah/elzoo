@@ -91,12 +91,23 @@ defmodule Elzoo.RetryPolicyTest do
         do: assert(Map.fetch!(report, key) == [])
 
     assert report.absurd == 0
+    exports = :"Cure.Elzoo.RetryPolicy".module_info(:exports)
+
+    for law <- ~w(delay_completed_is_backoff delay_permanent_is_backoff delay_dispatched_is_backoff
+                  delay_retryable_none_without_failure_is_backoff delay_retryable_none_with_failure_is_max
+                  delay_retryable_full_without_failure_is_spread
+                  delay_retryable_full_with_failure_is_max_plus_spread)a,
+        do: assert(Enum.any?(exports, &(elem(&1, 0) == law)))
 
     for {name, from, to} <- [
           {"WrongRetryLaw", "retry_permitted(RedispatchForbidden(), ClassDispatched()), False()",
            "retry_permitted(RedispatchForbidden(), ClassDispatched()), True()"},
           {"WrongRetryProduction", "RedispatchForbidden() -> False()",
-           "RedispatchForbidden() -> True()"}
+           "RedispatchForbidden() -> True()"},
+          {"WrongDelayDispatched", "ClassDispatched() -> backoff(policy, attempt)",
+           "ClassDispatched() -> retryable_delay(policy, backoff(policy, attempt), failure, random)"},
+          {"WrongDelayClamp", "max_int(min_int(fd, policy.max_failure_delay_ms), b)",
+           "max_int(fd, b)"}
         ] do
       assert String.contains?(@source, from)
 

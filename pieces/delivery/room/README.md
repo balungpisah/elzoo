@@ -247,9 +247,13 @@ The room checks none of these Needs:
 - A tip whose carry does not complete gets no more mail and ends at its Run deadline, then
   restarts; a stalled turn holds the room until its deadline, a stalled tip until its Run
   deadline. A rollover at link 2^31−1 is refused (`:link_limit`).
-- One tenant's recipe-store stream holds 10,000 records and each link appends a pin and an
-  unpin, so one tenant's rooms run out of links at about 5,000 until that stream gains
-  compaction (#821).
+- Each link appends a pin and an unpin to the tenant's recipe-store stream; a full stream
+  is carried into a new generation with only the live state (ELZ-358, #821), so a tenant's
+  rooms are bounded by the live state (a carry of at most 5,000 records, about that many
+  live pins), not by settled ones. Past it a rollover is `{:pin, :stream_full}`; when the
+  successor's pin is the record that fills the generation, the successor has started and the
+  old Run's unpin is `{:unpin, :stream_full}`, which `resume/3` then gives again, because an
+  unpin appends and the live state cannot shrink past the bound.
 - Mail payloads and carries hold people's text and have no delete or erasure.
 - No child Run, parent-close rule, timer, process, A2A peer, live channel or cross-node room. A
   chain keeps its rule: a runtime rule switch would widen `d` to every rule it allows.

@@ -11,13 +11,19 @@ end
 
 # A Store of the test that wraps a ready Store and lets a hook of the test see
 # each append first. The hook gives `:pass` or `{:reply, reply}`; the reply is
-# the raw Store reply (a refusal, a conflict) and nothing is written then.
+# the raw Store reply (a refusal, a conflict) and nothing is written then. An
+# optional `:head_hook` sees the stream of each head read first.
 defmodule Elzoo.RecipeStore.TestStore do
   def wrap({_, inner_opts} = inner, hook),
     do: {__MODULE__, inner_opts |> Map.new() |> Map.merge(%{inner: inner, hook: hook})}
 
   def capabilities({_, %{inner: {m, _} = i}}), do: m.capabilities(i)
-  def head({_, %{inner: {m, _} = i}}, stream), do: m.head(i, stream)
+
+  def head({_, %{inner: {m, _} = i} = opts}, stream) do
+    if hook = Map.get(opts, :head_hook), do: hook.(stream)
+    m.head(i, stream)
+  end
+
   def read({_, %{inner: {m, _} = i}}, stream, from, limit), do: m.read(i, stream, from, limit)
   def read_at({_, %{inner: {m, _} = i}}, stream, seq), do: m.read_at(i, stream, seq)
 
@@ -157,7 +163,8 @@ defmodule Elzoo.RecipeStore.TestHelper do
   @doc """
   A RecipeStore over `store`. `:artifact_hook` and `:log_hook` wrap the Store
   of the artifact handle and the `log` of the Piece; `:max_bytes` bounds an
-  artifact.
+  artifact. `:head_hook` sees each head read of the `log`, and `:log_limits`
+  replaces the limits that the Piece reads from its `log`.
   """
   def build(store, opts \\ []) do
     wrap = fn store, hook -> if hook, do: TestStore.wrap(store, hook), else: store end
@@ -169,8 +176,29 @@ defmodule Elzoo.RecipeStore.TestHelper do
         max_bytes: Keyword.get(opts, :max_bytes, 65_536)
       )
 
-    {:ok, rs} = RecipeStore.new(artifact: art, log: wrap.(store, opts[:log_hook]))
+    log =
+      if opts[:head_hook] || opts[:log_limits] do
+        {m, o} = TestStore.wrap(store, opts[:log_hook] || fn _, _, _ -> :pass end)
+
+        {m,
+         o
+         |> Map.put(:head_hook, opts[:head_hook])
+         |> Map.update!(:limits, &(opts[:log_limits] || &1))}
+      else
+        wrap.(store, opts[:log_hook])
+      end
+
+    {:ok, rs} = RecipeStore.new(artifact: art, log: log)
     %{rs: rs, art: art}
+  end
+
+  @doc "The object-store binding of the test server with a bucket that it does not have: every write is refused."
+  def absent_bucket_object_store! do
+    object_store!()
+    |> Map.put(
+      :bucket,
+      "elzoo-absent-" <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
+    )
   end
 
   def tenant, do: "t-" <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
@@ -185,6 +213,10 @@ defmodule Elzoo.RecipeStore.TestHelper do
   def artifact_id("recipe-package-v1:sha256:" <> hex), do: hex
 
   def stream(tenant), do: "recipe-store/" <> tenant
+
+  @doc "Generation `n` of the tenant stream (generation 1 is `stream/1`)."
+  def stream(tenant, 1), do: stream(tenant)
+  def stream(tenant, n), do: stream(tenant) <> "/" <> Integer.to_string(n)
 
   @doc "The visible rows of a stream (kind and decoded payload) in order."
   def rows(store, stream) do
