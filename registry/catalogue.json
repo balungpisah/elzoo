@@ -419,10 +419,11 @@
     {
       "id": "domain/payment-lifecycle",
       "summary": "Payment intent and reconciliation policy",
-      "disposition": "defer",
-      "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Authorize/capture/refund/unknown-outcome transitions for C3; provider-specific semantics and reconciliation before retries. No provider adopted. Unknown-outcome recovery mechanics are shared with delivery/effect-intent (ELZ-023)."
+      "disposition": "own",
+      "phase": "P4",
+      "status": "ready",
+      "manifest": "pieces/domain/payment-lifecycle/piece.json",
+      "reason": "ELZ-365: Wave 9 (P13). Provider-neutral durable lifecycle of one payment's charge and refunds through delivery/effect-intent over Piece-owned tables under state/tenant-isolation; no provider adopted (owner Q9 D), the compensation returned to the caller (Q10 A); integration/payments stays deferred."
     },
     {
       "id": "domain/policy-rules",

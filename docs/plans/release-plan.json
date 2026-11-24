@@ -9615,13 +9615,13 @@
       "outputs": [
         "domain/payment-lifecycle"
       ],
-      "acceptance": "New durable provider-neutral domain/payment-lifecycle (Wave 9 Q9 D, Q10 A; replaces RC-24 for this output; integration/payments waits): payments and refunds under the tenant floor, each provider call one delivery/effect-intent intent with logical reference <payment_id>/charge or <payment_id>/refund/<refund_id> (IDs without '/', except the reserved comp/charge) so the provider key never derives per Attempt; charge/3 checks the stored approval digest (approval_mismatch); two Adapters (charge, refund) store each provider answer as an observation (a failed write keeps the intent dispatched for a later poll), which record/3 applies (with a host fallback for an intent with no result), and record/3 and apply_event/3 apply only forward transitions; a verified event settles the row while the intent waits for poll/1; refund/3 under the payment row lock refuses over_refund; the succeeded charge returns its compensation {refund, comp/charge, :remaining}, returned whenever the charge is succeeded, which refunds what is still refundable when it runs (PR #853 answer). Scripted provider; RC-24's cases, compensation twice and after a partial refund, elzoo_app isolation; negative controls on a per-Attempt key, the refund lock, forward-only events and the write-failure envelope. Local small gate and full review.",
+      "acceptance": "New durable provider-neutral domain/payment-lifecycle (Wave 9 Q9 D, Q10 A; replaces RC-24 for this output; integration/payments waits): payments and refunds under the tenant floor, each provider call one delivery/effect-intent intent with logical reference <payment_id>/charge or <payment_id>/refund/<refund_id> (IDs without '/', except the reserved comp/charge) so the provider key never derives per Attempt; charge/3 checks the stored approval digest (approval_mismatch); two Adapters (charge, refund) store each provider answer as an observation (a failed write keeps the intent dispatched for a later poll), which record/3 applies (with a host fallback for an intent with no result), and record/3 and apply_event/3 apply only forward transitions; a verified event settles the row while the intent waits for poll/1; refund/3 under the payment row lock refuses over_refund; the succeeded charge returns its compensation {refund, comp/charge, :remaining}, returned whenever the charge is succeeded, which refunds what is still refundable when it runs (PR #853 answer). Coordinator decision 2026-11-24: the ChargeAdapter refuses a send of a final charge, or of one with a stored decline or completed final answer, as the attested no-send charge_closed, and a failed pre-send read in either Adapter is the attested no-send store_unavailable. Scripted provider; RC-24's cases, compensation twice and after a partial refund, elzoo_app isolation; negative controls on a per-Attempt key, the refund lock, forward-only events and the write-failure envelope. Local small gate and full review.",
       "product_aims": [
         "P10"
       ],
       "issue": 872,
       "url": "https://github.com/balungpisah/elzoo/issues/872",
-      "issue_body_sha256": "d6db2b37e99b646531fd116475e60b8c6a5ea2f67706ae934f0b7ce2b18d4ce5"
+      "issue_body_sha256": "a3c622e6309775fa2b483a6f3cdef5abf3fbc5e8ce7abc9598d940eab3304ee0"
     },
     {
       "id": "ELZ-366",
@@ -10206,10 +10206,12 @@
     {
       "id": "domain/payment-lifecycle",
       "job": "ELZ-365",
-      "note": "Planned provider-neutral payment lifecycle over a consumer-owned Ecto Repo on PostgreSQL 16 under the state/tenant-isolation floor (ELZ-365 replaces RC-24 for this output): one payment's charge and refunds, each provider call one delivery/effect-intent intent whose provider key derives from the logical payment or refund ID, never per Attempt (ELZ-025); approval digest check; verified provider events applied forward only; concurrent refunds serialized with over_refund refused; the succeeded charge's compensation refunds what is still refundable. No provider named (owner Q9 D).",
+      "note": "Provider-neutral durable lifecycle of one payment's charge and refunds in plain Ecto/Postgrex tables on PostgreSQL 16 under the state/tenant-isolation floor (payments, refunds, events, observations); each provider call is one delivery/effect-intent intent through ChargeAdapter or RefundAdapter, with the provider idempotency key the intent's derived key of the logical reference <payment_id>/charge or <payment_id>/refund/<refund_id>, never per Attempt; a host provider Need (charge, refund, poll, verify_event) with no provider named (owner Q9 D); every provider answer stored as an observation row in order, applied by record/3 up to an attempt with an :unknown fallback; verified events stored once by event_id and applied only forward with the operation's amount; charge/3 checks the approval digest (approval_mismatch); refund/3 under the payment row lock holds every refund not :failed, refuses over_refund and fixes :remaining; a refund's poll :no_effect closes it (refund_closed) and a final or declined charge closes its intent (charge_closed), and a failed read of those rows before a send is store_unavailable, each an attested no-send with no provider call; whenever the charge is :succeeded record/3, apply_event/3 and get/3 return its compensation, a comp/charge refund of what is still refundable, which the caller registers (Q10 A; no saga log). Fixed error atoms that echo no ID, recipient, provider code or body.",
       "baseline_status": "deferred",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/payment-lifecycle/piece.json",
+      "manifest_sha256": "b8b8988dd435acf6d442ff9ddf9a01a5af1bdee4d1b05ba67e033be85d98feaf"
     },
     {
       "id": "domain/policy-rules",
