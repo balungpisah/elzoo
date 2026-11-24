@@ -598,6 +598,44 @@ defmodule Elzoo.LedgerCheckoutTest do
              PL.get(ctx.lc, "T1", %{payment_id: "checkout.c5"})
   end
 
+  test "5 an existing payment of other terms is never adopted: :conflict or :approval_mismatch",
+       ctx do
+    # c5a: a succeeded payment under the checkout's ID of other approved terms (10).
+    # c5b: a succeeded payment of the checkout's approved terms (100); the checkout asks 120.
+    for {id, units} <- [{"c5a", 10}, {"c5b", 100}] do
+      {:ok, :applied} =
+        PL.create(ctx.lc, "T1", %{
+          payment_id: "checkout." <> id,
+          approved: %{amount: eur(units), recipient: "merchant-1"},
+          approval_ref: "approval-" <> id
+        })
+
+      assert {:ok, %{applied: true, state: :succeeded}} =
+               PL.apply_event(
+                 ctx.lc,
+                 "T1",
+                 Script.event("ev-" <> id, {:charge, "checkout." <> id}, :succeeded, units, "ch_1")
+               )
+    end
+
+    open!(ctx.b, top_up("c5a"))
+    open!(ctx.b, top_up("c5b", units: 120))
+
+    for {id, reason} <- [{"c5a", :conflict}, {"c5b", :approval_mismatch}] do
+      assert resume(ctx.b, id) == {:ok, %{state: :compensated, wait: nil}}
+
+      assert %{failure: ^reason, steps: [%{step: :charge, state: :failed, compensation: nil}]} =
+               get!(ctx.b, id)
+
+      assert refunds(ctx, id) == []
+    end
+
+    assert Script.calls(:charge) == []
+    assert Script.calls(:refund) == []
+    assert operations(ctx) == []
+    assert balance(ctx, "wallet:alice") == 0
+  end
+
   test "6 a concurrent host refund: comp/charge takes only the rest, never over-refunded", ctx do
     invoice!(ctx, "inv-c6")
     {:ok, :applied} = pay_other(ctx, "inv-c6")

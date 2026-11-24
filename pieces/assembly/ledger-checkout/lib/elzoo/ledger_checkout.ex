@@ -406,7 +406,7 @@ defmodule Elzoo.LedgerCheckout do
 
   defp outcome(_name, other), do: other
 
-  defp perform(b, tenant, d, :charge), do: charge(b, tenant, d, payment_id(d), 3)
+  defp perform(b, tenant, d, :charge), do: charge(b, tenant, d, payment_id(d))
 
   defp perform(b, tenant, d, :invoice) do
     ref = "checkout/" <> d.checkout_id
@@ -466,42 +466,56 @@ defmodule Elzoo.LedgerCheckout do
     end
   end
 
-  # The charge by the payment's state. A pending or unknown payment waits for the host's intent
-  # and reconciliation; charge/3's {:state, _} means the payment was settled after the read,
-  # so the step reads it again and acts on that state.
-  defp charge(b, tenant, d, payment_id, tries) do
+  # The charge (coordinator decision on #902): create/3 with the approved terms first, so a
+  # payment of other approved terms is create/3's :conflict; then by the payment's state, after
+  # checking that its amount and recipient are the checkout's (else :approval_mismatch), so the
+  # checkout never adopts a payment of other terms. A pending or unknown payment waits for the
+  # host's intent and reconciliation; charge/3's {:state, _} means the payment was settled
+  # after the read, so the step reads it again and acts on that state.
+  defp charge(b, tenant, d, payment_id) do
+    case PaymentLifecycle.create(b.payments, tenant, %{
+           payment_id: payment_id,
+           approved: %{amount: d.approved_amount, recipient: d.approved_recipient},
+           approval_ref: d.approval_ref
+         }) do
+      {:ok, created} when created in [:applied, :duplicate] -> by_state(b, tenant, d, payment_id, 2)
+      other -> piece(other)
+    end
+  end
+
+  defp by_state(b, tenant, d, payment_id, tries) do
     case PaymentLifecycle.get(b.payments, tenant, %{payment_id: payment_id}) do
-      {:ok, %{payment: %{state: :succeeded}, compensation: %{kind: :refund} = compensation}} ->
-        {:ok, :succeeded, compensation}
+      {:ok, %{payment: p} = view} ->
+        cond do
+          not same_terms?(p, d) ->
+            {:fail, :approval_mismatch}
 
-      {:ok, %{payment: %{state: :failed}}} ->
-        {:fail, :payment_failed}
+          p.state == :succeeded ->
+            {:ok, :succeeded, view.compensation}
 
-      {:ok, %{payment: %{state: state}}} when state in [:created, :pending, :unknown] ->
-        case PaymentLifecycle.charge(b.payments, tenant, %{
-               payment_id: payment_id,
-               amount: d.amount,
-               recipient: d.recipient
-             }) do
-          {:ok, admission} -> {:wait, :charge_intent, admission}
-          {:error, {:state, _}} when tries > 0 -> charge(b, tenant, d, payment_id, tries - 1)
-          other -> piece(other)
-        end
+          p.state == :failed ->
+            {:fail, :payment_failed}
 
-      {:error, :unknown_payment} when tries > 0 ->
-        case PaymentLifecycle.create(b.payments, tenant, %{
-               payment_id: payment_id,
-               approved: %{amount: d.approved_amount, recipient: d.approved_recipient},
-               approval_ref: d.approval_ref
-             }) do
-          {:ok, _} -> charge(b, tenant, d, payment_id, tries - 1)
-          other -> piece(other)
+          true ->
+            case PaymentLifecycle.charge(b.payments, tenant, %{
+                   payment_id: payment_id,
+                   amount: d.amount,
+                   recipient: d.recipient
+                 }) do
+              {:ok, admission} -> {:wait, :charge_intent, admission}
+              {:error, {:state, _}} when tries > 0 -> by_state(b, tenant, d, payment_id, tries - 1)
+              other -> piece(other)
+            end
         end
 
       other ->
         piece(other)
     end
   end
+
+  # The payment's amount and recipient are the checkout's, compared by their Codec bytes.
+  defp same_terms?(p, d),
+    do: p.recipient == d.recipient and Codec.encode(p.amount) == Codec.encode(d.amount)
 
   defp piece({:error, :unavailable}), do: :retry
   defp piece({:error, e}) when e in [:in_transaction, :isolation], do: {:error, e}

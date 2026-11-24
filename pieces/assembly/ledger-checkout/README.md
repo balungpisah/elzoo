@@ -128,7 +128,7 @@ changes nothing, another is `{:error, :conflict}` with nothing written.
 
 | Step | Call | Key | Compensation recorded with the result |
 | --- | --- | --- | --- |
-| `charge` | payment-lifecycle `get/3`; `create/3` with the approved terms when no payment exists; `charge/3` with `amount` and `recipient` | `payment_id` `checkout.<id>` | `%{kind: :refund, payment_id, refund_id: "comp/charge", amount: :remaining}`, as `get/3` returns it |
+| `charge` | payment-lifecycle `create/3` with the approved terms on every pass; `get/3`; `charge/3` with `amount` and `recipient` | `payment_id` `checkout.<id>` | `%{kind: :refund, payment_id, refund_id: "comp/charge", amount: :remaining}`, as `get/3` returns it |
 | `invoice` | invoice `apply_payment/3` with the amount | `payment_ref` `checkout/<id>` | `%{kind: :reverse_payment, reversal_id: "checkout/<id>/c/invoice", payment_ref, amount: :remaining}` |
 | `settle`, `wallet` | journal `post/3`: `to` +amount, `from` −amount, the checkout's `actor_ref` | `operation_id` `checkout/<id>/settle` or `checkout/<id>/wallet` | `%{kind: :reverse, operation_id: "checkout/<id>/c/<step>", reverses: <the step's operation_id>}` |
 | `allowance` | the `grant` Need, `%{tenant, checkout_id, grant_id, amount}` | `grant_id` | `%{kind: :revoke, grant_id}` |
@@ -138,11 +138,15 @@ the same text: the settle post's `reason` is `"elzoo.ledger-checkout settle"`, t
 post's `"elzoo.ledger-checkout wallet"`, and every journal reversal's
 `"elzoo.ledger-checkout compensate"`.
 
-- **The charge.** By the payment's state from `get/3`: `:created`, `:pending` or `:unknown`
-  call `charge/3`, and the checkout waits `:charge_intent` with the admission; `:succeeded`
-  records the step with its compensation; `:failed` is a definite failure
-  (`:payment_failed`). `create/3`'s `:conflict` and `charge/3`'s `:approval_mismatch` are
-  definite failures. `charge/3`'s `{:error, {:state, _}}` (the host's reconciliation settled
+- **The charge.** Each pass first calls `create/3` with the approved terms: `{:ok, :applied}`
+  or `{:ok, :duplicate}` continues, and `:conflict` (a payment under that ID of other approved
+  terms) is a definite failure. Then `get/3`: a payment whose amount or recipient differs from
+  the checkout's `amount` and `recipient` is a definite failure, `:approval_mismatch`, with
+  nothing compensated, so the checkout never adopts a payment of other terms. Otherwise by the
+  payment's state: `:created`, `:pending` or `:unknown` call `charge/3`, and the checkout waits
+  `:charge_intent` with the admission; `:succeeded` records the step with its compensation;
+  `:failed` is a definite failure (`:payment_failed`). `charge/3`'s `:approval_mismatch` is a
+  definite failure. `charge/3`'s `{:error, {:state, _}}` (the host's reconciliation settled
   the payment after the read) is not a failure: the step reads `get/3` again and acts on that
   state. A `:pending` or `:unknown` payment is never compensated: the checkout waits until the
   host's reconciliation (a verified event or a poll) makes it definite.
