@@ -11656,10 +11656,12 @@
     {
       "id": "integration/ai-text-google",
       "job": "ELZ-373",
-      "note": "Planned Gemini API text provider for integration/ai-text over the locked req_llm google provider: one model, API key header, tools, structured output and image input as evidenced on the wire, one exchange with retries off, a status table with throttled and overloaded, stub evidence only.",
+      "note": "Gemini API generateContent provider of integration/ai-text with an API key, through req_llm 1.30's documented google provider-callback API, for the evidenced model gemini-3.8-flash only (other models refused invalid_request): max_retries 0, one HTTP exchange with the body bounded to 4 MiB of wire bytes while received and every response halted by an Elzoo step (no redirect, no retry, no req_llm error value); key only from the injected Need, sent only in x-goog-api-key; features tools, structured output and image input (inline_data, png, jpeg, webp, gif); sampling, stop sequences, reasoning and cache hints not declared; system messages only before the others, one systemInstruction part each; function calls and responses carry the neutral call id, a failed tool result as the response's error key; each tool's parameter schema unchanged in parametersJsonSchema; structured output as responseMimeType application/json with responseJsonSchema unchanged, a schema outside the reference's supported keywords refused unsupported_feature; structured output with tools and a final model turn refused; finish STOP stop or tool_calls, MAX_TOKENS length, SAFETY, PROHIBITED_CONTENT, BLOCKLIST, SPII and IMAGE_SAFETY refusal (also as a prompt blockReason), other reasons {:other, reason}; usage from usageMetadata with output candidates plus thoughts and absent counters :unknown; status table 400 provider_invalid_request (400 with ErrorInfo reason API_KEY_INVALID authentication_failed), 401, 403, 404, 413, 429 throttled, 503 overloaded, 504 provider_timeout, other provider_error; retry_after for 429 and 503 from Retry-After, else RetryInfo retryDelay rounded up, nil over 86,400 s or malformed.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/ai-text-google/piece.json",
+      "manifest_sha256": "135225cc0192fcd425fd9c3ddb95cf292692f915066908a4ea66f070cdc23b7c"
     },
     {
       "id": "integration/ai-text-compatible",

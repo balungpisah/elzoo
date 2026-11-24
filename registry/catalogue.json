@@ -1473,7 +1473,8 @@
       "summary": "Gemini API text provider for the text interface, with image input",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/integration/ai-text-google/piece.json",
       "reason": "ELZ-373: Wave 9 (P13). A third model vendor for routing (owner Q6 A) over the locked req_llm google provider; images by artifact reference (Q7 A)."
     },
     {
