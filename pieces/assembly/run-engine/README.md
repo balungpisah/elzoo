@@ -26,7 +26,13 @@ status polling is not a concurrency fence.
   allocated Run/accounting-period identity; `directory` and matching `store`.
 - `run_owner`, trusted `tenant` and acting `principal`; `clock`: trusted
   zero-arity positive Unix-millisecond clock; `context`: current trusted
-  authority/policy/approval/resource-grant supplier.
+  authority/policy/approval/resource-grant supplier. Under `budget_rule: :pause`
+  the Need is that `context` gives a `pause_deadline` after the clock each time the
+  engine samples it for a record that it makes itself: a local-work outcome (sampled
+  when its delivery is handled for commit, not at dispatch), an engine refusal or
+  loss, and a nested start. A callback that gives a passed deadline is outside the
+  Need: a first excess or a Budget exhaustion in the step of such a record still
+  halts the engine.
 - `pattern: {module, function, initial_plain_state}`. The prompt deterministic
   Operator accepts the exact neutral PatternStep input and returns
   `{:Transition, next_state, :none | {:some, request}}`.
@@ -559,9 +565,9 @@ The report is the expiry input itself: an `action_outcome` with outcome
 `:resume_input` record that gives it, `"resume:"` and the hex SHA-256 of the ETF of
 `{run_id, occurrence}`, with correlation `%{occurrence: key, loss: :timed_out}` and
 the `pause_deadline` of the expiring input's context. Under `budget_rule: :pause` a
-report is held only when that deadline is after the input's time: an outcome of
-local work carries the deadline of its dispatch, which can have passed, and its
-expired slots then settle as without the option. The settlement itself is as
+report is held only when that deadline is after the input's time: an input whose
+`pause_deadline` is not after its time, such as an engine-made record whose sample
+from the callback has passed, settles its expired slots as without the option. The settlement itself is as
 without the option: its outcome, join entry, tracker acceptance, Budget step (no
 actual, entry held until the Budget expires it; a `wait_event` actual 0 with its
 reservation released) and the close of an expired parent's child.
@@ -1181,6 +1187,36 @@ for `expiry_reports: :owner` only (the first group and the v2 test), no
 for the option only (the v2 test: `event_waits/3` returns `{:error, :history}`). A
 Run recorded before this repair can fold to another phase (Elzoo is not released).
 
+The group `local_outcome_pause_deadline` of `test/elzoo/run_engine_test.exs` and the
+tests `native_v2_local_outcome_pause_deadline` and
+`outcome_waiting_in_the_mailbox_takes_the_later_deadline (v2)` of
+`test/elzoo/run_engine_v2_test.exs` exercise the pause deadline of a local-work
+outcome under `budget_rule: :pause` without `expiry_reports` (#854): local work is
+dispatched while the `context` callback gives 30,000, and its outcome comes at 35,000
+while the callback gives 50,000. The committed outcome carries 50,000; a first excess
+of the request cap on the outcome (`local_outcome_pauses_on_the_current_deadline`,
+also across a restart) and a Budget exhaustion by its actual
+(`local_outcome_exhaustion_pauses_on_the_current_deadline`: the Run pauses before
+the root is given the outcome) pause the Run on 50,000, and the next input applies;
+under protocol v2 `event_waits/3` and `transcript/3` read the paused Run. In
+`outcome_waiting_in_the_mailbox_takes_the_later_deadline`, once in v1 and once in
+v2, the engine is suspended with `:sys.suspend/1`, the work completes while the
+callback still gives 30,000 and the callback gives 50,000 before the engine resumes:
+the outcome carries 50,000. Five temporary negative controls each made a named test
+fail and were reverted: the dispatch-time sample in both paths (the next input
+returns `{:error, :durable_unit_transition_failed}`, and
+`report_uses_the_current_deadline` holds no report), the sample in the v1 handler
+only (the v2 test), the sample in the AsyncWork wrap when the work finishes (the
+mailbox test in v1 and v2), that wrap sample kept in the v2 path only (the mailbox
+test in v2) and the guard of `expire_and_report/3` removed (the existing `:pause`
+test of `bound_edges` whose outcome carries a passed deadline). The deadline is the
+callback's value when the delivery is handled, not when the work finished; the two
+differ by the time the delivery waits in the engine's mailbox. A second delivery of
+an outcome already committed has no case (only a crafted message reaches it): v1
+resolves it as `:unchanged` and v2 ignores it. A Unit history that already holds a
+local-work outcome with a passed dispatch-time deadline folds as before (Elzoo is
+not released).
+
 `test/elzoo/run_engine_expiry_report_test.exs` exercises `expiry_reports: :owner`
 on disposable PostgreSQL with one pinned engine identity:
 `default_off_is_unchanged` (a recorded scenario without the option, with a child's
@@ -1202,7 +1238,9 @@ dropped by the Run deadline; an input at the Run deadline holds none), `bound_ed
 (a report's first excess under `:finish` and under `:pause`, which pauses with the
 expiring input's deadline and gives no later report after `continue`; under `:pause`
 a lost local work whose outcome carries a passed deadline holds no report, and the
-next `wake` pauses with its own deadline; a `wake` at the cap; a give at 64 bytes of control headroom through `step/2`; a crafted slot map
+next `wake` pauses with its own deadline; `report_uses_the_current_deadline`: a local
+work dispatched while the callback gives 30,000 and lost at 35,000, after its own
+deadline, while it gives 50,000 holds its report and gives it to the root; a `wake` at the cap; a give at 64 bytes of control headroom through `step/2`; a crafted slot map
 within one report of its bound), `paused_reports_wait`, `replay_is_equal (expiry
 reports)`, `recovery_gives_the_same_reports` (a death after a directly committed
 expiring wake gives the same reports, records and Unit state as an engine that did not
@@ -1224,8 +1262,8 @@ Limits of expiry reports. Reports come only from the expiry pass, and the engine
 no timer, so an expiry and its report need an input of the current Attempt at or after
 the deadline; an input at or after the Run deadline holds none, because the lifecycle
 takes the expiry itself as `Expired` and the end of the Run settles the open slots
-`run_closed`. Under `:pause` an input whose `pause_deadline` is not after its time (an
-outcome of local work dispatched before that deadline) holds none. A report is an engine-made outcome, not a provider result: it says that
+`run_closed`. Under `:pause` an input whose `pause_deadline` is not after its time (such
+as an engine-made record whose sample from the callback has passed) holds none. A report is an engine-made outcome, not a provider result: it says that
 the deadline passed, not that nothing was sent, and the cost stays unknown, not zero. A
 dropped report leaves no trace other than the slot's settlement. The bound edge of a
 hold is shown on a crafted state through `step/2`, not on a reachable Run; the stop of a

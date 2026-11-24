@@ -396,9 +396,10 @@ defmodule Elzoo.RunEngineExpiryReportTest do
     end
 
     test "under budget_rule :pause an expiry whose input's pause deadline has passed holds no report" do
-      # The local work's outcome carries the pause deadline of its dispatch (50,000);
-      # it is lost at 51,000, after its own deadline (45,000), so the expiry pass of
-      # that outcome settles the slot. A report with that deadline could not pause.
+      # The context callback still gives 50,000 when the local work's outcome is
+      # committed; it is lost at 51,000, after its own deadline (45,000), so the expiry
+      # pass of that outcome settles the slot. A report with that passed deadline could
+      # not pause.
       script = [request([action("slow")]), request([action("more")]), :wait]
 
       {c, bindings} =
@@ -421,6 +422,32 @@ defmodule Elzoo.RunEngineExpiryReportTest do
       assert state.control.generation_closed
       assert state.control.lifecycle.phase == :paused
       assert state.control.lifecycle.pause_deadline == 70_000
+    end
+
+    test "report_uses_the_current_deadline" do
+      # ELZ-360 (#854): the local work is dispatched while the host's context callback
+      # gives pause deadline 30,000; it is lost at 35,000, after its own deadline
+      # (33,000), while the callback gives 50,000. Its outcome carries 50,000, after
+      # its time, so the expiry pass of that outcome holds the report and gives it.
+      script = [request([action("slow")]), :wait, :wait]
+
+      {c, bindings} =
+        reports_setup(script, %{}, %{"slow" => 33_000}, budget_rule: :pause)
+
+      Agent.update(c.context, &Map.put(&1, :pause_deadline, 30_000))
+      engine = start(c, bindings: bindings, expiry_reports: :owner)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:local_started, task}, 5_000
+      Agent.update(c.context, &Map.put(&1, :pause_deadline, 50_000))
+      at(c, 35_000)
+      Process.exit(task, :kill)
+
+      v = wait_for(engine, &(&1.slots[{1, 0}][:phase] == :settled))
+      assert v.slots[{1, 0}].outcome == "expired"
+      assert [%{"kind" => "start"}, report] = inputs_of(pattern_inputs(), "root")
+      assert report == expired("slow", {1, 0}, 35_000)
+      assert resume_records(c) == [{resume_id({1, 0}), {1, 0}}]
+      assert held(c) == []
     end
 
     test "a wake with the count at the cap expires slots and gives no report" do

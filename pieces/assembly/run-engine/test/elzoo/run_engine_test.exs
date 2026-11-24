@@ -1004,6 +1004,132 @@ defmodule Elzoo.RunEngineTest do
     end
   end
 
+  # ELZ-360 (#854): under budget_rule :pause a local-work outcome is committed with the
+  # pause deadline that the host's context callback gives when its delivery is handled,
+  # not the one of its dispatch. The work is dispatched while the callback gives 30,000
+  # and its outcome comes at 35,000, after that deadline, while the callback gives 50,000.
+  describe "local_outcome_pause_deadline" do
+    test "local_outcome_pauses_on_the_current_deadline" do
+      script = [request([action("slow")]), request([action("x", "ask_person")]), :wait]
+      {c, bindings, engine, task} = local_outcome_setup(script, request_cap: 1)
+
+      Agent.update(c.context, &Map.put(&1, :pause_deadline, 50_000))
+      Agent.update(c.clock, fn _ -> 35_000 end)
+      send(task, :finish)
+
+      contexts = await_local_outcome_contexts(c)
+      assert_receive {:pattern_input, "root", %{"kind" => "action_outcome", "action_id" => "slow"}}
+      assert {:ok, :applied} = RunEngine.input(engine, "w", wake(), verified())
+      assert_paused_at(c, engine, 50_000)
+      assert contexts == [%{pause_deadline: 50_000}]
+
+      engine = restart(c, engine, bindings: bindings)
+      assert_paused_at(c, engine, 50_000)
+      refute_receive {:pattern_input, _, _}, 200
+      Process.unregister(:run_engine_observer)
+    end
+
+    test "local_outcome_exhaustion_pauses_on_the_current_deadline" do
+      script = [request([action("slow")]), :wait]
+
+      {c, _, engine, task} =
+        local_outcome_setup(script,
+          budget: %{cap: 1, unit: "credits", id: "budget", incarnation: "sealed"}
+        )
+
+      Agent.update(c.context, &Map.put(&1, :pause_deadline, 50_000))
+      Agent.update(c.clock, fn _ -> 35_000 end)
+      send(task, :finish)
+
+      # The outcome's actual exhausts the Budget in its own step, so the Run pauses
+      # before the root is given the outcome.
+      contexts = await_local_outcome_contexts(c)
+      refute_receive {:pattern_input, _, _}, 200
+      assert {:ok, :applied} = RunEngine.input(engine, "w", wake(), verified())
+      assert_paused_at(c, engine, 50_000)
+      assert contexts == [%{pause_deadline: 50_000}]
+      assert_paused_at(c, engine, 50_000)
+      Process.unregister(:run_engine_observer)
+    end
+
+    test "outcome_waiting_in_the_mailbox_takes_the_later_deadline" do
+      script = [request([action("slow")]), request([action("x", "ask_person")]), :wait]
+      {c, _, engine, task} = local_outcome_setup(script, request_cap: 1)
+
+      # The outcome waits in the suspended engine's mailbox while the callback still
+      # gives 30,000; it is handled after the callback gives 50,000.
+      :ok = :sys.suspend(engine)
+      Agent.update(c.clock, fn _ -> 35_000 end)
+      send(task, :finish)
+      await_mailbox(engine)
+      Agent.update(c.context, &Map.put(&1, :pause_deadline, 50_000))
+      :ok = :sys.resume(engine)
+
+      contexts = await_local_outcome_contexts(c)
+      assert {:ok, :applied} = RunEngine.input(engine, "w", wake(), verified())
+      assert_paused_at(c, engine, 50_000)
+      assert contexts == [%{pause_deadline: 50_000}]
+      Process.unregister(:run_engine_observer)
+    end
+  end
+
+  # Starts a :pause Run whose root asks local work "slow" that blocks until told, while
+  # the context callback gives pause deadline 30,000.
+  defp local_outcome_setup(script, overrides) do
+    Process.register(self(), :run_engine_observer)
+    parent = self()
+
+    c =
+      fixture(
+        [
+          pattern: {TestPattern, :waiting, %{name: "root", script: script}},
+          budget_rule: :pause
+        ] ++ overrides
+      )
+
+    bindings =
+      Map.update!(
+        c.opts[:bindings],
+        "local_work",
+        &Map.put(&1, :work, fn a -> {TestPattern, :blocked, [parent, a["payload"]]} end)
+      )
+
+    Agent.update(c.context, &Map.put(&1, :pause_deadline, 30_000))
+    engine = start(c, bindings: bindings)
+    assert {:ok, :applied} = send_input(engine)
+    assert_receive {:pattern_input, "root", %{"kind" => "start"}}
+    assert_receive {:local_started, task}, 5_000
+    {c, bindings, engine, task}
+  end
+
+  # The context of each committed local-work outcome, once one is committed.
+  defp await_local_outcome_contexts(c, left \\ 400) do
+    contexts =
+      for %{kind: "input"} = row <- rows(c),
+          {1, {"local:" <> _, record}} <- [:erlang.binary_to_term(row.payload, [:safe])],
+          do: record.context
+
+    cond do
+      contexts != [] -> contexts
+      left == 0 -> flunk("no local-work outcome was committed")
+      true -> Process.sleep(5) && await_local_outcome_contexts(c, left - 1)
+    end
+  end
+
+  defp await_mailbox(pid, left \\ 400) do
+    cond do
+      Process.info(pid, :message_queue_len) != {:message_queue_len, 0} -> :ok
+      left == 0 -> flunk("no message reached the suspended engine")
+      true -> Process.sleep(5) && await_mailbox(pid, left - 1)
+    end
+  end
+
+  defp assert_paused_at(c, engine, deadline) do
+    assert view(engine).phase == :paused
+    lifecycle = unit_state(c).control.lifecycle
+    assert {lifecycle.phase, lifecycle.pause_deadline} == {:paused, deadline}
+  end
+
   # Pauses, settles the ask "answer" at {1, 0} with a person answer kept while paused,
   # and continues: the continue reply comes after the retained answer is given.
   defp pause_answer_continue(engine) do
