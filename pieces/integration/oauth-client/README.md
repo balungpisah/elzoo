@@ -227,13 +227,14 @@ failure is `:unavailable` and says nothing about whether a write committed.
   it. The migration runs as the table owner; the application connects as a non-owner role
   without `BYPASSRLS` or superuser, with the grants above.
 - The Repo's `:timeout` (DBConnection's default is 15,000 ms) must exceed the time a call holds
-  its transaction: the row-lock wait plus `exchange_timeout_ms` plus the time of the Secrets,
-  resolver, sealing key and transport Needs. Every write runs in
+  its transaction: the pool queue wait, the row-lock wait, `exchange_timeout_ms` and the time of
+  the Secrets, resolver, sealing key and transport Needs. Every write runs in
   `Elzoo.TenantIsolation.transact/3`, which sets no transaction timeout of its own, so the Repo's
-  value bounds the whole transaction. Otherwise the database can end a transaction while its
-  exchange is still in flight: the call returns `:unavailable`, the tokens that the provider just
-  issued are lost, and under rotation the next call sends the spent refresh token again and ends
-  in `:reauthorization_required`.
+  value bounds the whole checkout, from the queue on. Otherwise DBConnection disconnects the
+  connection at that deadline while the exchange is still in flight, and the server rolls the
+  transaction back: the call returns `:unavailable`, the tokens that the provider just issued are
+  lost, and under rotation the next call sends the spent refresh token again and ends in
+  `:reauthorization_required`.
 - The trusted clock, the resolver, the Secrets context, the sealing key Needs and the transport
   Need are host Needs. The transport must connect only to one of the given addresses with SNI
   and `Host` set to `host`; the Piece cannot check that.
