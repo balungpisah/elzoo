@@ -10802,7 +10802,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/mcp-runtime/piece.json",
-      "manifest_sha256": "ecb3b5b01b3f885072dbad2d5c4c4a2a1ff8f2746b549ac9327197f88aadb8f5"
+      "manifest_sha256": "e62c229cfa19d4b9f4df380607566ab56ad6c00d2bcaebde3b9b561e2db7a85c"
     },
     {
       "id": "integration/identity",
