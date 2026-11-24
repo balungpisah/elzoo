@@ -38,7 +38,7 @@ The upgrade note of the issue's comment (adding `input_unavailable` to the table
 
 ## Gate, review and build
 
-Run `mix test pieces/integration/ai-batch/test`, then the small gate `mix check --piece "$(git merge-base origin/main HEAD)"` and `git diff --check`. The Piece carries credentials and an external-effect boundary, so the local small gate stays; the change touches no executable code (moduledocs and one comment only), so one light review, by coordinator decision (as for the narrow test-only repairs ELZ-352 to ELZ-354 of Pieces with durable state), not the full review that the Piece's weight would ask for a code change. The hosted `check-piece` run on the exact head and the merge queue follow.
+Run `mix test pieces/integration/ai-batch/test`, then the small gate `mix check --piece "$(git merge-base origin/main HEAD)"` and `git diff --check`. The Piece carries credentials and an external-effect boundary, so it keeps the local small gate and gets the full review of the coordinator guide ("Reviewer by risk", `AGENTS.md` section 6), although the change touches no executable code (moduledocs and one comment only): the text it corrects is the Piece's failure Contract. The hosted `check-piece` run on the exact head and the merge queue follow.
 
 ## Limits to state
 

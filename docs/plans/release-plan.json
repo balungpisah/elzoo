@@ -10135,13 +10135,13 @@
         "tasks/ELZ-383-ai-batch-no-send-wording.md"
       ],
       "outputs": [],
-      "acceptance": "Text repair of integration/ai-batch for #882, same Piece ID, no behaviour change: nine places (the Binding, SubmitAdapter and CancelAdapter moduledocs, one Adapter comment, two README passages, and the piece.json contract, staged-body limit and grounding claim) name the text interface's attested no-send set (Outcome.no_send/0: credentials_unavailable and input_unavailable), of which the batch path reaches only credentials_unavailable. Tests unchanged. Local small gate, light review by coordinator decision. Output none.",
+      "acceptance": "Text repair of integration/ai-batch for #882, same Piece ID, no behaviour change: nine places (the Binding, SubmitAdapter and CancelAdapter moduledocs, one Adapter comment, two README passages, and the piece.json contract, staged-body limit and grounding claim) name the text interface's attested no-send set (Outcome.no_send/0: credentials_unavailable and input_unavailable), of which the batch path reaches only credentials_unavailable. Tests unchanged. Credentials and external effect: local small gate and full review. Output none.",
       "product_aims": [
         "P13"
       ],
       "issue": 923,
       "url": "https://github.com/balungpisah/elzoo/issues/923",
-      "issue_body_sha256": "33cbf755ca8906375b92a5756300b44f9debcb8ed20c9961de0babdc7ec8961e"
+      "issue_body_sha256": "3decb122784180a0701e6a37821c52ac1183bda55c327e9c67a0000b26e39765"
     }
   ],
   "entries": [
