@@ -11336,7 +11336,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/webhook-out/piece.json",
-      "manifest_sha256": "c86fe357323a3ddc3f5ddfd46f8a763d2d2f0f848378931b5bf3b6246ef2f2f7"
+      "manifest_sha256": "f6e1905851e72056a1ee9cf47ea88c47d196f048818748357721eea3f54b39f8"
     },
     {
       "id": "integration/mcp-server",
