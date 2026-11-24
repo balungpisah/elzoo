@@ -300,6 +300,28 @@ defmodule Elzoo.AiText.CompatibleTest do
       {delivery, requests} = attempt(ctx, Conformance.request(s.id, @kit), fn _ -> response end)
       assert :ok == Conformance.check(s.id, delivery, length(requests)), inspect({s.id, delivery})
       conforms(requests, @kit, ctx)
+      [body] = Enum.map(requests, &Jason.decode!(&1.body))
+      sent = Conformance.request(s.id, @kit)
+
+      # The caller's output schema and tools reach the endpoint, not only a
+      # canned reply.
+      case sent do
+        %{"output_schema" => schema} ->
+          assert %{"type" => "json_schema", "json_schema" => %{"schema" => ^schema}} =
+                   body["response_format"]
+
+        _ ->
+          refute Map.has_key?(body, "response_format")
+      end
+
+      case sent do
+        %{"tools" => [%{"name" => name, "input_schema" => input}]} ->
+          assert [%{"type" => "function", "function" => %{"name" => ^name, "parameters" => ^input}}] =
+                   body["tools"]
+
+        _ ->
+          refute Map.has_key?(body, "tools")
+      end
     end
 
     {_, [req]} = attempt(ctx, Conformance.request(:image_input, @kit), fn _ -> stub_for(:text) end)
@@ -424,6 +446,22 @@ defmodule Elzoo.AiText.CompatibleTest do
 
     assert {{:error, {:refused, :unsupported_feature}}, []} =
              attempt(ctx, tool_result.(true), fn _ -> stub_for(:text) end)
+
+    # A replay of earlier tool calls and results with no tool offered now is
+    # still tool use: refused for a model without :tools, sent for one with it.
+    replay = fn model ->
+      Map.merge(tool_result.(false), %{"model" => model}) |> Map.delete("tools")
+    end
+
+    assert {{:error, {:refused, :unsupported_feature}}, []} =
+             attempt(ctx, replay.("bare"), fn _ -> stub_for(:text) end)
+
+    {result, [req]} = attempt(ctx, replay.("only-tools"), fn _ -> stub_for(:text) end)
+    assert {:outcome, _, {:completed, _}} = result
+    body = Jason.decode!(req.body)
+    refute Map.has_key?(body, "tools")
+    assert [_, %{"tool_calls" => [_]}, %{"role" => "tool"}] = body["messages"]
+    conforms([req], "only-tools", ctx)
   end
 
   test "3 a model outside the table is invalid_request before any request; a non-endpoint term too",
@@ -612,6 +650,42 @@ defmodule Elzoo.AiText.CompatibleTest do
     assert URI.to_string(url) =~ "llm.example.com:8443"
   end
 
+  test "5 a host finch pool keeps its name and settings but not its own receive_timeout (recording adapter)" do
+    test = self()
+
+    adapter = fn request ->
+      send(test, {:adapter, request.options})
+      {request, Req.Response.new(status: 200, body: Jason.encode!(completion(text("x"), "stop")))}
+    end
+
+    e =
+      endpoint!(
+        transport(fn ->
+          {:ok,
+           finch: [name: :host_pinned_pool, receive_timeout: 30_000, pool_timeout: 7],
+           adapter: adapter}
+        end)
+      )
+
+    {:ok, request, _} =
+      Conformance.request(:text_completion, @kit)
+      |> Jason.encode!()
+      |> AiText.Request.decode(65_536)
+
+    {:ok, wire} = Compatible.translate(request, e)
+
+    ExUnit.CaptureIO.capture_io(:stderr, fn ->
+      send(test, {:result, Compatible.call(wire, %{credential: @key, receive_timeout_ms: 1234})})
+    end)
+
+    assert_received {:result, {:ok, %{status: 200}}}
+    assert_received {:adapter, options}
+    # Req.Finch.build/1 merges these after the top-level timeout, so a kept
+    # receive_timeout here would override the interface's.
+    assert options.finch == [name: :host_pinned_pool, pool_timeout: 7]
+    assert options.receive_timeout == 1234
+  end
+
   ## 6. statuses, timeout, malformed body
 
   test "6 each status of the table, 429 with and without Retry-After, a timeout and a malformed body: one request each",
@@ -645,6 +719,11 @@ defmodule Elzoo.AiText.CompatibleTest do
            "tool_calls"
          )
        ), {:unknown, :malformed_response}},
+      {ok(completion(%{}, "stop")), {:unknown, :malformed_response}},
+      {ok(completion(%{"role" => "assistant", "refusal" => nil}, "stop")),
+       {:unknown, :malformed_response}},
+      {ok(completion(%{"role" => "user", "content" => "x"}, "stop")),
+       {:unknown, :malformed_response}},
       {{200, [], String.duplicate(" ", 4_194_305)}, {:unknown, :malformed_response}}
     ]
 
@@ -687,6 +766,64 @@ defmodule Elzoo.AiText.CompatibleTest do
     assert over.body == ""
     assert over.private.elzoo_oversize == true
     assert {:failure, :malformed_response} = Compatible.decode(%{oversize: true, status: 429}, nil)
+  end
+
+  # The one test with a socket: a disposable loopback listener, as in
+  # integration/ai-text-openai, to show Req/Finch stop a live chunked transfer.
+  test "6 Req/Finch stops a chunked receive above the bound before the server finishes its body" do
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+    {:ok, {_, port}} = :inet.sockname(listener)
+    parent = self()
+
+    server =
+      Task.async(fn ->
+        {:ok, socket} = :gen_tcp.accept(listener, 5000)
+        {:ok, _request} = :gen_tcp.recv(socket, 0, 5000)
+
+        :ok =
+          :gen_tcp.send(
+            socket,
+            "HTTP/1.1 429 Too Many Requests\r\nTransfer-Encoding: chunked\r\n\r\n"
+          )
+
+        chunk = :binary.copy("x", 1_048_576)
+
+        for data <- [chunk, chunk, chunk, chunk, "y"] do
+          :ok =
+            :gen_tcp.send(socket, [Integer.to_string(byte_size(data), 16), "\r\n", data, "\r\n"])
+        end
+
+        send(parent, :oversized_chunks_sent)
+        # No terminating chunk: a collector that buffers the whole body would
+        # wait for it and time out instead of returning the oversize marker.
+        receive do
+          :finish -> :ok
+        after
+          10_000 -> :ok
+        end
+
+        :gen_tcp.close(socket)
+      end)
+
+    try do
+      result =
+        Req.request(
+          %{
+            Req.new(url: "http://127.0.0.1:#{port}/", retry: false, receive_timeout: 2000)
+            | into: &Compatible.bounded/2
+          }
+          |> Req.Request.prepend_response_steps(elzoo_capture: &Compatible.capture/1)
+        )
+
+      assert_receive :oversized_chunks_sent, 1000
+      assert {:ok, response} = result
+      assert %{status: 429, oversize: true, body: nil} = response.private.elzoo_raw
+      assert {:failure, :malformed_response} = Compatible.decode(response.private.elzoo_raw, nil)
+    after
+      send(server.pid, :finish)
+      Task.yield(server, 1000) || Task.shutdown(server, :brutal_kill)
+      :gen_tcp.close(listener)
+    end
   end
 
   test "6 usage from the documented usage object; absent fields :unknown", ctx do

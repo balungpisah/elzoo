@@ -177,8 +177,16 @@ defmodule Elzoo.AiText.Compatible do
   defp needed(r) do
     images? = Enum.any?(r.messages, &match?(%{parts: [_ | _]}, &1))
 
+    # Replayed tool calls and tool results are tool use on the wire, even with
+    # no tool offered in this request.
+    tools? =
+      r.tools != [] or
+        Enum.any?(r.messages, fn m ->
+          match?(%{role: :tool_result}, m) or match?(%{role: :assistant, tool_calls: [_ | _]}, m)
+        end)
+
     for {true, feature} <- [
-          {r.tools != [], :tools},
+          {tools?, :tools},
           {r.output_schema != nil, :structured_output},
           {r.stop_sequences != [], :stop_sequences},
           {r.sampling != nil, :sampling},
@@ -307,10 +315,23 @@ defmodule Elzoo.AiText.Compatible do
     {:ok,
      request
      |> Req.Request.drop_options([:finch])
-     |> Req.merge(transport)
+     |> Req.merge(without_receive_timeout(transport))
      |> Req.merge(retry: false, redirect: false, receive_timeout: call_opts.receive_timeout_ms)}
   rescue
     _ -> {:transport, :unavailable}
+  end
+
+  # Req 0.7.5 merges a keyword `finch` option's own `receive_timeout` after the
+  # top-level one (Req.Finch.build/1), so the host's would win over the
+  # interface's; it is removed and the pool name and other settings are kept.
+  defp without_receive_timeout(transport) do
+    case Keyword.get(transport, :finch) do
+      finch when is_list(finch) ->
+        Keyword.put(transport, :finch, Keyword.delete(finch, :receive_timeout))
+
+      _ ->
+        transport
+    end
   end
 
   @doc false
@@ -380,8 +401,10 @@ defmodule Elzoo.AiText.Compatible do
          {:ok, %{} = r} <- Jason.decode(body),
          "chat.completion" <- r["object"],
          id when is_binary(id) <- r["id"],
-         [%{"message" => %{} = message, "finish_reason" => reason}] when is_binary(reason) <-
-           r["choices"],
+         [%{"message" => %{"role" => "assistant"} = message, "finish_reason" => reason}]
+         when is_binary(reason) <- r["choices"],
+         # The documented message requires `content`, which may be null.
+         true <- Map.has_key?(message, "content"),
          {:ok, content, refusal} <- content(message),
          {:ok, calls} <- calls(Map.get(message, "tool_calls")) do
       {:ok,

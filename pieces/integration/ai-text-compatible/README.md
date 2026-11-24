@@ -104,7 +104,10 @@ request and:
 2. merges the transport Need's options;
 3. merges `retry: false`, `redirect: false` and the interface's receive timeout
    last, and never sets `connect_options` (`Req.merge/2` would replace the
-   host's as a whole).
+   host's as a whole). A keyword `finch` option from the host keeps its pool
+   name and settings but loses its own `receive_timeout`: Req 0.7.5 merges that
+   one after the top-level timeout (`Req.Finch.build/1`), so it would override
+   the interface's.
 
 `max_retries: 0` is passed to `req_llm`. One Elzoo response step, prepended so
 it runs before every Req and `req_llm` response step, copies the status, the
@@ -135,8 +138,8 @@ called.
 - a value that is not an endpoint is `invalid_request`;
 - a model not in the endpoint's table is `invalid_request`;
 - a request that needs a feature the table does not declare for its model is
-  `unsupported_feature`: tools, an output schema, image parts, stop sequences or
-  sampling;
+  `unsupported_feature`: tools (offered tools, or replayed assistant tool calls
+  or tool results), an output schema, image parts, stop sequences or sampling;
 - a tool result with `is_error: true` is `unsupported_feature`: the Chat
   Completions tool message has no error member, and the flag is never dropped;
 - more than 4 stop sequences is `invalid_request`: the reference documents at
@@ -155,11 +158,14 @@ false` and the caller's schema unchanged (the interface validates the reply).
 ## Response and failure mapping
 
 A 2xx is decoded only as a `chat.completion` object with an `id`, a `model` and
-exactly one choice with a `message` and a string `finish_reason`; `content` and
+exactly one choice with a string `finish_reason` and a `message` whose `role` is
+`assistant` and which has the `content` key (null allowed); `content` and
 `refusal` are each a string or null, and `tool_calls` are `function` calls with
 an `id`, a `name` and an `arguments` string (passed on raw for the interface to
 mark malformed). Anything else is `unknown{malformed_response}`. Finish: a
-refusal → `refusal` (its text is the content), `stop`, `length`, `tool_calls`,
+refusal → `refusal` (its text is the content, after any content text, as
+`integration/ai-text-openai` joins its text and refusal parts; neither is
+dropped), `stop`, `length`, `tool_calls`,
 `content_filter` as named, another reason → `{:other, reason}`.
 
 Statuses, the table of `integration/ai-text-openai`: 400
@@ -192,7 +198,8 @@ source `:unknown`. `total_tokens` is not used.
 
 - **Stub evidence only.** Every scenario runs against an in-process function
   plug (or a recording Req adapter) that the transport Need returns, with a
-  resolver double; no socket, no live call, no real key. The endpoint's actual
+  resolver double; one receive-bound test uses a disposable loopback socket; no
+  live call, no real key. The endpoint's actual
   behaviour is the host's or tenant's: the stubs show conformance to the
   documented Chat Completions shape only. A compatible endpoint may differ from
   it.
@@ -213,7 +220,11 @@ source `:unknown`. `total_tokens` is not used.
   stop sequences sent and 5 refused, a tool-result error flag refused, with no
   request; each status, a timeout and malformed bodies with one request each; a
   body over 4 MiB stopped while received for a 200, 400, 429 and 503, with one
-  request each; usage fields; redaction. Negative controls under temporary edits: skipping the table's
+  request each, and a live chunked transfer stopped by Req/Finch on a
+  disposable loopback socket (the one socket in the tests); replayed tool
+  history refused for a model without tools; the output schema and tools on
+  the wire; a host `finch` pool's own `receive_timeout` removed; malformed
+  messages (empty, no `content`, not `assistant`); usage fields; redaction. Negative controls under temporary edits: skipping the table's
   feature check sends a request, and keeping `req_llm`'s `finch` option fails
   the `connect_options` case.
 - **Upstream.** `req_llm` 1.30.0 Chat Completions encoding through the LM
