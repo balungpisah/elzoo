@@ -82,7 +82,8 @@ Reference form: `secrets.(credential)`, then `Elzoo.Secrets.resolve/2`, giving
 OAuth form: one call of the OAuth Need, giving `{:ok, token}` or
 `{:error, :credentials_unavailable}`; the token is never stored and never in an
 error. Either form asks again at each call, so a token refreshed between two
-requests of one session is used from the next request on.
+requests of one session is used from the next request on, up to mcp-client's 64
+distinct tokens per session, after which the host must reconnect (see Limits).
 
 The ready client calls this Need once per HTTP request and twice more around each
 listing and each tool call, to redact the token from results (measured on the
@@ -117,15 +118,20 @@ scope bound to one tenant and one server, or a truthful OAuth Need bound to the
 tenant's own connection; the recipient and the owner of each tool call, as the ready
 client needs them.
 
-When the OAuth Need is oauth-client's, its Consumer Needs carry over: a refresh holds
-one database transaction and the connection row lock for up to its
-`exchange_timeout_ms` plus its Needs, so one request of the ready client can wait
-that long, and the host Repo's `:timeout` must exceed that time (oauth-client's
-Consumer Needs, issue #886). Each call of that Need is one database transaction.
-The Need runs inside the ready client's request, so its wait counts against that
-request's bound: keep it below `call_timeout_ms` (a listing page or a tool call)
-and `handshake_timeout_ms` (connect). A longer wait makes a listing a timeout and a
-tool call an unknown outcome with nothing sent (by the code path; not measured).
+When the OAuth Need is oauth-client's, its Consumer Needs carry over: each call holds
+one database transaction (a refresh also the connection row lock) for the pool queue
+wait, the row-lock wait, `exchange_timeout_ms` and the time of its Secrets, resolver,
+sealing key and transport Needs, so one request of the ready client can wait that
+long, and the host Repo's `:timeout` must exceed that time (oauth-client's Consumer
+Needs, issue #886). Each call of that Need is one database transaction.
+The ready client calls the Need before, during and after each request: during, inside
+the request's bound (`call_timeout_ms` for a listing page or a tool call,
+`handshake_timeout_ms` for connect); before and after, for redaction, inside
+`call_tool/3`'s wait of `call_timeout_ms` plus 5,000 ms and around each listing. The
+host keeps the Need's waits within those bounds. A longer wait makes a listing a
+timeout and a tool call `{:unknown, :timeout}`, which after a successful response is
+an unknown outcome after the tool ran (the owner's settlement stays authoritative; by
+the code path, not measured).
 
 ## Grounding
 
@@ -171,7 +177,13 @@ resolver or of the OAuth Need; a rotation, refresh or revocation between them is
 possible. The OAuth Need, its binding, its Repo and its timeouts are the host's; the
 Piece decides only on what the Need answers. An OAuth token that passes the check
 but breaks the client's 24-byte or fixed-string rule is admitted and then refused
-before each request (`credentials_unavailable`). `admit/1` called inside a host
+before each request (`credentials_unavailable`). mcp-client's session ledger takes
+at most 64 distinct tokens per session: a 65th distinct token is refused before its
+request (`credentials_unavailable`), so an OAuth connection that refreshes often (for
+example oauth-client with no `expires_in` and no `default_lifetime_s`, a new token at
+each call) stops a session after 64 requests, and the host must reconnect (a new
+`admit/1` and `connect/2`). This is mcp-client behavior, carried and not tested here;
+issue #912 is the follow-up repair. `admit/1` called inside a host
 transaction gets oauth-client's `:in_transaction` through the Need and refuses
 `credentials_unavailable`. The pairing and the `list_tools/2` match tie tenant, server text and
 URL only: configs that differ only in credential (form, reference or connection id),
