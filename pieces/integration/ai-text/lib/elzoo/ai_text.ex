@@ -169,8 +169,9 @@ defmodule Elzoo.AiText do
   order, and accepts an answer `{:ok, %{record: record, bytes: bytes}}` whose
   record names the referenced `artifact_id` and `version`, whose `size_bytes`
   equals `byte_size(bytes)` and whose `sha256` equals the lowercase hex SHA-256
-  of `<<hash_format::8, bytes>>`; a record `media_type` other than the part's is
-  `:invalid_request`; an image over `max_image_bytes`, or images together over
+  of `<<hash_format::8, bytes>>`; a record `media_type` other than the part's,
+  or an image of zero bytes, is `:invalid_request` (decided after the hash);
+  an image over `max_image_bytes`, or images together over
   `max_total_image_bytes`, is `:too_large` (checked before the hash); any other
   failure (an error, a raise, another shape, a mismatch) is
   `:input_unavailable`. The provider then
@@ -298,7 +299,9 @@ defmodule Elzoo.AiText do
               total + byte_size(bytes) <= bounds.max_total_image_bytes},
          format when is_integer(format) and format in 1..255 <- Map.get(r, :hash_format),
          true <- Map.get(r, :sha256) == content_hash(format, bytes) do
-      if Map.get(r, :media_type) == part.media_type,
+      # A media type mismatch or an empty image is the caller's fault; it is
+      # decided after the hash, so a mismatched empty answer stays unavailable.
+      if Map.get(r, :media_type) == part.media_type and bytes != "",
         do: {:ok, bytes},
         else: {:error, :invalid_request}
     else
