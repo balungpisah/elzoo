@@ -21,7 +21,7 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
   }
 
   alias Elzoo.{McpRuntime, OauthClient, RetryTimeout}
-  alias Elzoo.Wave9.{AppRepo, OwnerRepo, Provider, Recorder, Server, Tools}
+  alias Elzoo.Wave9.{AppRepo, Models, OwnerRepo, Provider, Recorder, Server, Tools}
   alias Elzoo.Wave9.Bots, as: B
   alias Elzoo.RecipeStore.TestHelper, as: RS
   alias Elzoo.Wave9.Helper, as: H
@@ -996,4 +996,253 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
              ) == [["e1"], ["e2"], ["e3"]]
     end
   end
+
+  # ------------------------------------------------------------ group 3: models
+
+  describe "group 3: models" do
+    test "routing: throttle and a new Attempt, cool-down, data policy, credentials, image, unknown, local rate",
+         %{w: w0, lua: lua} do
+      w = B.engines!(w0, lua: lua)
+      m = Models.setup!(w)
+
+      start = fn label, text, opts ->
+        spec =
+          B.agent_spec(label, [:host], %{
+            model_attempts: 2,
+            move_on: ["throttled", "overloaded"],
+            image_input: true
+          })
+
+        B.start_bot!(w, "T1", label, spec, text, [model: :routed] ++ opts)
+      end
+
+      # The loop's finish. A stopped finish names no completed action, so the engine refuses it
+      # as `completion_evidence` and the Run has no completion (run-engine's root finish rule).
+      finish = fn label ->
+        B.await!(fn -> List.keyfind(B.settlements(w, label), label <> ":finish", 0) end)
+        [payload] = for {_, "finish", _, p} <- B.actions(w, label), do: p
+        payload
+      end
+
+      after_of = fn action ->
+        for a <- Models.log(w, :after),
+            a.action_id == action,
+            do: Map.take(a, [:ref, :n, :outcome, :decision])
+      end
+
+      select_of = fn action ->
+        for s <- Models.log(w, :select), s.action_id == action, do: s.result
+      end
+
+      intents_of = fn run -> for i <- Models.log(w, :intent), i.run_id == run, do: i end
+
+      # Throttle: compat answers 429 with Retry-After 30; the action ends failed with the
+      # candidate's facts, and Attempt 2 under the model-attempt schema goes to gemini.
+      t0 = H.now(w)
+      Models.script(w, "compat", [Models.compat_throttled(30)])
+      Models.script(w, "gemini", [Models.gemini_answer("hello from gemini")])
+      start.("r1", "Hello.", [])
+      assert answered!(w, "r1") == "hello from gemini"
+
+      assert after_of.("r1:m:1") == [
+               %{
+                 ref: "compat",
+                 n: 1,
+                 outcome: {:refused, :throttled, %{retry_after: 30}},
+                 decision: {:ok, {:next, %{ref: "compat", not_before_ms: t0 + 30_000}}}
+               }
+             ]
+
+      assert after_of.("r1:m:1:2") == [
+               %{ref: "gemini", n: 1, outcome: :completed, decision: {:ok, :done}}
+             ]
+
+      assert {"r1:m:1", "failed", _} = List.keyfind(B.settlements(w, "r1"), "r1:m:1", 0)
+
+      assert [{"r1:m:1:2", "model_call", "elzoo.agent-loop.model-attempt", attempt}] =
+               for(a <- B.actions(w, "r1"), elem(a, 0) == "r1:m:1:2", do: a)
+
+      assert attempt["attempts"] == [
+               %{
+                 "attempt" => 1,
+                 "reason" => "throttled",
+                 "retry_after" => 30,
+                 "candidate" => "compat"
+               }
+             ]
+
+      assert [{:ok, %{eligible: ["compat", "gemini"]}}] = select_of.("r1:m:1")
+
+      assert [{:ok, %{eligible: ["gemini"], excluded: excluded}}] = select_of.("r1:m:1:2")
+      assert {"compat", :tried} in excluded
+      assert length(Models.requests(w, "compat")) == 1
+      assert length(Models.requests(w, "gemini")) == 1
+
+      # The throttled Attempt is one observation of unknown amount; gemini's counters are the
+      # provider's. The totals count the first Attempt as unknown, never as zero.
+      observations = for o <- Models.log(w, :observation), o.run_id == "r1", do: o
+      assert [unknown] = for(o <- observations, o.amount == :unknown, do: o)
+      assert %{provider_id: "wave9-compat", attempt_id: "r1:m:1", source: :unknown} = unknown
+      known = for o <- observations, o.amount != :unknown, do: {o.unit, o.amount, o.source}
+      assert {:output_tokens, 87, :provider_reported} in known
+
+      {:ok, totals} = Metering.totals(w.meter, "T1", %{period: Models.period(), max_rows: 100})
+
+      assert %{known: 0, unknown_count: 1, count: 1} =
+               Enum.find(totals, &(&1.unit == :output_tokens and &1.source == :unknown))
+
+      assert %{known: 87, unknown_count: 0} =
+               Enum.find(totals, &(&1.unit == :output_tokens and &1.source == :provider_reported))
+
+      H.tick(w, 1_000)
+      compat_needs = {Models.cred_calls(w, "compat"), Models.art_calls(w, "compat")}
+      image = %{"artifact" => %{"id" => m.image, "version" => 1}, "media_type" => "image/png"}
+
+      # Image: Ann's start with one PNG artifact (on MinIO), while compat cools down.
+      Models.script(w, "gemini", [Models.gemini_answer("one pixel")])
+      start.("r2i", "What is in this picture?", principal: "human:ann", images: [image])
+      assert answered!(w, "r2i") == "one pixel"
+
+      [{_, "model_call", _, call}] = for a <- B.actions(w, "r2i"), elem(a, 0) == "r2i:m:1", do: a
+      newest = call["messages"] |> Enum.filter(&(&1["role"] == "user")) |> List.last()
+
+      assert newest["parts"] == [
+               %{"type" => "text", "text" => "What is in this picture?"},
+               Map.put(image, "type", "image")
+             ]
+
+      # compat is still cooling down, but capability is checked first.
+      assert [{:ok, %{eligible: ["gemini"], excluded: excluded2}}] = select_of.("r2i:m:1")
+      assert {"compat", :capability} in excluded2
+
+      gemini_image = Jason.decode!(List.last(Models.requests(w, "gemini")).body)
+      assert [blob] = inline_data(gemini_image)
+      assert Base.decode64!(blob["data"]) == Models.png()
+      assert blob["mime_type"] == "image/png" or blob["mimeType"] == "image/png"
+      assert Models.art_calls(w, "gemini") >= 1
+      assert {Models.cred_calls(w, "compat"), Models.art_calls(w, "compat")} == compat_needs
+      assert length(Models.requests(w, "compat")) == 1
+
+      # The cool-down edge: cooling down at +29,999, eligible at +30,000.
+      H.clock(w, t0 + 29_999)
+      Models.script(w, "gemini", [Models.gemini_answer("still cooling")])
+      start.("r3", "Hello.", [])
+      assert answered!(w, "r3") == "still cooling"
+      assert [{:ok, %{eligible: ["gemini"], excluded: excluded3}}] = select_of.("r3:m:1")
+      assert {"compat", :cooling_down} in excluded3
+
+      # Unknown stops: compat, eligible again, times out; one intent, no fallback to gemini.
+      H.clock(w, t0 + 30_000)
+      gemini_seen = length(Models.requests(w, "gemini"))
+      Models.script(w, "compat", [{:transport_error, :timeout}])
+      start.("r4", "Hello.", [])
+
+      assert %{"status" => "stopped", "reason" => "model_call_not_completed"} = finish.("r4")
+      assert [{:ok, %{eligible: ["compat", "gemini"]}}] = select_of.("r4:m:1")
+
+      assert after_of.("r4:m:1") == [
+               %{
+                 ref: "compat",
+                 n: 1,
+                 outcome: {:unknown, :timeout},
+                 decision: {:ok, {:stop, :unknown_outcome}}
+               }
+             ]
+
+      assert {"r4:m:1", "unknown", _} = List.keyfind(B.settlements(w, "r4"), "r4:m:1", 0)
+      assert {"r4:finish", "refused", _} = List.keyfind(B.settlements(w, "r4"), "r4:finish", 0)
+      assert [%{ref: "compat", n: 1}] = intents_of.("r4")
+      assert length(Models.requests(w, "compat")) == 2
+      assert length(Models.requests(w, "gemini")) == gemini_seen
+      refute Enum.any?(B.actions(w, "r4"), &(elem(&1, 0) == "r4:m:1:2"))
+
+      # Local rate wait: the second send of the window is refused by tenant_rate with W; the
+      # binding waits W on the shared clock, then one intent to the same candidate.
+      {:ok, limiter} =
+        Elzoo.RateLimit.new(
+          tenant_rate: %{capacity: 1, refill: 1, interval_ms: 5_000},
+          principal_rate: %{capacity: 10, refill: 10, interval_ms: 1_000},
+          max_in_flight: 8,
+          tenant_in_flight: 8,
+          max_keys: 16
+        )
+
+      Models.script(w, "compat", [
+        Models.compat_answer({"host_lookup", %{}}),
+        Models.compat_answer("after the wait")
+      ])
+
+      start.("r5", "Hello.", limiter: limiter)
+      waiting = B.await!(fn -> H.env(w, {:waiting, "r5"}) end)
+      assert %{action_id: "r5:m:2", ms: 5_000} = waiting
+      assert length(Models.requests(w, "compat")) == 3
+      H.tick(w, 5_000)
+      assert answered!(w, "r5") == "after the wait"
+
+      assert after_of.("r5:m:2") == [
+               %{
+                 ref: "compat",
+                 n: 1,
+                 outcome: {:rate_limited, 5_000},
+                 decision: {:ok, {:retry_same, 5_000}}
+               },
+               %{ref: "compat", n: 2, outcome: :completed, decision: {:ok, :done}}
+             ]
+
+      assert [%{ref: "compat", n: 2}] = for(i <- intents_of.("r5"), i.action_id == "r5:m:2", do: i)
+      assert length(Models.requests(w, "compat")) == 4
+
+      # The refused send made no intent and no observation: r5:m:2's observations are the
+      # counters of the one completed send.
+      r5_m2 = for o <- Models.log(w, :observation), o.attempt_id == "r5:m:2", do: o
+      assert r5_m2 != []
+      assert Enum.all?(r5_m2, &(&1.usage_id =~ ~r/\|compat\|[a-z_]+_tokens\z/))
+
+      # Data policy: compat-eu is excluded by T1's policy in every select; its Needs are never
+      # called and no intent names its provider account.
+      selects = Models.log(w, :select)
+      assert length(selects) == 7
+
+      for %{result: {:ok, %{excluded: excluded}}} <- selects,
+          do: assert({"compat-eu", {:data_policy, :region}} in excluded)
+
+      assert Models.cred_calls(w, "compat-eu") == 0
+      assert Models.art_calls(w, "compat-eu") == 0
+      assert Models.requests(w, "compat-eu") == []
+      refute Enum.any?(Models.log(w, :intent), &("acct-compat-eu" in &1.identity))
+
+      # Credentials: each stub sees only its own key, in its own header; no Effect-intent Store
+      # table holds either key.
+      keys = m.keys
+
+      for req <- Models.requests(w, "compat") do
+        assert Models.header(req, "authorization") == ["Bearer " <> keys["compat"]]
+        refute has?({req.headers, req.body}, [keys["gemini"], keys["compat-eu"]])
+      end
+
+      for req <- Models.requests(w, "gemini") do
+        assert Models.header(req, "x-goog-api-key") == [keys["gemini"]]
+        refute has?({req.headers, req.body}, [keys["compat"], keys["compat-eu"]])
+      end
+
+      stores =
+        Models.store_bytes([w.intents_prefix | for({_, t} <- w.tenants, do: t.prefix)])
+
+      assert Models.holds?(stores, "acct-gemini"), "the read finds the intents' identities"
+      refute Models.holds?(stores, keys["compat"])
+      refute Models.holds?(stores, keys["gemini"])
+      refute Models.holds?(stores, "acct-compat-eu")
+      assert H.env(w, :errors) in [nil, []]
+    end
+  end
+
+  defp inline_data(value) when is_map(value) do
+    Enum.flat_map(value, fn
+      {k, v} when k in ["inline_data", "inlineData"] -> [v]
+      {_, v} -> inline_data(v)
+    end)
+  end
+
+  defp inline_data(value) when is_list(value), do: Enum.flat_map(value, &inline_data/1)
+  defp inline_data(_), do: []
 end

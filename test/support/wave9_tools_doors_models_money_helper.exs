@@ -2814,3 +2814,597 @@ defmodule Elzoo.Wave9.Server do
     {resp.status, Jason.decode!(resp.body)}
   end
 end
+
+# ------------------------------------------------------------------ group 3: models
+
+for {name, id, account} <- [
+      {CompatBinding, "wave9.compat", "acct-compat"},
+      {GeminiBinding, "wave9.gemini", "acct-gemini"},
+      {CompatEuBinding, "wave9.compat-eu", "acct-compat-eu"}
+    ] do
+  defmodule Module.concat(Elzoo.Wave9.Models, name) do
+    use Elzoo.AiText.Binding, id: id, provider_account: account, recovery_grace_ms: 60_000
+  end
+end
+
+defmodule Elzoo.Wave9.Models do
+  @moduledoc """
+  The routing binding of group 3: the host's model-call binding for an agent-loop bot over route
+  `chat` v1 (`delivery/model-routing`), with three candidates, each its own ai-text Config,
+  credential Need, artifact Need, Binding module and Effect-intent owner on the application
+  Repo. `compat` and `compat-eu` are `integration/ai-text-compatible` endpoints whose transport
+  Need answers a `Req.Test` function plug; `gemini` is `integration/ai-text-google` with its test
+  `plug` option. Every stub records its requests and answers from a script.
+  """
+  import ExUnit.Assertions
+  alias Elzoo.{AiText, EgressPolicy, Metering, ModelRouting, RateLimit}
+  alias Elzoo.Wave9.Bots, as: B
+  alias Elzoo.Wave9.Helper, as: H
+
+  @tenant "T1"
+  @period "2026-11"
+  @png Base.decode64!(
+         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+       )
+
+  def png, do: @png
+  def period, do: @period
+
+  def route,
+    do: %{
+      id: "chat",
+      version: 1,
+      on_unknown: :stop,
+      max_health_age_ms: 60_000,
+      cool_down_ms: 10_000,
+      retry: [
+        max_attempts: 3,
+        base_backoff_ms: 100,
+        max_backoff_ms: 1_000,
+        jitter: :none,
+        max_failure_delay_ms: 10_000
+      ],
+      candidates: [
+        %{
+          ref: "compat",
+          provider: "wave9-compat",
+          region: "us",
+          retention: "zero",
+          model_id: "compat-chat",
+          features: [:tools],
+          rank: 1
+        },
+        %{
+          ref: "gemini",
+          provider: "google",
+          region: "us",
+          retention: "zero",
+          model_id: "gemini-3.8-flash",
+          features: [:tools, :structured_output, :image_input],
+          rank: 2
+        },
+        %{
+          ref: "compat-eu",
+          provider: "wave9-compat",
+          region: "eu",
+          retention: "zero",
+          model_id: "compat-eu-chat",
+          features: [:tools, :image_input],
+          rank: 3
+        }
+      ]
+    }
+
+  @doc "T1's data policy: both providers for internal data in region `us` only."
+  def data_policy,
+    do: %{
+      providers:
+        for provider <- ["wave9-compat", "google"] do
+          %{
+            provider: provider,
+            classes: [%{class: :internal, regions: ["us"], retention: ["zero"]}]
+          }
+        end
+    }
+
+  @hosts %{"compat" => "llm.t1.example", "compat-eu" => "llm-eu.t1.example"}
+
+  @doc """
+  The three candidates of T1: keys, stubs, Needs and Configs, kept in the env under `:models`.
+  The image artifact is committed in T1's `state/artifact` on MinIO.
+  """
+  def setup!(w) do
+    {:ok, route} = ModelRouting.new(route())
+    t = w.tenants[@tenant]
+    image_id = "img-" <> H.hex(4)
+
+    {:ok, %{version: 1}} =
+      Elzoo.Artifact.put(t.art, t.caller, image_id, %{bytes: @png, media_type: "image/png"})
+
+    keys = %{
+      "compat" => "sk-compat-" <> H.hex(16),
+      "gemini" => "AIza-gemini-" <> H.hex(16),
+      "compat-eu" => "sk-compat-eu-" <> H.hex(16)
+    }
+
+    policy = EgressPolicy.policy(hosts: Map.values(@hosts), ports: [443])
+    sink = fn key, delivery -> H.env(w, {:ai_out, key}, delivery) end
+
+    candidates =
+      Map.new(route.candidates, fn c ->
+        ref = c.ref
+        plug = stub(w, ref)
+
+        credentials = fn ->
+          H.env_update(w, {:cred_calls, ref}, 1, &(&1 + 1))
+          {:ok, keys[ref]}
+        end
+
+        artifacts = fn %{artifact_id: id, version: v} ->
+          H.env_update(w, {:art_calls, ref}, 1, &(&1 + 1))
+          Elzoo.Artifact.get(t.art, t.caller, id, v)
+        end
+
+        {provider, provider_config, binding} =
+          case ref do
+            "gemini" ->
+              {AiText.Google, %{base_url: "https://gemini.wave9.example", plug: plug},
+               __MODULE__.GeminiBinding}
+
+            _ ->
+              {:ok, endpoint} =
+                AiText.Compatible.endpoint(
+                  base_url: "https://" <> @hosts[ref] <> "/v1",
+                  policy: policy,
+                  resolver: fn host -> {:ok, H.env(w, {:dns, host}) || [H.public_address()]} end,
+                  transport: fn target ->
+                    H.env_update(w, {:transport, ref}, [target], &(&1 ++ [target]))
+                    {:ok, plug: plug}
+                  end,
+                  models: [%{id: c.model_id, features: c.features}]
+                )
+
+              {AiText.Compatible, endpoint,
+               if(ref == "compat", do: __MODULE__.CompatBinding, else: __MODULE__.CompatEuBinding)}
+          end
+
+        {:ok, config} =
+          AiText.configure(
+            binding: binding,
+            tenant: @tenant,
+            provider: provider,
+            provider_config: provider_config,
+            credentials: credentials,
+            models: [c.model_id],
+            max_output_tokens: 4_096,
+            receive_timeout_ms: 5_000,
+            sink: sink,
+            artifacts: artifacts
+          )
+
+        {ref, %{candidate: c, binding: binding, config: config}}
+      end)
+
+    m = %{route: route, candidates: candidates, keys: keys, image: image_id}
+    H.env(w, :models, m)
+    m
+  end
+
+  # One recording stub per candidate: a function plug that records method, path, headers and
+  # body, and answers the next scripted response (`{status, headers, body}` or
+  # `{:transport_error, reason}`).
+  defp stub(w, ref) do
+    fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn, length: 8_000_000)
+      seen = %{path: conn.request_path, headers: conn.req_headers, body: body}
+      H.env_update(w, {:stub_requests, ref}, [seen], &(&1 ++ [seen]))
+
+      answer =
+        Agent.get_and_update(w.env, fn env ->
+          case Map.get(env, {:stub_script, ref}, []) do
+            [a | rest] -> {a, Map.put(env, {:stub_script, ref}, rest)}
+            [] -> {{500, [], %{"error" => "unscripted"}}, env}
+          end
+        end)
+
+      case answer do
+        {:transport_error, reason} ->
+          Req.Test.transport_error(conn, reason)
+
+        {status, headers, json} ->
+          headers
+          |> Enum.reduce(conn, fn {k, v}, c -> Plug.Conn.put_resp_header(c, k, v) end)
+          |> Plug.Conn.put_resp_content_type("application/json")
+          |> Plug.Conn.send_resp(status, Jason.encode!(json))
+      end
+    end
+  end
+
+  @doc "Script the stub answers of a candidate (popped in order)."
+  def script(w, ref, answers),
+    do: H.env_update(w, {:stub_script, ref}, answers, &(&1 ++ answers))
+
+  def requests(w, ref), do: H.env(w, {:stub_requests, ref}) || []
+  def cred_calls(w, ref), do: H.env(w, {:cred_calls, ref}) || 0
+  def art_calls(w, ref), do: H.env(w, {:art_calls, ref}) || 0
+  def log(w, kind), do: H.env(w, {:models_log, kind}) || []
+  defp log!(w, kind, entry), do: H.env_update(w, {:models_log, kind}, [entry], &(&1 ++ [entry]))
+
+  # ---- documented-format stub answers
+
+  @doc "A Chat Completions answer: text, or one tool call `{name, arguments}`."
+  def compat_answer({name, args}),
+    do:
+      {200, [],
+       compat_body(
+         %{
+           "role" => "assistant",
+           "content" => nil,
+           "tool_calls" => [
+             %{
+               "id" => "call_1",
+               "type" => "function",
+               "function" => %{"name" => name, "arguments" => Jason.encode!(args)}
+             }
+           ]
+         },
+         "tool_calls"
+       )}
+
+  def compat_answer(text),
+    do: {200, [], compat_body(%{"role" => "assistant", "content" => text}, "stop")}
+
+  defp compat_body(message, finish),
+    do: %{
+      "id" => "chatcmpl-wave9",
+      "object" => "chat.completion",
+      "created" => 1_741_570_283,
+      "model" => "compat-chat",
+      "choices" => [
+        %{"index" => 0, "message" => message, "finish_reason" => finish, "logprobs" => nil}
+      ],
+      "usage" => %{
+        "prompt_tokens" => 19,
+        "completion_tokens" => 10,
+        "total_tokens" => 29,
+        "prompt_tokens_details" => %{"cached_tokens" => 0},
+        "completion_tokens_details" => %{"reasoning_tokens" => 0}
+      }
+    }
+
+  def compat_throttled(seconds),
+    do:
+      {429, [{"retry-after", Integer.to_string(seconds)}],
+       %{
+         "error" => %{
+           "message" => "Rate limit reached",
+           "type" => "rate_limit_error",
+           "code" => "rate_limit_exceeded"
+         }
+       }}
+
+  @doc "A GenerateContentResponse answer: text, or one function call `{name, args}`."
+  def gemini_answer({name, args}),
+    do:
+      {200, [],
+       gemini_body([%{"functionCall" => %{"id" => "fc_1", "name" => name, "args" => args}}])}
+
+  def gemini_answer(text), do: {200, [], gemini_body([%{"text" => text}])}
+
+  defp gemini_body(parts),
+    do: %{
+      "candidates" => [
+        %{
+          "index" => 0,
+          "finishReason" => "STOP",
+          "content" => %{"role" => "model", "parts" => parts}
+        }
+      ],
+      "modelVersion" => "gemini-3.8-flash",
+      "responseId" => "wave9-gemini",
+      "usageMetadata" => %{
+        "promptTokenCount" => 36,
+        "cachedContentTokenCount" => 0,
+        "candidatesTokenCount" => 80,
+        "thoughtsTokenCount" => 7,
+        "totalTokenCount" => 123
+      }
+    }
+
+  # ---- the binding
+
+  @doc false
+  def route(w, task, e, %{"run_id" => run_id, "action_id" => id, "schema_id" => schema} = call) do
+    m = H.env(w, :models)
+
+    {request, attempts} =
+      case schema do
+        "elzoo/ai-text-request" ->
+          {call["payload"], []}
+
+        "elzoo.agent-loop.model-attempt" ->
+          {call["payload"]["request"], call["payload"]["attempts"]}
+      end
+
+    tried = for %{"candidate" => c} <- attempts, is_binary(c), do: c
+    ctx = %{w: w, m: m, e: e, run_id: run_id, id: id, request: request}
+    input = choose(ctx, tried)
+    send(task, {:result, %{}})
+    B.give_outcome(w, run_id, id, input)
+  end
+
+  @doc "The features that the request needs: `:tools` with tools, `:image_input` with image parts."
+  def features(request) do
+    images =
+      Enum.any?(request["messages"] || [], fn msg ->
+        msg["role"] == "user" and is_list(msg["parts"]) and
+          Enum.any?(msg["parts"], &(&1["type"] == "image"))
+      end)
+
+    if(request["tools"] in [nil, []], do: [], else: [:tools]) ++
+      if images, do: [:image_input], else: []
+  end
+
+  defp health(w, refs) do
+    now = H.now(w)
+
+    %{
+      now_ms: now,
+      budget_remaining: 1_000_000,
+      candidates:
+        Map.new(refs, fn ref ->
+          {ref,
+           %{circuit: :closed, observed_at_ms: now, not_before_ms: H.env(w, {:not_before, ref})}}
+        end)
+    }
+  end
+
+  defp choose(ctx, tried) do
+    %{w: w, m: m, run_id: run_id, id: id, request: request} = ctx
+    refs = Enum.map(m.route.candidates, & &1.ref)
+
+    req = %{
+      features: features(request),
+      classes: [:internal],
+      data_policy: data_policy(),
+      costs: Map.new(refs, &{&1, 1}),
+      tried: tried
+    }
+
+    selected = ModelRouting.select(m.route, req, health(w, refs))
+    log!(w, :select, %{run_id: run_id, action_id: id, at: H.now(w), tried: tried, result: selected})
+
+    case selected do
+      {:ok, %{eligible: [ref | _]}} ->
+        attempt(ctx, tried, ref, 1)
+
+      {:error, {:no_candidate, _}} ->
+        B.outcome(id, "refused", "elzoo.ai-text.result", %{"reason" => "no_candidate"})
+    end
+  end
+
+  # One Attempt at `ref` (the n-th of this request there): the local rate admission, ai-text's
+  # admission, one Effect-intent owner and its dispatch, then `after_failure/3`.
+  defp attempt(ctx, tried, ref, n) do
+    %{w: w, m: m, run_id: run_id, id: id} = ctx
+    c = m.candidates[ref]
+
+    {outcome, sent} =
+      case limit(ctx) do
+        {:rate_limited, wait} ->
+          {{:rate_limited, wait}, false}
+
+        ticket ->
+          result = send_one(ctx, c, ref, n)
+          release(ctx, ticket)
+          result
+      end
+
+    decision =
+      ModelRouting.after_failure(
+        m.route,
+        %{ref: ref, same_ref_attempts: n, outcome: outcome},
+        %{now_ms: H.now(w), random: 0}
+      )
+
+    log!(w, :after, %{
+      run_id: run_id,
+      action_id: id,
+      ref: ref,
+      n: n,
+      outcome: summary(outcome),
+      decision: decision
+    })
+
+    case decision do
+      {:ok, :done} ->
+        {:completed, body} = outcome
+        usage!(ctx, c, ref, body.usage)
+        B.outcome(id, "completed", "elzoo.ai-text.result", view(body))
+
+      {:ok, {:retry_same, ms}} ->
+        wait!(ctx, ms)
+        attempt(ctx, tried, ref, n + 1)
+
+      {:ok, {:next, cool_down}} when sent ->
+        if cool_down, do: H.env(w, {:not_before, ref}, cool_down.not_before_ms)
+        unknown_usage!(ctx, c, ref, n)
+        {:refused, reason, meta} = outcome
+
+        B.outcome(id, "failed", "elzoo.ai-text.result", %{
+          "reason" => Atom.to_string(reason),
+          "retry_after" => meta[:retry_after],
+          "candidate" => ref
+        })
+
+      {:ok, {:next, _}} ->
+        choose(ctx, tried ++ [ref])
+
+      {:ok, {:stop, :unknown_outcome}} ->
+        {:unknown, reason} = outcome
+        unknown_usage!(ctx, c, ref, n)
+
+        B.outcome(id, "unknown", "elzoo.ai-text.result", %{
+          "reason" => Atom.to_string(reason),
+          "candidate" => ref
+        })
+
+      {:ok, {:stop, why}} ->
+        B.outcome(id, "refused", "elzoo.ai-text.result", %{
+          "reason" => reason_text(outcome, why),
+          "candidate" => ref
+        })
+    end
+  end
+
+  defp reason_text({_, reason, _}, _) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_text({_, reason}, _) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_text(_, why), do: Atom.to_string(why)
+
+  defp summary({:completed, _}), do: :completed
+  defp summary(other), do: other
+
+  # ai-text admission, then one owner on the application Repo; the outcome is what the sink got.
+  defp send_one(ctx, c, ref, n) do
+    %{w: w, run_id: run_id, id: id, request: request} = ctx
+    key = "#{run_id}|#{id}|#{ref}|#{n}"
+    payload = Jason.encode!(Map.put(request, "model", c.candidate.model_id))
+
+    declaration = %{
+      "capability_id" => "integration/ai-text",
+      "operation" => "generate",
+      "classification" => "untrusted",
+      "command" => %{
+        "version" => 1,
+        "message_id" => "m-" <> H.sha256(key),
+        "schema_id" => "elzoo/ai-text-request",
+        "schema_version" => 1,
+        "kind" => "command",
+        "producer" => %{"unit_id" => "wave9", "port_id" => "models"},
+        "idempotency_key" => key,
+        "deadline_unix_ms" => H.now(w) + 120_000,
+        "payload" => payload
+      }
+    }
+
+    case AiText.admission(c.config, declaration) do
+      {:error, {:refused, reason}} ->
+        {{:not_admitted, reason}, false}
+
+      {:ok, admission} ->
+        log!(w, :intent, %{
+          run_id: run_id,
+          action_id: id,
+          ref: ref,
+          n: n,
+          identity: admission.identity
+        })
+
+        pid = H.owner!(w, c.binding, admission, c.config)
+        {:ok, :dispatched} = Elzoo.EffectIntent.advance(pid, :dispatch)
+        H.settled(pid)
+
+        case H.env(w, {:ai_out, admission.key}) do
+          {:outcome, _attempt, outcome} -> {outcome, true}
+          _ -> {{:unknown, :transport}, true}
+        end
+    end
+  end
+
+  # The local rate admission (`delivery/rate-limit`) of a Run that has a limiter.
+  defp limit(%{e: %{limiter: nil}}), do: nil
+
+  defp limit(%{w: w, e: e, run_id: run_id}) do
+    state = H.env(w, {:limiter, run_id}) || e.limiter
+    who = %{tenant: e.tenant, principal: e.principal}
+
+    case RateLimit.admit(state, who, 1, H.now(w)) do
+      {:ok, ticket, state} ->
+        H.env(w, {:limiter, run_id}, state)
+        ticket
+
+      {:refused, reason, wait, _} when reason in [:tenant_rate, :principal_rate] ->
+        {:rate_limited, wait}
+    end
+  end
+
+  defp release(_, nil), do: :ok
+
+  defp release(%{w: w, run_id: run_id}, ticket) do
+    {:ok, state} = RateLimit.release(H.env(w, {:limiter, run_id}), ticket)
+    H.env(w, {:limiter, run_id}, state)
+  end
+
+  # The wait of `{:retry_same, ms}` on the trusted (shared) clock: the binding waits until the
+  # clock has moved by `ms`; the test moves it.
+  defp wait!(%{w: w, run_id: run_id, id: id}, ms) do
+    until = H.now(w) + ms
+    H.env(w, {:waiting, run_id}, %{action_id: id, ms: ms, until: until})
+    B.await!(fn -> H.now(w) >= until end)
+    H.env(w, {:waiting, run_id}, nil)
+  end
+
+  defp view(body),
+    do: %{
+      "content" => body.content,
+      "finish" => finish(body.finish),
+      "tool_proposals" =>
+        Enum.map(body.tool_proposals, fn p ->
+          %{
+            "id" => p.id,
+            "name" => p.name,
+            "arguments" => p.arguments,
+            "malformed" => p.malformed && Atom.to_string(p.malformed)
+          }
+        end)
+    }
+
+  defp finish({:other, raw}), do: raw
+  defp finish(f), do: Atom.to_string(f)
+
+  # Metering: each provider-reported counter of a completed Attempt; one observation of unknown
+  # amount for an Attempt that may have cost and reported nothing.
+  defp usage!(ctx, c, ref, usage) do
+    for %{unit: unit, amount: amount} <- usage.counters do
+      observe!(ctx, c, ref, Atom.to_string(unit), unit, amount, usage.source)
+    end
+  end
+
+  defp unknown_usage!(ctx, c, ref, n),
+    do: observe!(ctx, c, ref, "attempt-#{n}", :output_tokens, :unknown, :unknown)
+
+  defp observe!(%{w: w, run_id: run_id, id: id}, c, ref, tag, unit, amount, source) do
+    observation = %{
+      usage_id: "#{run_id}|#{id}|#{ref}|#{tag}",
+      run_id: run_id,
+      operation_id: "op-" <> run_id,
+      attempt_id: id,
+      provider_id: c.candidate.provider,
+      model_id: c.candidate.model_id,
+      unit: unit,
+      amount: amount,
+      source: if(amount == :unknown, do: :unknown, else: source),
+      period: @period,
+      observed_at_ms: H.now(w)
+    }
+
+    assert {:ok, :applied} = Metering.record(w.meter, @tenant, observation)
+    log!(w, :observation, observation)
+  end
+
+  # ---- reads of the test
+
+  @doc "Every binary value of every row of the four Store tables of each schema, as the owner."
+  def store_bytes(schemas) do
+    for s <- schemas,
+        table <- ~w(elzoo_log_heads elzoo_log_records elzoo_checkpoints elzoo_outbox),
+        row <- H.owner!("SELECT * FROM #{s}.#{table}"),
+        value <- row,
+        is_binary(value),
+        do: value
+  end
+
+  def holds?(values, bytes), do: Enum.any?(values, &(:binary.match(&1, bytes) != :nomatch))
+
+  def header(req, name), do: for({^name, v} <- req.headers, do: v)
+end
