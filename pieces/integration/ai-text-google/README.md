@@ -124,8 +124,9 @@ or a `.env` file.
   `items`, `prefixItems`, `minItems`, `maxItems`, `minimum`, `maximum`,
   `anyOf`, `oneOf`, `properties`, `additionalProperties`, `required`,
   `propertyOrdering`), and a `$ref` subschema only the listed `$` keywords.
-  Every `$ref` must name a root `$defs` entry (`#/$defs/<name>`), and the
-  references must have no cycle: the reference unrolls cycles only to a
+  Every `$ref` must name a root `$defs` entry (`#/$defs/<name>`); `$id` and
+  `$defs` are accepted only at the root (a nested `$id` starts a resource whose
+  `#/$defs/<name>` is its own); and the references must have no cycle: the reference unrolls cycles only to a
   limited degree, which is an approximation. Any other schema is refused
   `unsupported_feature`, never rewritten (a `$ref` that does not compile is
   refused `invalid_request` by the interface first). Structured output

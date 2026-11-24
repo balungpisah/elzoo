@@ -176,19 +176,24 @@ defmodule Elzoo.AiText.Google do
 
   defp supported?(_), do: false
 
+  # Below the root, no $id (a new resource, where #/$defs/<name> would name
+  # that subschema's own $defs) and no $defs: every $ref then resolves against
+  # the root $defs that acyclic?/1 checks.
+  defp inner?(s), do: not (is_map_key(s, "$id") or is_map_key(s, "$defs")) and supported?(s)
+
   defp keyword?("enum", v), do: is_list(v) and Enum.all?(v, &(is_binary(&1) or is_number(&1)))
   defp keyword?(_, _), do: true
 
   defp subschemas?(s) do
     Enum.all?(s, fn
       {k, %{} = m} when k in ["$defs", "properties"] ->
-        Enum.all?(Map.values(m), &supported?/1)
+        Enum.all?(Map.values(m), &inner?/1)
 
       {k, l} when k in ["prefixItems", "anyOf", "oneOf"] ->
-        is_list(l) and Enum.all?(l, &supported?/1)
+        is_list(l) and Enum.all?(l, &inner?/1)
 
       {k, %{} = m} when k in ["items", "additionalProperties"] ->
-        supported?(m)
+        inner?(m)
 
       {k, _} when k in ["$defs", "properties", "items"] ->
         false

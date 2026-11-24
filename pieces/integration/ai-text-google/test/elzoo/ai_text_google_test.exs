@@ -413,6 +413,39 @@ defmodule Elzoo.AiText.GoogleTest do
            "type" => "object",
            "properties" => %{"root" => %{"$ref" => "#/$defs/a"}}
          }
+       }, :unsupported_feature},
+      # $id or $defs below the root: a nested resource whose #/$defs/a is its
+      # own, self-cyclic a (jsv resolves p.q there), and nested $defs alone.
+      {%{
+         "output_schema" => %{
+           "$defs" => %{"a" => %{"type" => "string"}},
+           "type" => "object",
+           "properties" => %{
+             "p" => %{
+               "$id" => "https://example.invalid/inner",
+               "$defs" => %{
+                 "a" => %{
+                   "type" => "object",
+                   "properties" => %{"self" => %{"$ref" => "#/$defs/a"}}
+                 }
+               },
+               "type" => "object",
+               "properties" => %{"q" => %{"$ref" => "#/$defs/a"}}
+             }
+           }
+         }
+       }, :unsupported_feature},
+      {%{
+         "output_schema" =>
+           Map.put(answer, "properties", %{
+             "answer" => %{"$id" => "https://example.invalid/n", "type" => "integer"}
+           })
+       }, :unsupported_feature},
+      {%{
+         "output_schema" =>
+           Map.put(answer, "properties", %{
+             "answer" => %{"$defs" => %{"n" => %{"type" => "integer"}}, "type" => "integer"}
+           })
        }, :unsupported_feature}
     ]
 
