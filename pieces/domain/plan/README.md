@@ -69,17 +69,21 @@ role; it calls `Elzoo.TenantIsolation.verify/3` for the table (which also needs 
     interval: :month, start_ms: now_ms, trial_end_ms: now_ms + 14 * 86_400_000
   })
 
-# From the host's scheduler tick, with its trusted time:
+# From the host's scheduler tick, with its trusted time, due from the trial's end minus
+# renew_ahead_ms:
+tick_ms = s.period.end_ms - 3_600_000
+
 {:ok, %{fee_line: line, grants: [grant], duplicate: false}} =
-  Elzoo.Plan.renew(plan, "t1", %{subscription_id: "sub-1", from_index: s.period.index, now_ms: now_ms})
+  Elzoo.Plan.renew(plan, "t1", %{subscription_id: "sub-1", from_index: s.period.index, now_ms: tick_ms})
 
 {:ok, %{subscription: s}} =
   Elzoo.Plan.change(plan, "t1", %{subscription_id: "sub-1", expected_revision: 2,
     plan: %{plan_id: "team", version: 1}, fee: team_fee})
 
-{:ok, %{revocations: revocations, withdrawn_fee_line: nil}} =
+# A day into period 1 (inside the ahead window it would withdraw period 1 instead):
+{:ok, %{revocations: [], withdrawn_fee_line: nil}} =
   Elzoo.Plan.cancel(plan, "t1", %{subscription_id: "sub-1", expected_revision: 3,
-    at: :period_end, now_ms: now_ms})
+    at: :period_end, now_ms: line.period.start_ms + 86_400_000})
 ```
 
 - `new(opts)`: exactly `repo:` and `prefix:`, and optionally `renew_ahead_ms:` (an integer
@@ -238,7 +242,14 @@ with the old revision is `:stale_revision`, after which `get/3` shows the commit
 - UTC only; a period boundary keeps the anchor's UTC time of day. Monthly and yearly intervals
   only.
 - One open subscription per tenant (the unique partial index), so its grants never overlap in
-  `domain/entitlement`.
+  `domain/entitlement`. The Piece does not compare a new subscription's `start_ms` with a
+  canceled one's grants: the host starts it at or after the earlier subscription's last grant
+  ends (its `cancel_ms`, or the revocation time of a cancel now), or `resolve/3` reports
+  `:overlap` for the time in between.
+- A `grant_id` (`<subscription_id>/<index>`) is unique within a tenant only, as
+  `subscription_id` is. A host that resolves the grants of several tenants from one facts list
+  uses subscription IDs unique across tenants, or supplies each tenant's own grants:
+  `domain/entitlement` refuses a repeated `grant_id` in one facts list.
 - No proration, refund, tax, dunning, timer or invoice.
 - The rule over every day is test evidence, not a proof: the selected Cure laws are equalities
   over literal dates.
