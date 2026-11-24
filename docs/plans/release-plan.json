@@ -9562,13 +9562,13 @@
       "outputs": [
         "integration/mcp-server"
       ],
-      "acceptance": "New integration/mcp-server (Wave 9 Q4 A): a Plug the host forwards to, bearer token verified by integration/token-verify before any MCP handling (401 otherwise), then ExMCP.HttpPlug 1.8.1 with a handler; tools/list gives each host-listed bot that domain/authorization allows the principal (proposal on bot/<id> run), tools/call decides again, checks arguments with core/payload-schema, starts one Run through a host start Need and polls a host result Need up to call_timeout_ms (1..60,000); an open Run returns its Run ID and goes on; each call is a new Run; results bounded to 65,536 bytes, no token echoed. The ready mcp-client in loopback mode against the Plug on a loopback socket with scripted Run Needs; negative controls on the authorization decision, the schema check and the token-before-handler order. Untrusted input and auth: local small gate and full review.",
+      "acceptance": "New integration/mcp-server (Wave 9 Q4 A): a Plug the host forwards to, bearer token verified by integration/token-verify before any MCP handling (401 otherwise), then ExMCP.HttpPlug 1.8.1 with a handler; tools/list gives each host-listed bot that domain/authorization allows the principal (proposal on bot/<id> run), tools/call decides again, checks arguments with core/payload-schema, starts one Run through a host start Need and polls a host result Need up to call_timeout_ms (1..60,000); an open Run returns its Run ID and goes on; each call is a new Run; results bounded to 65,536 bytes, no token echoed. Coordinator decision 2026-11-24: tools/list also leaves out a bot whose start schema is not object-rooted (MCP inputSchema rule), and case 3 calls no Need beyond the trusted clock and the verifier's own. The ready mcp-client in loopback mode against the Plug on a loopback socket with scripted Run Needs; negative controls on the authorization decision, the schema check and the token-before-handler order. Untrusted input and auth: local small gate and full review.",
       "product_aims": [
         "P13"
       ],
       "issue": 870,
       "url": "https://github.com/balungpisah/elzoo/issues/870",
-      "issue_body_sha256": "cdf747d2a26eb27562f2d67ef9cce23972b211a7d94b1e25614735ab2e81597a"
+      "issue_body_sha256": "c25fbdefdadbb243e056539bc21e65f733a722ac35b46ddaf9fd9422a9633c3a"
     },
     {
       "id": "ELZ-364",
