@@ -673,8 +673,15 @@ defmodule Elzoo.Wave9.Helper do
 
     w = Map.put(w, :hooks, hooks!(w))
 
-    # Before the first call of each test, as elzoo_app, each Piece's verify/1 of this test's own
-    # schemas (oauth-client's runs when its binding is built, in Tools.oauth!/1).
+    ExUnit.Callbacks.on_exit(fn ->
+      for pid <- Agent.get(intent_pids, & &1), do: stop(pid)
+      stop(tasks)
+      for a <- [clock, env, intent_pids], do: Agent.stop(a)
+    end)
+
+    # After the teardown above is registered, and before the first call of each test: as
+    # elzoo_app, each Piece's verify/1 of this test's own schemas (oauth-client's runs when its
+    # binding is built, in Tools.oauth!/1).
     for verified <- [
           PaymentLifecycle.verify(lc),
           Invoice.verify(inv),
@@ -682,12 +689,6 @@ defmodule Elzoo.Wave9.Helper do
           Elzoo.WebhookOut.verify(w.hooks.binding)
         ],
         do: assert(verified == :ok)
-
-    ExUnit.Callbacks.on_exit(fn ->
-      for pid <- Agent.get(intent_pids, & &1), do: stop(pid)
-      stop(tasks)
-      for a <- [clock, env, intent_pids], do: Agent.stop(a)
-    end)
 
     w
   end
