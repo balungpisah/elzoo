@@ -55,8 +55,6 @@ defmodule Elzoo.AiText.Request do
   @max_version 2_147_483_647
 
   def max_bytes, do: @max_bytes
-  def media_types, do: @media_types
-  def max_images, do: @max_images
 
   @doc "Decodes and normalizes payload bytes; `{:ok, request, canonical}` or `{:error, reason}`."
   def decode(bytes, max \\ @max_bytes)

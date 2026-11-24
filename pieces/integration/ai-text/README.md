@@ -160,10 +160,14 @@ result, because no provider supplies a replay-safe ground.
 - Limits: the Need, its caller and its access check are the host's; the
   interface checks only that the bytes match the record it is given. A changed
   artifact cannot change an admitted request, because versions are immutable,
-  but a deleted one makes the dispatch fail `input_unavailable`. Up to the
-  total bound of image bytes (20 MiB by default) is read into memory per call,
-  twice (admission and dispatch). No image-capable provider is part of this
-  Piece, so no provider's image handling is evidenced here.
+  but a deleted one makes the dispatch fail `input_unavailable`. The interface
+  bounds an image only after the Need returns its bytes: an accepted call
+  hands `translate/2` at most the total image bound (20 MiB by default), read
+  twice (admission and dispatch), but before a refusal the interface may
+  already hold whatever the Need returned. What the Need downloads is the
+  host's to bound, for example by the record's `size_bytes` before it reads
+  the object. No image-capable provider is part of this Piece, so no
+  provider's image handling is evidenced here.
 
 ## Conformance kit
 
