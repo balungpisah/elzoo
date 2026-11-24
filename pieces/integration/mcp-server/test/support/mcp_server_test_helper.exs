@@ -16,11 +16,11 @@ defmodule Elzoo.McpServerTest.Router do
   """
   use Plug.Router
 
-  plug :record
-  plug :match
-  plug :dispatch
+  plug(:record)
+  plug(:match)
+  plug(:dispatch)
 
-  forward "/mcp", to: Elzoo.McpServer.Plug, init_opts: {Elzoo.McpServerTest.Host, :server, []}
+  forward("/mcp", to: Elzoo.McpServer.Plug, init_opts: {Elzoo.McpServerTest.Host, :server, []})
 
   match _ do
     send_resp(conn, 404, "")
@@ -33,7 +33,11 @@ defmodule Elzoo.McpServerTest.Router do
 
       parent ->
         register_before_send(conn, fn conn ->
-          send(parent, {:wire, conn.status, conn.resp_headers, IO.iodata_to_binary(conn.resp_body || "")})
+          send(
+            parent,
+            {:wire, conn.status, conn.resp_headers, IO.iodata_to_binary(conn.resp_body || "")}
+          )
+
           conn
         end)
     end
