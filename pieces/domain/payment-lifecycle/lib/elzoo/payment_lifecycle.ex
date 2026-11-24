@@ -192,13 +192,20 @@ defmodule Elzoo.PaymentLifecycle do
           case p.state do
             s when s in [:created, :pending, :unknown] ->
               # The first charge/3 fixes the intent deadline, so a later one recovers the intent.
-              deadline = if s == :created, do: now + lc.deadline_ms, else: p.deadline
+              # A verified pending event can move :created to :pending before any charge/3,
+              # so the deadline is fixed whenever it is still unset.
+              deadline = p.deadline || now + lc.deadline_ms
 
-              if s == :created do
+              if s == :created or p.deadline == nil do
                 query(
                   lc,
-                  "UPDATE #{table(lc, :payments)} SET state = 'pending', deadline = $3, revision = revision + 1 WHERE tenant = $1 AND payment_id = $2",
-                  [tenant, p.payment_id, deadline]
+                  "UPDATE #{table(lc, :payments)} SET state = $3, deadline = $4, revision = revision + 1 WHERE tenant = $1 AND payment_id = $2",
+                  [
+                    tenant,
+                    p.payment_id,
+                    state_text(if(s == :created, do: :pending, else: s)),
+                    deadline
+                  ]
                 )
               end
 

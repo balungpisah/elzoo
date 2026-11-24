@@ -125,8 +125,9 @@ defmodule Elzoo.PaymentLifecycle.Adapter do
     if PL.text?(ref, 256), do: {"ok", s, ref, nil}, else: {"unknown", nil, nil, nil}
   end
 
-  defp answer({:declined, code}),
-    do: {"declined", nil, nil, if(PL.text?(code, 256), do: code, else: nil)}
+  defp answer({:declined, code}) do
+    if PL.text?(code, 256), do: {"declined", nil, nil, code}, else: {"unknown", nil, nil, nil}
+  end
 
   defp answer({:not_sent, _}), do: {"not_sent", nil, nil, nil}
   defp answer({:unknown, :timeout}), do: {"unknown", nil, nil, "timeout"}

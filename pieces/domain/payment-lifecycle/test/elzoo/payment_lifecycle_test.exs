@@ -268,6 +268,45 @@ defmodule Elzoo.PaymentLifecycleTest do
 
       assert length(Script.calls(:charge)) == 1
     end
+
+    test "a completed poll answer whose write fails is the pending certificate; a later poll settles",
+         ctx do
+      create!(ctx.lc, "p1")
+      Script.script(:charge, [{:unknown, :timeout}])
+      Script.script(:poll, [@ok_succeeded, @ok_succeeded])
+      {pid, _} = charge_intent(ctx, "p1")
+      run(pid, :dispatch)
+
+      Harness.refuse_observations!(ctx.p, ctx.role)
+      assert %{phase: {:Dispatched, :Fresh, 1}} = run(pid, :poll)
+      Harness.restore_observations!(ctx.p, ctx.role)
+
+      assert record(ctx.lc, {:charge, "p1"}, 1) == {:ok, %{state: :unknown, compensation: nil}}
+      assert %{phase: {:Confirmed, 1}} = run(pid, :poll)
+
+      assert record(ctx.lc, {:charge, "p1"}, 1) ==
+               {:ok, %{state: :succeeded, compensation: comp("p1")}}
+
+      assert length(Script.calls(:charge)) == 1
+    end
+
+    test "a verified pending event before the first charge/3 still gives a startable admission",
+         ctx do
+      create!(ctx.lc, "p1")
+
+      assert {:ok, %{applied: true, state: :pending}} =
+               event(ctx.lc, "ev0", {:charge, "p1"}, :pending)
+
+      assert {:ok, a} = charge(ctx.lc, "p1")
+      assert is_integer(a.deadline)
+      assert charge(ctx.lc, "p1") == {:ok, a}
+      Script.script(:charge, [@ok_succeeded])
+      pid = owner(ctx, ChargeBinding, a)
+      assert %{phase: {:Confirmed, 1}} = run(pid, :dispatch)
+
+      assert record(ctx.lc, {:charge, "p1"}, 1) ==
+               {:ok, %{state: :succeeded, compensation: comp("p1")}}
+    end
   end
 
   # ------------------------------------------------------------ 2
@@ -316,6 +355,10 @@ defmodule Elzoo.PaymentLifecycleTest do
 
       assert [k1, k2] = Enum.map(Script.calls(:charge), & &1.idempotency_key)
       assert k1 == a.key and k2 == a.key
+
+      # record/3 applies only rows of attempts up to the one it names.
+      assert record(ctx.lc, {:charge, "p1"}, 1) == {:ok, %{state: :pending, compensation: nil}}
+      assert {_, 2, "send", "ok", "succeeded", false} = List.last(observations(ctx.p, "p1/charge"))
 
       assert record(ctx.lc, {:charge, "p1"}, 2) ==
                {:ok, %{state: :succeeded, compensation: comp("p1")}}
@@ -561,6 +604,21 @@ defmodule Elzoo.PaymentLifecycleTest do
       assert key == a.key and amount == eur(100)
       assert payment(ctx.lc, "p1").state == :succeeded
       assert payment(ctx.lc, "p1").refunded == eur(0)
+    end
+
+    test "a declined answer with a malformed code is unknown and keeps the hold", ctx do
+      paid!(ctx.lc, "p1")
+      Script.script(:refund, [{:declined, 123}])
+      {pid, _} = refund_intent(ctx, "p1", "r1", eur(100))
+      assert %{phase: {:Dispatched, :Fresh, 1}} = run(pid, :dispatch)
+
+      assert record(ctx.lc, {:refund, "p1", "r1"}, 1) ==
+               {:ok, %{state: :unknown, compensation: comp("p1")}}
+
+      assert payment(ctx.lc, "p1").refunded == eur(100)
+
+      assert PL.refund(ctx.lc, "T1", %{payment_id: "p1", refund_id: "r2", amount: :remaining}) ==
+               {:error, :nothing_to_refund}
     end
 
     test "a declined refund whose write fails, then a poll :no_effect, releases its hold", ctx do
