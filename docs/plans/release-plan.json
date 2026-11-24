@@ -11328,7 +11328,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/oauth-client/piece.json",
-      "manifest_sha256": "1a5efb19113bc16d0ff3f16a58e043a6a49038d01ebf3e48c3ef4997892bd771"
+      "manifest_sha256": "35f15c6114612f64a53bda3952593b18d4099443944d35921b35685aa9a1502a"
     },
     {
       "id": "integration/webhook-out",
