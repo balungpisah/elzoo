@@ -158,7 +158,8 @@ post's `"elzoo.ledger-checkout wallet"`, and every journal reversal's
   Piece is a definite failure, recorded with its fixed reason (`{:state, s}` included).
 - **The parallel group.** With `parallel: true` the checkout starts both `wallet` and
   `allowance`, one after the other in that order in the holder's process, whatever the first
-  returns. The group is decided only when both are definite: a member waiting `:retry` keeps
+  returns; each member's definite outcome is recorded before the next member is called, so a
+  crash inside the grant Need keeps a wallet refusal already read. The group is decided only when both are definite: a member waiting `:retry` keeps
   the checkout waiting at it, and its sibling is never skipped (a later `resume/3` runs only
   the member that is not definite). When one member fails, the checkout's failure is that
   member's; when both fail it is the `wallet` step's, and each member's own failure is on its
@@ -203,7 +204,10 @@ first step failed, with none to run). All steps succeeded makes it `:completed`.
 - **The allowance Needs.** `grant` is idempotent by `grant_id`, a refusal included (a repeated
   `grant` after `{:error, :refused}` answers it again), and grants nothing after a `revoke` of
   that `grant_id` (it answers `{:error, :refused}`). `revoke` is idempotent by `grant_id` too
-  (a repeat answers `:ok`). The host bounds both in time.
+  (a repeat answers `:ok`). A `grant_id` belongs to one checkout: the host binds it to the
+  first `checkout_id` that the `grant` Need receives with it and answers `{:error, :refused}`
+  to a grant of it for another checkout, so one checkout's revoke never takes back another's
+  allowance. The host bounds both in time.
 - **One holder per checkout.** `resume/3` runs inside `repo.checkout(fun, timeout: :infinity)`
   on the checkout's Repo and first takes a session advisory lock with `pg_try_advisory_lock` on
   a 64-bit key derived from the prefix, tenant and `checkout_id` (a collision only makes two

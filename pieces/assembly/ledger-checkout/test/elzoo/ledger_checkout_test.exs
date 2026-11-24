@@ -992,6 +992,53 @@ defmodule Elzoo.LedgerCheckoutTest do
       assert [{:grant, _, _}] = for({:grant, _, _} = e <- Log.entries(), do: e)
     end
 
+    test "a wallet refusal is recorded before the grant Need; a crash in it keeps the refusal",
+         ctx do
+      open!(ctx.b, top_up("c11", grant: "g11", parallel: true, to: "later"))
+      charged!(ctx, "c11")
+
+      # The grant is decided, then the resuming process is killed inside the Need.
+      Allowance.script(:grant, [:kill])
+      pid = spawn(fn -> resume(ctx.b, "c11") end)
+      ref = Process.monitor(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 5_000
+      Harness.await!(fn -> Harness.advisory_locks() == 0 end)
+      assert %{state: :failed, failure: :unknown_account} = step(ctx.b, "c11", :wallet)
+
+      # The account the journal refused is opened before recovery.
+      {:ok, :applied} =
+        Journal.open_account(ctx.journal, "T1", %{
+          account_id: "later",
+          currency: eur_currency(),
+          allow_negative: true
+        })
+
+      assert {:ok, %{state: :compensating, wait: %{step: :charge, for: :refund_intent}}} =
+               resume(ctx.b, "c11")
+
+      assert %{failure: :unknown_account, steps: [_, wallet, allowance]} = get!(ctx.b, "c11")
+      assert %{state: :failed, failure: :unknown_account} = wallet
+      assert %{state: :compensated} = allowance
+      assert operations(ctx) == []
+      assert balance(ctx, "later") == 0
+    end
+
+    test "a busy caller names the member still open, not its failed sibling", ctx do
+      Allowance.script(:grant, [:unavailable, :ok])
+      open!(ctx.b, top_up("c11", grant: "g11", parallel: true, to: "nope"))
+      charged!(ctx, "c11")
+
+      assert {:ok, %{state: :running, wait: %{step: :allowance, for: :retry}}} =
+               resume(ctx.b, "c11")
+
+      task = held(ctx.b, "c11", [@steps_update])
+
+      assert resume(ctx.b, "c11") ==
+               {:ok, %{state: :running, wait: %{step: :allowance, for: :busy, admission: nil}}}
+
+      assert {:ok, %{state: :compensating, wait: %{for: :refund_intent}}} = release(task)
+    end
+
     test "both members failing records the wallet's reason", ctx do
       Allowance.script(:grant, [{:error, :refused}])
       open!(ctx.b, top_up("c11", grant: "g11", parallel: true, to: "nope"))

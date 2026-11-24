@@ -354,8 +354,9 @@ defmodule Elzoo.LedgerCheckout do
   # ── forward ─────────────────────────────────────────────────────────────
 
   # The first unit (one step, or the declared parallel group) whose members did not all
-  # succeed: start its rows, run every member that is not definite, record each definite
-  # outcome. A member waiting keeps the checkout at it; its sibling still runs.
+  # succeed: start its rows, then run every member that is not definite and record its
+  # definite outcome before the next member is called. A member waiting keeps the checkout at
+  # it; its sibling still runs.
   defp forward(b, tenant, c) do
     case Enum.find(units(c.declaration), fn unit ->
            not Enum.all?(unit, &(state_of(c, &1) == :succeeded))
@@ -370,20 +371,17 @@ defmodule Elzoo.LedgerCheckout do
         # Every member definite and the checkout still running: no rule here makes that.
         with true <- open != [] || {:error, :conflict},
              :ok <- start(b, tenant, c, open) do
-          outcomes =
-            Enum.map(open, fn name ->
-              {name, outcome(name, perform(b, tenant, c.declaration, name))}
-            end)
+          Enum.reduce_while(open, :next, fn name, acc ->
+            case outcome(name, perform(b, tenant, c.declaration, name)) do
+              {:ok, result, compensation} ->
+                recorded(record(b, tenant, c, name, {:succeeded, result, compensation}), acc)
 
-          Enum.reduce_while(outcomes, :next, fn
-            {name, {:ok, result, compensation}}, acc ->
-              recorded(record(b, tenant, c, name, {:succeeded, result, compensation}), acc)
+              {:fail, reason} ->
+                recorded(record(b, tenant, c, name, {:failed, reason}), acc)
 
-            {name, {:fail, reason}}, acc ->
-              recorded(record(b, tenant, c, name, {:failed, reason}), acc)
-
-            {_name, wait_or_error}, acc ->
-              {:cont, first(acc, wait_or_error)}
+              wait_or_error ->
+                {:cont, first(acc, wait_or_error)}
+            end
           end)
         end
     end
@@ -836,23 +834,25 @@ defmodule Elzoo.LedgerCheckout do
 
   defp list_shape(_, _), do: {:error, :invalid}
 
-  # One transaction: the checkout and its steps in position order.
+  # The checkout and its steps in position order, in one statement: at READ COMMITTED one
+  # statement sees one snapshot, so the header and the steps are of the same revision and the
+  # read waits for no writer.
   defp load(b, tenant, id) do
     run(b, tenant, fn ->
       with :ok <- isolation(b) do
         case rows(
                b,
-               "SELECT declaration, state, failure, revision FROM #{table(b, :checkouts)} WHERE tenant = $1 AND checkout_id = $2",
+               "SELECT c.declaration, c.state, c.failure, c.revision, s.step, s.position, s.grp, s.state, s.result, s.compensation, s.failure FROM #{table(b, :checkouts)} c LEFT JOIN #{table(b, :steps)} s ON s.tenant = c.tenant AND s.checkout_id = c.checkout_id WHERE c.tenant = $1 AND c.checkout_id = $2 ORDER BY s.position",
                [tenant, id]
              ) do
-          [[bytes, state, failure, revision]] ->
+          [[bytes, state, failure, revision | _] | _] = all ->
             {:ok,
              %{
                declaration: decode(bytes),
                state: @text[state],
                failure: reason(failure),
                revision: revision,
-               steps: steps(b, tenant, id)
+               steps: for([_, _, _, _ | step] <- all, hd(step) != nil, do: step_row(step))
              }}
 
           [] ->
@@ -868,18 +868,20 @@ defmodule Elzoo.LedgerCheckout do
       "SELECT step, position, grp, state, result, compensation, failure FROM #{table(b, :steps)} WHERE tenant = $1 AND checkout_id = $2 ORDER BY position",
       [tenant, id]
     )
-    |> Enum.map(fn [step, position, group, state, result, compensation, failure] ->
-      %{
-        step: @text[step],
-        position: position,
-        group: group,
-        state: @text[state],
-        result: result && @text[result],
-        compensation_bytes: compensation,
-        compensation: compensation && decode_compensation(compensation),
-        failure: failure
-      }
-    end)
+    |> Enum.map(&step_row/1)
+  end
+
+  defp step_row([step, position, group, state, result, compensation, failure]) do
+    %{
+      step: @text[step],
+      position: position,
+      group: group,
+      state: @text[state],
+      result: result && @text[result],
+      compensation_bytes: compensation,
+      compensation: compensation && decode_compensation(compensation),
+      failure: failure
+    }
   end
 
   defp state_of(c, name) do
@@ -889,11 +891,11 @@ defmodule Elzoo.LedgerCheckout do
     end
   end
 
-  # The step a busy caller names: the next step not succeeded while running, the step whose
+  # The step a busy caller names: the next step not definite while running, the step whose
   # compensation runs next while compensating, the failed compensation's step.
   defp current(%{state: :running} = c) do
     Enum.find_value(plan(c.declaration), fn {name, _, _} ->
-      if state_of(c, name) != :succeeded, do: name
+      if state_of(c, name) not in [:succeeded, :failed], do: name
     end)
   end
 
