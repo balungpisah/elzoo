@@ -155,9 +155,18 @@ defmodule Elzoo.PlanTest do
     id
   end
 
+  # A renewal ahead, then a period-end cancel inside the ahead window.
+  defp ahead_window!(ahead) do
+    c = create!(ahead, "s1")
+    end1 = c.subscription.period.end_ms
+    r1 = renew!(ahead, "s1", 1, end1 - @hour)
+    {:ok, x} = cancel(ahead, "s1", 2, :period_end, end1 - 1_000)
+    {c, r1, x}
+  end
+
   # ------------------------------------------------------------ 1
 
-  test "1 the period rule: selected Cure laws, a clean audit and the exhaustive oracle" do
+  test "1 the period rule: the selected Cure laws compile and audit clean" do
     source = File.read!(Path.expand("../../cure/elzoo/plan_period.cure", __DIR__))
     roots = Mix.Project.config() |> Keyword.fetch!(:cure_paths) |> Enum.map(&Path.expand/1)
     assert {:ok, _} = Cure.Compiler.compile_and_load(source, source_roots: roots)
@@ -171,7 +180,9 @@ defmodule Elzoo.PlanTest do
       assert source =~ "fn #{law}()"
       assert function_exported?(@cure, law, 0)
     end
+  end
 
+  test "1 the period rule equals an independent oracle for every anchor day" do
     # days_in_month against Calendar.ISO for every month of four centuries.
     wrong_days =
       for y <- 1900..2400,
@@ -366,20 +377,34 @@ defmodule Elzoo.PlanTest do
       end
     end
 
-    test "a cancel at period end inside the ahead window withdraws the next period", %{
+    test "a cancel at period end inside the ahead window ends it at the next period's start", %{
       p: p,
       ahead: ahead
     } do
-      c = create!(ahead, "s1")
-      end1 = c.subscription.period.end_ms
-      r1 = renew!(ahead, "s1", 1, end1 - @hour)
+      {c, r1, x} = ahead_window!(ahead)
       p2 = r1.subscription.period
       grants = c.grants ++ r1.grants
-
-      {:ok, x} = cancel(ahead, "s1", 2, :period_end, end1 - 1_000)
       assert x.revocations == [%{grant_id: "s1/2", revoked_at_ms: p2.start_ms}]
       assert x.withdrawn_fee_line == r1.fee_line
-      assert x.subscription.cancel_ms == p2.start_ms
+
+      refused(p, :not_due, fn -> renew(ahead, "s1", 2, p2.start_ms - 1) end)
+      assert entitled_grant(grants, x.revocations, "T1", p2.start_ms - 1) == "s1/1"
+
+      # Canceled at the boundary: cancel_ms is the next period's start.
+      assert {:ok, e} = renew(ahead, "s1", 2, p2.start_ms)
+      assert {e.subscription.state, e.subscription.cancel_ms} == {:canceled, p2.start_ms}
+      assert %{fee_line: nil, grants: [], duplicate: false, withdrawn_fee_line: nil} = e
+      assert resolve(grants, x.revocations, "T1", p2.start_ms) == {:not_entitled, :revoked}
+      assert resolve(grants, x.revocations, "T1", p2.start_ms + 1) == {:not_entitled, :revoked}
+    end
+
+    test "inside the ahead window: repeats, second cancels and the dropped reply", %{
+      p: p,
+      ahead: ahead
+    } do
+      {c, r1, x} = ahead_window!(ahead)
+      end1 = c.subscription.period.end_ms
+      p2 = r1.subscription.period
       last = Map.take(x, [:revocations, :withdrawn_fee_line])
       assert get!(ahead, "s1").last_cancel == last
       refused(p, :stale_revision, fn -> cancel(ahead, "s1", 2, :period_end, end1 - 1_000) end)
@@ -399,18 +424,12 @@ defmodule Elzoo.PlanTest do
       # A second period-end cancel inside the window keeps cancel_ms, same revocation and line.
       assert unchanged(p, fn -> cancel(ahead, "s1", 3, :period_end, end1 - 500) end) == {:ok, x}
 
-      refused(p, :not_due, fn -> renew(ahead, "s1", 2, p2.start_ms - 1) end)
-      assert entitled_grant(grants, x.revocations, "T1", p2.start_ms - 1) == "s1/1"
-
       # After the boundary, a second period-end cancel still keeps cancel_ms.
       assert unchanged(p, fn -> cancel(ahead, "s1", 3, :period_end, p2.start_ms + 1) end) ==
                {:ok, x}
 
-      {:ok, e} = renew(ahead, "s1", 2, p2.start_ms)
+      {:ok, e} = renew(ahead, "s1", 2, p2.start_ms + 1)
       assert e.subscription.state == :canceled
-      assert %{fee_line: nil, grants: [], withdrawn_fee_line: nil} = e
-      assert resolve(grants, x.revocations, "T1", p2.start_ms) == {:not_entitled, :revoked}
-      assert resolve(grants, x.revocations, "T1", p2.start_ms + 1) == {:not_entitled, :revoked}
       assert get!(ahead, "s1").last_cancel == last
 
       assert unchanged(p, fn -> renew(ahead, "s1", 1, end1) end) ==
