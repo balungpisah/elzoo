@@ -33,7 +33,9 @@ defmodule Elzoo.AiText.OpenAITest do
     bundle = Jason.decode!(File.read!(@schema_file))
 
     roots =
-      for name <- ["CreateResponse", "Response", "ErrorResponse"], into: %{} do
+      for name <-
+            ~w(CreateResponse Response ErrorResponse InputImageContent InputImageContentParamAutoParam),
+          into: %{} do
         {:ok, root} = Schema.build(Map.put(bundle, "$ref", "#/$defs/" <> name))
         {name, root}
       end
@@ -58,7 +60,13 @@ defmodule Elzoo.AiText.OpenAITest do
         models: Keyword.get(opts, :models, [@model]),
         max_output_tokens: 4096,
         receive_timeout_ms: 5000,
-        sink: Sink.to_pid(self())
+        sink: Sink.to_pid(self()),
+        artifacts: Keyword.get(opts, :artifacts),
+        image_bounds:
+          Keyword.get(opts, :image_bounds, %{
+            max_image_bytes: 5_242_880,
+            max_total_image_bytes: 20_971_520
+          })
       )
 
     c
@@ -229,8 +237,23 @@ defmodule Elzoo.AiText.OpenAITest do
 
   defp stub_for(:server_error), do: {500, [], OpenAIStub.error("server_error")}
 
-  test "O1 conformance kit on Responses; stubs documented (malformed one a rejected negative control); requests validate (kit + stub + pinned schema)",
+  # The wire request of each O1 scenario (method, path, headers other than the
+  # key, decoded body), recorded before image input was added (ELZ-372): a
+  # request without image parts must translate byte for byte as it did then.
+  @golden_file Path.expand("../fixtures/openai/o1_wire.json", __DIR__)
+
+  defp golden(req),
+    do: %{
+      "method" => req.method,
+      "path" => req.path,
+      "headers" => for({k, v} <- req.headers, k != "authorization", do: [k, v]),
+      "body" => wire(req)
+    }
+
+  test "O1 conformance kit on Responses; stubs documented (malformed one a rejected negative control); requests validate and equal the golden wire requests (kit + stub + pinned schema + golden)",
        ctx do
+    goldens = Jason.decode!(File.read!(@golden_file))
+
     for s <- Conformance.scenarios() do
       response =
         if s.stub == :malformed_success,
@@ -242,7 +265,156 @@ defmodule Elzoo.AiText.OpenAITest do
 
       assert :ok == Conformance.check(s.id, delivery, length(requests)), inspect({s.id, delivery})
       conforms(requests, ctx)
+      assert Enum.map(requests, &golden/1) == goldens[Atom.to_string(s.id)], inspect(s.id)
     end
+
+    assert Map.keys(goldens) == Enum.sort(Enum.map(Conformance.ids(), &Atom.to_string/1))
+  end
+
+  ## O17 image input: user parts as input_text and input_image (ELZ-372)
+
+  # The artifact read Need double for `images`, a map of artifact id to
+  # {media_type, bytes}; it answers as Elzoo.Artifact.get/4 does.
+  defp artifacts(images) do
+    fn %{artifact_id: id, version: 1} ->
+      case Map.fetch(images, id) do
+        {:ok, {media, bytes}} ->
+          {:ok,
+           %{
+             record: %{
+               artifact_id: id,
+               version: 1,
+               hash_format: 1,
+               sha256: Base.encode16(:crypto.hash(:sha256, <<1, bytes::binary>>), case: :lower),
+               size_bytes: byte_size(bytes),
+               media_type: media
+             },
+             bytes: bytes
+           }}
+
+        :error ->
+          {:error, :not_found}
+      end
+    end
+  end
+
+  defp image_ref(id, media),
+    do: %{"type" => "image", "artifact" => %{"id" => id, "version" => 1}, "media_type" => media}
+
+  defp text_part(t), do: %{"type" => "text", "text" => t}
+
+  defp user_inputs(body), do: for(%{"role" => "user"} = m <- body["input"], do: m)
+
+  defp text_ok(ctx),
+    do: fn _ -> documented!(stub_for(:text), ctx) end
+
+  test "O17 image input: the kit's :image_input scenario sends one user message of input_text and an input_image data URL of the PNG with detail auto, valid as InputImageContent (kit + stub + pinned schema)",
+       ctx do
+    assert :image_input in OpenAI.capabilities().features
+    [%{id: :image_input, stub: :text} = s] = Conformance.image_scenarios()
+
+    {delivery, requests, _, _} =
+      run(ctx, Conformance.request(s.id, @model), text_ok(ctx), artifacts: Conformance.image_need())
+
+    assert :ok == Conformance.check(s.id, delivery, length(requests))
+    [body] = Enum.map(requests, &wire/1)
+
+    assert [%{"role" => "user", "content" => [text, image]}] = user_inputs(body)
+
+    assert valid?(image, ctx.roots["InputImageContent"]), "image part is not InputImageContent"
+    assert text == %{"type" => "input_text", "text" => "Describe the image."}
+    assert Map.keys(image) == ~w(detail image_url type)
+    assert %{"type" => "input_image", "detail" => "auto"} = image
+    assert "data:image/png;base64," <> b64 = image["image_url"]
+    assert Base.decode64!(b64) == Conformance.image()
+    conforms(requests, ctx)
+  end
+
+  test "O17 image input: each media type gives its data URL prefix; eight images and interleaved text keep their order in one input message (stub + pinned schema)",
+       ctx do
+    media = ~w(image/png image/jpeg image/webp image/gif)
+
+    images =
+      for i <- 1..8,
+          into: %{},
+          do:
+            {"img-#{i}",
+             {Enum.at(media, rem(i - 1, 4)), "IMAGE-#{i}-" <> String.duplicate("#{i}", i)}}
+
+    ids = for i <- 1..8, do: "img-#{i}"
+
+    parts =
+      [text_part("first")] ++
+        Enum.map(Enum.take(ids, 3), &image_ref(&1, elem(images[&1], 0))) ++
+        [text_part("middle")] ++
+        Enum.map(Enum.drop(ids, 3), &image_ref(&1, elem(images[&1], 0))) ++ [text_part("last")]
+
+    req = request(%{"messages" => [%{"role" => "user", "parts" => parts}]})
+
+    {{:outcome, _, {:completed, _}}, [captured], _, _} =
+      run(ctx, req, text_ok(ctx), artifacts: artifacts(images))
+
+    conforms([captured], ctx)
+    assert [%{"role" => "user", "content" => content}] = user_inputs(wire(captured))
+    assert length(content) == 11
+
+    expected =
+      [{:text, "first"}] ++
+        Enum.map(Enum.take(ids, 3), &{:image, images[&1]}) ++
+        [{:text, "middle"}] ++
+        Enum.map(Enum.drop(ids, 3), &{:image, images[&1]}) ++ [{:text, "last"}]
+
+    for {part, want} <- Enum.zip(content, expected) do
+      case want do
+        {:text, t} ->
+          assert part == %{"type" => "input_text", "text" => t}
+
+        {:image, {m, bytes}} ->
+          assert %{"type" => "input_image", "detail" => "auto", "image_url" => url} = part
+          prefix = "data:#{m};base64,"
+          assert String.starts_with?(url, prefix), inspect({m, url})
+          assert Base.decode64!(String.replace_prefix(url, prefix, "")) == bytes
+          assert valid?(part, ctx.roots["InputImageContent"])
+      end
+    end
+
+    assert Enum.count(content, &(&1["type"] == "input_image")) == 8
+  end
+
+  test "O17 image input: a cache breakpoint on a parts message is unsupported_feature with no request; an image of ai-text's largest max_image_bytes translates and validates against both pinned image definitions (admission + stub + pinned schema)",
+       ctx do
+    messages = Conformance.request(:image_input, @model)["messages"]
+    need = [artifacts: Conformance.image_need()]
+
+    assert {:error, {:refused, :unsupported_feature}} =
+             refused(
+               request(%{"messages" => messages, "cache_hint" => hint([%{"message" => 0}])}),
+               need
+             )
+
+    # The refusal is the parts message's alone: a system breakpoint is admitted.
+    assert {:ok, _} =
+             refused(request(%{"messages" => messages, "cache_hint" => hint(["system"])}), need)
+
+    # 5,242,880 JPEG bytes: 23 + 4 × ⌈5,242,880 / 3⌉ = 6,990,531 data URL characters.
+    bytes = :binary.copy("J", 5_242_880)
+
+    req =
+      request(%{"messages" => [%{"role" => "user", "parts" => [image_ref("max", "image/jpeg")]}]})
+
+    {{:outcome, _, {:completed, _}}, [captured], _, _} =
+      run(ctx, req, text_ok(ctx),
+        artifacts: artifacts(%{"max" => {"image/jpeg", bytes}}),
+        image_bounds: %{max_image_bytes: 5_242_880, max_total_image_bytes: 5_242_880}
+      )
+
+    conforms([captured], ctx)
+    assert [%{"role" => "user", "content" => [image]}] = user_inputs(wire(captured))
+    assert String.length(image["image_url"]) == 6_990_531
+    assert "data:image/jpeg;base64," <> b64 = image["image_url"]
+    assert Base.decode64!(b64) == bytes
+    assert valid?(image, ctx.roots["InputImageContent"])
+    assert valid?(image, ctx.roots["InputImageContentParamAutoParam"])
   end
 
   ## O2 usage and cache counters, each from a named pinned-schema field
