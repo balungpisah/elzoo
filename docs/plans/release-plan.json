@@ -9731,7 +9731,7 @@
       ],
       "issue": 893,
       "url": "https://github.com/balungpisah/elzoo/issues/893",
-      "issue_body_sha256": "0282e5cde192c13df9e947b99e447888b9f978001d5fea54797ee049bf3ded54"
+      "issue_body_sha256": "e4cba4403f4873f8f5055649eccba454f3b08c32f00c0bf2cdf4db0351db57e0"
     },
     {
       "id": "ELZ-370",
@@ -10323,10 +10323,12 @@
     {
       "id": "delivery/model-routing",
       "job": "ELZ-369",
-      "note": "Planned pure model routing (ELZ-369 replaces RC-25 for this output): select/3 gives a route's eligible candidate refs in rank order under capability, provider-data-policy, health age, circuit, cool-down, budget and tried rules with a fixed reason per excluded ref; after_failure/3 gives done, retry the same candidate after a not-sent refusal (retry-timeout delay/4), move to another after throttled/overloaded (with a cool-down) or a candidate fault, or stop after a request fault or an unknown outcome (no fallback after unknown). Pure; no I/O, clock or state.",
+      "note": "Pure model routing for a host's model-call binding. new/1 checks a route of 1..16 ranked candidate references (ref, provider, region, retention, model_id, features of Elzoo.AiText.Provider.features/0, rank 1..1,000; unique refs and ranks), on_unknown :stop, max_health_age_ms, cool_down_ms and a retry-timeout retry list run under redispatch_forbidden. select/3 checks the whole input first (else invalid_input), then gives the eligible refs in ascending rank and each other ref with the first reason in the fixed order tried, capability, data_policy (provider-data-policy decide/2), stale_health, circuit_open, cooling_down, budget; no eligible ref is no_candidate. after_failure/3 gives done after completed; retry_same with retry-timeout delay/4 after a not-sent refusal (credentials_unavailable, input_unavailable, a local rate refusal with its wait), stop retries_exhausted at max_attempts; next with a cool-down after throttled or overloaded (retry_after seconds, or cool_down_ms); next with none after authentication_failed, permission_denied, not_found or unsupported_feature at admission; stop request_fault after invalid_request or too_large; stop unknown_outcome after an unknown outcome (no fallback after unknown). Fixed error atoms; no I/O, clock or state.",
       "baseline_status": "deferred",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/model-routing/piece.json",
+      "manifest_sha256": "eb760f0a441ffe7f0b687cd571fbe2ed952f3f492713cad3a6ec4077e30abb4f"
     },
     {
       "id": "delivery/pubsub",
@@ -10609,11 +10611,11 @@
     {
       "id": "integration/ai-text-anthropic",
       "job": "ELZ-079",
-      "note": "Anthropic Messages API provider of integration/ai-text through req_llm 1.30's documented provider-callback API: anthropic-version 2026-10-21, max_retries 0, one HTTP exchange with every response halted by an Elzoo step (no redirect, no retry, no req_llm error value); key only from the injected Need as api_key; sampling not declared; structured output through output_config.format; cache hint mapped to cache_control markers (system and tools, at most one message, 5m or 1h) or refused; usage and cache counters from the raw usage map with absent fields :unknown; documented error statuses mapped to the interface's failure tags.",
+      "note": "Anthropic Messages API provider of integration/ai-text through req_llm 1.30's documented provider-callback API: anthropic-version 2026-10-21, max_retries 0, one HTTP exchange with every response halted by an Elzoo step (no redirect, no retry, no req_llm error value); key only from the injected Need as api_key; sampling not declared; structured output through output_config.format; cache hint mapped to cache_control markers (system and tools, at most one message, 5m or 1h) or refused; image input declared: a user parts message as one message of text and base64 image blocks in order, refused unsupported_feature for a model whose llm_db input modalities lack image or a cache breakpoint on the parts message, and too_large for an image over the documented 10 MB base64 limit; usage and cache counters from the raw usage map with absent fields :unknown; documented error statuses mapped to the interface's failure tags.",
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-text-anthropic/piece.json",
-      "manifest_sha256": "56099385c4e333467b5705e139922e6442176f1efe4f25162047570b448a79a9",
+      "manifest_sha256": "70b8273758cad339e2a88fcb1a69bc94c676c25f3d46155a53beb50e8bc79ee7",
       "baseline_status": "not in baseline (new row, ELZ-079)"
     },
     {
