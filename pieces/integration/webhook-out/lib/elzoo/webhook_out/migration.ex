@@ -48,7 +48,8 @@ defmodule Elzoo.WebhookOut.Migration do
 
     # One row per (event, endpoint). `try_deadline_ms` is fixed at the try's first claim;
     # `not_sent` counts the applied not-sent results of the current try; `attempts` counts every
-    # applied result of the delivery; the last-result triple is the current try's. A
+    # applied result of the delivery; the last-result triple is the current try's (none until
+    # it has a result). A
     # dead-lettered row keeps the record's inputs: dl_reason, attempts, the triple and dl_at_ms.
     execute("""
     CREATE TABLE #{p}.elzoo_webhook_deliveries (

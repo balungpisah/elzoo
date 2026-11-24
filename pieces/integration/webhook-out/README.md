@@ -103,7 +103,7 @@ process-local seal.
 | `transport` | one-arity Need given `%{host, port, addresses}`, returning `{:ok, req_options}` |
 | `secrets` | one-arity function from a Secrets request `%{ref, scope}` to its `Elzoo.Secrets` context |
 | `clock` | trusted zero-arity Unix-millisecond clock, 0..2^53−1 |
-| `retry` | an `Elzoo.RetryTimeout.policy/1` value for not-sent refusals, `max_attempts` at most 256 (an intent holds at most 256 attempts) |
+| `retry` | an `Elzoo.RetryTimeout.policy/1` value for not-sent refusals, `max_attempts` at most 256 (an intent holds at most 256 attempts) and `max_backoff_ms` at most 2^53−1 |
 | `max_tries` | 1..16 |
 | `send_timeout_ms` | 1..60,000 |
 | `try_deadline_ms` | 1,000..86,400,000, the intent deadline of a try after its first claim |
@@ -223,7 +223,10 @@ When no observation is stored, `fallback` is what the host read from the intent 
 | `:expired` | the try's `deadline` has passed and the owner shows no possibly sent attempt | dead letter `deadline_before_dispatch` when no attempt of the try was dispatched, else `deadline_expired`; no new try |
 
 A stored observation wins over every fallback but `:expired`. The Piece stores the fallback as
-that attempt's observation, and a concurrent Adapter write of the same attempt wins over it.
+that attempt's observation. An Adapter write of the same attempt that committed, or is in flight,
+before that insert wins over the fallback; one that comes after it changes nothing. So the host
+names a fallback only once the owner shows that attempt's send task settled, or the owner is
+recovered read-only.
 `:expired` is applied once per try, whatever is stored for the attempt named, and is `:invalid`
 before the deadline.
 
@@ -235,7 +238,8 @@ before the deadline.
 | `{:failed, :permanent}` | dead letter `permanent`, no new try |
 
 The transaction that dead-letters a delivery sets `dead_letter` to `pending` and fixes the
-record's inputs in the row: the reason, the applied-result count, the last-result triple and
+record's inputs in the row: the reason, the applied-result count, the current try's last-result triple (none when that try
+has no result) and
 `at_ms` (the trusted clock). After the commit, `record/3` puts the `delivery/dead-letter` record
 built from those inputs only, so every put of one delivery has equal bytes. The record is
 `Elzoo.DeadLetterStore.put/3` with `source: "webhook-out"`, `work_ref` and `message_id` the

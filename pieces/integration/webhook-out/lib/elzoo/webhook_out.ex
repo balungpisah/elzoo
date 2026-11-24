@@ -43,7 +43,8 @@ defmodule Elzoo.WebhookOut do
 
   @opaque t :: %__MODULE__{}
 
-  # A trusted clock reads 0..2^53-1 ms, so every sum below fits a signed bigint.
+  # A trusted clock reads 0..2^53-1 ms and new/1 bounds the retry policy's max_backoff_ms by the
+  # same value; a delay is at most twice that, so every sum below fits a signed bigint.
   @max_clock 9_007_199_254_740_991
   @max_payload 65_536
   @max_depth 32
@@ -65,6 +66,7 @@ defmodule Elzoo.WebhookOut do
          # Each not-sent refusal of a try is another attempt of one intent, which holds at most
          # 256 attempts.
          true <- RetryTimeout.valid_policy?(o.retry) and elem(o.retry, 1) <= 256,
+         true <- elem(o.retry, 3) <= @max_clock,
          true <- int?(o.max_tries, 1, 16) and int?(o.send_timeout_ms, 1, 60_000),
          true <- int?(o.try_deadline_ms, 1_000, 86_400_000),
          true <- is_struct(o.dead_letters, DeadLetterStore),
@@ -419,8 +421,9 @@ defmodule Elzoo.WebhookOut do
       [] ->
         result = {:fallback, r.fallback}
 
-        # A concurrent Adapter write of the same attempt wins: ON CONFLICT DO NOTHING waits for
-        # its commit, and the next read applies the stored observation instead.
+        # An Adapter write of the same attempt that committed, or is in flight, before this
+        # insert wins: ON CONFLICT DO NOTHING waits for its commit, and the next read applies the
+        # stored observation instead. An Adapter write after this insert changes nothing.
         case q!(
                b,
                "INSERT INTO #{t(b, :observations)} (tenant, delivery_id, try, attempt, result, applied) VALUES ($1, $2, $3, $4, $5, true) ON CONFLICT DO NOTHING RETURNING 1",
@@ -475,7 +478,8 @@ defmodule Elzoo.WebhookOut do
               row,
               "try = try + 1, due_at_ms = $4::bigint + $5::bigint, claimed_until_ms = NULL, try_deadline_ms = NULL, rearm = false, not_sent = 0",
               [row.now, ms],
-              triple
+              # The new try has no result yet.
+              {nil, nil, nil}
             )
 
             {:ok, {:applied, nil}}
@@ -492,7 +496,7 @@ defmodule Elzoo.WebhookOut do
     end
   end
 
-  # Every applied result counts one attempt and becomes the delivery's last-result triple.
+  # Every applied result counts one attempt and sets the current try's last-result triple.
   defp update!(b, tenant, row, set, params, {o, d, e}) do
     n = length(params)
 

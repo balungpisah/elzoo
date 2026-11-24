@@ -178,6 +178,12 @@ defmodule Elzoo.WebhookOut.Harness do
     rows
   end
 
+  @doc "Lock requests that wait (pg_locks, not granted); the tests run one at a time."
+  def waiting do
+    [[n]] = q!(OwnerRepo, "SELECT count(*) FROM pg_locks WHERE NOT granted")
+    n
+  end
+
   def q(repo, sql, params \\ []), do: SQL.query(repo, sql, params, log: false)
   def q!(repo, sql, params \\ []), do: SQL.query!(repo, sql, params, log: false).rows
 

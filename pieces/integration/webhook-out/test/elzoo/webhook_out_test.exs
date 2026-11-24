@@ -498,6 +498,13 @@ defmodule Elzoo.WebhookOutTest do
       assert {:error, _} = Intent.advance(pid1, :dispatch)
       due = now(ctx) + 1000
       assert {:ok, %{state: :pending, try: 2, due_at_ms: ^due}} = status(b, t1)
+      # The new try has no last result yet.
+      assert [[2, nil, nil, nil]] =
+               Harness.truth(
+                 ctx.prefix,
+                 "elzoo_webhook_deliveries",
+                 "try, last_outcome, last_dispatch, last_error_class"
+               )
 
       tick(ctx, 1000)
       assert [{t2, {:ok, :applied}}] = round!(ctx, b)
@@ -784,7 +791,14 @@ defmodule Elzoo.WebhookOutTest do
             [effect: %{binding: TestBinding, provider_account: "other"}],
             [effect: %{binding: String, provider_account: "test:webhooks"}],
             [retry: elem(RetryTimeout.policy(max_attempts: 257), 1)],
-            [dead_letters: :none]
+            [dead_letters: :none],
+            [
+              retry:
+                elem(
+                  RetryTimeout.policy(base_backoff_ms: 0, max_backoff_ms: 9_007_199_254_740_992),
+                  1
+                )
+            ]
           ],
           do: assert({:error, :invalid} = hooks(ctx, bad))
 
@@ -887,6 +901,44 @@ defmodule Elzoo.WebhookOutTest do
 
       assert {:error, :invalid} = record(b, s, 0)
       assert {:error, :invalid} = record(b, s, 1, :completed)
+    end
+
+    test "an Adapter write in flight before the fallback's insert wins over it", %{
+      ctx: ctx,
+      b: b
+    } do
+      assert {:ok, :applied} = register(b, endpoint("e1"))
+      assert {:ok, %{deliveries: 1}} = enqueue(b, "evt-1", %{"a" => 1})
+      assert {:ok, [t]} = claim(b)
+      test = self()
+
+      # The Adapter's observation write, held uncommitted.
+      writer =
+        Task.async(fn ->
+          TenantIsolation.transact(RaceRepo, %{tenant: "T1"}, fn ->
+            Harness.q!(
+              RaceRepo,
+              ~s|INSERT INTO "#{ctx.prefix}".elzoo_webhook_observations (tenant, delivery_id, try, attempt, result, applied) VALUES ('T1', $1, 1, 1, 'delivered', false)|,
+              [t.delivery_id]
+            )
+
+            send(test, :inserted)
+
+            receive do
+              :commit -> {:ok, :committed}
+            end
+          end)
+        end)
+
+      assert_receive :inserted
+      recorder = Task.async(fn -> record(b, t, 1, :unknown) end)
+      Harness.poll(fn -> Harness.waiting() > 0 end)
+      send(writer.pid, :commit)
+      assert {:ok, :committed} = Task.await(writer)
+      assert {:ok, :applied} = Task.await(recorder)
+      assert {:ok, %{state: :delivered}} = status(b, t)
+      assert [[1, 1, "delivered", true]] = observations(ctx)
+      assert dead_letters(b) == []
     end
 
     test "the expired and not-sent fallbacks", %{ctx: ctx, b: b} do
