@@ -1541,11 +1541,8 @@ defmodule Elzoo.AgentLoopTest do
   defp attempts(extra \\ %{}),
     do: Map.merge(%{model_attempts: 2, move_on: ["throttled"], max_request_bytes: 64_512}, extra)
 
-  defp not_done(id, class, schema, payload), do: outcome(id, class, schema, payload)
-
   defp throttled(id, extra \\ %{}),
-    do:
-      not_done(id, "refused", "elzoo.ai-text.result", Map.merge(%{"reason" => "throttled"}, extra))
+    do: outcome(id, "refused", "elzoo.ai-text.result", Map.merge(%{"reason" => "throttled"}, extra))
 
   defp entry(k, reason, retry \\ nil, candidate \\ nil),
     do: %{"attempt" => k, "reason" => reason, "retry_after" => retry, "candidate" => candidate}
@@ -1573,7 +1570,7 @@ defmodule Elzoo.AgentLoopTest do
       {tool_turn, %{}},
       {[start(), outcome("run:m:1", "unknown", "elzoo.run-engine.refusal", nil)], %{}},
       {[start(), throttled("run:m:1", %{"retry_after" => 30})], %{}},
-      {[start(), not_done("run:m:1", "failed", "elzoo.ai-text.result", %{"reason" => "x"})], %{}},
+      {[start(), outcome("run:m:1", "failed", "elzoo.ai-text.result", %{"reason" => "x"})], %{}},
       {Enum.take(tool_turn, 3) ++ [result("run:t:1:1", "r1")], %{turn_limit: 1}},
       {[skill_start(), declared("run:t:0:1", guide(), nil), model(1, "ok", "stop", [])],
        skill_spec()}
@@ -1617,7 +1614,7 @@ defmodule Elzoo.AgentLoopTest do
     # that the binding did not give, or gave outside their form, are null.
     for p <- [%{}, %{"retry_after" => 86_401, "candidate" => "A"}, %{"retry_after" => "30"}] do
       failed =
-        not_done("run:m:1", "failed", "elzoo.ai-text.result", Map.put(p, "reason", "throttled"))
+        outcome("run:m:1", "failed", "elzoo.ai-text.result", Map.put(p, "reason", "throttled"))
 
       out = last(trace([start("What is 2+2?"), failed], attempts()))
       assert out == {:some, attempt_call("run:m:1:2", request, [entry(1, "throttled")])}
@@ -1630,7 +1627,7 @@ defmodule Elzoo.AgentLoopTest do
     inputs = [
       start(),
       throttled("run:m:1", %{"retry_after" => 1}),
-      not_done("run:m:1:2", "refused", "elzoo.ai-text.result", %{"reason" => "overloaded"}),
+      outcome("run:m:1:2", "refused", "elzoo.ai-text.result", %{"reason" => "overloaded"}),
       throttled("run:m:1:3")
     ]
 
@@ -1648,7 +1645,13 @@ defmodule Elzoo.AgentLoopTest do
     assert stopped == {:some, finish("stopped", "model_call_not_completed", nil, 3)}
     assert closed.turns == 3
 
-    # A call at the turn_limit stops turn_limit instead of asking.
+    # A call at the turn_limit stops turn_limit instead of asking; Attempts count, so
+    # call 1 at turn_limit 2 stops after its second Attempt, not its first.
+    two = [start(), throttled("run:m:1"), throttled("run:m:1:2")]
+    {_, outputs} = trace(two, attempts(%{model_attempts: 3, turn_limit: 2}))
+    assert Enum.map(outputs, &ids/1) == [["run:m:1"], ["run:m:1:2"], ["run:finish"]]
+    assert List.last(outputs) == {:some, finish("stopped", "turn_limit", nil, 2)}
+
     assert last(trace([start(), throttled("run:m:1")], attempts(%{turn_limit: 1}))) ==
              {:some, finish("stopped", "turn_limit", nil, 1)}
 
@@ -1691,13 +1694,14 @@ defmodule Elzoo.AgentLoopTest do
     spec = attempts(%{move_on: ["throttled", "not_found"]})
 
     for outcome <- [
-          not_done("run:m:1", "unknown", "elzoo.ai-text.result", %{"reason" => "throttled"}),
-          not_done("run:m:1", "refused", "elzoo.ai-text.result", %{"reason" => "invalid_request"}),
-          not_done("run:m:1", "refused", "elzoo.ai-text.result", %{"retry_after" => 30}),
-          not_done("run:m:1", "refused", "elzoo.ai-text.result", nil),
-          not_done("run:m:1", "refused", "elzoo.run-engine.refusal", %{"reason" => "throttled"}),
-          not_done("run:m:1", "out_of_budget", "elzoo.ai-text.result", %{"reason" => "throttled"}),
-          not_done("run:m:1", "refused", "elzoo.ai-text.result", %{"reason" => "overloaded"})
+          outcome("run:m:1", "unknown", "elzoo.ai-text.result", %{"reason" => "throttled"}),
+          outcome("run:m:1", "refused", "elzoo.ai-text.result", %{"reason" => "invalid_request"}),
+          outcome("run:m:1", "refused", "elzoo.ai-text.result", %{"retry_after" => 30}),
+          outcome("run:m:1", "refused", "elzoo.ai-text.result", nil),
+          outcome("run:m:1", "refused", "elzoo.run-engine.refusal", %{"reason" => "throttled"}),
+          outcome("run:m:1", "out_of_budget", "elzoo.ai-text.result", %{"reason" => "throttled"}),
+          outcome("run:m:1", "refused", "elzoo.ai-text.result", %{"reason" => "overloaded"}),
+          Map.put(throttled("run:m:1"), "schema_version", 2)
         ] do
       assert last(trace([start(), outcome], spec)) == stop
     end
@@ -1781,7 +1785,7 @@ defmodule Elzoo.AgentLoopTest do
     inputs =
       [start(text)] ++
         for id <- ["run:m:1", "run:m:1:2", "run:m:1:3"],
-            do: not_done(id, "refused", "elzoo.ai-text.result", largest)
+            do: outcome(id, "refused", "elzoo.ai-text.result", largest)
 
     {_, outputs} = trace(inputs, spec)
     fourth = payload(List.last(outputs))
