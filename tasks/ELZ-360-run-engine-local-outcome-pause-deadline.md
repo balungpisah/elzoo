@@ -11,7 +11,7 @@
 
 Reported in #854. This publication does not resolve #854; the build pull request does.
 
-Under `budget_rule: :pause`, a local-work outcome is committed with the `pause_deadline` that the host's `context` callback gave when the work was dispatched. When the work finishes after that deadline, and the step of its outcome must enter the pause, the lifecycle refuses the passed deadline and the fold step raises: the engine halts, and the next input returns `{:error, :durable_unit_transition_failed}`. Two triggers were reproduced on `main` without any option: the root's request for the outcome is the Run's first excess of the request cap, and the outcome's actual exhausts the Budget. With a deadline that is still in the future at dispatch, the same Runs pause and go on.
+Under `budget_rule: :pause`, a local-work outcome is committed with the `pause_deadline` that the host's `context` callback gave when the work was dispatched. When the work finishes after that deadline, and the step of its outcome must enter the pause, the lifecycle refuses the passed deadline and the fold step raises: the engine halts, and the next input returns `{:error, :durable_unit_transition_failed}`. Two triggers were reproduced on `main` without any option: the root's request for the outcome is the Run's first excess of the request cap, and the outcome's actual exhausts the Budget. With a dispatch-time deadline that is still after the outcome's time (50,000 when the outcome arrives at 35,000), the same Runs pause and go on.
 
 The README states the rule this breaks (the `start_link(opts)` facts, the `request_cap` and `budget_rule` item, lines 42–45): "Pause exhaustion requires a verified future `pause_deadline` before evaluating the driving input." A host input meets it through `pause_operand/3`. Every other record that the engine makes itself samples the host's `context` callback when it is committed. Only the local-work outcome samples it at dispatch.
 
@@ -66,7 +66,7 @@ Run `mix test pieces/assembly/run-engine/test`, then the small gate `mix check -
 ## Limits to state
 
 - The host Need above: a `context` callback that gives a passed `pause_deadline` under `:pause` is outside it, and a pause that the step of such a record needs still halts the engine. No fold fallback is added for it.
-- A Unit history that already holds a local-work outcome with a passed dispatch-time deadline folds as before; such a history halted when it was written (Elzoo is not released).
+- A Unit history that already holds a local-work outcome with a passed dispatch-time deadline folds as before. It halted when it was written only where that outcome's step had to enter the pause (a first excess or a Budget exhaustion under `:pause`); otherwise, as in the ELZ-351 test at line 398, the step applied and the Run went on (Elzoo is not released).
 - The deadline is the callback's value when the delivery is handled, not at the instant the work finished; the two differ only by the time the delivery waits in the engine's mailbox.
 - A second delivery of an outcome already committed is not covered by a case (only a crafted message reaches it); in v2 it is ignored rather than committed again and drained.
 - Finite listed scenarios on disposable PostgreSQL, not a proof.
