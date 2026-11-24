@@ -7,8 +7,11 @@ defmodule Elzoo.McpServer.Plug do
 
   Each request applies the init triple, which must return `{:ok, server}` from
   `Elzoo.McpServer.new/1` (else HTTP 503). The bearer token is verified before
-  the body is read and before any MCP handling (else HTTP 401); only then does
-  `ExMCP.HttpPlug` run, with `Elzoo.McpServer.Handler`.
+  the body is read and before any MCP handling (else HTTP 401). A request with
+  an `mcp-method` header of `subscriptions/listen` is then refused with the
+  JSON-RPC error -32601, its body unread; every other request goes to
+  `ExMCP.HttpPlug`, with `Elzoo.McpServer.Handler` and each session bound to
+  the verified principal's tenant and identity.
   """
   @behaviour Plug
   import Plug.Conn
@@ -17,6 +20,7 @@ defmodule Elzoo.McpServer.Plug do
 
   @unauthorized ~s({"error":"unauthorized"})
   @unavailable ~s({"error":"unavailable"})
+  @no_listen ~s({"jsonrpc":"2.0","id":null,"error":{"code":-32601,"message":"Method not found"}})
   @max_token 8_192
 
   @impl true
@@ -44,12 +48,21 @@ defmodule Elzoo.McpServer.Plug do
   defp authenticate(conn, server) do
     with {:ok, token} <- bearer(get_req_header(conn, "authorization")),
          {:ok, principal} <- McpServer.verify(server, token) do
-      conn
-      |> assign(:elzoo_mcp_principal, principal)
-      |> ExMCP.HttpPlug.call(ExMCP.HttpPlug.init(http_opts(server)))
+      conn |> assign(:elzoo_mcp_principal, principal) |> mcp(server)
     else
       _ ->
         conn |> put_resp_header("www-authenticate", "Bearer") |> reply(401, @unauthorized) |> halt()
+    end
+  end
+
+  # The Piece serves no subscription. ex_mcp opens a listen stream only for a
+  # modern-era request, whose one Mcp-Method header must equal the body's
+  # method, so the header alone decides; the body is not read (id null).
+  defp mcp(conn, server) do
+    if "subscriptions/listen" in get_req_header(conn, "mcp-method") do
+      conn |> reply(200, @no_listen) |> halt()
+    else
+      ExMCP.HttpPlug.call(conn, ExMCP.HttpPlug.init(http_opts(server)))
     end
   end
 
@@ -57,6 +70,12 @@ defmodule Elzoo.McpServer.Plug do
     [
       handler: Elzoo.McpServer.Handler,
       handler_opts: fn conn -> {server, conn.assigns.elzoo_mcp_principal} end,
+      # ex_mcp binds a session to these at initialize and refuses a later
+      # request or DELETE on it with another value (HTTP 404, -32600).
+      tenant_id: fn conn -> conn.assigns.elzoo_mcp_principal.tenant end,
+      principal_id: fn %{assigns: %{elzoo_mcp_principal: principal}} ->
+        Atom.to_string(principal.kind) <> ":" <> principal.id
+      end,
       handler_call_timeout: server.call_timeout_ms + 5_000,
       body_limit: server.body_limit,
       server_info: %{name: "elzoo-mcp-server", version: "1"},
