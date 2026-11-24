@@ -9452,6 +9452,31 @@
       "issue": 860,
       "url": "https://github.com/balungpisah/elzoo/issues/860",
       "issue_body_sha256": "f0dd0ba95d8728df7ac0230cc008935376d8c468915454f5339ff2083e95741f"
+    },
+    {
+      "id": "ELZ-360",
+      "title": "ELZ-360 — A local-work outcome takes the host's pause deadline when it is committed, not when the work was dispatched",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-127",
+        "ELZ-351",
+        "ELZ-359"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-360-run-engine-local-outcome-pause-deadline.md"
+      ],
+      "outputs": [],
+      "acceptance": "Repair of assembly/run-engine for #854, same Piece ID (bug fix restoring the Contract): a delivered local-work outcome takes Map.take(context callback, [:pause_deadline]) when the v1 and v2 handlers commit it, not the dispatch-time sample, as every other engine-made record does; a redelivery stays a no-op; the README states the host Need (under :pause the context callback gives a future pause_deadline each time the engine samples it) and its Limit; the ELZ-351 guard in expire_and_report/3 stays and its explanatory texts lose the dispatch-time reason; no record kind, ID, option, control, fingerprint, pattern input, charge, bound or lifecycle rule changes, no fold fallback. Tests: local_outcome_pauses_on_the_current_deadline (v1 first excess pauses on 50,000; restart equal), local_outcome_exhaustion_pauses_on_the_current_deadline (v1 Budget exhaustion), native_v2_local_outcome_pause_deadline (v2 path, readers read), report_uses_the_current_deadline (expiry_reports: :owner holds the report); every existing test, ELZ-351's golden default-off trace included, passes unchanged. Three negative controls: the dispatch-time sample kept, the v2 path not changed, the ELZ-351 guard removed. Durable state: local small gate and full review. Output none.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 865,
+      "url": "https://github.com/balungpisah/elzoo/issues/865",
+      "issue_body_sha256": "3144168c9bef78faa8d35e977b2b780e0a83f1340a6f1789ecf538bae24e94ed"
     }
   ],
   "entries": [
