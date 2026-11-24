@@ -64,7 +64,7 @@ the body for its intent key, binding digest and manifest digest, checks its leng
 and SHA-256 against the manifest and hands **exactly those bytes** to the
 provider's `submit/2`; nothing is translated or encoded at dispatch. A missing or
 substituted body sends nothing and is reported `unknown{provider_error}`: the
-failure table attests no-send only for credentials. After a host restart the staged
+batch Adapter has no no-send tag for it. After a host restart the staged
 bytes are gone unless the host persisted them. SHA-256 collision resistance is an
 upstream assumption. `submission` (the canonical submission) is what the caller
 keeps to build its result join.
@@ -94,8 +94,11 @@ a ground: it does not prove that this attempt caused it.
 
 Submit and cancel use ELZ-079's Cure decision `Elzoo.AiTextOutcome` unchanged
 (both Bindings compile its static table; `configure/1` checks it against Cure).
-Only `credentials_unavailable` is attested no-send and may be retried after
-`:rearm` (`Elzoo.AiText.Retry.next/4`); `throttled` and `overloaded` are
+Both Bindings attest the text interface's no-send set
+(`Elzoo.AiText.Outcome.no_send/0`, today `credentials_unavailable` and
+`input_unavailable`), of which the batch path reaches only
+`credentials_unavailable`, the one result that may be retried after `:rearm`
+(`Elzoo.AiText.Retry.next/4`); `throttled` and `overloaded` are
 failed/dispatched/retryable and **not** redispatched by default (ELZ-079
 amendment 1); `unknown` is never retried. A lost submit or cancel stays unknown:
 the owner refuses a second dispatch of the same identity without a ground, and no
