@@ -310,23 +310,26 @@ defmodule Elzoo.RetryDelayTest do
     )
   end
 
-  # Reads the retry timer once the runner has observed the first result.
-  defp retry_target(pid, ref) do
-    case :sys.get_state(pid).ops[ref].timers do
-      %{retry: {_, _, target}} ->
-        target
-
-      _ ->
-        Process.sleep(1)
-        retry_target(pid, ref)
-    end
-  end
-
+  # Captures the first armed retry timer inside the runner (an OTP sys debug hook on each
+  # {:noreply, state}), so a short jitter cannot let the timer fire before the test reads it.
   defp retry_window(outcome, dispatch, policy_opts) do
+    parent = self()
     pid = runner(fn req -> result(req, outcome, dispatch, "retryable") end, policy_opts)
+
+    hook = fn hook_state, event, _ ->
+      with {:noreply, %{ops: ops}} <- event,
+           [{_, _, target}] <- for({_, %{timers: %{retry: timer}}} <- ops, do: timer) do
+        send(parent, {:first_retry, target})
+        :done
+      else
+        _ -> hook_state
+      end
+    end
+
+    :ok = :sys.install(pid, {hook, nil})
     t0 = System.monotonic_time(:millisecond)
-    {:ok, ref} = Runner.submit(pid, request("j"))
-    target = retry_target(pid, ref)
+    {:ok, _ref} = Runner.submit(pid, request("j"))
+    assert_receive {:first_retry, target}, 2000
     {t0, target, System.monotonic_time(:millisecond)}
   end
 
