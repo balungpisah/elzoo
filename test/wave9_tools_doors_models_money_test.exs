@@ -20,8 +20,9 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
     WebhookOut
   }
 
-  alias Elzoo.RetryTimeout
-  alias Elzoo.Wave9.{AppRepo, OwnerRepo, Provider}
+  alias Elzoo.{McpRuntime, OauthClient, RetryTimeout}
+  alias Elzoo.Wave9.{AppRepo, OwnerRepo, Provider, Recorder, Tools}
+  alias Elzoo.Wave9.Bots, as: B
   alias Elzoo.Wave9.Helper, as: H
 
   setup_all do
@@ -31,8 +32,17 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
     facts = H.role_guard!(role)
     {:ok, provider} = Provider.start()
     Process.unlink(provider)
-    on_exit(fn -> if Process.alive?(provider), do: Agent.stop(provider) end)
-    %{role: role, facts: facts}
+    registries = B.registries!()
+    lua_dir = Path.join(System.tmp_dir!(), "wave9-lua-" <> H.hex(4))
+    {:ok, lua} = Elzoo.LuaSandbox.build(Mix.Project.deps_paths()[:lua_source], lua_dir)
+
+    on_exit(fn ->
+      if Process.alive?(provider), do: Agent.stop(provider)
+      for pid <- registries, Process.alive?(pid), do: Supervisor.stop(pid)
+      File.rm_rf!(lua_dir)
+    end)
+
+    %{role: role, facts: facts, lua: lua}
   end
 
   setup %{role: role} do
@@ -109,6 +119,242 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
 
       for {k, _} <- H.new_tables(),
           do: assert("#{w.p[k]}.elzoo_tenant_id" in readers, "#{k}")
+    end
+  end
+
+  # ------------------------------------------------------------ group 1: tools
+
+  defp echo_bot(w, label, session) do
+    H.env(w, {:mcp_session, label}, session)
+    B.script(w, label, [B.propose([{"mcp_echo", %{"x" => label}}]), B.say("done " <> label)])
+    B.start_bot!(w, "T1", label, B.agent_spec(label, [:mcp]), "Call the echo tool.")
+  end
+
+  defp answered!(w, label) do
+    B.finished!(w, label)
+
+    # The completion is the answer: the content of the model call that the finish names.
+    assert {:ok, %{schema_id: "elzoo.ai-text.result", payload: %{"finish" => "stop"} = answer}} =
+             B.result(w, label)
+
+    answer["content"]
+  end
+
+  defp tool_calls(w),
+    do: for({{"tools/call", _}, _} = r <- Enum.with_index(Tools.recorded(w)), do: r)
+
+  defp has?(value, needles) when is_binary(value),
+    do: Enum.any?(needles, &String.contains?(value, &1))
+
+  defp has?(value, needles),
+    do: has?(inspect(value, limit: :infinity, printable_limit: :infinity), needles)
+
+  describe "group 1: tools" do
+    test "OAuth code flow, admission and session, one refresh, no token at rest, invalid_grant",
+         %{w: w0} do
+      w = B.engines!(w0)
+      b = Tools.oauth!(w)
+      srv = Recorder.start(w.env)
+      on_exit(fn -> Recorder.stop(srv) end)
+
+      # The code flow: the token request carried a verifier whose S256 hash is the challenge.
+      {state, code, result} = Tools.authorize!(w, b, "T1", "conn-1")
+      assert {:ok, %{grant: :authorization_code, state: :active, connection_id: "conn-1"}} = result
+      assert [_] = Tools.token_requests(w, "authorization_code")
+      [t1] = H.env(w, :issued)
+      assert Tools.b64token?(t1["access_token"]) and Tools.b64token?(t1["refresh_token"])
+
+      # The same state again: invalid_state with no second exchange.
+      assert OauthClient.complete_authorization(b, "T1", %{state: state, code: code}) ==
+               {:error, :invalid_state}
+
+      assert [_] = Tools.token_requests(w, "authorization_code")
+
+      # Admission: one OAuth Need call; the session of the admitted config's credential Need.
+      config = Tools.runtime!(w, b, "T1", "conn-1")
+      assert {:ok, client_config} = McpRuntime.admit(config)
+      assert H.env(w, :oauth_calls) == 1
+      s1 = Tools.session!(w, client_config, srv.url)
+      assert [%{"name" => "echo"} | _] = s1.snapshot.tools
+
+      # A bot calls the server's tool through the MCP tool binding; each request had the token.
+      echo_bot(w, "bot1", s1)
+      answered!(w, "bot1")
+
+      assert [{"bot1", {:completed, %{content: [%{"text" => "echo:bot1"}]}}}] =
+               H.env(w, :mcp_results)
+
+      assert [_ | _] = tool_calls(w)
+
+      for {_label, auth} <- Tools.recorded(w),
+          do: assert(auth == ["Bearer " <> t1["access_token"]])
+
+      # One refresh: two Runs, each with its own session of the admitted config, at once.
+      s2 = Tools.session!(w, client_config, srv.url)
+      s3 = Tools.session!(w, client_config, srv.url)
+      seen = length(Tools.recorded(w))
+      H.tick(w, 61_000)
+      H.env(w, :hold_refresh, true)
+      echo_bot(w, "bot2", s2)
+      echo_bot(w, "bot3", s3)
+      B.await!(fn -> H.env(w, :refresh_held) end)
+
+      # The second caller waits on the connection row (as elzoo_app, in pg_locks).
+      B.await!(fn ->
+        [[n]] = H.q!(AppRepo, "SELECT count(*) FROM pg_locks WHERE NOT granted")
+        n > 0
+      end)
+
+      H.env(w, :release_refresh, true)
+      answered!(w, "bot2")
+      answered!(w, "bot3")
+      assert [_] = Tools.token_requests(w, "refresh_token")
+      [_, t2] = H.env(w, :issued)
+
+      results = H.env(w, :mcp_results)
+      assert [{_, {:completed, _}}, {_, {:completed, _}}, {_, {:completed, _}}] = results
+
+      after_move = Enum.drop(Tools.recorded(w), seen)
+      assert length(for {"tools/call", _} <- after_move, do: 1) == 2
+      for {_label, auth} <- after_move, do: assert(auth == ["Bearer " <> t2["access_token"]])
+
+      # No token at rest: no column of the connection holds a token's bytes; no result holds one.
+      tokens = for t <- [t1, t2], k <- ["access_token", "refresh_token"], do: t[k]
+
+      [row] =
+        H.read_as(
+          "T1",
+          "SELECT * FROM #{w.p.oauth}.elzoo_oauth_connections WHERE connection_id = 'conn-1'"
+        )
+
+      assert [_ | _] = row
+      refute Enum.any?(row, &has?(&1, tokens))
+      refute has?(results, tokens)
+
+      # invalid_grant: the tool call that triggers the refresh sends no tools/call.
+      H.env(w, :hold_refresh, false)
+      H.env(w, :refresh_answer, :invalid_grant)
+      H.tick(w, 61_000)
+      seen = length(Tools.recorded(w))
+
+      assert {:refused, :credentials_unavailable} =
+               B.mcp_call(w, s1.session, s1.snapshot, "echo", %{"x" => "after"})
+
+      refute Enum.any?(Enum.drop(Tools.recorded(w), seen), &match?({"tools/call", _}, &1))
+      assert [_, _] = Tools.token_requests(w, "refresh_token")
+
+      assert {:ok, %{state: :reauthorization_required}} =
+               OauthClient.get(b, "T1", %{connection_id: "conn-1"})
+
+      # A later tool call sends nothing to either server; a new admit/1 is refused.
+      recorded = length(Tools.recorded(w))
+
+      assert {:refused, :credentials_unavailable} =
+               B.mcp_call(w, s1.session, s1.snapshot, "echo", %{"x" => "later"})
+
+      assert length(Tools.recorded(w)) == recorded
+      assert [_, _] = Tools.token_requests(w, "refresh_token")
+      assert McpRuntime.admit(config) == {:error, :credentials_unavailable}
+      assert [_, _] = Tools.token_requests(w, "refresh_token")
+      assert H.env(w, :errors) == nil
+    end
+
+    test "code mode: declared calls, an undeclared call, the step bound, bytecode, an expired module call",
+         %{w: w0, lua: lua} do
+      w = B.engines!(w0, lua: lua)
+
+      two_calls =
+        "return function(input) local a = bindings.add({n = input.n}) " <>
+          "local b = bindings.mul({n = a.n}) return {total = b.n} end"
+
+      code = fn label, source, opts ->
+        H.env(w, {:declared, label}, %{functions: ["add", "mul"]})
+
+        B.script(w, label, [
+          B.propose([{"code_run_code", %{"source" => source, "input" => %{"n" => 1}}}]),
+          B.say("done")
+        ])
+
+        B.start_bot!(w, "T1", label, B.agent_spec(label, [:code]), "Run the program.", opts)
+      end
+
+      lua_finish = fn label ->
+        id = B.code_id(label <> ":t:1:1")
+
+        [payload] =
+          for {^id <> ":finish", "finish", "elzoo.agent-loop.tool-result", p} <- B.actions(w, label),
+              do: p
+
+        Jason.decode!(payload["content"]["content"])
+      end
+
+      module_actions = fn label ->
+        for {id, kind, "elzoo.lua-tool.module-call", _} <- B.actions(w, label), do: {id, kind}
+      end
+
+      # Two declared calls: two module-call tool_call actions, admitted, then completed.
+      code.("code1", two_calls, [])
+      answered!(w, "code1")
+      id = B.code_id("code1:t:1:1")
+      assert module_actions.("code1") == [{id <> ":c:0", "tool_call"}, {id <> ":c:1", "tool_call"}]
+      assert [{_, "add", 1}, {_, "mul", 2}] = H.env(w, {:module_calls, "code1"})
+
+      for {action, _} <- module_actions.("code1"),
+          do:
+            assert(
+              [{^action, "completed", _}] =
+                for(s <- B.settlements(w, "code1"), elem(s, 0) == action, do: s)
+            )
+
+      assert %{"status" => "completed", "result" => %{"total" => 4}, "action_id" => _} =
+               lua_finish.("code1")
+
+      # A function the Run did not declare: unlisted_name, no module call.
+      code.("code2", "return function(input) return bindings.wipe({n = 1}) end", [])
+      answered!(w, "code2")
+
+      assert %{"status" => "failed", "reason" => "sandbox_refused", "detail" => "unlisted_name"} =
+               lua_finish.("code2")
+
+      assert module_actions.("code2") == []
+
+      # Over the step bound; a source that begins with the bytecode signature.
+      code.("code3", "return function(input) while true do end end", [])
+      answered!(w, "code3")
+      assert %{"reason" => "sandbox_refused", "detail" => "steps"} = lua_finish.("code3")
+
+      code.("code4", "\eLua" <> " return function(input) return 1 end", [])
+      answered!(w, "code4")
+      assert %{"reason" => "sandbox_refused", "detail" => "lua_error"} = lua_finish.("code4")
+
+      # expiry_reports: :owner — the module call's slot expires at a harness input after the
+      # clock moves; the report reaches lua-tool, which finishes before the run_code deadline.
+      H.env(w, {:hold_module, "code5"}, true)
+      code.("code5", two_calls, expiry: true)
+      B.await!(fn -> B.held?(w, {:module, "code5"}) end)
+      started = H.now(w)
+      H.tick(w, B.module_ms() + 1)
+
+      assert {:ok, _} = B.input!(w, "code5", "wake:code5", %{"kind" => "wake"})
+      answered!(w, "code5")
+      id = B.code_id("code5:t:1:1")
+
+      assert %{
+               "status" => "failed",
+               "reason" => "module_call_not_completed",
+               "action_id" => run_action
+             } = lua_finish.("code5")
+
+      assert run_action == id <> ":r:1"
+
+      assert [{_, "expired", _}] =
+               for(s <- B.settlements(w, "code5"), elem(s, 0) == id <> ":c:0", do: s)
+
+      assert [{_, "completed", at}] =
+               for(s <- B.settlements(w, "code5"), elem(s, 0) == "code5:t:1:1", do: s)
+
+      assert at < started + B.code_ms()
+      assert H.env(w, :errors) == nil
     end
   end
 
