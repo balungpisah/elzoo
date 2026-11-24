@@ -11347,10 +11347,12 @@
     {
       "id": "domain/plan",
       "job": "ELZ-366",
-      "note": "Planned subscriptions over a consumer-owned Ecto Repo on PostgreSQL 16 under the state/tenant-isolation floor: one subscription per tenant to a plan version with a domain/money fee, UTC monthly or yearly periods from an anchor clamped to the month's last day, trial, renewal of exactly one due period returning its fee line and domain/entitlement grant, change at the next period without proration, cancel at period end or now.",
+      "note": "Durable subscriptions in a plain Ecto/Postgrex table on PostgreSQL 16 under the state/tenant-isolation floor: one subscription per tenant at a time (a unique partial index on tenant for rows not canceled) to a plan version {plan_id, version} with a non-negative domain/money fee per period stored as its Codec bytes; UTC calendar monthly or yearly periods counted from an anchor (trial_end_ms, or start_ms without a trial) and clamped to the month's last day, each boundary computed from the anchor by the Cure period rule and keeping the anchor's UTC time of day; an optional trial as period 0 with a grant and no fee line; create/3 idempotent by subscription_id (equal bytes return the stored first result as duplicate, other bytes conflict, an open subscription of the tenant subscription_exists); renew/3 under the row lock advances exactly one period when now_ms >= end_ms - renew_ahead_ms (0..86,400,000, default 0), applies the pending change, makes a trialing subscription active and returns the new period's fee line {subscription_id, period, plan, amount} and its domain/entitlement grant <subscription_id>/<index>, a repeat of the same from_index returns that result as duplicate and writes nothing (with no fee line or grant and the withdrawn fee line after a cancel withdrew the period), other indexes stale_period, a cancel at period end never taken ahead and ending the subscription at cancel_ms with no fee line; change/3 takes effect at the next renewal without proration; cancel/3 at :period_end fixes cancel_ms at the end of the period running at now_ms (the start of a period renewed ahead that has not started, revoking its grant there and withdrawing its fee line) and at :now cancels with one revocation at now_ms for each grant not yet expired, storing the result as last_cancel for get/3; mark_past_due/3 and mark_paid/3 take the host's invoice reading; every transition names the expected revision (stale_revision, then {:state, state}); fixed error atoms that echo no ID; a database failure is unavailable and safe to retry. No proration, refund, tax, dunning, timer, invoice, grant or journal write.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/plan/piece.json",
+      "manifest_sha256": "81637b7bb8df7f1146eb0ec67bce8e19544410f804088ba839ff563576e0dcdc"
     },
     {
       "id": "domain/invoice",
