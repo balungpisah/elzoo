@@ -9682,6 +9682,29 @@
       "issue": 874,
       "url": "https://github.com/balungpisah/elzoo/issues/874",
       "issue_body_sha256": "9d6ecc7c0c2073adeccd56b7e234c6a5d1e2f1744db825e2fb14928dca2c2d15"
+    },
+    {
+      "id": "ELZ-368",
+      "title": "ELZ-368 — The merge queue waits for every required check on the exact head before it merges",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-277"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-368-queue-awaits-required-checks.md"
+      ],
+      "outputs": [],
+      "acceptance": "Defect #887: before gh pr merge the queue reads the required status checks of main from its branch protection and waits until the newest check run of each one on the exact head has completed, including gleam-hosted when no Gleam path changed; a non-success conclusion stops without a merge, an unreadable list refuses, and the pre-merge checks follow the wait. Evidence, modes and runs-on unchanged. Guard tests with a negative control, a read-only live check, full local gate and full hosted check.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 891,
+      "url": "https://github.com/balungpisah/elzoo/issues/891",
+      "issue_body_sha256": "e988b8a96506037a8e5aedff88fca6760fc01fd82201ab08a108a4f8126022df"
     }
   ],
   "entries": [
