@@ -9468,7 +9468,7 @@
       "baseline_status": "planned",
       "disposition": "ready-contract",
       "manifest": "pieces/delivery/room/piece.json",
-      "manifest_sha256": "f054eee4e0c716ca0813d522b7ac15e58d934424d3c33f5c371077ad4e953e1d",
+      "manifest_sha256": "ca1fdcc502b35c6b03dce5e8f3c8af47e20bb471c1854d878f2183ff151c68a8",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
