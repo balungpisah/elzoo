@@ -10,7 +10,7 @@ defmodule Elzoo.AiText.Retry do
   attempt (`:completed` or a failure tag) and returns:
 
   - `{:retry, delay_ms}`: only for a retryable **attested no-send** result
-    (`credentials_unavailable`); the host then issues `:rearm` and `:dispatch`
+    (`credentials_unavailable`, `input_unavailable`); the host then issues `:rearm` and `:dispatch`
     after the delay;
   - `{:stop, decision}` otherwise, with `decision` one of `:settle`,
     `:permanent`, `:exhausted`, `:unresolved` or `:deadline`.

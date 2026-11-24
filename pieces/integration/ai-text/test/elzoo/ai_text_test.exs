@@ -48,6 +48,8 @@ defmodule Elzoo.AiTextTest do
       sink: Keyword.get(opts, :sink, Sink.to_pid(parent))
     ]
 
+    base = base ++ Keyword.take(opts, [:artifacts, :image_bounds])
+
     {:ok, c} = AiText.configure(base)
     c
   end
@@ -331,14 +333,17 @@ defmodule Elzoo.AiTextTest do
 
   ## I6 classification table
 
-  test "I6 the Binding table equals the Cure decision; only credentials_unavailable is attested no-send (decision + binding)" do
+  test "I6 the Binding table equals the Cure decision; only credentials_unavailable and input_unavailable are attested no-send (decision + binding)" do
     assert Outcome.verify()
     {:ok, b} = Elzoo.AiText.Binding.load(Elzoo.AiText.TestBinding)
-    assert b.no_send_attestations == [:credentials_unavailable]
+    assert Enum.sort(b.no_send_attestations) == [:credentials_unavailable, :input_unavailable]
+    refute :input_unavailable in Outcome.provider_tags()
 
     expected = %{
       credentials_unavailable:
         {{:refused, :credentials_unavailable}, {"timed_out", "not_dispatched", "unavailable"}},
+      input_unavailable:
+        {{:refused, :input_unavailable}, {"timed_out", "not_dispatched", "unavailable"}},
       provider_invalid_request:
         {{:refused, :invalid_request}, {"failed", "dispatched", "permanent"}},
       provider_too_large: {{:refused, :too_large}, {"failed", "dispatched", "permanent"}},
@@ -372,6 +377,7 @@ defmodule Elzoo.AiTextTest do
        ctx do
     cases = [
       {fn _ -> {:ok, {:status, :credentials_unavailable}} end, {:unknown, :provider_error}},
+      {fn _ -> {:ok, {:status, :input_unavailable}} end, {:unknown, :provider_error}},
       {fn _ -> raise "boom #{@secret}" end, {:unknown, :provider_error}},
       {fn _ -> {:ok, {:raw, Map.delete(TestHelper.raw(), :response_id)}} end,
        {:unknown, :malformed_response}},
@@ -657,6 +663,419 @@ defmodule Elzoo.AiTextTest do
     assert {:outcome, _, {:completed, %{content: "hello", finish: :stop}}} = delivery
     assert {:Confirmed, 1} = status.phase
     assert calls() == 1
+  end
+
+  ## Image input by artifact reference (Contract amendment 2)
+
+  @bytes_a "IMAGE-BYTES-A-SECRET-91"
+  @bytes_b "IMAGE-BYTES-B-SECRET-37"
+
+  defp record(id, bytes, media \\ "image/png", version \\ 1) do
+    %{
+      artifact_id: id,
+      version: version,
+      hash_format: 1,
+      sha256: Base.encode16(:crypto.hash(:sha256, <<1, bytes::binary>>), case: :lower),
+      size_bytes: byte_size(bytes),
+      media_type: media
+    }
+  end
+
+  # The artifact read Need double: `answers` maps an artifact id to the Need's
+  # answer (a term, or a 0-arity function for a raising or changing Need). Each
+  # call is reported to the test process.
+  defp need(answers) do
+    parent = self()
+
+    fn %{artifact_id: id} = ref ->
+      send(parent, {:need, ref})
+
+      case Map.fetch(answers, id) do
+        {:ok, f} when is_function(f, 0) -> f.()
+        {:ok, answer} -> answer
+        :error -> {:error, :not_found}
+      end
+    end
+  end
+
+  defp stored(id, bytes, media \\ "image/png"),
+    do: {id, {:ok, %{record: record(id, bytes, media), bytes: bytes}}}
+
+  defp image_part(id, media \\ "image/png", version \\ 1),
+    do: %{
+      "type" => "image",
+      "artifact" => %{"id" => id, "version" => version},
+      "media_type" => media
+    }
+
+  defp parts_request(parts), do: request(%{"messages" => [%{"role" => "user", "parts" => parts}]})
+
+  defp image_config(answers, opts \\ []) do
+    parent = self()
+
+    config(
+      Keyword.merge(
+        [
+          provider: Elzoo.AiText.TestProviderImages,
+          artifacts: need(answers),
+          credentials: fn ->
+            send(parent, :credential_read)
+            {:ok, @secret}
+          end,
+          respond: fn r ->
+            send(parent, {:sent, r})
+            {:ok, {:raw, TestHelper.raw()}}
+          end
+        ],
+        opts
+      )
+    )
+  end
+
+  defp needs do
+    receive do
+      {:need, _} -> 1 + needs()
+    after
+      0 -> 0
+    end
+  end
+
+  test "image parts: admission keeps references only; the Adapter resolves each image, translate gets the bytes in order, one call (check, admission, Adapter)",
+       ctx do
+    c = image_config(Map.new([stored("img-a", @bytes_a), stored("img-b", @bytes_b, "image/jpeg")]))
+
+    req =
+      parts_request([
+        image_part("img-a"),
+        %{"type" => "text", "text" => "compare"},
+        image_part("img-b", "image/jpeg")
+      ])
+
+    {:ok, a} = admit(c, req)
+    assert needs() == 2
+    refute_received :credential_read
+    refute a.arguments =~ @bytes_a or a.arguments =~ @bytes_b
+    {:ok, decoded, _} = Request.decode(a.arguments)
+
+    assert [%{role: :user, parts: refs}] = decoded.messages
+
+    assert refs == [
+             %{type: :image, artifact_id: "img-a", version: 1, media_type: "image/png"},
+             %{type: :text, text: "compare"},
+             %{type: :image, artifact_id: "img-b", version: 1, media_type: "image/jpeg"}
+           ]
+
+    {pid, _a, status, delivery} = dispatch(c, req, ctx, "img")
+    assert_received {:need, %{artifact_id: "img-a", version: 1}}
+    assert_received {:need, %{artifact_id: "img-b", version: 1}}
+    # Two at the test's admission inside dispatch/4, two in the send task.
+    assert needs() == 2
+    assert_received {:sent, sent}
+
+    assert [%{role: :user, parts: parts}] = sent.messages
+
+    assert parts == [
+             %{type: :image, media_type: "image/png", bytes: @bytes_a},
+             %{type: :text, text: "compare"},
+             %{type: :image, media_type: "image/jpeg", bytes: @bytes_b}
+           ]
+
+    assert {:outcome, _, {:completed, %{content: "hello"}}} = delivery
+    assert {:Confirmed, 1} = status.phase
+    assert calls() == 1
+
+    # No image byte in the intent's state, its status, the outcome or the Config.
+    text =
+      inspect({:sys.get_state(pid), status, delivery, c},
+        limit: :infinity,
+        printable_limit: :infinity
+      )
+
+    refute text =~ @bytes_a
+    refute text =~ @bytes_b
+  end
+
+  test "image parts to a provider without :image_input, or without an artifact Need, are unsupported_feature before any Need call (check)" do
+    req =
+      parts_request([image_part("img-a"), %{"type" => "text", "text" => "x"}, image_part("img-b")])
+
+    answers = Map.new([stored("img-a", @bytes_a), stored("img-b", @bytes_b)])
+
+    for c <- [
+          image_config(answers, provider: Elzoo.AiText.TestProvider),
+          config(provider: Elzoo.AiText.TestProviderImages)
+        ] do
+      assert {:error, {:refused, :unsupported_feature}} = admit(c, req)
+
+      assert {:error, :unsupported_feature} =
+               AiText.check(c, elem(Request.decode(Request.canonical(req)), 1))
+    end
+
+    assert needs() == 0
+    refute_received :credential_read
+    refute_received {:translate, _}
+  end
+
+  test "image bounds at their edges: 8 and 9 images, max_image_bytes, max_total_image_bytes, 64 and 65 parts, media types (Request, check)" do
+    many = for i <- 1..9, do: stored("i#{i}", "b#{i}")
+    c = image_config(Map.new(many))
+
+    images = for i <- 1..9, do: image_part("i#{i}")
+    assert {:ok, _} = admit(c, parts_request(Enum.take(images, 8)))
+    assert needs() == 8
+
+    # The ninth image is counted over the whole request, across messages.
+    split =
+      request(%{
+        "messages" => [
+          %{"role" => "user", "parts" => Enum.take(images, 4)},
+          %{"role" => "user", "parts" => Enum.drop(images, 4)}
+        ]
+      })
+
+    assert {:error, {:refused, :too_large}} = admit(c, split)
+    assert {:error, {:refused, :too_large}} = admit(c, parts_request(images))
+    assert needs() == 0
+
+    text = %{"type" => "text", "text" => "t"}
+    assert {:ok, _} = admit(c, parts_request([image_part("i1") | List.duplicate(text, 63)]))
+    assert needs() == 1
+
+    assert {:error, {:refused, :invalid_request}} =
+             admit(c, parts_request([image_part("i1") | List.duplicate(text, 64)]))
+
+    assert needs() == 0
+
+    # Default bounds: 5,242,880 bytes per image, 20,971,520 in all.
+    max = :binary.copy("x", 5_242_880)
+    over = max <> "x"
+
+    c =
+      image_config(
+        Map.new([
+          stored("max-1", max),
+          stored("max-2", max),
+          stored("max-3", max),
+          stored("max-4", max),
+          stored("over", over),
+          stored("one", "y")
+        ])
+      )
+
+    assert {:ok, _} = admit(c, parts_request([image_part("max-1")]))
+    assert {:error, {:refused, :too_large}} = admit(c, parts_request([image_part("over")]))
+    four = for i <- 1..4, do: image_part("max-#{i}")
+    assert {:ok, _} = admit(c, parts_request(four))
+    assert {:error, {:refused, :too_large}} = admit(c, parts_request(four ++ [image_part("one")]))
+
+    # Configured bounds.
+    c =
+      image_config(Map.new([stored("a", "12345"), stored("b", "123"), stored("c", "1234")]),
+        image_bounds: %{max_image_bytes: 4, max_total_image_bytes: 7}
+      )
+
+    assert {:error, {:refused, :too_large}} = admit(c, parts_request([image_part("a")]))
+    assert {:ok, _} = admit(c, parts_request([image_part("b"), image_part("c")]))
+
+    assert {:error, {:refused, :too_large}} =
+             admit(c, parts_request([image_part("b"), image_part("c"), image_part("b")]))
+
+    for media <- ~w(image/png image/jpeg image/webp image/gif) do
+      c = image_config(Map.new([stored("m", "m", media)]))
+      assert {:ok, _} = admit(c, parts_request([image_part("m", media)])), media
+    end
+
+    _ = needs()
+    c = image_config(Map.new([stored("m", "m", "image/svg+xml")]))
+
+    assert {:error, {:refused, :unsupported_feature}} =
+             admit(c, parts_request([image_part("m", "image/svg+xml")]))
+
+    assert needs() == 0
+
+    base = [
+      binding: Elzoo.AiText.TestBinding,
+      tenant: "t",
+      provider: Elzoo.AiText.TestProviderImages,
+      credentials: fn -> {:ok, "k"} end,
+      models: ["m"],
+      sink: fn _, _ -> :ok end
+    ]
+
+    for bad <- [
+          [image_bounds: %{max_image_bytes: 5_242_881, max_total_image_bytes: 1}],
+          [image_bounds: %{max_image_bytes: 1, max_total_image_bytes: 41_943_041}],
+          [image_bounds: %{max_image_bytes: 0, max_total_image_bytes: 1}],
+          [image_bounds: %{max_image_bytes: 1, max_total_image_bytes: 1, extra: 1}],
+          [image_bounds: %{max_image_bytes: 1}],
+          [artifacts: fn -> :ok end]
+        ] do
+      assert {:error, :configuration} = AiText.configure(base ++ bad), inspect(bad)
+    end
+
+    assert {:ok, _} =
+             AiText.configure(
+               base ++
+                 [
+                   artifacts: fn _ -> :ok end,
+                   image_bounds: %{max_image_bytes: 5_242_880, max_total_image_bytes: 41_943_040}
+                 ]
+             )
+  end
+
+  test "an unresolvable image is input_unavailable before any intent, a media type mismatch invalid_request; a failure at dispatch is the attested no-send and is retried (check, Adapter, Retry)",
+       ctx do
+    changed =
+      binary_part(@bytes_a, 0, 5) <> "X" <> binary_part(@bytes_a, 6, byte_size(@bytes_a) - 6)
+
+    rec = record("img", @bytes_a)
+
+    unavailable = [
+      {:ok, %{record: rec, bytes: changed}},
+      {:ok, %{record: %{rec | size_bytes: rec.size_bytes + 1}, bytes: @bytes_a}},
+      {:ok, %{record: %{rec | artifact_id: "other"}, bytes: @bytes_a}},
+      {:ok, %{record: %{rec | version: 2}, bytes: @bytes_a}},
+      {:ok, %{record: %{rec | sha256: String.upcase(rec.sha256)}, bytes: @bytes_a}},
+      {:ok, %{record: %{rec | hash_format: 0}, bytes: @bytes_a}},
+      {:ok, %{record: Map.delete(rec, :sha256), bytes: @bytes_a}},
+      {:ok, %{bytes: @bytes_a}},
+      {:ok, @bytes_a},
+      {:error, :not_found},
+      {:error, :deleted},
+      fn -> raise "store down #{@bytes_a}" end,
+      fn -> throw(:x) end,
+      fn -> exit(:x) end
+    ]
+
+    for {answer, i} <- Enum.with_index(unavailable) do
+      c = image_config(%{"img" => answer})
+      result = admit(c, parts_request([image_part("img")]))
+      assert {:error, {:refused, :input_unavailable}} = result, "case #{i}"
+      refute inspect(result) =~ @bytes_a
+    end
+
+    refute_received :credential_read
+    refute_received {:translate, _}
+
+    c = image_config(Map.new([stored("img", @bytes_a, "image/jpeg")]))
+    assert {:error, {:refused, :invalid_request}} = admit(c, parts_request([image_part("img")]))
+    _ = needs()
+
+    # Answers at admission, fails at dispatch: attested no-send, then retried.
+    counter = :counters.new(1, [])
+
+    flaky = fn ->
+      :counters.add(counter, 1, 1)
+
+      if :counters.get(counter, 1) == 2,
+        do: {:error, :deleted},
+        else: {:ok, %{record: rec, bytes: @bytes_a}}
+    end
+
+    c = image_config(%{"img" => flaky})
+    {:ok, policy} = Elzoo.RetryTimeout.policy(max_attempts: 3, base_backoff_ms: 10)
+    {:ok, a} = admit(c, parts_request([image_part("img")]))
+    pid = owner(c, a, ctx)
+    {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+    status = settled(pid)
+    key = a.key
+
+    assert_receive {AiText, ^key,
+                    {:outcome, _, {:refused, :input_unavailable, %{retry_after: nil}} = d}}
+
+    refute inspect({d, status}) =~ @bytes_a
+    refute_received :credential_read
+    assert calls() == 0
+    assert {:retry, 10} = Retry.next(policy, 1, :input_unavailable)
+    assert {:ok, _} = Intent.advance(pid, :rearm)
+    {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+    assert {:Confirmed, 2} = settled(pid).phase
+    assert_receive {AiText, ^key, {:outcome, _, {:completed, _}}}
+    assert calls() == 1
+  end
+
+  test "parts refusals: document part, parts on another role, text with parts, text parts only, malformed parts (Request)" do
+    text = %{"type" => "text", "text" => "t"}
+    img = image_part("img")
+
+    decode = fn messages -> Request.decode(Jason.encode!(request(%{"messages" => messages}))) end
+
+    unsupported = [
+      [
+        %{
+          "role" => "user",
+          "parts" => [img, %{"type" => "document", "artifact" => %{"id" => "d", "version" => 1}}]
+        }
+      ],
+      [%{"role" => "user", "parts" => [img, %{"type" => "audio"}]}],
+      [%{"role" => "system", "parts" => [img]}],
+      [%{"role" => "assistant", "parts" => [img]}],
+      [%{"role" => "tool_result", "tool_use_id" => "a", "parts" => [img]}],
+      [%{"role" => "user", "parts" => [img], "document" => "d"}],
+      [%{"role" => "user", "parts" => [img], "image" => "i"}]
+    ]
+
+    for m <- unsupported, do: assert({:error, :unsupported_feature} = decode.(m), inspect(m))
+
+    invalid = [
+      [%{"role" => "user", "text" => "t", "parts" => [img]}],
+      [%{"role" => "user", "parts" => [text]}],
+      [%{"role" => "user", "parts" => []}],
+      [%{"role" => "user", "parts" => img}],
+      [%{"role" => "user", "parts" => [img, %{"type" => "text"}]}],
+      [%{"role" => "user", "parts" => [img, Map.put(text, "extra", 1)]}],
+      [%{"role" => "user", "parts" => [img, %{"text" => "t"}]}],
+      [%{"role" => "user", "parts" => [Map.delete(img, "media_type")]}],
+      [%{"role" => "user", "parts" => [Map.put(img, "text", "t")]}],
+      [%{"role" => "user", "parts" => [image_part("img", "image/png", 0)]}],
+      [%{"role" => "user", "parts" => [image_part("img", "image/png", 2_147_483_648)]}],
+      [%{"role" => "user", "parts" => [image_part("img", "image/png", "1")]}],
+      [%{"role" => "user", "parts" => [image_part("..")]}],
+      [%{"role" => "user", "parts" => [image_part("a/b")]}],
+      [%{"role" => "user", "parts" => [image_part(String.duplicate("a", 65))]}],
+      [%{"role" => "user", "parts" => [put_in(img, ["artifact", "extra"], 1)]}],
+      [%{"role" => "user", "parts" => [img, "text"]}]
+    ]
+
+    for m <- invalid, do: assert({:error, :invalid_request} = decode.(m), inspect(m))
+
+    assert {:ok, r, _} =
+             decode.([
+               %{
+                 "role" => "user",
+                 "parts" => [image_part(String.duplicate("a", 64), "image/gif", 2_147_483_647)]
+               }
+             ])
+
+    assert [%{parts: [%{version: 2_147_483_647, media_type: "image/gif"}]}] = r.messages
+  end
+
+  test "conformance kit: the :image_input scenario of image_scenarios/0 passes with the stub provider; scenarios/0 keeps its 15 (Conformance)",
+       ctx do
+    assert length(Conformance.scenarios()) == 15
+    refute :image_input in Conformance.ids()
+    assert [%{id: :image_input}] = Conformance.image_scenarios()
+    parent = self()
+
+    c =
+      config(
+        provider: Elzoo.AiText.TestProviderImages,
+        artifacts: Conformance.image_need(),
+        respond: fn r ->
+          send(parent, {:sent, r})
+          {:ok, {:raw, TestHelper.raw(Conformance.text())}}
+        end
+      )
+
+    for %{id: id} <- Conformance.image_scenarios() do
+      {_pid, _a, _status, delivery} =
+        dispatch(c, Conformance.request(id, "test-model"), ctx, "conf-#{id}")
+
+      assert :ok = Conformance.check(id, delivery, calls())
+      assert_received {:sent, sent}
+      png = Conformance.image()
+      assert Enum.any?(sent.messages, &match?(%{parts: [_, %{bytes: ^png}]}, &1))
+    end
   end
 
   ## Configuration and redaction
