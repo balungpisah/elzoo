@@ -29,6 +29,24 @@ policy = Elzoo.EgressPolicy.policy(hosts: ["mcp.example.test"], ports: [443])
 # Egress first: an http URL is refused with egress-policy's own reason.
 {:error, {:egress, :scheme}} = Elzoo.McpRuntime.admit(config)
 
+# The OAuth form: a tenant OAuth connection of integration/oauth-client. The host
+# wraps Elzoo.OauthClient.access_token/3 with its own binding in the Need:
+# fn %{tenant: t, connection_id: id} ->
+#   Elzoo.OauthClient.access_token(binding, t, %{connection_id: id})
+# end
+{:ok, oauth_config} =
+  Elzoo.McpRuntime.configure(
+    tenant: "tenant-a",
+    server: "notes",
+    url: "http://mcp.example.test/mcp",
+    policy: policy,
+    resolver: fn _host -> raise "not called: the scheme is refused first" end,
+    credential: %{oauth: "conn-notes"},
+    oauth: fn _request -> raise "not called: egress refuses first" end
+  )
+
+{:error, {:egress, :scheme}} = Elzoo.McpRuntime.admit(oauth_config)
+
 # A query is refused at construction.
 {:error, :configuration} =
   Elzoo.McpRuntime.configure(
