@@ -765,6 +765,76 @@ defmodule Elzoo.AiText.AnthropicTest do
     end
   end
 
+  ## Cache breakpoint at the wire index (ELZ-380, defect #913)
+
+  # Each content block of the captured request's messages that carries
+  # cache_control, as {wire message index, block type, tool_use_id or text}.
+  defp marked(req),
+    do:
+      for(
+        {%{"content" => c}, i} <- Enum.with_index(wire(req)["messages"]),
+        is_list(c),
+        %{"cache_control" => _} = b <- c,
+        do: {i, b["type"], b["tool_use_id"] || b["text"]}
+      )
+
+  # Non-system messages `first`, an assistant with two tool calls, two tool
+  # results, a user "LAST"; system, tools and message `breakpoint` hinted.
+  defp tool_run(first, breakpoint),
+    do:
+      request(%{
+        "tools" => Conformance.request(:tool_well_formed, @model)["tools"],
+        "messages" => [
+          %{"role" => "system", "text" => "Answer briefly."},
+          first,
+          %{
+            "role" => "assistant",
+            "text" => "",
+            "tool_calls" =>
+              for(
+                id <- ~w(toolu_01A toolu_01B),
+                do: %{"id" => id, "name" => "lookup", "arguments" => %{"q" => "x"}}
+              )
+          },
+          %{"role" => "tool_result", "tool_use_id" => "toolu_01A", "text" => "a"},
+          %{"role" => "tool_result", "tool_use_id" => "toolu_01B", "text" => "b"},
+          %{"role" => "user", "text" => "LAST"}
+        ],
+        "cache_hint" => hint(["system", "tools", %{"message" => breakpoint}])
+      })
+
+  test "cache breakpoint on the last tool result of a run marks its block in the merged wire message, not the next message (translate + captured request)",
+       ctx do
+    {{:outcome, _, {:completed, _}}, [req], _, _} =
+      run(ctx, tool_run(%{"role" => "user", "text" => "u0"}, 3), fn _ -> ok_text() end)
+
+    conforms([req], ctx.schema)
+    assert marked(req) == [{2, "tool_result", "toolu_01B"}]
+
+    assert [_, _, %{"content" => [%{"tool_use_id" => "toolu_01A"}, _]}, _] =
+             wire(req)["messages"]
+  end
+
+  test "cache breakpoint on the message after a run of tool results marks it at its wire index, never dropped (translate + captured request)",
+       ctx do
+    {{:outcome, _, {:completed, _}}, [req], _, _} =
+      run(ctx, tool_run(%{"role" => "user", "text" => "u0"}, 4), fn _ -> ok_text() end)
+
+    conforms([req], ctx.schema)
+    assert marked(req) == [{3, "text", "LAST"}]
+  end
+
+  test "cache breakpoint on a tool result before the end of its run is unsupported_feature with no request (translate)" do
+    # req_llm would mark the run's last tool result, toolu_01B.
+    {agent, plug} = AnthropicStub.start(fn _ -> ok_text() end)
+    req = tool_run(%{"role" => "user", "text" => "u0"}, 2)
+
+    assert {:error, {:refused, :unsupported_feature}} =
+             AiText.admission(config(plug), Conformance.declaration(req, "t", 10_000))
+
+    assert AnthropicStub.requests(agent) == []
+  end
+
   ## Image input (ELZ-371): image parts as Messages API image blocks
 
   @no_image_model "claude-3-5-haiku-20241022"
@@ -957,9 +1027,9 @@ defmodule Elzoo.AiText.AnthropicTest do
       })
     end
 
-    # req_llm merges the two tool results into one wire message, so message 3
-    # (the second tool result here) is the parts message on the wire.
-    merged =
+    # req_llm merges the two tool results into one wire message: message 3 (the
+    # second tool result) is wire message 2, and message 4 the parts message.
+    merged = fn breakpoint ->
       request(%{
         "tools" => Conformance.request(:tool_well_formed, @model)["tools"],
         "messages" => [
@@ -978,10 +1048,11 @@ defmodule Elzoo.AiText.AnthropicTest do
           %{"role" => "tool_result", "tool_use_id" => "toolu_01B", "text" => "b"},
           %{"role" => "user", "parts" => [image_part("one", "image/png")]}
         ],
-        "cache_hint" => hint(["system", "tools", %{"message" => 3}])
+        "cache_hint" => hint(["system", "tools", %{"message" => breakpoint}])
       })
+    end
 
-    for req <- [no_image, conversation.(0), merged] do
+    for req <- [no_image, conversation.(0), merged.(4)] do
       assert {:error, {:refused, :unsupported_feature}} =
                AiText.admission(c, Conformance.declaration(req, "u", 10_000))
 
@@ -1005,6 +1076,38 @@ defmodule Elzoo.AiText.AnthropicTest do
 
     assert [_, _, %{"content" => [%{"cache_control" => %{"type" => "ephemeral"}}]}] =
              wire(req)["messages"]
+
+    {{:outcome, _, {:completed, _}}, [req], _, _} =
+      run(ctx, merged.(3), fn _ -> ok_text() end, opts)
+
+    conforms([req], ctx.schema)
+    assert marked(req) == [{2, "tool_result", "toolu_01B"}]
+  end
+
+  test "image: a cache breakpoint on the text message after a run of tool results in a request with image parts marks that message at its wire index; on the parts message it stays unsupported_feature with no request (translate + captured request)",
+       ctx do
+    opts = [artifacts: need(%{"one" => {Conformance.image(), "image/png"}})]
+
+    parts = %{
+      "role" => "user",
+      "parts" => [%{"type" => "text", "text" => "See."}, image_part("one", "image/png")]
+    }
+
+    {{:outcome, _, {:completed, _}}, [req], _, _} =
+      run(ctx, tool_run(parts, 4), fn _ -> ok_text() end, opts)
+
+    conforms([req], ctx.schema)
+    assert marked(req) == [{3, "text", "LAST"}]
+
+    {agent, plug} = AnthropicStub.start(fn _ -> ok_text() end)
+
+    assert {:error, {:refused, :unsupported_feature}} =
+             AiText.admission(
+               config(plug, opts),
+               Conformance.declaration(tool_run(parts, 0), "p", 10_000)
+             )
+
+    assert AnthropicStub.requests(agent) == []
   end
 
   test "image: translate/2 alone refuses an image over the documented 10 MB base64 limit too_large and accepts one at it; ai-text's largest max_image_bytes is sent (translate + captured request)",
