@@ -466,6 +466,13 @@ defmodule Elzoo.PaymentLifecycleTest do
       assert status.phase == {:Definite, :AdapterNoSend, 1} and not status.flags.disarmed
     end
 
+    # The owner's status cannot tell store_unavailable from not_sent (one mapping), so the
+    # declared tag is read from each Adapter directly.
+    for {adapter, a} <- [{PL.ChargeAdapter, ca}, {PL.RefundAdapter, ra}] do
+      req = %{context: ctx.lc, key: a.key, attempt: 1, attempt_id: "x", arguments: a.arguments}
+      assert {:error, :store_unavailable, _} = adapter.send_effect(req)
+    end
+
     assert Script.calls() == []
     Harness.q!(OwnerRepo, ~s(GRANT SELECT ON #{obs} TO "#{ctx.role}"))
 
