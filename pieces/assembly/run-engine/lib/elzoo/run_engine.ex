@@ -1863,6 +1863,8 @@ defmodule Elzoo.RunEngine do
   def handle_info({:durable_unit_input, id, %{version: 1, kind: :protocol} = record}, s) do
     case current(s) do
       {:ok, s} ->
+        record = local_outcome_context(s, record)
+
         case checked_ingress(s, record.input, Map.merge(record.context, record.correlation)) do
           {:ok, input, correlation, s} ->
             record = %{record | input: input, correlation: correlation}
@@ -1920,6 +1922,8 @@ defmodule Elzoo.RunEngine do
   defp accept_local_work_input(s, id, record) do
     case current(s) do
       {:ok, s} ->
+        record = local_outcome_context(s, record)
+
         case checked_ingress(s, record.input, Map.merge(record.context, record.correlation)) do
           {:ok, input, correlation, s} ->
             record = %{record | input: input, correlation: correlation}
@@ -1947,6 +1951,11 @@ defmodule Elzoo.RunEngine do
   end
 
   defp local_work_protocol_record?(_, _), do: false
+
+  # A local-work outcome takes the host's pause deadline when its delivery is handled for
+  # commit, as every other engine-made record does, never the one of its dispatch.
+  defp local_outcome_context(s, record),
+    do: %{record | context: Map.take(s.opts.context.(), [:pause_deadline])}
 
   defp ingest(%{halted: reason, opts: %{protocol_version: 2}} = s, id, neutral, context)
        when not is_nil(reason) do
@@ -3283,7 +3292,6 @@ defmodule Elzoo.RunEngine do
     clock = s.opts.clock
     c = state.control
     {schema_id, schema_version} = binding.result
-    context = s.opts.context.()
 
     wrap = fn _work_ref, result ->
       {input, correlation} =
@@ -3315,7 +3323,7 @@ defmodule Elzoo.RunEngine do
          attempt_id: slot.attempt_id,
          input: input,
          correlation: correlation,
-         context: Map.take(context, [:pause_deadline])
+         context: %{}
        }}
     end
 

@@ -1105,6 +1105,116 @@ defmodule Elzoo.RunEngineV2Test do
              :erlang.term_to_binary(explicit_state, [:deterministic, {:minor_version, 2}])
   end
 
+  # ELZ-360 (#854): through the v2 path a local-work outcome is committed with the pause
+  # deadline that the host's context callback gives when its delivery is handled. The
+  # work is dispatched while the callback gives 30,000; its outcome comes at 35,000.
+  test "native_v2_local_outcome_pause_deadline" do
+    {c, engine, task} = v2_local_outcome_setup()
+
+    Agent.update(c.context, &Map.put(&1, :pause_deadline, 50_000))
+    Agent.update(c.clock, fn _ -> 35_000 end)
+    send(task, :finish)
+
+    contexts = await_v2_local_outcome_contexts(c)
+    assert_v2_paused_and_read(c, engine)
+    assert contexts == [%{pause_deadline: 50_000}]
+  end
+
+  test "outcome_waiting_in_the_mailbox_takes_the_later_deadline (v2)" do
+    {c, engine, task} = v2_local_outcome_setup()
+
+    # The outcome waits in the suspended engine's mailbox while the callback still
+    # gives 30,000; it is handled after the callback gives 50,000.
+    :ok = :sys.suspend(engine)
+    Agent.update(c.clock, fn _ -> 35_000 end)
+    send(task, :finish)
+    await_v2_mailbox(engine)
+    Agent.update(c.context, &Map.put(&1, :pause_deadline, 50_000))
+    Agent.update(c.clock, fn _ -> 36_000 end)
+    :ok = :sys.resume(engine)
+
+    contexts = await_v2_local_outcome_contexts(c)
+    assert_v2_paused_and_read(c, engine)
+    assert contexts == [%{pause_deadline: 50_000}]
+    # The outcome keeps the time when the work finished, not when it was handled.
+    assert for({"local:" <> _, r} <- protocol_records_with_ids(c), do: r.input["at_ms"]) ==
+             [35_000]
+  end
+
+  # A v2 :pause Run with request cap 1 whose root asks local work "slow" (blocked until
+  # told) and, on its outcome, a second request: the first excess.
+  defp v2_local_outcome_setup do
+    Process.register(self(), :run_engine_observer)
+    parent = self()
+
+    c =
+      fixture(
+        protocol_version: 2,
+        request_cap: 1,
+        budget_rule: :pause,
+        pattern:
+          {TestPattern, :waiting,
+           %{
+             name: "root",
+             script: [
+               request_v2([action("slow")]),
+               request_v2([action("x", "ask_person")]),
+               :wait
+             ]
+           }}
+      )
+
+    bindings =
+      Map.update!(c.opts[:bindings], "local_work", fn binding ->
+        Map.put(binding, :work, fn a -> {TestPattern, :blocked, [parent, a["payload"]]} end)
+      end)
+
+    Agent.update(c.context, &Map.put(&1, :pause_deadline, 30_000))
+    engine = start(c, bindings: bindings)
+    assert {:ok, :applied} = RunEngine.input(engine, "start", start_input_v2(), verified())
+    assert_receive {:pattern_input, "root", %{"kind" => "start"}}
+    assert_receive {:local_started, task}, 5_000
+    {c, engine, task}
+  end
+
+  defp assert_v2_paused_and_read(c, engine) do
+    assert_receive {:pattern_input, "root", %{"kind" => "action_outcome", "action_id" => "slow"}}
+    # The wake gives its own pause deadline (70,000), so a pause on 50,000 after it
+    # comes from the outcome's step.
+    wake_context = verified(%{pause_deadline: 70_000})
+    assert {:ok, :applied} = RunEngine.input(engine, "wake-v2", wake_v2(), wake_context)
+    {:ok, unit} = DynamicUnits.find(c.directory, c.opts[:identity])
+    lifecycle = DurableUnit.snapshot(unit).control.lifecycle
+
+    assert {view(engine).phase, lifecycle.phase, lifecycle.pause_deadline} ==
+             {:paused, :paused, 50_000}
+
+    scope = %{tenant: "tenant", principal: "principal", run_id: "run"}
+    limits = %{max_records: 65_536, max_bytes: 536_870_912}
+    assert {:ok, %{run_id: "run"}} = RunEngine.event_waits(engine, scope, limits)
+    assert {:ok, %{run_id: "run"}} = RunEngine.transcript(engine, scope, limits)
+    Process.unregister(:run_engine_observer)
+  end
+
+  defp await_v2_local_outcome_contexts(c, left \\ 400) do
+    contexts =
+      for {"local:" <> _, record} <- protocol_records_with_ids(c), do: record.context
+
+    cond do
+      contexts != [] -> contexts
+      left == 0 -> flunk("no local-work outcome was committed")
+      true -> Process.sleep(5) && await_v2_local_outcome_contexts(c, left - 1)
+    end
+  end
+
+  defp await_v2_mailbox(pid, left \\ 400) do
+    cond do
+      Process.info(pid, :message_queue_len) != {:message_queue_len, 0} -> :ok
+      left == 0 -> flunk("no message reached the suspended engine")
+      true -> Process.sleep(5) && await_v2_mailbox(pid, left - 1)
+    end
+  end
+
   defp action_outcome_v2(action_id, payload, schema_id \\ "result") do
     %{
       "type" => "input",
