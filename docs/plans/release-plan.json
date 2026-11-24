@@ -9755,7 +9755,7 @@
       ],
       "issue": 894,
       "url": "https://github.com/balungpisah/elzoo/issues/894",
-      "issue_body_sha256": "e19c188e3e19115c17427eb8cb40c93e3ced22ccca7d0cae5c039324a9d4fb80"
+      "issue_body_sha256": "fa295da8b2f9af5979d2481c439df12240a7dc7c3d240a22460c9ff15a50fdb0"
     },
     {
       "id": "ELZ-371",
@@ -9853,13 +9853,13 @@
       "outputs": [
         "integration/ai-text-compatible"
       ],
-      "acceptance": "New integration/ai-text-compatible (Wave 9 Q6 A): a Chat Completions provider at one host- or tenant-given HTTPS base URL admitted by EgressPolicy.resolve/3 when endpoint/1 builds the provider_config, calls through a host transport Need that pins the checked addresses (as webhook-out), a host model table of 1..64 models with per-model features (an undeclared feature unsupported_feature before any byte, a model outside the table invalid_request), image parts as data URLs, the OpenAI status table, stub evidence through a resolver double and a Req.Test plug. req_llm's finch option dropped so the host's connect_options apply; the URL shape (https, no userinfo, query or fragment) is the Piece's own check before egress. Negative controls: skip the model table check; keep finch. Egress decision: local small gate and full review.",
+      "acceptance": "New integration/ai-text-compatible (Wave 9 Q6 A): a Chat Completions provider at one host- or tenant-given HTTPS base URL admitted by EgressPolicy.resolve/3 when endpoint/1 builds the provider_config, calls through a host transport Need that pins the checked addresses (as webhook-out), a host model table of 1..64 models with per-model features (an undeclared feature unsupported_feature before any byte, a model outside the table invalid_request), image parts as data URLs, the OpenAI status table, stub evidence through a resolver double and a Req.Test plug. req_llm's finch option dropped so the host's connect_options apply; the URL shape (https, no userinfo, query or fragment) is the Piece's own check before egress. Coordinator decision 2026-11-24: the request is built through req_llm's LMStudio provider (VLLM refuses response_format at 1.30.0), and more than 4 stop sequences is invalid_request. Negative controls: skip the model table check; keep finch. Egress decision: local small gate and full review.",
       "product_aims": [
         "P13"
       ],
       "issue": 898,
       "url": "https://github.com/balungpisah/elzoo/issues/898",
-      "issue_body_sha256": "1e313921cd53bda86a8a70ea8b8049407cb34f7fb7ad44ee47ded66068235fe3"
+      "issue_body_sha256": "7d3b9403c96b0dbea82b767a83a10dbbeeca47fd38235b60ce669e5bab5153b1"
     },
     {
       "id": "ELZ-375",
@@ -10801,12 +10801,12 @@
     {
       "id": "integration/mcp-runtime",
       "job": "ELZ-283",
-      "note": "One MCP server that a tenant added at run time (Streamable HTTP, bearer token), turned into a ready integration/mcp-client runtime config only after three steps in fixed order: integration/egress-policy resolve/3 admits the https URL and every resolved address is public, else {:egress, reason} with egress-policy's own reason and nothing later runs; one integration/secrets resolution as the check before connecting, the value dropped, expired giving credentials_expired and any other failure or a raise, throw or exit of the secrets function giving credentials_unavailable; then Elzoo.McpClient.configure/1 with Elzoo.McpClient.RuntimeBinding and the egress host, port and whole checked address set (network :public), whose zero-arity credential Need resolves the reference again at each request. configure/1 takes exact keys, refuses a URL query and calls no Need. list_tools/2 keys the unchanged ready listing or unavailable{credentials_expired | credentials_unavailable | a finite reason of the ready client} by {tenant, server}, after the check. Tool calls stay the ready connect/2, admission/3, context/3 (bound to the admission's intent key, so a session of another runtime config, with another tenant, server text or URL, cannot execute an intent admitted under this one) and call_tool/3 path. Errors never echo the URL, host, token or reference; no telemetry or log of its own.",
+      "note": "One MCP server that a tenant added at run time (Streamable HTTP, bearer token from an integration/secrets reference or from a tenant OAuth connection through the host's OAuth Need), turned into a ready integration/mcp-client runtime config only after three steps in fixed order: integration/egress-policy resolve/3 admits the https URL and every resolved address is public, else {:egress, reason} with egress-policy's own reason and nothing later runs; one check before connecting, the value dropped: for the reference form %{ref, scope} one integration/secrets resolution, expired giving credentials_expired and any other failure or a raise, throw or exit of the secrets function giving credentials_unavailable (unchanged byte for byte); for the OAuth form %{oauth: connection_id} one call of the host's OAuth Need oauth.(%{tenant, connection_id}), {:ok, binary} passing and every other answer (reauthorization_required, revoked, any other error, a malformed answer, a raise, throw or exit) giving credentials_unavailable; then Elzoo.McpClient.configure/1 with Elzoo.McpClient.RuntimeBinding and the egress host, port and whole checked address set (network :public), whose zero-arity credential Need resolves the reference, or asks the OAuth Need, again at each request, never storing the token and giving {:ok, token} or {:error, :credentials_unavailable}; the ready client calls it once per HTTP request plus twice around each listing and each tool call for redaction (measured: a tool call 3). configure/1 takes exact keys with exactly one of secrets and oauth, the one of the credential form (connection_id 1..128 bytes of printable UTF-8), refuses a URL query and calls no Need; inspect shows tenant and server text only. list_tools/2 keys the unchanged ready listing or unavailable{credentials_expired | credentials_unavailable | a finite reason of the ready client} by {tenant, server}, after the check. Tool calls stay the ready connect/2, admission/3, context/3 (bound to the admission's intent key, so a session of another runtime config, with another tenant, server text or URL, cannot execute an intent admitted under this one) and call_tool/3 path. Errors never echo the URL, host, token or reference; no telemetry or log of its own.",
       "baseline_status": "not in baseline (new row, ELZ-283)",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/mcp-runtime/piece.json",
-      "manifest_sha256": "8d0fe3f9a15ffb7e8f90d6b9210b67e8c3210dbe74f6ebb8492f897fc024bd5a"
+      "manifest_sha256": "cd31e3e48d59a15233d3ffa54776496521c207aade9f896d17de9ba28857ab5b"
     },
     {
       "id": "integration/identity",
@@ -11410,11 +11410,11 @@
     {
       "id": "workflow/agent-loop",
       "job": "ELZ-142",
-      "note": "Pure agent loop step in the core/operator shape over PatternStep v1 neutral maps: each model request built by PromptAssembly.build/2 from the history and the tool list of a ToolRegistry snapshot in the state; each proposal of a model turn kept or left out with a named tag; all actions of one turn (tool_call, nested_callable or ask_person) in one request; each result bounded by ToolResultLimit with store actions in a second request; declarations of a skill or a listing permitted only by the source kind of the called tool; refusals and failed calls as marked notices; a start may name one skill, whose load is one tool action of a pinned_skill tool before model call 1, applied by the same declaration rule; one finish answered or stopped with a named reason. State within 65,536 bytes, loaded instructions within 16,384 bytes. No model call, tool call, clock, storage or process; no budget or authority check.",
+      "note": "Pure agent loop step in the core/operator shape over PatternStep v1 neutral maps: each model request built by PromptAssembly.build/2 from the history and the tool list of a ToolRegistry snapshot in the state; each proposal of a model turn kept or left out with a named tag; all actions of one turn (tool_call, nested_callable or ask_person) in one request; each result bounded by ToolResultLimit with store actions in a second request; declarations of a skill or a listing permitted only by the source kind of the called tool; refusals and failed calls as marked notices; a start may name one skill, whose load is one tool action of a pinned_skill tool before model call 1, applied by the same declaration rule; opt-in in the spec, a bounded number of model-call Attempts (model_attempts 1..4) only after a refused or failed outcome under elzoo.ai-text.result v1 whose reason is in move_on, each Attempt a model_call action under elzoo.agent-loop.model-attempt v1 carrying the rebuilt request and the earlier Attempts and counted against turn_limit, never after unknown; opt-in image_input, by which a start or message may carry up to 8 image references copied to that message's user entry; one finish answered or stopped with a named reason. State within 65,536 bytes, loaded instructions within 16,384 bytes. No model call, tool call, clock, storage or process; no budget or authority check.",
       "baseline_status": "not in baseline (new row, RC-56)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/agent-loop/piece.json",
-      "manifest_sha256": "3d04bab2450c15b9ba4d43e89a7be1f0ddf688d7d7743b3963eca878c993e15e",
+      "manifest_sha256": "06b7485c568b8841f1482c59e367e38e07feb4e0b75e4eac2cd8f3c00cccfbb8",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -11668,10 +11668,12 @@
     {
       "id": "integration/ai-text-compatible",
       "job": "ELZ-374",
-      "note": "Planned OpenAI-compatible Chat Completions text provider for integration/ai-text at one egress-checked HTTPS base URL with a host transport Need pinning the checked addresses and a host model table of per-model features; stub evidence only.",
+      "note": "OpenAI-compatible Chat Completions provider of integration/ai-text at one HTTPS base URL per endpoint: endpoint/1 takes exactly base_url (https, 1..2048 bytes, no userinfo, query or fragment), an egress policy, its resolver Need, a transport Need given %{host, port, addresses} returning {:ok, req_options} and a model table of 1..64 unique ids of 1..256 bytes of UTF-8 without a control character (C0, DEL or C1) with features from tools, structured_output, stop_sequences, sampling and image_input; shape refusals are :invalid with no resolver call, then one Elzoo.EgressPolicy.resolve/3 gives {:egress, reason} or an endpoint holding the checked host, port and addresses (fixed for its lifetime; inspect shows no Need). translate/2 is pure: a non-endpoint term or a model outside the table invalid_request, a feature the table does not declare for the model unsupported_feature (replayed tool calls or tool results count as tools), a tool result with is_error true unsupported_feature, more than 4 stop sequences invalid_request, else a Chat Completions body through req_llm 1.30's LM Studio provider with each image as a data: URL. call/2 makes exactly one exchange: the transport Need's options (a failing, raising or non-keyword answer is {:transport, :unavailable} before any byte, classified transport by ai-text) replace req_llm's dropped finch option (a host finch option keeps its pool but not its own receive_timeout), then retry false, redirect false and the receive timeout, max_retries 0, the key only in the authorization header, every response halted by an Elzoo step with the body bounded to 4 MiB of wire bytes while received. decode/2 reads the documented chat.completion object (one choice whose message has role assistant and a content key; refusal, stop, length, tool_calls, content_filter, other finishes), usage from the documented usage object with absent fields :unknown, and the status table of integration/ai-text-openai with Retry-After seconds for 429 and 503.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/ai-text-compatible/piece.json",
+      "manifest_sha256": "7268da161057601b914003f9653d890b764c789e22e1c55bbb61b43db461599a"
     }
   ],
   "schema_version": 1,
