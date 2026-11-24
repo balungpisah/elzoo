@@ -113,7 +113,9 @@ defmodule Elzoo.AiText.Compatible do
     entries =
       Enum.map(list, fn
         %{id: id, features: features} = m when map_size(m) == 2 and not is_struct(m) ->
-          if Elzoo.AiModel.text?(id, 256) and is_list(features) and
+          # No control character at all: text?/2 refuses C0 and DEL, \p{Cc} adds C1.
+          if Elzoo.AiModel.text?(id, 256) and not String.match?(id, ~r/\p{Cc}/u) and
+               is_list(features) and
                Enum.all?(features, &(&1 in @features)),
              do: {id, Enum.uniq(features)},
              else: :error

@@ -23,7 +23,7 @@ the host declares.
 | `policy` | an `Elzoo.EgressPolicy.policy/1` value |
 | `resolver` | the `integration/egress-policy` resolver Need |
 | `transport` | one-arity Need given `%{host, port, addresses}`, returning `{:ok, req_options}` |
-| `models` | 1..64 maps `%{id, features}`: `id` of 1..256 bytes of UTF-8 with no control character, unique; `features` a list of members of `[:tools, :structured_output, :stop_sequences, :sampling, :image_input]` |
+| `models` | 1..64 maps `%{id, features}`: `id` of 1..256 bytes of UTF-8 with no control character (no `\p{Cc}`: C0, DEL or C1), unique; `features` a list of members of `[:tools, :structured_output, :stop_sequences, :sampling, :image_input]` |
 
 This Piece checks the shape first: another scheme, userinfo, a query (also an
 empty one), a fragment, a URL over 2,048 bytes, a missing, extra or repeated
@@ -55,7 +55,11 @@ the two lists are separate.
 - **The transport Need**: the host's pinning of the checked addresses
   (production `connect_options` or the host's own `finch` pool, or a `Req.Test`
   plug in tests), as in `integration/webhook-out`. The host connects only to the
-  given `addresses`, with SNI and the `Host` header set to `host`.
+  given `addresses`, with SNI and the `Host` header set to `host`. This Piece
+  checks only that the answer is a keyword list that Req accepts: an answer
+  with no connection options (for example `{:ok, []}`) is not pinned, and Req
+  then connects through its default pool after its own DNS lookup. The Piece
+  cannot detect that; the pinning is the host's.
 - **`config :req_llm, load_dotenv: false`** in every consumer's configuration,
   declared in `install_configuration` (`piece.json`), as for
   `integration/ai-text-openai`: without it `req_llm` loads a `.env` file from
@@ -108,8 +112,10 @@ it runs before every Req and `req_llm` response step, copies the status, the
 then halts every response; one Elzoo error step halts a transport exception
 unchanged. So exactly one exchange happens, no redirect is followed and no retry
 happens. The body is bounded while it is received to 4 MiB of wire bytes, as in
-`integration/ai-text-openai`; a larger response of any status is
-`unknown{malformed_response}`.
+`integration/ai-text-openai`: the chunk that crosses the bound halts the
+transfer and the received body is dropped, so a larger response of any status
+(also a 429 or 503) is `unknown{malformed_response}`, never classified by
+status.
 
 `call/2` cannot report an attested no-send to the interface: a
 `{:transport, :unavailable}` from the transport Need is classified `transport`
@@ -203,9 +209,11 @@ source `:unknown`. `total_tokens` is not used.
   request and the declaring model sending; a model outside the table; the
   endpoint's egress reasons and shape refusals with the resolver call count; the
   64/65-model, 2,048/2,049-byte bounds; the transport Need's argument, its
-  failures with no request, and the `connect_options` case without `finch`; each
-  status, a timeout and malformed bodies with one request each; usage fields;
-  redaction. Negative controls under temporary edits: skipping the table's
+  failures with no request, and the `connect_options` case without `finch`; 4
+  stop sequences sent and 5 refused, a tool-result error flag refused, with no
+  request; each status, a timeout and malformed bodies with one request each; a
+  body over 4 MiB stopped while received for a 200, 400, 429 and 503, with one
+  request each; usage fields; redaction. Negative controls under temporary edits: skipping the table's
   feature check sends a request, and keeping `req_llm`'s `finch` option fails
   the `connect_options` case.
 - **Upstream.** `req_llm` 1.30.0 Chat Completions encoding through the LM

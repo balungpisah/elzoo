@@ -379,6 +379,53 @@ defmodule Elzoo.AiText.CompatibleTest do
     assert %{"temperature" => 1.0, "top_p" => 0.5} = Jason.decode!(sampling.body)
   end
 
+  test "2 Chat Completions bounds of this Piece: 4 stop sequences sent, 5 invalid_request, a tool-result error flag unsupported_feature, with no request",
+       ctx do
+    stops = fn n ->
+      Map.put(
+        Conformance.request(:text_completion, "only-stop_sequences"),
+        "stop_sequences",
+        for(i <- 1..n, do: "S#{i}")
+      )
+    end
+
+    {result, [req]} = attempt(ctx, stops.(4), fn _ -> stub_for(:text) end)
+    assert {:outcome, _, {:completed, _}} = result
+    assert Jason.decode!(req.body)["stop"] == ["S1", "S2", "S3", "S4"]
+    conforms([req], "only-stop_sequences", ctx)
+
+    assert {{:error, {:refused, :invalid_request}}, []} =
+             attempt(ctx, stops.(5), fn _ -> stub_for(:text) end)
+
+    tool_result = fn flag ->
+      Map.put(Conformance.request(:tool_well_formed, @kit), "messages", [
+        %{"role" => "user", "text" => "Look up x."},
+        %{
+          "role" => "assistant",
+          "text" => "Looking.",
+          "tool_calls" => [%{"id" => "call_1", "name" => "lookup", "arguments" => %{"q" => "x"}}]
+        },
+        %{
+          "role" => "tool_result",
+          "tool_use_id" => "call_1",
+          "text" => "failed",
+          "is_error" => flag
+        }
+      ])
+    end
+
+    {result, [req]} = attempt(ctx, tool_result.(false), fn _ -> stub_for(:text) end)
+    assert {:outcome, _, {:completed, _}} = result
+
+    assert %{"role" => "tool", "tool_call_id" => "call_1", "content" => "failed"} =
+             List.last(Jason.decode!(req.body)["messages"])
+
+    conforms([req], @kit, ctx)
+
+    assert {{:error, {:refused, :unsupported_feature}}, []} =
+             attempt(ctx, tool_result.(true), fn _ -> stub_for(:text) end)
+  end
+
   test "3 a model outside the table is invalid_request before any request; a non-endpoint term too",
        ctx do
     {result, requests} =
@@ -459,6 +506,7 @@ defmodule Elzoo.AiText.CompatibleTest do
           [%{id: "a", features: :tools}],
           [%{id: "", features: []}],
           [%{id: "a\nb", features: []}],
+          [%{id: "a\u0085b", features: []}],
           [%{id: String.duplicate("a", 257), features: []}],
           [%{id: "a", features: [], extra: 1}],
           [%{id: "a"}]
@@ -609,6 +657,36 @@ defmodule Elzoo.AiText.CompatibleTest do
       refute inspect(delivery) =~ @key
       refute inspect(delivery) =~ "stub error"
     end
+  end
+
+  test "6 a body over 4 MiB of wire bytes is stopped while received and is malformed_response whatever its status, one request each",
+       ctx do
+    big = String.duplicate(" ", 4_194_305)
+
+    for {status, headers} <- [
+          {200, []},
+          {400, []},
+          {429, [{"retry-after", "7"}]},
+          {503, [{"retry-after", "3"}]}
+        ] do
+      {delivery, requests} =
+        attempt(ctx, Conformance.request(:text_completion, @kit), fn _ ->
+          {status, headers, big}
+        end)
+
+      assert {:outcome, _, {:unknown, :malformed_response}} = delivery, inspect(status)
+      assert length(requests) == 1
+    end
+
+    # Exactly 4 MiB is kept; the chunk that crosses the bound halts the transfer
+    # and drops what was received.
+    acc = {Req.new(), Req.Response.new(status: 429, body: "")}
+    {:cont, {_, at_bound}} = Compatible.bounded({:data, String.duplicate("a", 4_194_304)}, acc)
+    assert byte_size(at_bound.body) == 4_194_304
+    assert {:halt, {_, over}} = Compatible.bounded({:data, "b"}, {Req.new(), at_bound})
+    assert over.body == ""
+    assert over.private.elzoo_oversize == true
+    assert {:failure, :malformed_response} = Compatible.decode(%{oversize: true, status: 429}, nil)
   end
 
   test "6 usage from the documented usage object; absent fields :unknown", ctx do
