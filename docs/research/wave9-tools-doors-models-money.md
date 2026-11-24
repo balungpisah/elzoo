@@ -93,9 +93,9 @@ for the construction that it copies, and it changes no Piece's test helper.
   tenant readers (`elzoo_tenant_id`, with no explicit ACL) and `TEMP` on the database for
   `verify/1`. No grant that the role needed was missing from a README, so there is no grant
   finding.
-- **`verify/1` before the first call**, as `elzoo_app`: payment-lifecycle, invoice, plan,
-  webhook-out (the setup test) and oauth-client (each OAuth binding when it is built) return
-  `:ok`.
+- **`verify/1` before the first call**, as `elzoo_app`: payment-lifecycle, invoice, plan and
+  webhook-out (in the fixture of every test, on that test's own schemas, and in the setup test)
+  and oauth-client (each OAuth binding when it is built) return `:ok`.
 - **Session settings.** The application Repo has `:timeout` 30,000 ms, `queue_target` and
   `queue_interval` 1,000 ms each and `pool_size` 24. Its `after_connect` sets
   `lock_timeout = 20s` and `statement_timeout = 20s`, which meets ledger-checkout's Need.
@@ -146,11 +146,12 @@ Each test names its group of the task.
   its own session of the admitted config, call the tool at once. The token endpoint holds the
   first refresh until the second caller waits on the connection row. As `elzoo_app`, the harness
   sees in `pg_locks` a session of this database that holds a lock on `elzoo_oauth_connections`
-  and waits on a row or a transaction. Exactly one refresh reaches the token endpoint, both calls complete, and both
+  and waits on a row or a transaction. Exactly one refresh reaches the token endpoint, carrying the code flow's refresh token (the
+  stub answers `invalid_grant` to any refresh token other than the last one it issued), both calls complete, and both
   `tools/call` requests carried the new token. A T1-scope read of the connection row while it holds both tokens finds none of their
   bytes in any column, and no MCP result holds one. Then `invalid_grant`: the triggering call is
   `{:refused, :credentials_unavailable}` with no `tools/call`, the token endpoint saw that one
-  refresh, `get/3` is `:reauthorization_required`, a later call sends nothing to either server,
+  refresh, which carried the rotated refresh token of the second pair, `get/3` is `:reauthorization_required`, a later call sends nothing to either server,
   and a new `admit/1` is `{:error, :credentials_unavailable}`.
 - **group 1, code mode.** A bot's snapshot holds `run_code` on a nested source. The binding
   builds the lua-tool spec: `id` `"code-"` plus 32 hex characters of the action ID's SHA-256 (no
@@ -281,7 +282,7 @@ Engine facts recorded on the way, not cases:
 ## Negative controls
 
 Each control was one temporary edit in the worktree, run, recorded and reverted with
-`git checkout`. None was committed. The final passing run came after all five were restored.
+`git checkout`. None was committed. The final passing run came after all six were restored.
 
 1. The application Repo without `SET ROLE`. With the guard on, `setup_all` fails: "the
    application connection is not the non-owner application role elzoo_app" (`current` and
@@ -304,6 +305,9 @@ Each control was one temporary edit in the worktree, run, recorded and reverted 
    `Enum.min_by` on the step position (reverted, never committed). Group 4's order snapshot
    fails: after the one `resume/3`, the invoice step is still `:succeeded` (position 2), not
    `:compensated`.
+6. The token stub's refresh check compared against a refresh token that it never issued. Group
+   1's OAuth test fails at its concurrent refresh: the one refresh gets `invalid_grant`, so the
+   token endpoint issued only the code flow's pair, where the test expects two.
 
 ## Commands and times
 
@@ -330,7 +334,8 @@ One local run of the module (`mix test test/wave9_tools_doors_models_money_test.
 | group 5, isolation | 634.4 |
 
 After the repairs, 20 consecutive whole-module runs (`--repeat-until-failure 19`) passed in
-12.6 to 19.4 s each. Two failures came before the repairs. One whole-module run failed once in group 1, before
+12.6 to 19.4 s each, and after the automated reviewer's repairs (per-test `verify/1`, the refresh
+token check, the MinIO cleanup) 5 more (`--repeat-until-failure 4`). Two failures came before the repairs. One whole-module run failed once in group 1, before
 the read-order change of #931 (below). The other was in the code-mode test's teardown, about 1
 in 10 to 14 runs: `DROP SCHEMA … CASCADE` of a tenant schema deadlocked (40P01) with an
 `INSERT` into that schema's `elzoo_log_records`. The writer is an Effect-intent owner that the
@@ -339,7 +344,11 @@ When the held module call's task was stopped, the owner wrote a `:Lost` event wh
 was being dropped. A first repair, which stopped only the Run owner's linked owners, did not
 reach it. The teardown now reads each engine's intent owners before the engine stops, shuts
 them down and waits for each to exit, and asserts that none is alive before the tasks stop and
-the schemas drop. A probe made in the worktree and then removed (never committed) showed the
+the schemas drop. The same teardown then deletes, on MinIO, every object under
+`artifacts/<tenant>/<artifact_id>/` of each artifact stream that the run's recipe-store schema
+records (in one run, eight recipe packages and the image, with no object left under any of those
+prefixes), and drops the schema after that. Every root module that uses the bucket is `async:
+false`, so no other module's objects are deleted while it runs. A probe made in the worktree and then removed (never committed) showed the
 mechanism. It counted the tenant log records just before the tasks stop and 300 ms later. In
 the code-mode test, with the owners left running, 13 engine owners were alive and T1's count
 went from 446 to 447. With the repair, none was alive and the count stayed at 446.

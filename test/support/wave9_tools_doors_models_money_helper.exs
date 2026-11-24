@@ -673,6 +673,16 @@ defmodule Elzoo.Wave9.Helper do
 
     w = Map.put(w, :hooks, hooks!(w))
 
+    # Before the first call of each test, as elzoo_app, each Piece's verify/1 of this test's own
+    # schemas (oauth-client's runs when its binding is built, in Tools.oauth!/1).
+    for verified <- [
+          PaymentLifecycle.verify(lc),
+          Invoice.verify(inv),
+          Plan.verify(plan),
+          Elzoo.WebhookOut.verify(w.hooks.binding)
+        ],
+        do: assert(verified == :ok)
+
     ExUnit.Callbacks.on_exit(fn ->
       for pid <- Agent.get(intent_pids, & &1), do: stop(pid)
       stop(tasks)
@@ -1305,7 +1315,12 @@ defmodule Elzoo.Wave9.Bots do
   def engines!(w, opts \\ []) do
     rs = w.base <> "_rs"
     H.owner!("CREATE SCHEMA #{rs}")
-    ExUnit.Callbacks.on_exit(fn -> H.owner!("DROP SCHEMA IF EXISTS #{rs} CASCADE") end)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      delete_objects!(rs)
+      H.owner!("DROP SCHEMA IF EXISTS #{rs} CASCADE")
+    end)
+
     :ok = Ecto.Migrator.up(OwnerRepo, 1, Elzoo.Wave9.StoreMigration, prefix: rs, log: false)
     :ok = H.grant_store!(rs, w.role)
     rs_store = Postgres.store(AppRepo, prefix: rs, fold: RS.fold(), limits: RS.limits())
@@ -1365,6 +1380,28 @@ defmodule Elzoo.Wave9.Bots do
     if Process.alive?(pid), do: GenServer.stop(pid)
   catch
     :exit, _ -> :ok
+  end
+
+  # The MinIO objects of every artifact that this run's recipe-store schema records (recipe
+  # packages and the image), each under `artifacts/<tenant>/<artifact_id>/`, so that the shared
+  # test bucket keeps no object of a finished run.
+  defp delete_objects!(rs) do
+    store = RS.object_store!()
+
+    for [stream] <-
+          H.owner!("SELECT stream FROM #{rs}.elzoo_log_heads WHERE stream LIKE 'artifact/%'"),
+        ["artifact", tenant, artifact_id] <- [String.split(stream, "/", parts: 3)],
+        key <- object_keys(store, "artifacts/#{tenant}/#{artifact_id}/", nil),
+        do: assert(%{status: :committed} = Elzoo.ObjectStore.delete(store, key))
+
+    :ok
+  end
+
+  defp object_keys(store, prefix, continuation) do
+    case Elzoo.ObjectStore.list(store, prefix, continuation: continuation) do
+      %{status: :listed, keys: keys, truncated: false} -> keys
+      %{status: :listed, keys: keys, continuation: next} -> keys ++ object_keys(store, prefix, next)
+    end
   end
 
   defp engine_intents(engine) do
@@ -2475,9 +2512,17 @@ defmodule Elzoo.Wave9.Tools do
             Elzoo.Wave9.Bots.await!(fn -> H.env(w, :release_refresh) end)
           end
 
-          case H.env(w, :refresh_answer) do
-            :invalid_grant -> {400, %{"error" => "invalid_grant"}}
-            _ -> issue(w, form)
+          current = List.last(H.env(w, :issued) || [])
+
+          cond do
+            current == nil or form["refresh_token"] != current["refresh_token"] ->
+              {400, %{"error" => "invalid_grant"}}
+
+            H.env(w, :refresh_answer) == :invalid_grant ->
+              {400, %{"error" => "invalid_grant"}}
+
+            true ->
+              issue(w, form)
           end
       end
 

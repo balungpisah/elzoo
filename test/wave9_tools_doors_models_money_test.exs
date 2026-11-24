@@ -239,7 +239,9 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
 
       answered!(w, "bot2")
       answered!(w, "bot3")
-      assert [_] = Tools.token_requests(w, "refresh_token")
+      # The one refresh carried the refresh token of the code flow's pair.
+      assert [%{"refresh_token" => refreshed}] = Tools.token_requests(w, "refresh_token")
+      assert refreshed == t1["refresh_token"]
       [_, t2] = H.env(w, :issued)
 
       results = H.env(w, :mcp_results)
@@ -272,7 +274,10 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
                B.mcp_call(w, s1.session, s1.snapshot, "echo", %{"x" => "after"})
 
       refute Enum.any?(Enum.drop(Tools.recorded(w), seen), &match?({"tools/call", _}, &1))
-      assert [_, _] = Tools.token_requests(w, "refresh_token")
+
+      # That refresh carried the rotated refresh token of the second pair.
+      assert [_, %{"refresh_token" => rotated}] = Tools.token_requests(w, "refresh_token")
+      assert rotated == t2["refresh_token"]
 
       assert {:ok, %{state: :reauthorization_required}} =
                OauthClient.get(b, "T1", %{connection_id: "conn-1"})
