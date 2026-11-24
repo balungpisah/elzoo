@@ -1460,7 +1460,8 @@
       "summary": "Numbered one-currency invoices with payments, reversals, void and credit notes",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/invoice/piece.json",
       "reason": "ELZ-367: Wave 9 (P13). Gapless numbers per series, no tax or discount (owner Q11 A); plain Ecto/Postgrex tables under state/tenant-isolation; the host posts to domain/journal."
     }
   ]
