@@ -9,7 +9,7 @@
 
 ## Outcome and boundary
 
-The same change as ELZ-371 for the OpenAI provider on its one surface (Responses): it declares `:image_input` and translates a user message of parts into input text and input image content, each image a `data:` URL of its bytes. With this task and ELZ-371 both ready providers take images, so `delivery/model-routing` (ELZ-369) has a real choice for an image request among the ready providers. A low-risk change (`AGENTS.md` section 5): the hosted `check-piece` run may be its small-gate evidence, with one light review.
+The same change as ELZ-371 for the OpenAI provider on its one surface (Responses): it declares `:image_input` and translates a user message of parts into input text and input image content, each image a `data:` URL of its bytes. With this task and ELZ-371 both ready providers take images, so `delivery/model-routing` (ELZ-369) has a real choice for an image request among the ready providers. The Piece carries the provider key, sends untrusted input across an external-effect boundary and has unknown outcomes, so by `AGENTS.md` sections 5 and 6, which classify the Piece and not the change, it keeps the local small gate and gets the full review of the coordinator guide ("Reviewer by risk").
 
 ## Facts on `main` that this task builds on
 
@@ -17,7 +17,7 @@ Checked at `main` `b9d1c9d5` and `deps/req_llm` 1.30.0. Confirm each before you 
 
 - `Elzoo.AiText.OpenAI` (`lib/elzoo/ai_text/open_ai.ex`): `@models %{"gpt-6.1-terra" => ...}` (line 34); `capabilities/0` (lines 42–53) declares `features: [:tools, :structured_output, :cache_hint, :reasoning]` and `wire_surface: "responses"`; `context/2` (lines 189–210) has the clause `{%{role: :user, text: t}, i} -> ReqLLM.Context.user([part(t, i, targets)])` (line 198) and no `parts` clause; the cache positions accept any `%{role: :user}` message (line 171). README line 48: "Chat Completions is not supplied"; `piece.json` limit (line 40): "Chat Completions, Azure OpenAI, Realtime, images, audio, ... are refused or not supplied".
 - `req_llm` 1.30.0 encodes an image content part of the Responses API as `%{"type" => "input_image", "image_url" => "data:#{media_type};base64,#{base64}"}` and adds `"detail"` from the part's metadata `%{detail: d}` (`deps/req_llm/lib/req_llm/providers/openai/responses_api.ex`, lines 1265–1280 and 1352–1358); `ContentPart.image(data, media_type, metadata)` builds the part (`content_part.ex`, lines 99–101).
-- The pinned schema `test/fixtures/openai/responses.schema.json` holds `InputImageContent` with `"required": ["type", "detail"]` and `ImageDetail` `low | high | auto | original`, and `InputImageContentParamAutoParam` with `image_url` `maxLength` 20,971,520. So a part without `detail` does not validate against `InputImageContent`.
+- The pinned schema `test/fixtures/openai/responses.schema.json` holds `InputImageContent` with `"required": ["type", "detail"]` and `ImageDetail` `low | high | auto | original`, and `InputImageContentParamAutoParam` with `image_url` `maxLength` 20,971,520. `InputImageContent`, the definition the tests validate against, has no `maxLength` on `image_url`; the bound is on the other definition. So a part without `detail` does not validate against `InputImageContent`.
 - `LLMDB` gives `gpt-6.1-terra` the input modalities `[:text, :image, :pdf]` (read at `main` `b9d1c9d5`).
 - ai-text after ELZ-364: as stated in ELZ-371's facts (the `:image_input` gate at `lib/elzoo/ai_text.ex` line 220, the image part `%{type: :image, media_type: m, bytes: bytes}` at lines 273–282, the bounds and the `:image_input` scenario).
 - Tests: `test/elzoo/ai_text_openai_test.exs` O1 (lines 232–245) runs `Conformance.scenarios/0` against an in-process Req plug and validates each request against the pinned schema; no golden wire test exists. Consumers of the changed functions outside the Piece: `workflow/agent-loop`'s tests call `translate/2` of this provider (lines 773–786, 1285–1286) with text-only requests and must pass unchanged; no lib module outside `integration/ai-text` calls it.
@@ -26,7 +26,7 @@ Checked at `main` `b9d1c9d5` and `deps/req_llm` 1.30.0. Confirm each before you 
 
 - `capabilities/0` adds `:image_input` to `features`.
 - `translate/2` takes `%{role: :user, parts: parts}`: one user input message with the parts in order, text parts as input text and image parts as input images with `detail: "auto"` (set through the part metadata), so every image validates against `InputImageContent`.
-- The pinned schema bounds an input image's `image_url` at 20,971,520 characters. ai-text's largest `max_image_bytes` (5,242,880) gives a data URL of at most 23 + 4 × ⌈5,242,880 / 3⌉ = 6,990,531 characters (the longest prefix, `data:image/jpeg;base64,`, is 23), so no refusal is added for it; the README states that arithmetic.
+- The pinned schema bounds an input image's `image_url` at 20,971,520 characters in `InputImageContentParamAutoParam` (not in `InputImageContent`, which case 2 validates against). ai-text's largest `max_image_bytes` (5,242,880) gives a data URL of at most 23 + 4 × ⌈5,242,880 / 3⌉ = 6,990,531 characters (the longest prefix, `data:image/jpeg;base64,`, is 23), so no refusal is added for it; the README states that arithmetic and which definition holds the bound, and case 4 also validates that image part against `InputImageContentParamAutoParam`.
 - A cache breakpoint on a parts message is refused `{:refused, :unsupported_feature}`.
 - The task records the documented image limits of OpenAI's images-and-vision guide with its fetch date in the README; pixel dimensions are not checked.
 
@@ -34,17 +34,17 @@ Checked at `main` `b9d1c9d5` and `deps/req_llm` 1.30.0. Confirm each before you 
 
 ## Kept open (owner's "no corner" rule)
 
-- *A `detail` other than `auto`* as a declared provider option; *file-ID or URL images*; *documents*; *Chat Completions*.
+- *A `detail` other than `auto`* as a declared provider option; *file-ID or URL images*; *documents*; *Chat Completions*; *a cache breakpoint inside a parts message*.
 
 ## Acceptance
 
 1. **Golden, recorded on the base first:** the wire request (method, path, headers other than the key, decoded body) of each O1 scenario; after the change the same.
 2. The `:image_input` scenario of `Conformance.image_scenarios/0` passes against the stub; the captured request has one user input message with an input text and an input image whose data URL decodes to the PNG, with `detail: "auto"`, and validates against `InputImageContent` of the pinned schema.
 3. Each media type gives its data URL prefix; eight images give eight input images in order.
-4. A cache breakpoint on the parts message is `unsupported_feature` with no request at the stub; an image of ai-text's largest `max_image_bytes` (a Config with `max_image_bytes: 5,242,880`) translates and validates against the pinned schema.
+4. A cache breakpoint on the parts message is `unsupported_feature` with no request at the stub; an image of ai-text's largest `max_image_bytes` (a Config with `max_image_bytes: 5,242,880`) translates and its image part validates against both `InputImageContent` and `InputImageContentParamAutoParam` of the pinned schema.
 5. Negative controls, one at a time, each restored before the final gates: drop `detail` (case 2's schema check fails); declare `:image_input` without translating the parts (case 2 fails).
 
-Run the Piece tests and the small gate, the roadmap and claims checks and the diff check. One light review, the exact-head hosted check and the merge queue are required.
+Run the Piece tests and the small gate locally (`mix check --piece "$(git merge-base origin/main HEAD)"`), the roadmap and claims checks and the diff check. The full independent review, the exact-head hosted check and the merge queue are required.
 
 ## Limits to state
 

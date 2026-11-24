@@ -8,7 +8,7 @@ Wave 8 is accepted: its root consumer acceptance [ELZ-349](../../tasks/ELZ-349-w
 
 Wave 9 means four things. **Tools:** a bot gets OAuth credentials for the tools it calls, and a model may write a short program that calls tools (code mode). **Doors:** other systems reach Elzoo's bots over MCP, and Elzoo sends signed events out to them. **Models:** more model providers, images as model input, and a routing rule that picks an allowed provider and moves to another one after a refusal, each move a separate, counted Attempt. **Money:** a subscription renews per period, a period becomes a numbered invoice, a payment goes through a provider lifecycle with unknown outcomes reconciled, and a checkout that pays an invoice or tops up a wallet undoes its completed steps in reverse order when a later step fails.
 
-The plan proposes **10 new Pieces (11 with `integration/payments` under Q9 A, B or C) and 6 in-place extensions of ready Pieces across 2 dependency levels, plus a mandatory root consumer acceptance at Level 3**, from 24 candidate handles, with one conditional provider prerequisite (the payment provider of Q9). The four parts are independent until Level 3, so the coordinator can publish Level 1 in batches within the worker limits of `AGENTS.md` section 3. Departures from the pruned baseline, each argued in "All candidate handles":
+The plan proposes **10 new Pieces (11 with `integration/payments` under Q9 A, B or C) and 6 in-place extensions of ready Pieces (8 as published: ELZ-372 and ELZ-377 were added at Level 2) across 2 dependency levels, plus a mandatory root consumer acceptance at Level 3**, from 24 candidate handles, with one conditional provider prerequisite (the payment provider of Q9). The four parts are independent until Level 3, so the coordinator can publish Level 1 in batches within the worker limits of `AGENTS.md` section 3. Departures from the pruned baseline, each argued in "All candidate handles":
 
 1. `workflow/code-mode` is a composition, not a Piece: the ready `workflow/lua-tool` already takes its Lua source from the host's nested binding, so a model-written program is a tool call whose binding builds that spec. Q1 decides the language.
 2. `integration/ai-multimodal` is absorbed into `integration/ai-text` in place (image parts by artifact reference) and into each provider that declares image input.
@@ -70,7 +70,7 @@ Each handle of the Wave 9 rows of both tables in [bot-platform.md](bot-platform.
 | `integration/channel-slack`, `-whatsapp`, `-telegram`, `-email-in` | **Deferred, demand-led** (pruned row: "build each concrete channel as consumer demand arrives, starting with the first active channel"). No channel is named active in the sources. Each is its own Piece when it comes: `webhook-in` fixes its route and signature. | Deferred. Q12. |
 | `integration/ai-text-compatible` | **New provider Piece.** An OpenAI-compatible Chat Completions endpoint at a host-given HTTPS base URL with host-declared models and capabilities. | Level 2, after ai-text images. Q6. |
 | `integration/ai-text-google` | **New provider Piece.** The Gemini API with an API key, over the locked `req_llm` `google` provider. | Level 2, after ai-text images. Q6. |
-| `integration/ai-multimodal` | **Absorbed into `integration/ai-text` in place**, and into each provider that declares image input (`ai-text-anthropic` in place; the two new providers from their start). | Level 1 (ai-text), Level 2 (providers). Q7. |
+| `integration/ai-multimodal` | **Absorbed into `integration/ai-text` in place**, and into each provider that declares image input (`ai-text-anthropic` and `ai-text-openai` in place, ELZ-371 and ELZ-372; the two new providers from their start). | Level 1 (ai-text), Level 2 (providers). Q7. |
 | `integration/ai-model-catalogue` | **Absorbed.** `llm_db` is the catalogue; the host fills routing candidates from it or from its own table. No wrapper. | None. |
 | `delivery/model-routing` (RC-25) | **New pure Piece.** Eligible candidates in a declared order, and the next step after each Attempt's outcome. Replaces RC-25 at publication. | Level 2, after retry-timeout. Q8. |
 | `delivery/retry-timeout` | **Extend in place** (settled decision 2). | Level 1. |
@@ -83,7 +83,7 @@ Each handle of the Wave 9 rows of both tables in [bot-platform.md](bot-platform.
 | `assembly/ledger-checkout` (RC-41) | **New durable Assembly.** The saga: pay an invoice or top up a wallet; compensations in reverse order. Replaces RC-41 at publication. | Level 2. Q10. |
 | `domain/plan` | **New durable Piece.** A tenant's subscription to a plan version: periods, renewal, trial, cancel at period end, the fee line of each period. | Level 1. Q11. |
 | `domain/invoice` | **New durable Piece.** A numbered, finalized document of lines in one currency, with payment application, void and credit notes. | Level 1. Q11. |
-| `integration/ai-text-anthropic`, `integration/ai-text-openai` | **Reuse;** anthropic extended in place for images (Level 2). OpenAI image input stays addable in place. | Ready. |
+| `integration/ai-text-anthropic`, `integration/ai-text-openai` | **Reuse;** both extended in place for images at Level 2 (ELZ-371, ELZ-372). | Ready. |
 | `integration/webhook-in`, `domain/money`, `delivery/effect-intent`, `domain/journal` | **Reuse unchanged.** | Ready. |
 
 ## Deferred items folded in

@@ -9713,7 +9713,8 @@
         "ELZ-033",
         "ELZ-079",
         "ELZ-272",
-        "ELZ-357"
+        "ELZ-357",
+        "ELZ-364"
       ],
       "status": "published 2026-11-24",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
@@ -9723,14 +9724,14 @@
       "outputs": [
         "delivery/model-routing"
       ],
-      "acceptance": "New pure delivery/model-routing (Wave 9 Q6 A, Q8 A; replaces RC-25 for this output): new/1 checks a route of 1..16 candidate refs (provider, region, retention, model_id, ai-text features, unique rank 1..1,000), on_unknown :stop, max_health_age_ms, cool_down_ms and a retry-timeout policy without mode; select/3 gives eligible refs in rank order and each excluded one with the first reason of tried, capability, {data_policy, deny} (domain/provider-data-policy decide/2), stale_health, circuit_open, cooling_down, budget, or no_candidate; after_failure/3 maps an ai-text outcome to done, {retry_same, ms} for a not-sent refusal or a local rate refusal (RetryTimeout.delay/4 with the failure delay), {next, cool_down} for throttled/overloaded (retry_after seconds or cool_down_ms), {next, nil} for authentication_failed/permission_denied/not_found, {stop, request_fault} and {stop, unknown_outcome} (no fallback after unknown). Coordinator checks: unsupported_feature is an admission refusal, retry_after is seconds, health facts are host-stamped; circuit-breaker, rate-limit and budget are host facts, so no dependency on ELZ-100/280/022; the PR #853 :tried answer carried. Low risk: hosted check-piece allowed, light review.",
+      "acceptance": "New pure delivery/model-routing (Wave 9 Q6 A, Q8 A; replaces RC-25 for this output): new/1 checks a route of 1..16 candidate refs (provider, region, retention, model_id, ai-text features, unique rank 1..1,000), on_unknown :stop, max_health_age_ms, cool_down_ms and a retry-timeout policy without mode (known keys only, max_attempts at most 256); select/3 gives eligible refs in rank order and each excluded one with the first reason of tried, capability, {data_policy, deny} (domain/provider-data-policy decide/2), stale_health, circuit_open, cooling_down, budget, or no_candidate; after_failure/3 maps an ai-text outcome to done, {retry_same, ms} for a not-sent refusal or a local rate refusal (RetryTimeout.delay/4 with the failure delay, capped at max_failure_delay_ms), {next, cool_down} for throttled/overloaded (retry_after seconds or cool_down_ms), {next, nil} for authentication_failed/permission_denied/not_found, {next, nil} also for the admission refusal unsupported_feature (per provider), {stop, request_fault} for invalid_request/too_large and {stop, unknown_outcome} (no fallback after unknown). Coordinator checks: unsupported_feature is an admission refusal, retry_after is seconds, health facts are host-stamped; circuit-breaker, rate-limit and budget are host facts, so no dependency on ELZ-100/280/022; the PR #853 :tried answer carried. Low risk: hosted check-piece allowed, light review.",
       "product_aims": [
         "P09",
         "P13"
       ],
       "issue": 893,
       "url": "https://github.com/balungpisah/elzoo/issues/893",
-      "issue_body_sha256": "3ed1d3007e1e45c3ef671bcce4909638421cae4041993078bb6a00c786942c09"
+      "issue_body_sha256": "bd5bae28775cc63c05b9b7dc4d563c7408989ba45629cfd7bd9384fb997d5245"
     },
     {
       "id": "ELZ-370",
@@ -9748,13 +9749,13 @@
         "tasks/ELZ-370-mcp-runtime-oauth.md"
       ],
       "outputs": [],
-      "acceptance": "In-place integration/mcp-runtime (Wave 9 Q2 A, RC-59): credential %{oauth: connection_id} with a host oauth Need (wrapping OauthClient.access_token/3) instead of secrets; the check before connecting calls it once and drops the value, every failure credentials_unavailable at admit/1 and list_tools/2 with no client configured; the client's credential Need calls it per request (mcp-client also calls it for redaction); the bearer form unchanged byte for byte (golden recorded on the base first; root test/wave5_tenancy_test.exs unchanged); the oauth-client Repo :timeout host Need (#886) carried in the README. Negative control on the check before connecting. Local small gate and full review. Output none.",
+      "acceptance": "In-place integration/mcp-runtime (Wave 9 Q2 A, RC-59): credential %{oauth: connection_id} with a host oauth Need (wrapping OauthClient.access_token/3) instead of secrets; the check before connecting calls it once and drops the value, every failure credentials_unavailable at admit/1 (no client configured) and under the key of list_tools/2 (no request sent); the client's credential Need calls it per request (mcp-client also calls it for redaction; the token rule of 24..4,096 bytes stated; the token value seen by a recording Plug); the bearer form unchanged byte for byte (golden recorded on the base first; root test/wave5_tenancy_test.exs unchanged); the oauth-client Repo :timeout host Need (#886) carried in the README. Negative control on the check before connecting. Local small gate and full review. Output none.",
       "product_aims": [
         "P13"
       ],
       "issue": 894,
       "url": "https://github.com/balungpisah/elzoo/issues/894",
-      "issue_body_sha256": "53f1e2cabcd809d52b1c0447c76b53550cfafa62189d720fd4e16877b066ccbc"
+      "issue_body_sha256": "97b933611e88c9c2020d27db2fa9f0a303ba2cc9764cac6728279779592f8f96"
     },
     {
       "id": "ELZ-371",
@@ -9772,13 +9773,13 @@
         "tasks/ELZ-371-ai-text-anthropic-image-input.md"
       ],
       "outputs": [],
-      "acceptance": "In-place integration/ai-text-anthropic (Wave 9 Q7 A): declares :image_input and translates a user parts message into text and base64 image blocks in order through req_llm ContentPart.image/2; a model without LLMDB image input and a cache breakpoint on a parts message are unsupported_feature; documented image limits recorded; the schema fixture gains the image block; a text-only wire request unchanged (golden recorded on the base first); the ai-text :image_input conformance scenario. Consumers named: ai-batch (refuses parts before translate), ai-batch-anthropic, ai-token-count, provider-stream, agent-loop tests. Negative control: declare without translating. Low risk: hosted check-piece allowed, light review. Output none.",
+      "acceptance": "In-place integration/ai-text-anthropic (Wave 9 Q7 A): declares :image_input and translates a user parts message into text and base64 image blocks in order through req_llm ContentPart.image/2; a model without LLMDB image input and a cache breakpoint on a parts message are unsupported_feature; documented image limits recorded; the schema fixture gains the image block; a text-only wire request unchanged (golden recorded on the base first); the ai-text :image_input conformance scenario. Consumers named: ai-batch (refuses parts before translate), ai-batch-anthropic, ai-token-count, provider-stream, agent-loop tests. Negative control: declare without translating. The Piece carries the key and an external-effect boundary: local small gate and full review. Output none.",
       "product_aims": [
         "P13"
       ],
       "issue": 895,
       "url": "https://github.com/balungpisah/elzoo/issues/895",
-      "issue_body_sha256": "2ca4f234979d541360488970fab811259294147522936eb8ccf3f5da3c65031f"
+      "issue_body_sha256": "c14aab1bdcb32fbbfa53637d25e5111a868740668fc5250aaf390a7aab0c60a3"
     },
     {
       "id": "ELZ-372",
@@ -9796,13 +9797,13 @@
         "tasks/ELZ-372-ai-text-openai-image-input.md"
       ],
       "outputs": [],
-      "acceptance": "In-place integration/ai-text-openai (Wave 9 Q7 A; added by coordinator decision at publication: gpt-6.1-terra takes images and the plan kept it addable): declares :image_input and translates a user parts message into Responses input_text and input_image data URLs with detail auto (the pinned schema requires detail); a cache breakpoint on a parts message is unsupported_feature; data URL length within the schema bound by arithmetic; a text-only wire request unchanged (golden on the base first). Negative controls: drop detail; declare without translating. Low risk: hosted check-piece allowed, light review. Output none.",
+      "acceptance": "In-place integration/ai-text-openai (Wave 9 Q7 A; added by coordinator decision at publication: gpt-6.1-terra takes images and the plan kept it addable): declares :image_input and translates a user parts message into Responses input_text and input_image data URLs with detail auto (the pinned schema requires detail); a cache breakpoint on a parts message is unsupported_feature; data URL length within the schema bound by arithmetic; a text-only wire request unchanged (golden on the base first). Negative controls: drop detail; declare without translating. The Piece carries the key and an external-effect boundary: local small gate and full review. Output none.",
       "product_aims": [
         "P13"
       ],
       "issue": 896,
       "url": "https://github.com/balungpisah/elzoo/issues/896",
-      "issue_body_sha256": "15cbf7172ff9ee66d46961868108507fd992576f9059d3302051194d43d555da"
+      "issue_body_sha256": "89994e5ade6af380c127a97cc743833f25730a19dbba65db0b8c0b4107e3e860"
     },
     {
       "id": "ELZ-373",
@@ -9812,6 +9813,7 @@
       "stage": "pieces",
       "dependencies": [
         "ELZ-079",
+        "ELZ-087",
         "ELZ-364"
       ],
       "status": "published 2026-11-24",
@@ -9822,13 +9824,13 @@
       "outputs": [
         "integration/ai-text-google"
       ],
-      "acceptance": "New integration/ai-text-google (Wave 9 Q6 A, Q7 A): a provider of Elzoo.AiText.Provider for the Gemini generateContent API over the locked req_llm google provider with an API key in x-goog-api-key through ai-text's credentials Need; model table gemini-3.8-flash; features evidenced on the wire, at least tools, structured_output and image_input (inline_data); one exchange, retries and redirects off; status table 400/401/403/404/413/429 throttled/503 overloaded/504, with Gemini's documented codes recorded; retry_after from Retry-After or RetryInfo; stub evidence under ELZ-087 against a hand-derived request schema. Coordinator check: secrets is the host's Need wiring, so no ELZ-105. Negative control: 429 as unknown. Local small gate, one review.",
+      "acceptance": "New integration/ai-text-google (Wave 9 Q6 A, Q7 A): a provider of Elzoo.AiText.Provider for the Gemini generateContent API over the locked req_llm google provider with an API key in x-goog-api-key through ai-text's credentials Need; model table gemini-3.8-flash; features evidenced on the wire, at least tools, structured_output and image_input (inline_data); one exchange, retries and redirects off; status table 400/401/403/404/413/429 throttled/503 overloaded/504, with Gemini's documented codes recorded; retry_after from Retry-After or RetryInfo; stub evidence under ELZ-087 against a hand-derived request schema. Coordinator check: secrets is the host's Need wiring, so no ELZ-105. Negative control: 429 as unknown. Tool parameter schemas sent unchanged (parametersJsonSchema), safety finishes as refusal, retryDelay rounded up within 86,400 s. Local small gate and full review.",
       "product_aims": [
         "P13"
       ],
       "issue": 897,
       "url": "https://github.com/balungpisah/elzoo/issues/897",
-      "issue_body_sha256": "dd9b8cf9f3d8ac3d28e42f90e0043ad721f9dcc245d53c9f272a8cbe15191b85"
+      "issue_body_sha256": "280c94da039456c54e4be550ca3d2ec5772287f6b94be828e129f2391350dea1"
     },
     {
       "id": "ELZ-374",
@@ -9838,7 +9840,9 @@
       "stage": "pieces",
       "dependencies": [
         "ELZ-079",
+        "ELZ-087",
         "ELZ-271",
+        "ELZ-362",
         "ELZ-364"
       ],
       "status": "published 2026-11-24",
@@ -9849,13 +9853,13 @@
       "outputs": [
         "integration/ai-text-compatible"
       ],
-      "acceptance": "New integration/ai-text-compatible (Wave 9 Q6 A): a Chat Completions provider at one host- or tenant-given HTTPS base URL admitted by EgressPolicy.resolve/3 when endpoint/1 builds the provider_config, calls through a host transport Need that pins the checked addresses (as webhook-out), a host model table of 1..64 models with per-model features (an undeclared feature unsupported_feature before any byte, a model outside the table invalid_request), image parts as data URLs, the OpenAI status table, stub evidence through a resolver double and a Req.Test plug. Negative control: skip the model table check. Egress decision: local small gate and full review.",
+      "acceptance": "New integration/ai-text-compatible (Wave 9 Q6 A): a Chat Completions provider at one host- or tenant-given HTTPS base URL admitted by EgressPolicy.resolve/3 when endpoint/1 builds the provider_config, calls through a host transport Need that pins the checked addresses (as webhook-out), a host model table of 1..64 models with per-model features (an undeclared feature unsupported_feature before any byte, a model outside the table invalid_request), image parts as data URLs, the OpenAI status table, stub evidence through a resolver double and a Req.Test plug. req_llm's finch option dropped so the host's connect_options apply; the URL shape (https, no userinfo, query or fragment) is the Piece's own check before egress. Negative controls: skip the model table check; keep finch. Egress decision: local small gate and full review.",
       "product_aims": [
         "P13"
       ],
       "issue": 898,
       "url": "https://github.com/balungpisah/elzoo/issues/898",
-      "issue_body_sha256": "127c6b82f96f2f96bbedf54a2ed392db91311867dfbec77234412daad0fba8ea"
+      "issue_body_sha256": "1e313921cd53bda86a8a70ea8b8049407cb34f7fb7ad44ee47ded66068235fe3"
     },
     {
       "id": "ELZ-375",
@@ -9873,13 +9877,13 @@
         "tasks/ELZ-375-prompt-assembly-image-parts.md"
       ],
       "outputs": [],
-      "acceptance": "In-place workflow/prompt-assembly (Wave 9 Q7 A): build/2 takes an optional image_input boolean; a :user entry may hold images (0..8 refs artifact_id, version, media_type in ai-text's set), refused invalid_input without the key; with it the newest :user entry's images become ai-text image parts of that user message, older entries' images are left out, :content and :tool_result image references stay marked reference blocks under max_image_refs; without the key byte for byte today's (the deterministic golden). Callers named: agent-loop, context-compaction (keeps refusing images), root wave7 helper. Negative control: turn tool-result references into parts. Low risk: hosted check-piece allowed, light review. Output none.",
+      "acceptance": "In-place workflow/prompt-assembly (Wave 9 Q7 A): build/2 takes an optional image_input boolean; a :user entry may hold images (0..8 refs artifact_id, version, media_type in ai-text's set), refused invalid_input without the key; with it the newest :user entry's images become ai-text image parts of that user message, older entries' images are left out, :content and :tool_result image references stay marked reference blocks under max_image_refs; without the key byte for byte today's (the deterministic golden). Callers named: agent-loop, context-compaction (keeps refusing images), root wave7 helper. ai-token-count refuses parts (estimate_unavailable) stated. Negative control: turn tool-result references into parts. Untrusted-image source rule: local small gate and full review. Output none.",
       "product_aims": [
         "P13"
       ],
       "issue": 899,
       "url": "https://github.com/balungpisah/elzoo/issues/899",
-      "issue_body_sha256": "d5d0508e661a86d1db170dc61750b5ab3f6af591dda17ee2e0750cb4d3e0067a"
+      "issue_body_sha256": "020ac7a21faf2941b48524753fd2718e5c715e22b857f4b40555b6233b5d83d1"
     },
     {
       "id": "ELZ-376",
@@ -9897,13 +9901,13 @@
         "tasks/ELZ-376-agent-loop-attempts-and-images.md"
       ],
       "outputs": [],
-      "acceptance": "In-place workflow/agent-loop (Wave 9 Q7 A, Q8 A): optional spec keys image_input (passed to build/2), model_attempts 1..4 (default 1) and move_on (a subset of throttled, overloaded, authentication_failed, permission_denied, not_found; max_request_bytes at most 64,512 when over 1); a refused or failed model call whose payload reason is in move_on asks Attempt k+1 as id:m:N:k+1 under elzoo.agent-loop.model-attempt v1 with {request, attempts [{attempt, reason, retry_after, candidate}]}, the request rebuilt from the same history; unknown, another reason or the bound stops model_call_not_completed; each Attempt counts against turn_limit and turns; start and message payloads may carry images (with the key) copied to the :user entry. Callers named: wave8 root helper, skill, recipe-test, eval. Negative controls: move on after unknown; drop the images copy. Local small gate and full review. Output none.",
+      "acceptance": "In-place workflow/agent-loop (Wave 9 Q7 A, Q8 A): optional spec keys image_input (passed to build/2), model_attempts 1..4 (default 1) and move_on (a subset of throttled, overloaded, authentication_failed, permission_denied, not_found; max_request_bytes at most 64,512 when over 1); a refused or failed model call whose payload reason is in move_on asks Attempt k+1 as id:m:N:k+1 under elzoo.agent-loop.model-attempt v1 with {request, attempts [{attempt, reason, retry_after, candidate}]}, the request rebuilt from the same history; unknown, another reason or the bound stops model_call_not_completed; each Attempt counts against turn_limit and turns (turn_limit only when every move-on condition holds); refusal facts read only under elzoo.ai-text.result v1; the host registers the attempt schema; start and message payloads may carry images (with the key) copied to the :user entry. Callers named: wave8 root helper, skill, recipe-test, eval. Negative controls: move on after unknown; drop the images copy. Local small gate and full review. Output none.",
       "product_aims": [
         "P13"
       ],
       "issue": 900,
       "url": "https://github.com/balungpisah/elzoo/issues/900",
-      "issue_body_sha256": "25aab29f3b8b7a61cf294c9dbbf4f0164772fb5423d9389a08666eec21308577"
+      "issue_body_sha256": "65845e716ca70e1e1c84832843b7d45152a47a8a25f12993b853781d4e3945fd"
     },
     {
       "id": "ELZ-377",
@@ -9920,13 +9924,13 @@
         "tasks/ELZ-377-mcp-server-session-binding-and-listen.md"
       ],
       "outputs": [],
-      "acceptance": "In-place integration/mcp-server repairs of #888 and #889 in one task (coordinator decision: both change plug.ex http_opts/authenticate, the test file, the README and one piece.json limit, and ex_mcp ties session identity to subscription authorization): each ex_mcp session bound to the principal (tenant_id the tenant, principal_id kind:id), so another principal's request or DELETE on it is ex_mcp's 404 -32600 Session not found with no handler; subscriptions/listen refused in the Plug after the token check (header or body method; -32601, no stream; body read within body_limit into raw_body). Case 4 of ELZ-363 amended. Negative controls on the binding and the refusal. Local small gate and full review. Output none.",
+      "acceptance": "In-place integration/mcp-server repairs of #888 and #889 in one task (coordinator decision: both change plug.ex http_opts/authenticate, the test file, the README and one piece.json limit, and ex_mcp ties session identity to subscription authorization): each ex_mcp session bound to the principal (tenant_id the tenant, principal_id kind:id), so another principal's request or DELETE on it is ex_mcp's 404 -32600 Session not found with no handler; subscriptions/listen refused in the Plug after the token check by its mcp-method header alone (-32601, no stream, no body read, so an upstream body parser keeps working); body-only shapes left to ex_mcp's own rejection. Case 4 of ELZ-363 amended. Negative controls on the binding and the refusal. Local small gate and full review. Output none.",
       "product_aims": [
         "P13"
       ],
       "issue": 901,
       "url": "https://github.com/balungpisah/elzoo/issues/901",
-      "issue_body_sha256": "b0fc2050dbc79abc37df900f9f3fdba2ac69bca233dc28cd9b0307c47823d014"
+      "issue_body_sha256": "d74930156567658d346c7417e547d1c781350cd6545438b9b2246ae4d4ce156c"
     },
     {
       "id": "ELZ-378",
@@ -9952,13 +9956,13 @@
       "outputs": [
         "assembly/ledger-checkout"
       ],
-      "acceptance": "New assembly/ledger-checkout (Wave 9 Q9 D, Q10 A, settled decision 1; replaces RC-41 for this output): checkout and step tables under the tenant floor; an invoice payment (charge through payment-lifecycle create/charge/get with payment_id checkout.<id>, invoice apply_payment with payment_ref checkout/<id>, journal post checkout/<id>/settle) or a top-up (charge, wallet post, optional host allowance grant Need with a declared parallel group); each step recorded before it starts, its result and compensation in one checkout transaction, calls to other Pieces outside it; a pending or unknown charge waits with nothing registered; a definite failure compensates in reverse order (comp/charge refund of the rest, reverse_payment, journal reverse, revoke), each idempotent by its key; a failed compensation stops needs_operator; resume/3 after a crash re-asks by key; list_running/3 bounded. Coordinator checks: no quota allowance function on main, so the allowance is a host Need; plan not called (fee lines are invoice data). Durable money state: local small gate and full review.",
+      "acceptance": "New assembly/ledger-checkout (Wave 9 Q9 D, Q10 A, settled decision 1; replaces RC-41 for this output): checkout and step tables under the tenant floor; an invoice payment (charge through payment-lifecycle create/charge/get with payment_id checkout.<id>, invoice apply_payment with payment_ref checkout/<id>, journal post checkout/<id>/settle) or a top-up (charge, wallet post, optional host allowance grant Need with a declared parallel group); each step recorded before it starts, its result and compensation in one checkout transaction, calls to other Pieces outside it; a pending or unknown charge waits with nothing registered; a definite failure compensates in reverse order (comp/charge refund of the rest, reverse_payment, journal reverse, revoke), each idempotent by its key; a failed compensation stops needs_operator; resume/3 holds a session advisory lock per checkout (a second caller calls nothing and waits busy) and after a crash re-asks by key; a parallel group starts both members and is decided when both are definite; in_transaction and isolation record nothing; list_running/3 bounded, for open or needs_operator checkouts. Coordinator checks: no quota allowance function on main, so the allowance is a host Need; plan not called (fee lines are invoice data). Durable money state: local small gate and full review.",
       "product_aims": [
         "P10"
       ],
       "issue": 902,
       "url": "https://github.com/balungpisah/elzoo/issues/902",
-      "issue_body_sha256": "78837050ab20838fa13111c71f28cefc5e55e2d2937978dfb319aa2249766397"
+      "issue_body_sha256": "1d57cadb71bca06f2b73c25e8d2368625e0669e4a64af7f0499c23bf25f0b339"
     }
   ],
   "entries": [
