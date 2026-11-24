@@ -121,13 +121,16 @@ defmodule Elzoo.AiBatch.SubmitAdapter do
   `max_create_wire_bytes`); the host's submission store keyed by intent key
   (one fetch in an isolated task bounded by `store_timeout_ms`),
   binding digest and manifest digest; length and SHA-256 of the returned bytes
-  against the manifest; then the credential Need (a failure is the only attested
-  no-send, `credentials_unavailable`); exactly one provider `submit/2` with
+  against the manifest; then the credential Need (a failure is
+  `credentials_unavailable`, the only result of the attested no-send set
+  `Elzoo.AiText.Outcome.no_send/0` that the batch path reaches, retried after
+  `:rearm`); exactly one provider `submit/2` with
   **exactly those bytes** and the manifest's provider metadata (no translation
   or encoding happens here: the body was prepared once at admission); the
   volatile sink; the envelope. A missing or mismatched body is `adapter_error`
-  before the credential is read (nothing is sent, but no further no-send tag
-  exists, so the result is conservatively unknown). The Adapter never retries.
+  before the credential is read (nothing is sent, but the batch Adapter has no
+  no-send tag for it, so the result is conservatively unknown). The Adapter
+  never retries.
 
   Delivered outcomes: `{:submitted, %{job_ref, item_count, orphans}}`,
   `{:refused, reason, %{retry_after, orphans}}`, `{:unknown, reason, %{orphans}}`.
@@ -202,7 +205,7 @@ defmodule Elzoo.AiBatch.SubmitAdapter do
 
   # A failure before the credential was read (binding, manifest, lookup,
   # digest or checks): nothing was sent, but the outcome is reported unknown
-  # because the reused failure table attests no-send only for credentials.
+  # because the batch Adapter has no no-send tag for it.
   defp local_failure(%{context: %Config{} = c, key: key, attempt_id: attempt_id}) do
     finish({:failure, :adapter_error, %{}}, c, key, attempt_id, 0)
   rescue
@@ -285,7 +288,9 @@ end
 defmodule Elzoo.AiBatch.CancelAdapter do
   @moduledoc """
   The `delivery/effect-intent` Adapter of one cancel request. Order: binding and
-  argument checks; the credential Need (a failure is the only attested no-send);
+  argument checks; the credential Need (a failure is `credentials_unavailable`,
+  the only result of the attested no-send set `Elzoo.AiText.Outcome.no_send/0`
+  that the batch path reaches, retried after `:rearm`);
   exactly one provider `cancel/2`; the volatile sink; the envelope. Delivered
   outcomes: `{:cancelled, job_state}` (the provider acknowledged the request),
   `{:refused, reason, %{retry_after}}`, `{:unknown, reason}`. A later status

@@ -6,9 +6,11 @@ defmodule Elzoo.AiBatch.Binding do
   provider_account: ..., recovery_grace_ms: ...`. A submit binding uses
   `Elzoo.AiBatch.SubmitAdapter`, a cancel binding `Elzoo.AiBatch.CancelAdapter`.
   Both use the failure table of the text interface's Cure decision
-  (`Elzoo.AiText.Outcome.failures/0`); only `credentials_unavailable` is attested
-  no-send. No replay, no revision. The provider account enters the binding digest
-  and the intent key.
+  (`Elzoo.AiText.Outcome.failures/0`) and attest its no-send set
+  (`Elzoo.AiText.Outcome.no_send/0`, today `credentials_unavailable` and
+  `input_unavailable`), of which the batch path reaches only
+  `credentials_unavailable`, the one result retried after `:rearm`. No replay, no
+  revision. The provider account enters the binding digest and the intent key.
   """
   alias Elzoo.AiText.Outcome
 
