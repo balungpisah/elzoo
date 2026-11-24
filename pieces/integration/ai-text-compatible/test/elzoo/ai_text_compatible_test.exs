@@ -684,6 +684,28 @@ defmodule Elzoo.AiText.CompatibleTest do
     # receive_timeout here would override the interface's.
     assert options.finch == [name: :host_pinned_pool, pool_timeout: 7]
     assert options.receive_timeout == 1234
+
+    # A repeated finch key: the last one wins, as in Req.merge/2.
+    e =
+      endpoint!(
+        transport(fn ->
+          {:ok,
+           finch: [name: :first_pool, receive_timeout: 1],
+           finch: [name: :last_pool, receive_timeout: 2],
+           adapter: adapter}
+        end)
+      )
+
+    {:ok, wire} = Compatible.translate(request, e)
+
+    ExUnit.CaptureIO.capture_io(:stderr, fn ->
+      send(test, {:result, Compatible.call(wire, %{credential: @key, receive_timeout_ms: 1234})})
+    end)
+
+    assert_received {:result, {:ok, %{status: 200}}}
+    assert_received {:adapter, options}
+    assert options.finch == [name: :last_pool]
+    assert options.receive_timeout == 1234
   end
 
   ## 6. statuses, timeout, malformed body

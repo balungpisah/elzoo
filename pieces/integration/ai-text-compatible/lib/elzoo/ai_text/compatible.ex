@@ -324,14 +324,13 @@ defmodule Elzoo.AiText.Compatible do
   # Req 0.7.5 merges a keyword `finch` option's own `receive_timeout` after the
   # top-level one (Req.Finch.build/1), so the host's would win over the
   # interface's; it is removed and the pool name and other settings are kept.
+  # Every entry is rewritten in place, so a repeated `finch` key keeps Req.merge/2's
+  # last-wins order.
   defp without_receive_timeout(transport) do
-    case Keyword.get(transport, :finch) do
-      finch when is_list(finch) ->
-        Keyword.put(transport, :finch, Keyword.delete(finch, :receive_timeout))
-
-      _ ->
-        transport
-    end
+    Enum.map(transport, fn
+      {:finch, finch} when is_list(finch) -> {:finch, Keyword.delete(finch, :receive_timeout)}
+      other -> other
+    end)
   end
 
   @doc false

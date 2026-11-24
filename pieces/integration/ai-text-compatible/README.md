@@ -107,7 +107,8 @@ request and:
    host's as a whole). A keyword `finch` option from the host keeps its pool
    name and settings but loses its own `receive_timeout`: Req 0.7.5 merges that
    one after the top-level timeout (`Req.Finch.build/1`), so it would override
-   the interface's.
+   the interface's. Every `finch` entry is rewritten in place, so a repeated key keeps
+   `Req.merge/2`'s last-wins order.
 
 `max_retries: 0` is passed to `req_llm`. One Elzoo response step, prepended so
 it runs before every Req and `req_llm` response step, copies the status, the
