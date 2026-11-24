@@ -513,6 +513,16 @@ defmodule Elzoo.ModelRoutingTest do
 
       assert Routing.after_failure(r, attempt("a", {:rate_limited, nil}), facts(@max_u32)) ==
                {:ok, {:retry_same, 100}}
+
+      # With a wait: max(min(wait, max_failure_delay_ms), b) + spread.
+      assert Routing.after_failure(r, attempt("a", {:rate_limited, 2_500}), facts(0)) ==
+               {:ok, {:retry_same, 2_500}}
+
+      assert Routing.after_failure(r, attempt("a", {:rate_limited, 2_500}), facts(@max_u32)) ==
+               {:ok, {:retry_same, 2_600}}
+
+      assert Routing.after_failure(r, attempt("a", {:rate_limited, 20_000}), facts(@max_u32)) ==
+               {:ok, {:retry_same, 10_100}}
     end
 
     test "a not-sent refusal retries until max_attempts, then stops" do
