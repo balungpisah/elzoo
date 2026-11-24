@@ -243,9 +243,10 @@ with the old revision is `:stale_revision`, after which `get/3` shows the commit
   only.
 - One open subscription per tenant (the unique partial index), so its grants never overlap in
   `domain/entitlement`. The Piece does not compare a new subscription's `start_ms` with a
-  canceled one's grants: the host starts it at or after the earlier subscription's last grant
-  ends (its `cancel_ms`, or the revocation time of a cancel now), or `resolve/3` reports
-  `:overlap` for the time in between.
+  canceled one's grants: the host starts it at or after every grant of the canceled
+  subscription has ended, each at the earlier of its `valid_to_ms` and the `revoked_at_ms` of
+  its revocation (a cancel now after a grant expired returns none for it), or `resolve/3`
+  reports `:overlap` for the time in between.
 - A `grant_id` (`<subscription_id>/<index>`) is unique within a tenant only, as
   `subscription_id` is. A host that resolves the grants of several tenants from one facts list
   uses subscription IDs unique across tenants, or supplies each tenant's own grants:
