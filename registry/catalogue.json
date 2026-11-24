@@ -1437,8 +1437,9 @@
       "summary": "Signed outbound events to tenant endpoints with egress checks at each send",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-362: Wave 9 (P13). Standard Webhooks signatures (owner Q5 A); a new try after a possibly sent failure only for a deduplicating endpoint, else a dead letter; plain Ecto/Postgrex tables under state/tenant-isolation."
+      "status": "ready",
+      "reason": "ELZ-362: Wave 9 (P13). Standard Webhooks signatures (owner Q5 A); a new try after a possibly sent failure only for a deduplicating endpoint, else a dead letter; plain Ecto/Postgrex tables under state/tenant-isolation.",
+      "manifest": "pieces/integration/webhook-out/piece.json"
     },
     {
       "id": "integration/mcp-server",

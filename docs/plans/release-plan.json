@@ -11335,10 +11335,12 @@
     {
       "id": "integration/webhook-out",
       "job": "ELZ-362",
-      "note": "Planned signed outbound events over a consumer-owned Ecto Repo on PostgreSQL 16 under the state/tenant-isolation floor: endpoints egress-checked at registration and each send, one delivery per listening endpoint, leased due-row claims, Standard Webhooks v1 HMAC-SHA-256 signatures, one delivery/effect-intent intent per try, a not-sent refusal retried on the same try, a possibly sent failure given a new try with the same webhook-id only for a deduplicating endpoint up to max_tries, else delivery/dead-letter-store.",
+      "note": "Signed outbound events to tenant endpoints over a consumer-owned Ecto Repo on PostgreSQL 16 under the state/tenant-isolation floor (Wave 9 Q5 A): Migration.install/1 creates four protected tables (endpoints, events, deliveries with a dead_letter none/pending/filed mark and the record inputs, observations keyed (tenant, delivery_id, try, attempt)); register/3 egress-checks the https URL with EgressPolicy.resolve/3 under the tenant's policy and is idempotent by endpoint_id; enqueue/3 stores a canonical JSON payload of at most 65,536 bytes once and one delivery per listening endpoint at try 1; claim_due/3 leases due rows with FOR UPDATE SKIP LOCKED and returns each try's delivery/effect-intent admission (identity [tenant, provider_account, webhook-out, post, <delivery_id>/try/<n>], arguments without the payload, deadline fixed at the try's first claim) and a rearm flag; the Adapter reads the rows, resolves the URL again, resolves a whsec_ secret, signs the Standard Webhooks webhook-id/-timestamp/-signature (v1 HMAC-SHA-256 over id.timestamp.body), makes exactly one POST stopped at send_timeout_ms and stores the typed result; record/3 applies one result once per (try, attempt) under the row lock, with a host fallback (delivered, unknown, not_sent, expired): a not-sent refusal is due again on the same try after RetryTimeout.delay/4, a possibly sent failure gets a new try with the same webhook-id only for a dedup endpoint below max_tries, else a dead letter dispatched_unresolved or retries_exhausted, another 4xx or a 3xx is permanent, an expired try is deadline_before_dispatch or deadline_expired; the dead letter is marked pending in the committing transaction and put to delivery/dead-letter-store after it, with file_dead_letters/3 for a put that did not complete. Shape, then the caller's open transaction, are refused before any query; read committed is checked; fixed error atoms that never echo a URL, payload or secret.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/webhook-out/piece.json",
+      "manifest_sha256": "f6e1905851e72056a1ee9cf47ea88c47d196f048818748357721eea3f54b39f8"
     },
     {
       "id": "integration/mcp-server",
