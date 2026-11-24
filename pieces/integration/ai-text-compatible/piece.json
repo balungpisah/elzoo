@@ -41,7 +41,7 @@
     "integration/ai-text reads the image artifacts before translate/2, so a per-model refusal of image input comes after those reads.",
     "The provider name openai-compatible is the same for every endpoint, so an outcome's provenance does not tell two endpoints apart; a host that routes between endpoints names each by its route candidate.",
     "Not supplied: per-endpoint quirks as declared options, reasoning and cache hints per declared model, streaming, a refresh of the checked addresses inside one endpoint.",
-    "The task named ReqLLM.Providers.VLLM; at 1.30.0 it declares no provider option and refuses response_format, so this Piece uses ReqLLM.Providers.LMStudio, which shares the default Chat Completions encoding and declares response_format.",
+    "This Piece uses ReqLLM.Providers.LMStudio, not ReqLLM.Providers.VLLM (Contract amended by coordinator decision, 2026-11-24): at 1.30.0 VLLM declares no provider option and refuses response_format, while LMStudio shares the default Chat Completions encoding and declares response_format.",
     "Every consumer must merge config :req_llm, load_dotenv: false into its configuration: the line is declared in install_configuration and written into the generated install file, but the copier never edits a consumer's configuration. The credential invariant holds regardless: only the injected key is passed."
   ],
   "files": [

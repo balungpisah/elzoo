@@ -75,9 +75,9 @@ URLs, function tools, `tool_choice`, `stop`, `temperature`, `top_p`,
 its documented provider-callback API: `ReqLLM.Providers.LMStudio.prepare_request(:chat,
 ...)` with the model `%{provider: :lmstudio, id: id}`, then `Req.request/1`.
 
-The task named `ReqLLM.Providers.VLLM`. This Piece uses `ReqLLM.Providers.LMStudio`
-instead, because at 1.30.0 the vLLM provider declares no provider option, so it
-refuses `response_format` (both under `provider_options` and as a top-level
+This Piece uses `ReqLLM.Providers.LMStudio`, not `ReqLLM.Providers.VLLM`
+(amended in the Contract by coordinator decision, 2026-11-24), because at
+1.30.0 the vLLM provider declares no provider option, so it refuses `response_format` (both under `provider_options` and as a top-level
 option, checked by a probe), and structured output could not be sent. The LM
 Studio provider is `req_llm`'s other OpenAI-compatible Chat Completions provider
 with the same default encoding (`ReqLLM.Provider.Defaults`), the same `POST
