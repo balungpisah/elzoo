@@ -35,7 +35,7 @@ defmodule Elzoo.AiText.Anthropic do
       piece: @piece,
       provider: "anthropic",
       wire_surface: "messages",
-      features: [:tools, :structured_output, :stop_sequences, :cache_hint, :reasoning],
+      features: [:tools, :structured_output, :stop_sequences, :cache_hint, :reasoning, :image_input],
       reasoning: [:low, :medium, :high],
       cache_ttls: ["5m", "1h"],
       convention: %{input_includes_cached: false},
@@ -51,6 +51,7 @@ defmodule Elzoo.AiText.Anthropic do
          :ok <- combination(request),
          {:ok, cache_opts} <- cache(request),
          {:ok, model} <- model(request.model),
+         :ok <- images(request.messages, model),
          {:ok, context} <- context(request.messages),
          {:ok, tools} <- tools(request.tools) do
       opts =
@@ -123,26 +124,68 @@ defmodule Elzoo.AiText.Anthropic do
         {:refused, :unsupported_feature}
 
       true ->
-        cache_options(hint.ttl, positions, length(Enum.reject(messages, &(&1.role == :system))))
+        cache_options(hint.ttl, positions, Enum.reject(messages, &(&1.role == :system)))
     end
   end
 
-  defp cache_options(ttl, positions, count) do
+  defp cache_options(ttl, positions, conversation) do
     base =
       [anthropic_prompt_cache: true] ++
         if(ttl == "1h", do: [anthropic_prompt_cache_ttl: "1h"], else: [])
 
     case positions do
-      [] -> {:ok, base}
-      [{:message, i}] when i < count -> {:ok, base ++ [anthropic_cache_messages: i]}
-      _ -> {:refused, :invalid_request}
+      [] ->
+        {:ok, base}
+
+      # A breakpoint on a parts message is kept open: req_llm would mark its
+      # last block, which this slice does not claim. req_llm applies the index
+      # to its wire list, where each run of consecutive tool results is one
+      # message, so the parts message is refused at either position.
+      [{:message, i}] when i < length(conversation) ->
+        if Enum.any?(
+             [Enum.at(conversation, i), Enum.at(wire(conversation), i)],
+             &match?(%{parts: _}, &1)
+           ),
+           do: {:refused, :unsupported_feature},
+           else: {:ok, base ++ [anthropic_cache_messages: i]}
+
+      _ ->
+        {:refused, :invalid_request}
     end
+  end
+
+  # The non-system messages as req_llm 1.30 encodes them: it merges each run of
+  # consecutive tool results into one user message.
+  defp wire(conversation) do
+    conversation
+    |> Enum.chunk_by(&(&1.role == :tool_result))
+    |> Enum.flat_map(fn
+      [%{role: :tool_result} | _] = run -> [run]
+      messages -> messages
+    end)
   end
 
   defp model(id) do
     case ReqLLM.model("anthropic:" <> id) do
       {:ok, %{provider: :anthropic} = m} -> {:ok, m}
       _ -> {:refused, :invalid_request}
+    end
+  end
+
+  # Image parts: only for a model whose LLMDB input modalities hold :image, and
+  # each at most the Vision page's per-image limit on the Claude API, 10 MB of
+  # base64 (read as 10,000,000 bytes, fetched 2026-11-24). ai-text's largest
+  # image (5,242,880 bytes, 6,990,508 in base64) never reaches it.
+  @max_image_base64_bytes 10_000_000
+
+  defp images(messages, model) do
+    sizes = for %{parts: parts} <- messages, %{type: :image, bytes: b} <- parts, do: byte_size(b)
+
+    cond do
+      sizes == [] -> :ok
+      :image not in (model.modalities[:input] || []) -> {:refused, :unsupported_feature}
+      Enum.any?(sizes, &(4 * div(&1 + 2, 3) > @max_image_base64_bytes)) -> {:refused, :too_large}
+      true -> :ok
     end
   end
 
@@ -155,6 +198,14 @@ defmodule Elzoo.AiText.Anthropic do
 
          %{role: :user, text: t} ->
            ReqLLM.Context.user(t)
+
+         %{role: :user, parts: parts} ->
+           ReqLLM.Context.user(
+             Enum.map(parts, fn
+               %{type: :text, text: t} -> ReqLLM.Message.ContentPart.text(t)
+               %{type: :image, media_type: m, bytes: b} -> ReqLLM.Message.ContentPart.image(b, m)
+             end)
+           )
 
          %{role: :assistant, text: t, tool_calls: calls} ->
            ReqLLM.Context.assistant(t,
