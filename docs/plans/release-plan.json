@@ -10611,11 +10611,11 @@
     {
       "id": "integration/ai-text-anthropic",
       "job": "ELZ-079",
-      "note": "Anthropic Messages API provider of integration/ai-text through req_llm 1.30's documented provider-callback API: anthropic-version 2026-10-21, max_retries 0, one HTTP exchange with every response halted by an Elzoo step (no redirect, no retry, no req_llm error value); key only from the injected Need as api_key; sampling not declared; structured output through output_config.format; cache hint mapped to cache_control markers (system and tools, at most one message, 5m or 1h) or refused; usage and cache counters from the raw usage map with absent fields :unknown; documented error statuses mapped to the interface's failure tags.",
+      "note": "Anthropic Messages API provider of integration/ai-text through req_llm 1.30's documented provider-callback API: anthropic-version 2026-10-21, max_retries 0, one HTTP exchange with every response halted by an Elzoo step (no redirect, no retry, no req_llm error value); key only from the injected Need as api_key; sampling not declared; structured output through output_config.format; cache hint mapped to cache_control markers (system and tools, at most one message, 5m or 1h) or refused; image input declared: a user parts message as one message of text and base64 image blocks in order, refused unsupported_feature for a model whose llm_db input modalities lack image or a cache breakpoint on the parts message, and too_large for an image over the documented 10 MB base64 limit; usage and cache counters from the raw usage map with absent fields :unknown; documented error statuses mapped to the interface's failure tags.",
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-text-anthropic/piece.json",
-      "manifest_sha256": "56099385c4e333467b5705e139922e6442176f1efe4f25162047570b448a79a9",
+      "manifest_sha256": "70b8273758cad339e2a88fcb1a69bc94c676c25f3d46155a53beb50e8bc79ee7",
       "baseline_status": "not in baseline (new row, ELZ-079)"
     },
     {

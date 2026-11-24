@@ -76,7 +76,8 @@ environment or a `.env` file.
 
 - Features: tools, structured output, stop sequences, cache hint, reasoning
   (`low`, `medium`, `high`, passed as `req_llm`'s `reasoning_effort`, which
-  encodes thinking or `output_config.effort` from the model's metadata).
+  encodes thinking or `output_config.effort` from the model's metadata), image
+  input (see "Image input").
   **Sampling is not declared**: a request that sets it is refused
   `unsupported_feature` at admission, before any credential lookup. Declared
   provider options: none in this slice.
@@ -97,6 +98,62 @@ environment or a `.env` file.
 - Tools are declared to `req_llm` with a callback that always refuses to run;
   `tool_use` blocks come back as proposals (data). `input` that is not an object
   is passed on as raw text for the interface to mark malformed.
+
+## Image input
+
+`integration/ai-text` resolves each image part of a user message through the
+host's artifact Need and checks it (at most 8 images, each at most
+`max_image_bytes`, together at most `max_total_image_bytes`, media type
+`image/png`, `image/jpeg`, `image/webp` or `image/gif`) before it calls
+`translate/2`, and only for a provider that declares `:image_input`, as this one
+does. `translate/2` turns the message `%{role: :user, parts: parts}` into one
+user message whose content is the parts in order: each text part a text block
+and each image part an image block with a base64 source of the bytes and their
+media type (`ReqLLM.Message.ContentPart.image/2`). An empty text part, which
+ai-text accepts, is dropped by `req_llm` and sends no block (the reference's
+text block requires at least one character); a whitespace-only part is sent. A request without image parts
+translates as before; the golden test holds the wire request of each
+conformance-kit scenario as recorded before this change.
+
+Refusals, all before any byte is sent:
+
+- A model whose `llm_db` input modalities lack `:image` is refused
+  `unsupported_feature`. In `llm_db` 2026.11.0, 6 of the 20 Anthropic records
+  hold no modalities at all (for example `claude-3-5-haiku-20241022`); they count
+  as lacking `:image`. `claude-sonnet-4-5` holds `[:text, :image, :pdf]`. The
+  refusal follows `llm_db`'s metadata, not Anthropic's model support: the Vision
+  page says vision is available on every model.
+- A cache breakpoint on a parts message is refused `unsupported_feature`
+  (`req_llm` would mark its last block; a breakpoint inside a parts message is
+  kept open). `req_llm` applies the message index to its wire list, in which
+  each run of consecutive tool results is one message, so a breakpoint whose
+  index names the parts message in either list is refused. A breakpoint on a
+  text message of a request with image parts is kept. (For a request with
+  tool-result runs, the index on the wire can name a later message than the
+  neutral index; that shift exists for text-only requests too and is not
+  changed here.)
+- An image whose base64 encoding is over the documented per-image limit is
+  refused `too_large`.
+
+Documented limits (Anthropic "Vision", "Image limits and costs", "Request
+limits", fetched 2026-11-24, https://platform.claude.com/docs/en/build-with-claude/vision):
+at most 100 images per API request for models with a 200k-token context window
+and 600 for all other models; each image at most 8000x8000 px, with a stricter
+per-image dimension limit when a request holds more than 20 images; each image
+at most 10 MB base64-encoded on the Claude API (5 MB on Amazon Bedrock); a
+request at most 128 MB on the first-party Claude API. This provider reads the
+10 MB as 10,000,000 bytes of base64 and refuses an image whose base64 length,
+4 x ceil(n / 3) for n bytes, is over it: 7,500,000 bytes is accepted and
+7,500,001 refused. ai-text's largest `max_image_bytes` (its upper bound,
+5,242,880 bytes) encodes to 6,990,508 bytes of base64, so the refusal cannot
+occur through ai-text; it is a check of `translate/2` alone. ai-text's limit of 8
+images per request is under the documented count, and the 20-image threshold is
+not reached. **Pixel dimensions are not checked**: an image over the documented
+dimensions reaches the API, whose answer is mapped as any other.
+
+Image tokens are in the input token counters as the provider reports them; there
+is no separate image counter. A model or size refusal comes after ai-text has
+read the artifacts through the Need.
 
 ## Usage and cache counters
 
@@ -131,20 +188,29 @@ interface's documentation for how a caller retries with its own ground).
 - **Stub evidence only (R5).** Every scenario runs against an in-process function
   plug that answers in Anthropic's documented formats; no live call, no real key.
   The stubs prove conformance to the pinned documented format only, never current
-  live behaviour, cache hits or savings, output quality, latency or rate limits.
+  live behaviour, cache hits or savings, output quality, latency or rate limits,
+  nor image understanding, image token counts or pricing.
   A periodic live check with a capped budget is a later owner decision.
 - **Type/contract check.** Every captured request is validated with `jsv` against
   `test/fixtures/anthropic/messages-request.schema.json`, hand-derived from named
   sections of Anthropic's documentation (fetched 2026-11-09: Messages API
   reference "Create a Message" and its domain types; "Prompt caching";
-  "Versions"; "Migrating to API version 2026-10-21"), plus method, path, the
+  "Versions"; "Migrating to API version 2026-10-21"; the image block with a
+  base64 source from the Messages API reference `ImageBlockParam` and
+  `Base64ImageSource` and "Vision", fetched 2026-11-24), plus method, path, the
   pinned version header, the injected key and the absence of sampling fields. No
   official machine-readable specification was found; conformance beyond the
   documented examples is not claimed. The schema caught `req_llm`'s object
   operation sending the beta `output_format` member, which is why structured
   output uses `output_config.format`.
 - **Tests** (`test/elzoo/ai_text_anthropic_test.exs`): the interface's
-  conformance kit; usage and cache scenarios (cold write, warm read, mixed TTL,
+  conformance kit; the golden wire request of each kit scenario, recorded before
+  image input; the image scenarios (the kit's `:image_input` with its PNG decoded
+  from the wire, each media type, eight images in order, a ninth and oversized
+  images refused by ai-text with no request, a model without image input and a
+  breakpoint on the parts message refused with no request, the documented size
+  limit on both sides through `translate/2`, ai-text's largest image sent);
+  usage and cache scenarios (cold write, warm read, mixed TTL,
   below minimum, absent fields, disagreeing totals); cache-hint and reasoning
   translation and refusals before any request; documented error statuses and a
   redirect, one request each; transport timeout with one request; malformed 2xx;
