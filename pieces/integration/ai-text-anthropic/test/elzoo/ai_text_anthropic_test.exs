@@ -36,15 +36,17 @@ defmodule Elzoo.AiText.AnthropicTest do
   defp config(plug, opts \\ []) do
     {:ok, c} =
       AiText.configure(
-        binding: Elzoo.AiText.AnthropicTest.Binding,
-        tenant: "tenant-a",
-        provider: Anthropic,
-        provider_config: %{plug: plug},
-        credentials: Keyword.get(opts, :credentials, fn -> {:ok, @key} end),
-        models: [@model],
-        max_output_tokens: 4096,
-        receive_timeout_ms: 5000,
-        sink: Sink.to_pid(self())
+        [
+          binding: Elzoo.AiText.AnthropicTest.Binding,
+          tenant: "tenant-a",
+          provider: Anthropic,
+          provider_config: %{plug: plug},
+          credentials: Keyword.get(opts, :credentials, fn -> {:ok, @key} end),
+          models: Keyword.get(opts, :models, [@model]),
+          max_output_tokens: 4096,
+          receive_timeout_ms: 5000,
+          sink: Sink.to_pid(self())
+        ] ++ Keyword.take(opts, [:artifacts, :image_bounds])
       )
 
     c
@@ -183,6 +185,85 @@ defmodule Elzoo.AiText.AnthropicTest do
 
       assert :ok == Conformance.check(s.id, delivery, length(requests)), inspect({s.id, delivery})
       conforms(requests, ctx.schema)
+    end
+  end
+
+  ## Golden wire requests (ELZ-371 acceptance 1): recorded on the base before
+  ## the image change, so a text-only request translates byte for byte as before.
+
+  @golden_headers [
+    {"accept", "application/json"},
+    {"anthropic-version", "2026-10-21"},
+    {"content-type", "application/json"},
+    {"user-agent", "req/0.7.5"}
+  ]
+
+  @golden_body %{
+    "max_tokens" => 256,
+    "messages" => [%{"content" => "Conformance prompt.", "role" => "user"}],
+    "model" => "claude-sonnet-4-5-20250929",
+    "stream" => false,
+    "system" => "Answer briefly."
+  }
+
+  @golden_tools %{
+    "tool_choice" => %{"type" => "auto"},
+    "tools" => [
+      %{
+        "description" => "Look up a term.",
+        "input_schema" => %{
+          "additionalProperties" => false,
+          "properties" => %{"q" => %{"type" => "string"}},
+          "required" => ["q"],
+          "type" => "object"
+        },
+        "name" => "lookup"
+      }
+    ]
+  }
+
+  @golden_structured %{
+    "output_config" => %{
+      "format" => %{
+        "schema" => %{
+          "additionalProperties" => false,
+          "properties" => %{"answer" => %{"type" => "integer"}},
+          "required" => ["answer"],
+          "type" => "object"
+        },
+        "type" => "json_schema"
+      }
+    }
+  }
+
+  defp golden(id) when id in [:tool_well_formed, :tool_invalid_json, :tool_schema_invalid],
+    do:
+      {[{"anthropic-beta", "tools-2024-05-16"} | @golden_headers],
+       Map.merge(@golden_body, @golden_tools)}
+
+  defp golden(id) when id in [:structured_valid, :structured_invalid],
+    do: {@golden_headers, Map.merge(@golden_body, @golden_structured)}
+
+  defp golden(_), do: {@golden_headers, @golden_body}
+
+  test "golden: the wire request of every A1 scenario (method, path, headers other than the key, decoded body) equals the recording on the base (translate + call)",
+       ctx do
+    assert length(Conformance.scenarios()) == 15
+
+    for s <- Conformance.scenarios() do
+      response = stub_for(s.stub)
+
+      {_, [req], _, _} =
+        run(ctx, Conformance.request(s.id, @model), fn _ -> response end)
+
+      {headers, body} = golden(s.id)
+      assert {req.method, req.path} == {"POST", "/v1/messages"}, inspect(s.id)
+
+      assert Enum.sort(Enum.reject(req.headers, &match?({"x-api-key", _}, &1))) ==
+               Enum.sort(headers),
+             inspect(s.id)
+
+      assert wire(req) == body, inspect(s.id)
     end
   end
 
@@ -682,5 +763,268 @@ defmodule Elzoo.AiText.AnthropicTest do
       assert block["tool_use_id"] == "toolu_01A"
       if flag, do: assert(block["is_error"] == true), else: refute(Map.has_key?(block, "is_error"))
     end
+  end
+
+  ## Image input (ELZ-371): image parts as Messages API image blocks
+
+  @no_image_model "claude-3-5-haiku-20241022"
+
+  # The artifact read Need double: `images` maps an artifact id to {bytes, media
+  # type}, answered as Elzoo.Artifact.get/4 does (hash format 1).
+  defp need(images) do
+    fn %{artifact_id: id, version: v} ->
+      case Map.fetch(images, id) do
+        {:ok, {bytes, media}} ->
+          record = %{
+            artifact_id: id,
+            version: v,
+            hash_format: 1,
+            sha256: Base.encode16(:crypto.hash(:sha256, <<1, bytes::binary>>), case: :lower),
+            size_bytes: byte_size(bytes),
+            media_type: media
+          }
+
+          {:ok, %{record: record, bytes: bytes}}
+
+        :error ->
+          {:error, :not_found}
+      end
+    end
+  end
+
+  defp image_part(id, media),
+    do: %{"type" => "image", "artifact" => %{"id" => id, "version" => 1}, "media_type" => media}
+
+  defp parts_request(parts, extra \\ %{}),
+    do:
+      request(
+        Map.merge(
+          %{
+            "messages" => [
+              %{"role" => "system", "text" => "Answer briefly."},
+              %{"role" => "user", "parts" => parts}
+            ]
+          },
+          extra
+        )
+      )
+
+  # The content blocks of the captured request's user messages, in order.
+  defp user_blocks(req),
+    do: for(%{"role" => "user", "content" => c} <- wire(req)["messages"], is_list(c), b <- c, do: b)
+
+  defp image_data(%{"type" => "image", "source" => %{"type" => "base64", "data" => d}}),
+    do: Base.decode64!(d)
+
+  # A request already resolved by ai-text: each image part carries `bytes`.
+  defp resolved(json, bytes) do
+    {:ok, r, _} = AiText.Request.decode(AiText.Request.canonical(json))
+
+    messages =
+      Enum.map(r.messages, fn
+        %{parts: parts} = m ->
+          %{
+            m
+            | parts:
+                Enum.map(parts, fn
+                  %{type: :image, media_type: mt} -> %{type: :image, media_type: mt, bytes: bytes}
+                  p -> p
+                end)
+          }
+
+        m ->
+          m
+      end)
+
+    %{r | messages: messages}
+  end
+
+  defp ok_text,
+    do:
+      AnthropicStub.ok(AnthropicStub.message([AnthropicStub.text(Conformance.text())], "end_turn"))
+
+  test "image: the :image_input scenario passes with an artifact Need double; one user message with a text block and an image block of the PNG; the request validates (image_scenarios + stub + schema)",
+       ctx do
+    assert :image_input in Anthropic.capabilities().features
+    assert [%{id: :image_input} = s] = Conformance.image_scenarios()
+    response = stub_for(s.stub)
+
+    {delivery, requests, _, _} =
+      run(ctx, Conformance.request(:image_input, @model), fn _ -> response end,
+        artifacts: Conformance.image_need()
+      )
+
+    assert :ok == Conformance.check(:image_input, delivery, length(requests))
+    conforms(requests, ctx.schema)
+    [req] = requests
+    body = wire(req)
+    assert body["system"] == "Answer briefly."
+
+    assert [%{"role" => "user", "content" => [text, image]}] = body["messages"]
+    assert text == %{"type" => "text", "text" => "Describe the image."}
+
+    assert %{"type" => "image", "source" => %{"type" => "base64", "media_type" => "image/png"}} =
+             image
+
+    assert map_size(image) == 2 and map_size(image["source"]) == 3
+    assert image_data(image) == Conformance.image()
+  end
+
+  test "image: each media type of the set gives a block with that media type; eight images give eight blocks in order, text parts kept between them (translate + captured request)",
+       ctx do
+    for media <- ~w(image/png image/jpeg image/webp image/gif) do
+      bytes = "bytes of #{media}"
+
+      {{:outcome, _, {:completed, _}}, [req], _, _} =
+        run(ctx, parts_request([image_part("one", media)]), fn _ -> ok_text() end,
+          artifacts: need(%{"one" => {bytes, media}})
+        )
+
+      conforms([req], ctx.schema)
+      assert [%{"source" => %{"media_type" => ^media}} = block] = user_blocks(req)
+      assert image_data(block) == bytes
+    end
+
+    images = for i <- 1..8, into: %{}, do: {"img-#{i}", {"image #{i} bytes", "image/png"}}
+
+    parts =
+      for i <- 1..8,
+          p <- [%{"type" => "text", "text" => "Image #{i}:"}, image_part("img-#{i}", "image/png")],
+          do: p
+
+    {{:outcome, _, {:completed, _}}, [req], _, _} =
+      run(ctx, parts_request(parts), fn _ -> ok_text() end, artifacts: need(images))
+
+    conforms([req], ctx.schema)
+
+    expected =
+      for i <- 1..8, do: [{:text, "Image #{i}:"}, {:image, "image #{i} bytes"}]
+
+    assert Enum.map(user_blocks(req), fn
+             %{"type" => "text", "text" => t} -> {:text, t}
+             %{"type" => "image"} = b -> {:image, image_data(b)}
+           end) == List.flatten(expected)
+  end
+
+  test "image: a ninth image, an image over max_image_bytes and images over max_total_image_bytes are refused by ai-text before translation; no request reaches the stub (admission)" do
+    {agent, plug} = AnthropicStub.start(fn _ -> ok_text() end)
+    nine = for i <- 1..9, into: %{}, do: {"img-#{i}", {"x", "image/png"}}
+    big = %{"big" => {:binary.copy(<<7>>, 5_242_881), "image/png"}}
+
+    pair = %{
+      "a" => {:binary.copy(<<1>>, 100), "image/png"},
+      "b" => {:binary.copy(<<2>>, 100), "image/png"}
+    }
+
+    for {images, ids, opts} <- [
+          {nine, Map.keys(nine), []},
+          {big, ["big"], []},
+          {pair, ["a", "b"], [image_bounds: %{max_image_bytes: 100, max_total_image_bytes: 150}]}
+        ] do
+      c = config(plug, [artifacts: need(images)] ++ opts)
+      req = parts_request(Enum.map(ids, &image_part(&1, "image/png")))
+
+      assert {:error, {:refused, :too_large}} =
+               AiText.admission(c, Conformance.declaration(req, "big", 10_000)),
+             inspect(ids)
+    end
+
+    assert AnthropicStub.requests(agent) == []
+  end
+
+  test "image: a model whose LLMDB input modalities lack :image and a cache breakpoint on the parts message are unsupported_feature with no request; text-only and other-message controls are sent (translate)",
+       ctx do
+    {:ok, model} = ReqLLM.model("anthropic:" <> @no_image_model)
+    # LLMDB 2026.11.0 holds no modalities for this record: no :image input.
+    assert model.modalities == nil
+    images = %{"one" => {Conformance.image(), "image/png"}}
+    opts = [artifacts: need(images), models: [@model, @no_image_model]]
+    {agent, plug} = AnthropicStub.start(fn _ -> ok_text() end)
+    c = config(plug, opts)
+
+    no_image = Map.put(parts_request([image_part("one", "image/png")]), "model", @no_image_model)
+
+    # Three non-system messages; message 0 holds the parts.
+    conversation = fn breakpoint ->
+      request(%{
+        "messages" => [
+          %{"role" => "system", "text" => "Answer briefly."},
+          %{"role" => "user", "parts" => [image_part("one", "image/png")]},
+          %{"role" => "assistant", "text" => "Seen."},
+          %{"role" => "user", "text" => "Again."}
+        ],
+        "cache_hint" => hint(["system", %{"message" => breakpoint}])
+      })
+    end
+
+    # req_llm merges the two tool results into one wire message, so message 3
+    # (the second tool result here) is the parts message on the wire.
+    merged =
+      request(%{
+        "tools" => Conformance.request(:tool_well_formed, @model)["tools"],
+        "messages" => [
+          %{"role" => "system", "text" => "Answer briefly."},
+          %{"role" => "user", "text" => "Look both up."},
+          %{
+            "role" => "assistant",
+            "text" => "",
+            "tool_calls" =>
+              for(
+                id <- ~w(toolu_01A toolu_01B),
+                do: %{"id" => id, "name" => "lookup", "arguments" => %{"q" => "x"}}
+              )
+          },
+          %{"role" => "tool_result", "tool_use_id" => "toolu_01A", "text" => "a"},
+          %{"role" => "tool_result", "tool_use_id" => "toolu_01B", "text" => "b"},
+          %{"role" => "user", "parts" => [image_part("one", "image/png")]}
+        ],
+        "cache_hint" => hint(["system", "tools", %{"message" => 3}])
+      })
+
+    for req <- [no_image, conversation.(0), merged] do
+      assert {:error, {:refused, :unsupported_feature}} =
+               AiText.admission(c, Conformance.declaration(req, "u", 10_000))
+
+      # The refusal is the provider's: translate/2 alone refuses the resolved request.
+      assert {:refused, :unsupported_feature} =
+               Anthropic.translate(resolved(req, Conformance.image()), %{plug: plug})
+    end
+
+    assert AnthropicStub.requests(agent) == []
+
+    # Controls: the same model without image parts, and a breakpoint on a text message.
+    {{:outcome, _, {:completed, _}}, [req], _, _} =
+      run(ctx, request(%{"model" => @no_image_model}), fn _ -> ok_text() end, opts)
+
+    conforms([req], ctx.schema)
+
+    {{:outcome, _, {:completed, _}}, [req], _, _} =
+      run(ctx, conversation.(2), fn _ -> ok_text() end, opts)
+
+    conforms([req], ctx.schema)
+
+    assert [_, _, %{"content" => [%{"cache_control" => %{"type" => "ephemeral"}}]}] =
+             wire(req)["messages"]
+  end
+
+  test "image: translate/2 alone refuses an image over the documented 10 MB base64 limit too_large and accepts one at it; ai-text's largest max_image_bytes is sent (translate + captured request)",
+       ctx do
+    json = parts_request([image_part("one", "image/png")])
+
+    # 7,500,000 bytes encode to exactly 10,000,000 base64 bytes; one more byte exceeds it.
+    assert {:ok, _} = Anthropic.translate(resolved(json, :binary.copy(<<0>>, 7_500_000)), nil)
+
+    assert {:refused, :too_large} =
+             Anthropic.translate(resolved(json, :binary.copy(<<0>>, 7_500_001)), nil)
+
+    largest = :crypto.strong_rand_bytes(5_242_880)
+
+    {{:outcome, _, {:completed, _}}, [req], _, _} =
+      run(ctx, json, fn _ -> ok_text() end, artifacts: need(%{"one" => {largest, "image/png"}}))
+
+    conforms([req], ctx.schema)
+    assert [block] = user_blocks(req)
+    assert byte_size(block["source"]["data"]) == 6_990_508
+    assert image_data(block) == largest
   end
 end
