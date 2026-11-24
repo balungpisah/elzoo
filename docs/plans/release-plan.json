@@ -11669,7 +11669,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-text-compatible/piece.json",
-      "manifest_sha256": "f4864d26b4dba6b6d63d666099e4f631ce66899c2c95f21718ae190b3e8b02d4"
+      "manifest_sha256": "7423bb09ed0e30fa874fc3f48cf62caead9fb30df949191739e5f1f0afd3d973"
     }
   ],
   "schema_version": 1,
