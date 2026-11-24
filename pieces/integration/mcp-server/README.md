@@ -66,8 +66,10 @@ The server has a redacted `Inspect`.
    `www-authenticate: Bearer` and the body `{"error":"unauthorized"}`. The Plug
    halts before the body is read, so no MCP handler is started and no Need
    other than the clock and the verifier's own is called.
-2. **No `subscriptions/listen`.** The Piece serves no subscription, resource or
-   stream. A verified request with an `mcp-method` header equal to
+2. **No `subscriptions/listen`.** The Piece serves no subscription or
+   resource, and no stream outlives its request: ex_mcp answers a modern
+   request that carries `_meta.progressToken` and accepts `text/event-stream`
+   with a request-scoped SSE stream, which ends with that request. A verified request with an `mcp-method` header equal to
    `subscriptions/listen` is answered by the Plug, whatever its body and its
    size: HTTP 200 with
    `{"jsonrpc":"2.0","id":null,"error":{"code":-32601,"message":"Method not found"}}`
@@ -232,8 +234,8 @@ request without a token is HTTP 401.
   a re-issued token keeps the principal's sessions (kept open).
 - The listen refusal is by header; a body naming the method is left to ex_mcp's
   own rejections. Bounding a stream by the token's expiry is kept open:
-  `integration/token-verify` does not return the expiry, and the Piece serves
-  no stream.
+  `integration/token-verify` does not return the expiry, and no stream of the
+  Piece outlives its request.
 - Not supplied: resources, prompts, progress notifications, an idempotency key
   in `_meta`, the MCP authorization flow (protected-resource metadata and an
   authorization server) and stdio.

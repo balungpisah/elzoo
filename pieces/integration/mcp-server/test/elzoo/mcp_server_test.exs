@@ -1091,7 +1091,8 @@ defmodule Elzoo.McpServerTest do
     assert Enum.map(tools, & &1["name"]) == ["echo", "summarize"]
   end
 
-  test "ELZ-377 5: a GET with accept text/event-stream is 404", ctx do
+  test "ELZ-377 5: a GET with accept text/event-stream is 404; a request-scoped SSE answer ends with its request",
+       ctx do
     handlers = count_handlers()
     alice = token(ctx, "alice")
     {200, _, session} = raw(ctx, alice, "tools/list", %{})
@@ -1110,6 +1111,31 @@ defmodule Elzoo.McpServerTest do
     end
 
     assert handlers.() == before
+
+    # A modern request with _meta.progressToken that accepts text/event-stream
+    # gets ex_mcp's request-scoped SSE answer: one event with the result, and
+    # the stream ends with the request (within 1 s).
+    started = System.monotonic_time(:millisecond)
+
+    resp =
+      post(
+        ctx,
+        [
+          {"authorization", "Bearer " <> alice},
+          {"mcp-protocol-version", "2026-07-28"},
+          {"mcp-method", "tools/list"}
+        ],
+        rpc(9, "tools/list", %{"_meta" => Map.put(@modern_meta, "progressToken", "p1")}),
+        receive_timeout: 1_000
+      )
+
+    assert System.monotonic_time(:millisecond) - started < 1_000
+
+    assert {resp.status, Req.Response.get_header(resp, "content-type")} ==
+             {200, ["text/event-stream"]}
+
+    assert ["data: " <> event] = String.split(resp.body, "\r\n\r\n", trim: true)
+    assert %{"id" => 9, "result" => %{"tools" => [_, _]}} = Jason.decode!(event)
   end
 
   defp nest(0), do: 0
