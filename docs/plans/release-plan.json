@@ -9505,7 +9505,7 @@
       ],
       "issue": 868,
       "url": "https://github.com/balungpisah/elzoo/issues/868",
-      "issue_body_sha256": "a0865693264eeb0ba2eb83a33706479e9b717f73952fbd9f377dba7153a3bbc5"
+      "issue_body_sha256": "3edd4ea320300c15ce496e9753dcdcaaf3ca39806f7fadb07f34ac2e30286885"
     },
     {
       "id": "ELZ-362",
@@ -9586,13 +9586,13 @@
         "tasks/ELZ-364-ai-text-image-input.md"
       ],
       "outputs": [],
-      "acceptance": "In-place integration/ai-text Contract amendment 2 (Wave 9 Q7 A, absorbs integration/ai-multimodal): a user message may hold parts (text, and image by state/artifact reference with media type png/jpeg/webp/gif, at most 8 images); the capability set gains :image_input (undeclared is unsupported_feature); a host artifacts Need resolves each reference before translation at admission and in the Adapter, checking record identity, media type, size and the hash_format-prefixed SHA-256 and per-image/total bounds; a failure is the local refusal input_unavailable at admission and the new attested no-send tag input_unavailable at dispatch (Cure decision, table and no_send updated); document stays refused; a request without parts is byte for byte today's (golden recorded on the base first); a conformance scenario :image_input. Negative controls on the capability check, the hash check and the no-send mark. Local small gate and full review. Output none.",
+      "acceptance": "In-place integration/ai-text Contract amendment 2 (Wave 9 Q7 A, absorbs integration/ai-multimodal): a user message may hold parts (text, and image by state/artifact reference with media type png/jpeg/webp/gif, at most 8 images); the capability set gains :image_input (undeclared is unsupported_feature); a host artifacts Need resolves each reference before translation at admission and in the Adapter, checking record identity, media type, size and the hash_format-prefixed SHA-256 and per-image/total bounds; a failure is the local refusal input_unavailable at admission and the new attested no-send tag input_unavailable at dispatch (Cure decision, table and no_send updated); document stays refused; a request without parts is byte for byte today's (golden recorded on the base first); a conformance scenario :image_input. Coordinator decision 2026-11-24: delivery/provider-stream prepare/2 and integration/ai-token-count estimate/1, which call Request.decode/1 without check/2, refuse a parts message as unsupported_feature (their README and piece.json follow; index rows updated). Negative controls on the capability check, the hash check, the no-send mark and each of the two parts refusals. Local small gate and full review. Output none.",
       "product_aims": [
         "P13"
       ],
       "issue": 871,
       "url": "https://github.com/balungpisah/elzoo/issues/871",
-      "issue_body_sha256": "2aaa2c0632bb0a709184b0e45ac67b960bd5fa123a6bae0cbcb296563c966264"
+      "issue_body_sha256": "42193df963f5c5286fc5c1af58e1abf359d86586282c4f2b1cc84093be5b25c1"
     },
     {
       "id": "ELZ-365",
@@ -10316,11 +10316,11 @@
     {
       "id": "integration/ai-text",
       "job": "ELZ-079",
-      "note": "Provider-neutral text-model interface: request (ordered text messages, tools, tool_choice, output schema, max output tokens, stop sequences, optional sampling, reasoning level, cache hint, declared provider options, dispatch identity, deadline) admitted from a core/effect declaration with local refusals before any intent; one provider call per dispatch through the delivery/effect-intent owner; outcomes completed{content, tool_proposals, structured, finish, usage, provenance} | refused{credentials_unavailable | invalid_request | unsupported_feature | too_large | authentication_failed | permission_denied | throttled | overloaded | not_found} | unknown{timeout | transport | malformed_response | provider_error}; throttled and overloaded are failed/dispatched/retryable and not redispatched by default (Contract amendment 1); only credentials_unavailable is attested no-send and retried under delivery/retry-timeout; tool proposals are inert data, malformed ones marked; structured output validated; volatile result sink; provider behaviour and conformance kit.",
+      "note": "Provider-neutral text-model interface: request (ordered text messages, user messages of text and image parts by state/artifact reference for a provider that declares image_input (Contract amendment 2), tools, tool_choice, output schema, max output tokens, stop sequences, optional sampling, reasoning level, cache hint, declared provider options, dispatch identity, deadline) admitted from a core/effect declaration with local refusals before any intent; one provider call per dispatch through the delivery/effect-intent owner; outcomes completed{content, tool_proposals, structured, finish, usage, provenance} | refused{credentials_unavailable | input_unavailable | invalid_request | unsupported_feature | too_large | authentication_failed | permission_denied | throttled | overloaded | not_found} | unknown{timeout | transport | malformed_response | provider_error}; throttled and overloaded are failed/dispatched/retryable and not redispatched by default (Contract amendment 1); image parts resolved through a host artifact read Need and checked against the record's size and content hash and declared bounds before translation, input_unavailable at admission as a local refusal and at dispatch as an attested no-send; only credentials_unavailable and input_unavailable are attested no-send and retried under delivery/retry-timeout; tool proposals are inert data, malformed ones marked; structured output validated; volatile result sink; provider behaviour and conformance kit.",
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-text/piece.json",
-      "manifest_sha256": "d62753f1fff866e7482761d94bd4624c30cf984d70034603d4efe36cfd9f856e",
+      "manifest_sha256": "6a5184cdc20a7324f1bd379d542bd825eeab7f2c58afe7e5bfceaa46074f638f",
       "baseline_status": "not in baseline (new row, ELZ-079)"
     },
     {
@@ -11063,11 +11063,11 @@
     {
       "id": "integration/ai-token-count",
       "job": "ELZ-138",
-      "note": "Pure upper bound, as far as recordings through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic, show under a named assumption (not proved), before the call, for the input tokens of one integration/ai-text request to Anthropic: Elzoo.AiTokenCount.Anthropic.estimate/1 decodes the request bytes with Elzoo.AiText.Request.decode/1 and returns size = 3 * canonical bytes, plus 1,024 when the request has a tool, with unit :tokens, direction :upper_bound, provider_id, model_id and estimator elzoo/ai-token-count/anthropic-bytes version 1 (the fields of a workflow/context-selection window); refuses the decoder's reasons unchanged, an output_schema as :unsupported_feature and a model that pinned llm_db does not know for Anthropic as :unknown_model. Not a token count and not a usage fact.",
+      "note": "Pure upper bound, as far as recordings through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic, show under a named assumption (not proved), before the call, for the input tokens of one integration/ai-text request to Anthropic: Elzoo.AiTokenCount.Anthropic.estimate/1 decodes the request bytes with Elzoo.AiText.Request.decode/1 and returns size = 3 * canonical bytes, plus 1,024 when the request has a tool, with unit :tokens, direction :upper_bound, provider_id, model_id and estimator elzoo/ai-token-count/anthropic-bytes version 1 (the fields of a workflow/context-selection window); refuses the decoder's reasons unchanged, an output_schema and a user message with parts (image input) as :unsupported_feature and a model that pinned llm_db does not know for Anthropic as :unknown_model. Not a token count and not a usage fact.",
       "baseline_status": "not in baseline (new row, RC-53)",
       "disposition": "ready-contract",
       "manifest": "pieces/integration/ai-token-count/piece.json",
-      "manifest_sha256": "aec2d679961550b445196a3df3cf1feb34eca4d88fc49a5a2e8dca694f69bd93",
+      "manifest_sha256": "403b2ce627c2391e343e381940cb30270c7b180954fddddacaa01693008cc2e5",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -11137,7 +11137,7 @@
       "baseline_status": "not in baseline (new row, RC-57)",
       "disposition": "ready-contract",
       "manifest": "pieces/delivery/provider-stream/piece.json",
-      "manifest_sha256": "3c5c1c90b2168969b5d1a33f1cc73a8771168cda1248081d98c153b946881433",
+      "manifest_sha256": "b1aba6620815b0e185cc7294c02f8fc0b4bffaf44ab1c511446a76c89c1e22f7",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -11323,10 +11323,12 @@
     {
       "id": "integration/oauth-client",
       "job": "ELZ-361",
-      "note": "Planned tenant OAuth connections over a consumer-owned Ecto Repo on PostgreSQL 16 under the state/tenant-isolation floor: authorization code with PKCE S256 and one-use state, client credentials, tokens sealed with integration/encryption, every exchange one egress-checked Req POST with retries and redirects off, access_token/3 the one function that returns a token (refresh under the connection row lock, one refresh for concurrent callers), reauthorization_required after invalid_grant or an unknown refresh under rotation, revocation. Per-person connections, discovery, dynamic registration, JWT client auth and device code stay addable.",
+      "note": "Tenant OAuth 2.0 connections over a consumer-owned Ecto Repo on PostgreSQL 16 under the state/tenant-isolation floor (connections keyed (tenant, connection_id), authorization attempts keyed (tenant, state_digest)), to 1..64 host-declared providers whose endpoints pass integration/egress-policy check/2: begin_authorization/3 records a one-use state (32 random bytes, stored as its SHA-256) and a sealed PKCE S256 verifier valid 600,000 ms and returns the authorization URL, the one result that carries the state; complete_authorization/3 refuses an unknown, used, expired or other-tenant state as invalid_state before any exchange and marks it used before the one authorization code exchange; connect_client/3 creates a client credentials connection, idempotent by connection_id. Access and refresh tokens are integration/encryption envelopes with the AAD {tenant, connection_id, field}. access_token/3, the one function that returns a token value, reads the connection FOR UPDATE and returns a token fresh by min(skew_ms, half its lifetime) or makes one refresh or client credentials exchange under that row lock, so concurrent callers make one exchange; a refresh refused invalid_grant, or with an unknown or malformed outcome under refresh_rotation, sets reauthorization_required and the refresh token is never sent again. Every exchange and revocation is one form POST through Req after EgressPolicy.resolve/3, the client secret through integration/secrets (client_secret_basic, client_secret_post or none) and the sealing key Need, with retries, redirects and compression off, in a task killed at exchange_timeout_ms (unknown); 4xx refused, 3xx/5xx/transport/timeout unknown, a 2xx outside the bounded bearer shape malformed. revoke/3 makes one RFC 7009 call when there is an endpoint and a token and sets revoked whatever it returns. Writes check shape, then a caller transaction, then READ COMMITTED; fixed error atoms that echo no ID, URL, token, code or provider message; inspect of the binding is redacted; a database failure is unavailable.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/oauth-client/piece.json",
+      "manifest_sha256": "35f15c6114612f64a53bda3952593b18d4099443944d35921b35685aa9a1502a"
     },
     {
       "id": "integration/webhook-out",
@@ -11349,18 +11351,22 @@
     {
       "id": "domain/plan",
       "job": "ELZ-366",
-      "note": "Planned subscriptions over a consumer-owned Ecto Repo on PostgreSQL 16 under the state/tenant-isolation floor: one subscription per tenant to a plan version with a domain/money fee, UTC monthly or yearly periods from an anchor clamped to the month's last day, trial, renewal of exactly one due period returning its fee line and domain/entitlement grant, change at the next period without proration, cancel at period end or now.",
+      "note": "Durable subscriptions in a plain Ecto/Postgrex table on PostgreSQL 16 under the state/tenant-isolation floor: one subscription per tenant at a time (a unique partial index on tenant for rows not canceled) to a plan version {plan_id, version} with a non-negative domain/money fee per period stored as its Codec bytes; UTC calendar monthly or yearly periods counted from an anchor (trial_end_ms, or start_ms without a trial) and clamped to the month's last day, each boundary computed from the anchor by the Cure period rule and keeping the anchor's UTC time of day; an optional trial as period 0 with a grant and no fee line; create/3 idempotent by subscription_id (equal bytes return the stored first result as duplicate, other bytes conflict, an open subscription of the tenant subscription_exists); renew/3 under the row lock advances exactly one period when now_ms >= end_ms - renew_ahead_ms (0..86,400,000, default 0), applies the pending change, makes a trialing subscription active and returns the new period's fee line {subscription_id, period, plan, amount} and its domain/entitlement grant <subscription_id>/<index>, a repeat of the same from_index returns that result as duplicate and writes nothing (with no fee line or grant and the withdrawn fee line after a cancel withdrew the period), other indexes stale_period, a cancel at period end never taken ahead and ending the subscription at cancel_ms with no fee line; change/3 takes effect at the next renewal without proration; cancel/3 at :period_end fixes cancel_ms at the end of the period running at now_ms (the start of a period renewed ahead that has not started, revoking its grant there and withdrawing its fee line) and at :now cancels with one revocation at now_ms for each grant not yet expired (after a period-end cancel inside the ahead window keeping its earlier revocation and withdrawn fee line), storing the result as last_cancel for get/3; mark_past_due/3 and mark_paid/3 take the host's invoice reading; every transition names the expected revision (stale_revision, then {:state, state}); fixed error atoms that echo no ID; a database failure is unavailable and safe to retry. No proration, refund, tax, dunning, timer, invoice, grant or journal write.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/plan/piece.json",
+      "manifest_sha256": "496937c40234e548827a0f36e4370ce020ef5ee21af35810f2d4af77295121cb"
     },
     {
       "id": "domain/invoice",
       "job": "ELZ-367",
-      "note": "Planned invoices over a consumer-owned Ecto Repo on PostgreSQL 16 under the state/tenant-isolation floor: one currency per invoice, usage lines from complete domain/pricing charges, plan fee lines and adjustments, gapless numbers per series under the series row lock, the domain/journal operation ID that the host posts, payment application and partial reversal by amount, void with nothing paid and credit notes. No tax or discount.",
+      "note": "Numbered invoices of one currency in plain Ecto/Postgrex tables on PostgreSQL 16 under the state/tenant-isolation floor (five tables: invoices UNIQUE (tenant, series, number), lines, applications, reversals keyed by reversal_id, series with the last number). An invoice is drafted for one billing account, currency and series (create/3 idempotent by invoice_id), takes up to 256 lines idempotent by line_id: a :usage line of the total of a complete domain/pricing charge (incomplete_charge otherwise; source_ref card_id/version/period), a :fee line of a domain/plan fee line taken as data (source_ref subscription_id/index) and :adjustment lines, all in the invoice's currency (currency otherwise), never negative on an invoice. finalize/3 locks the invoice row (for a credit note first the corrected invoice's), then the series row (created on first use with ON CONFLICT DO NOTHING), takes the series' next number from 1 and freezes the lines in the same transaction, so committed finalizations of one series have consecutive numbers, a rolled-back one uses none and a void keeps its number; an invoice becomes :open, or :paid when its payable is zero; a non-zero total names the domain/journal operation invoice/<invoice_id>/issue as a pending posting, a zero total none; a repeat returns the same number and operation ID with duplicate true. mark_posted/3 records the host's journal result. apply_payment/3 applies a positive amount to an :open invoice up to its payable (total minus issued credit notes), idempotent by payment_ref, and makes it :paid at the payable. reverse_payment/3 takes back an amount, or :remaining fixed in its row, of one application up to what of it is still applied (over_reversal, nothing_applied, unknown_payment), idempotent by its own reversal_id, and reopens a :paid invoice whose paid drops below the payable. void/3 voids a :draft or :open document with nothing paid and nothing credited at the expected revision. credit_note/3 drafts a credit note of 1..256 negative adjustment lines of an :open or :paid invoice within its payable, checked again at its finalize/3 under the corrected invoice's row lock; issued, it grows the corrected invoice's credited and may make it :paid; get/3 shows an excess of paid over the payable as credit_balance. Every write checks shape (invalid), then the caller's transaction (in_transaction) before any query, runs in its own transaction at a checked READ COMMITTED Need (isolation) and locks the invoice row first; amounts are stored as Elzoo.Money.Codec bytes and summed with domain/money only. Fixed error atoms that echo no ID or amount; a database failure is unavailable. No journal post, tax, discount, rendering or multi-currency invoice.",
       "baseline_status": "planned",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/invoice/piece.json",
+      "manifest_sha256": "6461ee16203a7675984a8a4da092e3e6a0f835b033d0b8c545467aa99ad57504"
     }
   ],
   "schema_version": 1,

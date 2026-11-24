@@ -13,7 +13,7 @@ One durable Piece in plain Elixir, Ecto, Postgrex, Req, Jason and OTP `:crypto` 
 
 Under Q3 A the Piece writes only the token lifecycle (when to refresh, one refresh at a time, sealing, revocation): the wire formats are made and parsed by Req and Jason, which are locked, and no OAuth library is added. Per-person connections (Q2 B) are kept open (below).
 
-This task corrects one rule of the plan's sketch (PR #853 review): the sketch said tokens never appear in results while the credential Need returns one. Here `access_token/3` is **the one function that returns a token value**, for the credential Need only; no other result, error, `inspect` output or telemetry event holds a token, a refresh token, a client secret, a code, a PKCE verifier or a `state` value.
+This task corrects one rule of the plan's sketch (PR #853 review): the sketch said tokens never appear in results while the credential Need returns one. Here `access_token/3` is **the one function that returns a token value**, for the credential Need only; no other result, error or `inspect` output, and no event the Piece emits, holds a token, a refresh token, a client secret, a code, a PKCE verifier or a `state` value (coordinator decision, 2026-11-24: upstream Req/Finch telemetry events carry the request and the token response, which the Limits disclose).
 
 The Piece keeps durable state, holds credentials, makes outbound calls to tenant-chosen hosts and serializes concurrent writers, so this task keeps the local small gate and gets the full review of the coordinator guide ("Reviewer by risk"; `AGENTS.md` sections 5 and 6); the hosted `check-piece` run does not replace the local run.
 

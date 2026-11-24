@@ -19,12 +19,15 @@
     "delivery/effect-intent",
     "delivery/retry-timeout"
   ],
-  "contract": "Provider-neutral text-model interface: request (ordered text messages, tools, tool_choice, output schema, max output tokens, stop sequences, optional sampling, reasoning level, cache hint, declared provider options, dispatch identity, deadline) admitted from a core/effect declaration with local refusals before any intent; one provider call per dispatch through the delivery/effect-intent owner; outcomes completed{content, tool_proposals, structured, finish, usage, provenance} | refused{credentials_unavailable | invalid_request | unsupported_feature | too_large | authentication_failed | permission_denied | throttled | overloaded | not_found} | unknown{timeout | transport | malformed_response | provider_error}; throttled and overloaded are failed/dispatched/retryable and not redispatched by default (Contract amendment 1); only credentials_unavailable is attested no-send and retried under delivery/retry-timeout; tool proposals are inert data, malformed ones marked; structured output validated; volatile result sink; provider behaviour and conformance kit.",
+  "contract": "Provider-neutral text-model interface: request (ordered text messages, user messages of text and image parts by state/artifact reference for a provider that declares image_input (Contract amendment 2), tools, tool_choice, output schema, max output tokens, stop sequences, optional sampling, reasoning level, cache hint, declared provider options, dispatch identity, deadline) admitted from a core/effect declaration with local refusals before any intent; one provider call per dispatch through the delivery/effect-intent owner; outcomes completed{content, tool_proposals, structured, finish, usage, provenance} | refused{credentials_unavailable | input_unavailable | invalid_request | unsupported_feature | too_large | authentication_failed | permission_denied | throttled | overloaded | not_found} | unknown{timeout | transport | malformed_response | provider_error}; throttled and overloaded are failed/dispatched/retryable and not redispatched by default (Contract amendment 1); image parts resolved through a host artifact read Need and checked against the record's size and content hash and declared bounds before translation, input_unavailable at admission as a local refusal and at dispatch as an attested no-send; only credentials_unavailable and input_unavailable are attested no-send and retried under delivery/retry-timeout; tool proposals are inert data, malformed ones marked; structured output validated; volatile result sink; provider behaviour and conformance kit.",
   "limits": [
     "No automatic retry of a provider-reported throttle or overload: a caller retries only with its own ground, for example a new logical request reference accepting that the first request may have been processed.",
     "The result sink is volatile local delivery: no durable retention, replay, recovery delivery or exactly-once delivery; after a restart only the settled status remains.",
     "The completion seal is process-local integrity of the Adapter's own result, not provider authentication.",
-    "Streaming, batch, vision and document input, provider-executed tools, routing, fallback, pricing, metering, conversation storage and agent loops are not supplied.",
+    "Streaming, batch, document, audio and video input and image output, inline image bytes, provider-executed tools, routing, fallback, pricing, metering, conversation storage and agent loops are not supplied.",
+    "The artifact read Need, its caller and its access check are the host's; the interface checks only that the bytes match the record it is given. A deleted artifact makes a dispatch fail input_unavailable.",
+    "The interface bounds an image only after the artifact Need returns its bytes: an accepted call hands translate/2 at most the total image bound (20 MiB by default), read twice (admission and dispatch), but before a refusal the interface may already hold whatever the Need returned; what the Need downloads is the host's to bound.",
+    "No image-capable provider is part of this Piece, so no provider's image handling is evidenced here.",
     "Tenants that share one provider credential share that provider's prompt cache; the cache-hint tenant rule cannot partition it.",
     "Finite scenarios with a scripted test provider and a volatile store; no proof is claimed."
   ],
@@ -56,7 +59,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/ai_text_test.exs",
-      "claim": "Listed scenarios with a scripted test provider and the volatile Memory store: completed call path with content only through the sink; local refusals before intent, credential and call; provider options; retries (credentials_unavailable retried, throttled and overloaded unresolved and not redispatched, unknown never, also under a redispatch_idempotent policy); second dispatch refused and same key on re-admission; classification table against Cure; sink failures; tool proposal and structured-output checks; request codec; configuration and redaction; a source audit of this Piece's own listed files showing no reference to req_llm, llm_db, Plug, Req.Test or the Anthropic provider module (the interface loads no provider dependency). Finite scenarios, not proofs."
+      "claim": "Listed scenarios with a scripted test provider and the volatile Memory store: completed call path with content only through the sink; local refusals before intent, credential and call; provider options; retries (credentials_unavailable retried, throttled and overloaded unresolved and not redispatched, unknown never, also under a redispatch_idempotent policy); second dispatch refused and same key on re-admission; classification table against Cure; sink failures; tool proposal and structured-output checks; request codec; a golden text-only request recorded before Contract amendment 2 (canonical bytes, translated term, admission and Adapter results); image parts by artifact reference (references only at admission, resolution in order, unsupported_feature without image_input or an artifact Need, bounds at their edges, hash, size, identity, missing and raising Needs as input_unavailable, the dispatch-time attested no-send retried, parts refusals, the image_input conformance scenario); configuration and redaction; a source audit of this Piece's own listed files showing no reference to req_llm, llm_db, Plug, Req.Test or the Anthropic provider module (the interface loads no provider dependency). Finite scenarios, not proofs."
     },
     {
       "kind": "upstream",
@@ -78,7 +81,7 @@
     },
     {
       "kind": "assumption",
-      "claim": "Provider Pieces implement the behaviour truthfully: one HTTP exchange per call, failure tags chosen from documented statuses, absent usage fields reported :unknown; the host keeps the credential Need truthful; a provider's documented 'rejected before generation' meaning of a throttle or overload is not relied on."
+      "claim": "Provider Pieces implement the behaviour truthfully: one HTTP exchange per call, failure tags chosen from documented statuses, absent usage fields reported :unknown; the host keeps the credential Need and the artifact read Need truthful; a provider's documented 'rejected before generation' meaning of a throttle or overload is not relied on."
     }
   ],
   "operations": {
@@ -88,7 +91,7 @@
     },
     "config": {
       "status": "supported",
-      "contract": "Construction-time binding (provider account entering the intent key), tenant, provider and its construction term, credential Need, model allowlist, request-byte bound, output-token cap, receive timeout and result sink; per-request deadline from the declaration; no hot reconfiguration.",
+      "contract": "Construction-time binding (provider account entering the intent key), tenant, provider and its construction term, credential Need, model allowlist, request-byte bound, output-token cap, receive timeout, result sink, optional artifact read Need and image bounds; per-request deadline from the declaration; no hot reconfiguration.",
       "evidence": [
         "test/elzoo/ai_text_test.exs"
       ]

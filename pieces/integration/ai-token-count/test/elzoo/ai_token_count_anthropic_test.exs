@@ -238,6 +238,24 @@ defmodule Elzoo.AiTokenCount.AnthropicTest do
         {:unsupported_feature,
          Jason.encode!(request(%{"messages" => [%{"role" => "user", "image" => "x"}]}))},
         {:unsupported_feature, Jason.encode!(request(%{"output_schema" => %{"type" => "object"}}))},
+        {:unsupported_feature,
+         Jason.encode!(
+           request(%{
+             "messages" => [
+               %{
+                 "role" => "user",
+                 "parts" => [
+                   %{"type" => "text", "text" => "Describe it."},
+                   %{
+                     "type" => "image",
+                     "artifact" => %{"id" => "img", "version" => 1},
+                     "media_type" => "image/png"
+                   }
+                 ]
+               }
+             ]
+           })
+         )},
         {:unknown_model, Jason.encode!(request(%{"model" => "claude-no-such-model-9"}))},
         {:unknown_model, Jason.encode!(request(%{"model" => "x@y:z"}))}
       ]

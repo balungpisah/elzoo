@@ -2,16 +2,19 @@
 defmodule Elzoo.AiText.Adapter do
   @moduledoc """
   The `delivery/effect-intent` Adapter for one text-model call. Order inside the
-  send task: binding and argument checks; the credential Need (a failure is the
-  only attested no-send, `credentials_unavailable`); the provider's pure
-  `translate/2`; exactly one `call/2`; `decode/2` or `classify_failure/1`; the
+  send task: binding and argument checks; the neutral checks of
+  `Elzoo.AiText.check/2`, with the resolution of each image part through the
+  artifact Need (any resolution failure is the attested no-send
+  `input_unavailable`) and the provider's pure `translate/2`; the credential
+  Need (a failure is the attested no-send `credentials_unavailable`); exactly
+  one `call/2`; `decode/2` or `classify_failure/1`; the
   interface's own checks of the completion (tool proposals against their declared
   schemas, structured output against the requested schema, usage and
   provenance); the volatile sink; the envelope. The Adapter never retries.
 
   The completed envelope carries only the response id, a digest of the typed
-  outcome and a process-local seal; content, tool arguments, credentials and raw
-  provider bodies never enter EffectIntent state. Failure details are fixed
+  outcome and a process-local seal; content, tool arguments, credentials, image
+  bytes and raw provider bodies never enter EffectIntent state. Failure details are fixed
   atoms.
   """
   alias Elzoo.AiModel.{Provenance, Usage}
@@ -39,7 +42,7 @@ defmodule Elzoo.AiText.Adapter do
          true <- b.digest == req.binding,
          true <- is_binary(req.arguments),
          {:ok, request, _} <- Request.decode(req.arguments, c.max_request_bytes),
-         {:ok, wire} <- Elzoo.AiText.check(c, request) do
+         {:ok, wire} <- Elzoo.AiText.prepare(c, request) do
       case credential(c) do
         {:ok, secret} ->
           outcome = exchange(c, request, wire, secret)
@@ -49,7 +52,13 @@ defmodule Elzoo.AiText.Adapter do
           finish(c, key, attempt_id, {:failure, :credentials_unavailable, %{}})
       end
     else
-      _ -> failure(:adapter_error)
+      # The image parts could not be resolved: no credential was read and no
+      # byte reached transport.
+      {:error, {:resolve, _}} ->
+        finish(req.context, req.key, req.attempt_id, {:failure, :input_unavailable, %{}})
+
+      _ ->
+        failure(:adapter_error)
     end
   rescue
     _ -> failure(:adapter_error)

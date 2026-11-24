@@ -95,3 +95,24 @@ defmodule Elzoo.AiText.TestHelper do
     )
   end
 end
+
+defmodule Elzoo.AiText.TestProviderImages do
+  @behaviour Elzoo.AiText.Provider
+  alias Elzoo.AiText.TestProvider
+
+  @impl true
+  def capabilities,
+    do: %{
+      TestProvider.capabilities()
+      | features: TestProvider.capabilities().features ++ [:image_input]
+    }
+
+  @impl true
+  defdelegate translate(r, c), to: TestProvider
+  @impl true
+  defdelegate call(w, o), to: TestProvider
+  @impl true
+  defdelegate decode(e, r), to: TestProvider
+  @impl true
+  defdelegate classify_failure(t), to: TestProvider
+end
