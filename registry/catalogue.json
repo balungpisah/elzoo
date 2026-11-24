@@ -1467,6 +1467,22 @@
       "status": "ready",
       "manifest": "pieces/domain/invoice/piece.json",
       "reason": "ELZ-367: Wave 9 (P13). Gapless numbers per series, no tax or discount (owner Q11 A); plain Ecto/Postgrex tables under state/tenant-isolation; the host posts to domain/journal."
+    },
+    {
+      "id": "integration/ai-text-google",
+      "summary": "Gemini API text provider for the text interface, with image input",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-373: Wave 9 (P13). A third model vendor for routing (owner Q6 A) over the locked req_llm google provider; images by artifact reference (Q7 A)."
+    },
+    {
+      "id": "integration/ai-text-compatible",
+      "summary": "OpenAI-compatible Chat Completions provider at an egress-checked base URL",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-374: Wave 9 (P13). A self-hosted or regional model endpoint (owner Q6 A), admitted through integration/egress-policy, with a host-declared model table."
     }
   ]
 }
