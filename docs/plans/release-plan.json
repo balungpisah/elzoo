@@ -9505,7 +9505,7 @@
       ],
       "issue": 868,
       "url": "https://github.com/balungpisah/elzoo/issues/868",
-      "issue_body_sha256": "63346e272123ba30fb1c9b30b50139186e60000bed3504d8db1c4a7eec529080"
+      "issue_body_sha256": "ef80af2603aad9804c68780d056534da8b096ae2317f4989bc22985a9d6cc277"
     },
     {
       "id": "ELZ-362",
@@ -9532,13 +9532,13 @@
       "outputs": [
         "integration/webhook-out"
       ],
-      "acceptance": "New durable integration/webhook-out (Wave 9 Q5 A): endpoints egress-checked at register/3 and at each send, enqueue/3 writes one delivery per listening endpoint, claim_due/3 leases due rows with FOR UPDATE SKIP LOCKED and returns each try's delivery/effect-intent admission (logical reference <delivery_id>/try/<n>); the Adapter stores each send's typed result as an observation, which record/3 applies once per attempt, with a host fallback for an intent found with no result; Standard Webhooks webhook-id/-timestamp/-signature (v1 HMAC-SHA-256 over id.timestamp.body); a not-sent refusal retries the same try after RetryTimeout.delay/4; a possibly sent failure gets a new try with the same webhook-id only for a dedup endpoint up to max_tries, else delivery/dead-letter-store; another 4xx is permanent. Local receiver through a Req.Test plug behind a resolver double; signature check from the spec, rebinding at send, crash after enqueue, disjoint claims and lease expiry, dedup vs non-dedup 503, max_tries edge, timeouts, idempotency, elzoo_app isolation; negative controls on the dedup rule, the send-time egress check and the lease. Local small gate and full review.",
+      "acceptance": "New durable integration/webhook-out (Wave 9 Q5 A): endpoints egress-checked at register/3 and at each send, enqueue/3 writes one delivery per listening endpoint, claim_due/3 leases due rows with FOR UPDATE SKIP LOCKED and returns each try's delivery/effect-intent admission (logical reference <delivery_id>/try/<n>); the Adapter stores each send's typed result as an observation, which record/3 applies once per attempt, with a host fallback for an intent found with no result or past its deadline (dead-lettered deadline_before_dispatch or deadline_expired); Standard Webhooks webhook-id/-timestamp/-signature (v1 HMAC-SHA-256 over id.timestamp.body); a not-sent refusal retries the same try after RetryTimeout.delay/4; a possibly sent failure gets a new try with the same webhook-id only for a dedup endpoint up to max_tries, else delivery/dead-letter-store; another 4xx is permanent. Local receiver through a Req.Test plug behind a resolver double; signature check from the spec, rebinding at send, crash after enqueue, disjoint claims and lease expiry, dedup vs non-dedup 503, max_tries edge, timeouts, idempotency, elzoo_app isolation; negative controls on the dedup rule, the send-time egress check and the lease. Local small gate and full review.",
       "product_aims": [
         "P13"
       ],
       "issue": 869,
       "url": "https://github.com/balungpisah/elzoo/issues/869",
-      "issue_body_sha256": "ebce5110ca5cd7664ebb3241c344ba24ae549941716009c11e7ff285e99680d8"
+      "issue_body_sha256": "6d392dbd7aa2e14cce53e9b8014fa79517bb04bf5637c34fd26c217ce7ee2166"
     },
     {
       "id": "ELZ-363",
@@ -9568,7 +9568,7 @@
       ],
       "issue": 870,
       "url": "https://github.com/balungpisah/elzoo/issues/870",
-      "issue_body_sha256": "2087c699b74aaaa97845ad459d813b2f9bc3c8845f1c80f48d27bfdee9720642"
+      "issue_body_sha256": "cdf747d2a26eb27562f2d67ef9cce23972b211a7d94b1e25614735ab2e81597a"
     },
     {
       "id": "ELZ-364",
@@ -9592,7 +9592,7 @@
       ],
       "issue": 871,
       "url": "https://github.com/balungpisah/elzoo/issues/871",
-      "issue_body_sha256": "8d1bebf5c53558f0be76ce7f5f6071e488f6b822fb4569d90016cd1a86963d39"
+      "issue_body_sha256": "2aaa2c0632bb0a709184b0e45ac67b960bd5fa123a6bae0cbcb296563c966264"
     },
     {
       "id": "ELZ-365",
@@ -9621,7 +9621,7 @@
       ],
       "issue": 872,
       "url": "https://github.com/balungpisah/elzoo/issues/872",
-      "issue_body_sha256": "c86553f53b3c344703b03421f87fbece66ef9e8626414007c77e1f2d148ae150"
+      "issue_body_sha256": "b430b47e16dc43b8ce239084849cdbcb4f2f95466c3144a4f9ccd91e0a086ca7"
     },
     {
       "id": "ELZ-366",
@@ -9651,7 +9651,7 @@
       ],
       "issue": 873,
       "url": "https://github.com/balungpisah/elzoo/issues/873",
-      "issue_body_sha256": "7363dc1ae3fb2405fa572f2db77b76a8dc6f3a07ab4d05413639a23785443d55"
+      "issue_body_sha256": "bfe62af2ec0163c5fe4e7f79a937852e241ffaae455eacb67cf2e9fae1158519"
     },
     {
       "id": "ELZ-367",
@@ -9674,14 +9674,14 @@
       "outputs": [
         "domain/invoice"
       ],
-      "acceptance": "New durable domain/invoice (Wave 9 Q11 A): one-currency invoices with usage lines from a complete domain/pricing charge (incomplete_charge otherwise), plan fee lines and adjustments; finalize/3 takes the next gapless number of the series under the series row lock and names the journal operation invoice/<id>/issue, mark_posted/3 records the host's result; apply_payment/3 up to the total, idempotent by payment_ref; reverse_payment/3 takes an amount (or :remaining) of one applied payment up to what is still applied, idempotent by reversal_id (PR #853 answer); void with nothing paid or credited; credit notes within the payable, finalized issued with a negative total, reduce the corrected invoice's payable. Concurrent numbering, partial reversal after a partial refund, elzoo_app isolation; negative controls on numbering outside the lock, another currency and whole reversal. Local small gate and full review.",
+      "acceptance": "New durable domain/invoice (Wave 9 Q11 A): one-currency invoices with usage lines from a complete domain/pricing charge (incomplete_charge otherwise), plan fee lines and adjustments; finalize/3 takes the next gapless number of the series under the series row lock and names the journal operation invoice/<id>/issue, mark_posted/3 records the host's result; apply_payment/3 up to the payable (total minus issued credit notes), idempotent by payment_ref; reverse_payment/3 takes an amount (or :remaining) of one applied payment up to what is still applied, idempotent by reversal_id (PR #853 answer); void with nothing paid or credited; credit notes within the payable, finalized issued with a negative total, reduce the corrected invoice's payable. Concurrent numbering, partial reversal after a partial refund, elzoo_app isolation; negative controls on numbering outside the lock, another currency and whole reversal. Local small gate and full review.",
       "product_aims": [
         "P09",
         "P10"
       ],
       "issue": 874,
       "url": "https://github.com/balungpisah/elzoo/issues/874",
-      "issue_body_sha256": "c77145005a790c718bc49e6a8271893b5a2969cdba59a9e4753e08846a654896"
+      "issue_body_sha256": "9d6ecc7c0c2073adeccd56b7e234c6a5d1e2f1744db825e2fb14928dca2c2d15"
     }
   ],
   "entries": [

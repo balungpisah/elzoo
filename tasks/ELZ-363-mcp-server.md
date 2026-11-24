@@ -51,7 +51,7 @@ Checked at `main` `2face3fc` and `deps/ex_mcp` 1.8.1. The task's first step re-c
 
   Every result and error is at most 65,536 bytes (a larger completion is the tool error `{"run_id", "state": "result_too_large"}`) and never holds a token. A `start` Need that raises, throws or exits is `start_failed`; a `result` Need that does so is treated as `{:error, _}`.
 
-`piece.json` declares telemetry `not_applicable`, the config of `new/1` and its bounds, control `not_applicable`; the dependencies `integration/token-verify`, `domain/authorization`, `domain/principal`, `core/payload-schema` and, for its tests, `integration/mcp-client` (the copied consumer of a new Piece holds only its declared closure); the providers `ex_mcp`, `plug`, `plug_cowboy` (tests) and `jason`.
+`piece.json` declares telemetry `not_applicable`, the config of `new/1` and its bounds, control `not_applicable`; the dependencies `integration/token-verify`, `domain/authorization`, `domain/principal`, `core/payload-schema` and, for its tests, `integration/mcp-client` (the copied consumer of a new Piece holds only its declared closure); the providers `ex_mcp`, `plug`, `plug_cowboy` (tests), `req` (tests, for the raw POSTs; no Piece of the closure declares it) and `jason`.
 
 ## Kept open (owner's "no corner" rule)
 
