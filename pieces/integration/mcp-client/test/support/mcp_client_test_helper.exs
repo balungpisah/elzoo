@@ -88,15 +88,16 @@ defmodule Elzoo.McpClientTest.Server do
   In-process loopback MCP server for the tests: Plug.Cowboy on 127.0.0.1 with an
   ephemeral port. Every request is reported to the test process as
   `{:mcp_request, method_or_path, authorization_present?, decoded_body}` before
-  it is answered; `tools/call` can be answered by a scripted fault instead of
-  ex_mcp's server. Its own Logger level is :none, so log captures observe only
+  it is answered; after `record_auth/1`, it also keeps each request's bearer
+  token (`auth_log/1`); `tools/call` can be answered by a scripted fault instead
+  of ex_mcp's server. Its own Logger level is :none, so log captures observe only
   the client side.
   """
   @behaviour Plug
   import Plug.Conn
 
   def start(parent \\ self()) do
-    {:ok, agent} = Agent.start(fn -> %{call: :pass, get: :none} end)
+    {:ok, agent} = Agent.start(fn -> %{call: :pass, get: :none, auth: nil} end)
     ref = {__MODULE__, make_ref()}
 
     {:ok, _} =
@@ -122,6 +123,12 @@ defmodule Elzoo.McpClientTest.Server do
   end
 
   def mode(%{agent: agent}, mode), do: Agent.update(agent, &Map.put(&1, :call, mode))
+
+  @doc "Starts keeping `{method_or_path, bearer_token_or_nil}` for every later request."
+  def record_auth(%{agent: agent}), do: Agent.update(agent, &Map.put(&1, :auth, []))
+
+  @doc "The requests kept since `record_auth/1`, oldest first."
+  def auth_log(%{agent: agent}), do: Agent.get(agent, &Enum.reverse(&1.auth))
 
   @doc "What a legacy GET stream receives: `:none` (405), `:idle` or `:requests`."
   def get_mode(%{agent: agent}, mode), do: Agent.update(agent, &Map.put(&1, :get, mode))
@@ -151,6 +158,14 @@ defmodule Elzoo.McpClientTest.Server do
         is_binary(method) -> method
         true -> :response
       end
+
+    header = conn |> get_req_header("authorization") |> List.first()
+    token = header && String.replace_prefix(header, "Bearer ", "")
+
+    Agent.update(opts[:agent], fn
+      %{auth: log} = st when is_list(log) -> %{st | auth: [{label, token} | log]}
+      st -> st
+    end)
 
     send(opts[:parent], {:mcp_request, label, auth?, json})
     %{call: mode, get: get} = Agent.get(opts[:agent], & &1)

@@ -984,6 +984,62 @@ defmodule Elzoo.McpClientTest do
     Server.mode(ctx.server, :pass)
   end
 
+  test "T34 one session's ledger holds at most 64 distinct tokens: the request that would carry the 65th is refused credentials_unavailable before any byte, a held token is still sent, a new session starts empty (ledger bound)",
+       ctx do
+    # A new valid token on every resolution, or `held` while it is set.
+    {:ok, st} = Agent.start_link(fn -> %{n: 0, held: nil} end)
+
+    need = fn ->
+      Agent.get_and_update(st, fn
+        %{held: nil, n: n} = m -> {{:ok, "tok-BOUND-#{n}-ww-0123456789abcdef"}, %{m | n: n + 1}}
+        %{held: t} = m -> {{:ok, t}, m}
+      end)
+    end
+
+    Server.record_auth(ctx.server)
+    sent = fn -> Enum.map(Server.auth_log(ctx.server), &elem(&1, 1)) end
+    s = session(ctx, credentials: need)
+
+    # The handshake's tokens, read from the server's record.
+    assert [_ | _] = handshake = sent.()
+    assert Enum.all?(handshake, &is_binary/1)
+
+    # 1. Calls until the session has sent 64 distinct tokens; each completes.
+    Enum.reduce_while(1..64, nil, fn _, _ ->
+      if length(Enum.uniq(sent.())) < 64 do
+        assert %{"outcome" => "completed"} = send_one(s, payload("echo", %{}))
+        {:cont, nil}
+      else
+        {:halt, nil}
+      end
+    end)
+
+    assert Enum.all?(sent.(), &is_binary/1)
+    assert length(Enum.uniq(sent.())) == 64
+    before = length(sent.())
+
+    # The 65th distinct token is never sent: the call and a listing are refused.
+    assert {:error, :credentials_unavailable, :mcp} = send_one(s, payload("echo", %{}))
+    assert {:error, :credentials_unavailable} = McpClient.list_tools(s)
+    assert length(sent.()) == before
+
+    # 2. A token the ledger holds is still sent, and the call completes.
+    held = hd(handshake)
+    Agent.update(st, &%{&1 | held: held})
+    assert %{"outcome" => "completed"} = send_one(s, payload("echo", %{}))
+    assert sent.() |> Enum.drop(before) == [held]
+
+    # 3. A new session with the same rotating Need starts with an empty ledger.
+    Agent.update(st, &%{&1 | held: nil})
+    first = Enum.uniq(sent.())
+    s2 = session(ctx, credentials: need)
+    assert %{"outcome" => "completed"} = send_one(s2, payload("echo", %{}))
+    fresh = sent.() |> Enum.drop(before + 1)
+    assert [_, _ | _] = fresh
+    assert Enum.all?(fresh, &(is_binary(&1) and &1 not in first))
+    flush_results()
+  end
+
   test "T19 every failing, raising, throwing, exiting or malformed credential Need is credentials_unavailable with no tool request (auth provider)",
        ctx do
     needs = [
