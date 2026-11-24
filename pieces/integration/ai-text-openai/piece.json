@@ -64,13 +64,13 @@
       "kind": "upstream",
       "provider": "req_llm",
       "reference": "https://hexdocs.pm/req_llm/1.30.0/readme.html",
-      "claim": "req_llm 1.30.0 (Hex checksum 1c4b19608aa982de5ea396cc6de3d3738e72480182ba11c184e028a4af305edb) OpenAI Responses request encoding (input items, content-part prompt_cache_breakpoint metadata, prompt_cache_key, prompt_cache_options, store, reasoning, text.format), model routing through ReqLLM.RequestPlan.openai_surface/1, the authorization header and the documented provider-callback API prepare_request/4 plus Req.request/1; observations of the pinned version (probe transcript in the task work record), not guarantees."
+      "claim": "req_llm 1.30.0 (Hex checksum 1c4b19608aa982de5ea396cc6de3d3738e72480182ba11c184e028a4af305edb) OpenAI Responses request encoding (input items, content-part prompt_cache_breakpoint metadata, an image content part as input_image with a data:<media type>;base64 image_url and detail from the part metadata, prompt_cache_key, prompt_cache_options, store, reasoning, text.format), model routing through ReqLLM.RequestPlan.openai_surface/1, the authorization header and the documented provider-callback API prepare_request/4 plus Req.request/1; observations of the pinned version (probe transcript in the task work record), not guarantees."
     },
     {
       "kind": "upstream",
       "provider": "llm_db",
       "reference": "https://hexdocs.pm/llm_db/2026.11.0/",
-      "claim": "llm_db 2026.11.0 model metadata for gpt-6.1-terra: text execution on openai_responses at /responses, reasoning effort values none, low, medium, high, xhigh, max."
+      "claim": "llm_db 2026.11.0 model metadata for gpt-6.1-terra: text execution on openai_responses at /responses, input modalities text, image and pdf, reasoning effort values none, low, medium, high, xhigh, max."
     },
     {
       "kind": "upstream",

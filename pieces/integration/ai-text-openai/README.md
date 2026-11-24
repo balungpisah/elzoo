@@ -142,8 +142,10 @@ input message with the parts in order**: a text part as `input_text`, an image
 part as `input_image` whose `image_url` is a `data:<media type>;base64,<bytes>`
 URL, with `detail: "auto"` (set through the `req_llm` content-part metadata).
 The pinned `InputImageContent` requires `detail`, so every image validates
-against it. A request without image parts translates byte for byte as before
-(the golden wire requests of O1, recorded before image input was added).
+against it. A request without image parts translates to the same wire request
+as before (method, path, headers other than the key, decoded body), shown for
+the O1 scenarios by their golden wire requests, recorded before image input was
+added.
 
 - **The data URL bound.** The pinned schema bounds an input image's `image_url`
   at 20,971,520 characters, in the definition `InputImageContentParamAutoParam`
