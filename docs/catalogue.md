@@ -179,7 +179,7 @@ the largest old overlaps:
 | Timer, Interval, Delay, Debounce, Timeout | `delivery/time` + `delivery/retry-timeout` | Clock is an input; timeout policy is separate |
 | Circuit Breaker, Retry with Backoff, Catch | `delivery/circuit-breaker` + `delivery/retry-timeout` | Failure-policy family split between breaker state and retry/deadline policy |
 | Scatter-Gather, API Composition | `delivery/aggregation` | Correlated fan-out/fan-in |
-| Saga, Process Manager | `workflow/state-machine` | Stateful compensation and ordering |
+| Saga, Process Manager | `assembly/ledger-checkout` | One checkout saga with its own log: recorded compensations, reverse-order undo, unknown outcomes wait (no `workflow/saga` Piece until a second caller) |
 | Event Bus, Messaging, Decoupling Middleware, Pipes-and-Filters | `core/wiring` | Wiring declares the topology; no second bus abstraction |
 
 Dropped or explicitly out of scope from the old inventory:

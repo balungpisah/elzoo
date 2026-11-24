@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "id": "assembly/ledger-checkout",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["ecto_sql", "postgrex", "jason", "telemetry", "elixir", "otp"],
+  "dependencies": [
+    "domain/payment-lifecycle",
+    "domain/invoice",
+    "domain/journal",
+    "domain/money",
+    "state/tenant-isolation",
+    "delivery/effect-intent"
+  ],
+  "applications": ["crypto"],
+  "contract": "Durable checkout saga over a consumer-owned Ecto Repo on PostgreSQL 16 under the state/tenant-isolation floor (checkouts and steps tables, no DELETE), one Assembly with its own log (Q10 A) and no provider named (Q9 D): pay an invoice (charge through domain/payment-lifecycle create/get/charge with payment_id checkout.<id>, create/3 with the approved terms on every pass and an existing payment of another amount or recipient approval_mismatch, never adopted, domain/invoice apply_payment with payment_ref checkout/<id>, domain/journal post checkout/<id>/settle) or top up a wallet (charge, journal post checkout/<id>/wallet, optional host allowance grant Need, optionally one declared parallel group of wallet and allowance); open/3 checks every field against the bound of the Piece that takes it before storing, idempotent by checkout_id; each step written started before its first call, its result and compensation in one checkout transaction, every Piece or Need call outside it; a :pending or :unknown charge waits :charge_intent with the admission and nothing registered, charge/3's {:state, _} re-reads get/3; a definite failure compensates the succeeded steps in reverse position order (comp/charge refund of :remaining waiting :refund_intent, reverse_payment, journal reverse with the fixed reason, revoke Need), each idempotent by its key; a failed compensation is compensation_failed and stops needs_operator; a Piece's :unavailable or a Need's other answer waits :retry with nothing recorded, :in_transaction and :isolation are resume/3's own error; resume/3 holds a session advisory lock per checkout on one connection checked out with timeout :infinity for the whole call and a caller without it calls nothing and waits :busy; a parallel group starts both members and is decided when both are definite; list_running/3 bounded, for open or needs_operator checkouts. Fixed error atoms that echo no ID or amount.",
+  "limits": [
+    "The payment provider is scripted in the evidence (Q9 D): no claim about a provider's settlement, idempotency or events; a balanced journal does not prove external settlement.",
+    "The host drives the charge and refund intents and the allowance Needs and calls resume/3; a checkout it never resumes stays running and listed, and an intent the host never brings to a definite state leaves the checkout listed for ever.",
+    "The lock is a session lock on the checkout's Repo and needs a connection that keeps its session (a transaction-mode pooler breaks it). If that connection is lost while a call to a Need or to a Piece bound to another Repo is in flight, the lock is released and a second resume/3 can run beside the first; the first cannot record (:unavailable), its call's effect stays unrecorded by it, and a refusal the second reads may disagree with that effect. Not fenced.",
+    "The checked-out connection has no checkout deadline, so no query on it has a client deadline: the host sets statement_timeout and lock_timeout for the role of the checkout's Repo and bounds its Needs; a query that waits without end holds the lock and every other resume/3 of that checkout answers :busy. The pool must allow one more connection per Piece bound to another Repo.",
+    ":compensated covers the checkout's own comp/charge refund, not a host refund still pending; a failed compensation stops the checkout for an operator and no operator API is supplied. No inventory reservation, per-step timeout, quota adjustment or tax.",
+    "The state/tenant-isolation limits apply: the table owner can turn forcing off or drop the policies, and a superuser or BYPASSRLS role ignores them; production connects as a non-owner, non-bypass role with the README grants. The consumer Repo's query telemetry receives the tenant. READ COMMITTED is a consumer Need that the Piece checks but cannot set.",
+    "Concurrency, crash, row-security and unknown-outcome evidence are finite scenarios on one local PostgreSQL 16, not proofs."
+  ],
+  "files": [
+    "lib/elzoo/ledger_checkout.ex",
+    "lib/elzoo/ledger_checkout/migration.ex",
+    "test/elzoo/ledger_checkout_test.exs",
+    "test/support/ledger_checkout_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/ledger_checkout_test.exs",
+      "claim": "Listed scenarios on the worker's own disposable PostgreSQL 16 database with Repos connected as the ELZ-285 application role with only the README grants of the four Pieces (fails when ELZOO_TEST_APP_ROLE is unset or the role is the owner, a member of it, a superuser or BYPASSRLS), in random schemas dropped afterwards, with the ready domain/payment-lifecycle, domain/invoice and domain/journal, the ready delivery/effect-intent owner over an acknowledged volatile Memory Store driven by the test as the host, a scripted provider Need and scripted allowance Needs, and a log of every query and Need call per process. 1 an invoice payment completes with one charge, one application (invoice :paid), one settle operation, each step recorded with its compensation, balances as posted; 2 the charge declined is :compensated with nothing to compensate; the invoice refused {:state, :paid} refunds the charge; the settle refused (unknown account) reverses the application, then refunds the charge, in that order of recorded calls; a resume/3 after :compensated changes nothing; 3 a payment settled :succeeded or :failed by a verified event between get/3 and charge/3 (the resume held at charge/3's first query) is recorded with comp/charge or fails definitely; a provider timeout waits :charge_intent with nothing registered or compensated, a poll success then completes and a poll failure compensates with no refund; 4 duplicate and out-of-order events change nothing; 5 an amount other than the approved one is :approval_mismatch before any intent; an existing succeeded payment under the checkout's payment_id of other approved terms is create/3's :conflict and one of the approved terms but another amount is :approval_mismatch, each a definite failure with no refund, no charge call and no wallet post; 6 a host refund of 30 before the compensation leaves comp/charge 70 and the payment refunded 100 of 100; 7 a compensated top-up returns every balance with the reversal linked, an invoice payment compensated at settle returns the invoice's paid and state with no settle operation; 8 crashes made by killing a resume at each step's Piece call (create/3, the invoice application, each journal post) and performing the effect directly with the checkout's key, then a resume/3 records one effect (:duplicate where the Piece reports it) and one compensation; a resume killed inside the grant Need while holding the lock, after which the next resume gets the lock and continues; a resume killed between two step recordings leaves every result with its compensation; with the journal on a second Repo an :unavailable that committed then :isolation records nothing and returns {:error, :isolation}, then at READ COMMITTED records :duplicate; a Need longer than a 100 ms Repo :timeout keeps the lock and a second resume/3 is :busy; list_running/3 before and after, limit 1, 256 and 257 refused, more at the edge, needs_operator; 9 two concurrent resume/3 calls with the first held at a query: the second makes no Piece query and no Need call and is :busy, one charge intent key, one application, one settle operation, one recording per step; an invoice refusal that a host reversal changes while the lock is held is read by the holder only and the checkout ends :compensated with no application; 10 a spent wallet makes the reversal :insufficient_funds after an allowance refusal: :needs_operator, the wallet compensation_failed, the charge refund not run and still recorded; 11 a parallel group whose wallet post fails starts both, revokes once, then refunds; a wallet refusal is recorded before the grant Need is called, so a resume killed inside the Need keeps it after the refused account is opened; a busy caller names the member still open, not its failed sibling; a wallet post waiting :retry keeps the checkout waiting with the allowance granted and nothing compensated; both failing records the wallet's reason; without parallel an allowance failure reverses the wallet post, then refunds; 12 owner-only DDL and DELETE refused, another tenant's checkout invisible to get/3, resume/3 and list_running/3, direct writes of another tenant's rows refused 42501; new/1, open/3 and list bounds, duplicate and conflict, allowance Needs required at open/3 and resume/3 with nothing called, in_transaction and isolation of every function. Negative controls by temporary edit, each failing its case: compensations in forward order (case 2 order), the compensation written in a separate transaction after the result with the CHECK removed (case 8, a result without its compensation after a crash between), a :pending or :unknown charge registered as succeeded (case 3), no lock (case 9), a group decided at its first failure without starting the sibling (case 11), :isolation recorded as a definite failure (case 8 isolation), the checkout without timeout :infinity (case 8 :busy); automated-review repairs, each failing its case: every group member called before any is recorded (case 11 crash), the busy step naming a failed member (case 11 busy), an existing payment adopted without create/3 and the terms check (case 5 existing payment). Finite scenarios, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/16/explicit-locking.html#ADVISORY-LOCKS",
+      "claim": "PostgreSQL 16 session advisory locks (pg_try_advisory_lock, pg_advisory_unlock, released when the session ends), row locks (SELECT ... FOR UPDATE), INSERT ... ON CONFLICT DO NOTHING, CHECK and foreign keys, row-level security with SQLSTATE 42501 are upstream server contracts reached through Postgrex 0.22.4."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://hexdocs.pm/db_connection/2.10.2/DBConnection.html",
+      "claim": "DBConnection 2.10.2, Postgrex's pool: a checkout's deadline covers the whole checked-out time and its end or the holder's exit disconnects the connection; timeout :infinity sets none, and calls on a checked-out connection reuse it."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "Ecto SQL 3.14.0 Repo.checkout/2, Repo.transact/2 results and rollback, in_transaction?/0 (false inside a checkout) and Ecto.Migration.execute/1 are upstream behavior, reached through Elzoo.TenantIsolation.transact/3."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html",
+      "claim": "OTP 29.1.2 :crypto SHA-256 for the 64-bit advisory lock key."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The consumer runs the migrations as the table owner, connects as a non-owner, non-bypass role with only the README grants at READ COMMITTED through a pool that keeps sessions, sets statement_timeout and lock_timeout for that role, drives each charge and refund intent with its Binding and calls record/3 before resume/3, resumes every checkout that list_running/3 returns, and supplies allowance Needs that are idempotent by grant_id (refusals included), grant nothing after a revoke and are bounded in time."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "The Assembly emits no event and no log; its queries pass log: false. The consumer Repo's query telemetry still receives the scope parameters, the tenant-isolation limit, and the reused Pieces keep their own declarations."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "The binding value from new/1: exactly repo:, prefix: (identifier rule), payments: (%Elzoo.PaymentLifecycle{}), invoices: (%Elzoo.Invoice{}), journal: (%Elzoo.Journal{}) and optionally allowance: (%{grant, revoke} of one-arity functions), fixed per value. Fixed Contract bounds: checkout_id 1..64 bytes of [A-Za-z0-9._-], recipient and approval_ref 1..256 bytes, invoice_id 1..100, account IDs, actor_ref and grant_id 1..128 bytes of printable UTF-8, list limit 1..256; the journal reasons elzoo.ledger-checkout settle, wallet and compensate. No ambient or hot configuration.",
+      "evidence": ["test/elzoo/ledger_checkout_test.exs"]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle of its own; the host owns the effect-intent owners, the Needs, when to resume, the Repo, the migrations and the database roles. No operator command for :needs_operator."
+    }
+  }
+}

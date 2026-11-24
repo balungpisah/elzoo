@@ -84,11 +84,12 @@
     },
     {
       "id": "assembly/ledger-checkout",
-      "summary": "Ledger, checkout saga, inventory/payment",
-      "disposition": "defer",
+      "summary": "Durable checkout saga: invoice payment or wallet top-up with recorded compensations",
+      "disposition": "own",
       "phase": "P4",
-      "status": "deferred",
-      "reason": "C3/C4 compose domain/money, domain/journal, payment lifecycle and provider integration; unknown external outcomes require reconciliation, not blind replay."
+      "status": "ready",
+      "manifest": "pieces/assembly/ledger-checkout/piece.json",
+      "reason": "ELZ-378: Wave 9 Level 2 (settled decision 1, owner Q9 D and Q10 A). One Assembly with its own durable log over domain/payment-lifecycle, domain/invoice and domain/journal under state/tenant-isolation: each step recorded with its compensation, reverse-order compensation after a definite failure, unknown charges wait, one session advisory lock per checkout; no workflow/saga Piece and no provider named."
     },
     {
       "id": "assembly/request-route-retry",
