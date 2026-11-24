@@ -530,7 +530,10 @@ control until a new Run is configured on the unit, so room comes back only when
 other state leaves control. `cancel` needs no entry. Such an input (`wake`,
 `start`, `message`, granted `resource_event`) is given to the root only when no
 slot is active: a slot is active while it is not settled or while it holds a
-pending input (a settling input kept while paused, or a held expiry report).
+pending input (a settling input kept while paused, or a held expiry report). A
+`wake`, `start` or `message` also needs the lifecycle to permit new work, which a
+`:waiting` Run does not (`RemainWaiting`); the paragraph below says when a Run is
+`:active` again.
 
 Paused accepted results retain their pattern input until
 continue, without dispatch while paused; monetary exhaustion still takes
