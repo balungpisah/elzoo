@@ -384,8 +384,8 @@ protection still refuses the merge while `gleam-hosted` runs (#877, #881). So be
 checks of `main` (`protection.required_status_checks.checks` of `GET repos/balungpisah/elzoo/branches/main`) and waits
 until the newest check run of each one on the exact head (by name, and by app when the check names one) has completed
 (ELZ-368). Any conclusion other than `success` stops it with `Required check <name> (check run <id>) on head <sha>
-concluded <conclusion>; ...`; an unreadable list refuses. The re-read of the PR, the fetch and the freeze check follow the
-wait. The fallback is a `workflow_dispatch` run, and **a dispatch fallback run does not satisfy branch protection**: GitHub
+concluded <conclusion>; ...`; an unreadable list refuses. The re-read of the PR, the fetch, the re-classification, the
+newer-run check and the freeze check follow the wait. The fallback is a `workflow_dispatch` run, and **a dispatch fallback run does not satisfy branch protection**: GitHub
 does not count it as a status of the pull request (reported by the coordinator for PR #122, see "Branch protection change"),
 so the merge can be refused even though the queue accepts the run. The queue says so whenever it falls back, with the log line
 `Fallback for PR #N: a workflow_dispatch run is valid evidence for this queue but does NOT satisfy branch protection ...`.
