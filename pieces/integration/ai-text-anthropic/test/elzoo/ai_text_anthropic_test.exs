@@ -957,7 +957,31 @@ defmodule Elzoo.AiText.AnthropicTest do
       })
     end
 
-    for req <- [no_image, conversation.(0)] do
+    # req_llm merges the two tool results into one wire message, so message 3
+    # (the second tool result here) is the parts message on the wire.
+    merged =
+      request(%{
+        "tools" => Conformance.request(:tool_well_formed, @model)["tools"],
+        "messages" => [
+          %{"role" => "system", "text" => "Answer briefly."},
+          %{"role" => "user", "text" => "Look both up."},
+          %{
+            "role" => "assistant",
+            "text" => "",
+            "tool_calls" =>
+              for(
+                id <- ~w(toolu_01A toolu_01B),
+                do: %{"id" => id, "name" => "lookup", "arguments" => %{"q" => "x"}}
+              )
+          },
+          %{"role" => "tool_result", "tool_use_id" => "toolu_01A", "text" => "a"},
+          %{"role" => "tool_result", "tool_use_id" => "toolu_01B", "text" => "b"},
+          %{"role" => "user", "parts" => [image_part("one", "image/png")]}
+        ],
+        "cache_hint" => hint(["system", "tools", %{"message" => 3}])
+      })
+
+    for req <- [no_image, conversation.(0), merged] do
       assert {:error, {:refused, :unsupported_feature}} =
                AiText.admission(c, Conformance.declaration(req, "u", 10_000))
 

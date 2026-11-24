@@ -109,7 +109,9 @@ host's artifact Need and checks it (at most 8 images, each at most
 does. `translate/2` turns the message `%{role: :user, parts: parts}` into one
 user message whose content is the parts in order: each text part a text block
 and each image part an image block with a base64 source of the bytes and their
-media type (`ReqLLM.Message.ContentPart.image/2`). A request without image parts
+media type (`ReqLLM.Message.ContentPart.image/2`). An empty text part, which
+ai-text accepts, is dropped by `req_llm` and sends no block (the reference's
+text block requires at least one character); a whitespace-only part is sent. A request without image parts
 translates as before; the golden test holds the wire request of each
 conformance-kit scenario as recorded before this change.
 
@@ -118,10 +120,18 @@ Refusals, all before any byte is sent:
 - A model whose `llm_db` input modalities lack `:image` is refused
   `unsupported_feature`. In `llm_db` 2026.11.0, 6 of the 20 Anthropic records
   hold no modalities at all (for example `claude-3-5-haiku-20241022`); they count
-  as lacking `:image`. `claude-sonnet-4-5` holds `[:text, :image, :pdf]`.
+  as lacking `:image`. `claude-sonnet-4-5` holds `[:text, :image, :pdf]`. The
+  refusal follows `llm_db`'s metadata, not Anthropic's model support: the Vision
+  page says vision is available on every model.
 - A cache breakpoint on a parts message is refused `unsupported_feature`
   (`req_llm` would mark its last block; a breakpoint inside a parts message is
-  kept open). A breakpoint on another message of the same request is kept.
+  kept open). `req_llm` applies the message index to its wire list, in which
+  each run of consecutive tool results is one message, so a breakpoint whose
+  index names the parts message in either list is refused. A breakpoint on a
+  text message of a request with image parts is kept. (For a request with
+  tool-result runs, the index on the wire can name a later message than the
+  neutral index; that shift exists for text-only requests too and is not
+  changed here.)
 - An image whose base64 encoding is over the documented per-image limit is
   refused `too_large`.
 

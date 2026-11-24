@@ -138,15 +138,31 @@ defmodule Elzoo.AiText.Anthropic do
         {:ok, base}
 
       # A breakpoint on a parts message is kept open: req_llm would mark its
-      # last block, which this slice does not claim.
+      # last block, which this slice does not claim. req_llm applies the index
+      # to its wire list, where each run of consecutive tool results is one
+      # message, so the parts message is refused at either position.
       [{:message, i}] when i < length(conversation) ->
-        if Map.has_key?(Enum.at(conversation, i), :parts),
-          do: {:refused, :unsupported_feature},
-          else: {:ok, base ++ [anthropic_cache_messages: i]}
+        if Enum.any?(
+             [Enum.at(conversation, i), Enum.at(wire(conversation), i)],
+             &match?(%{parts: _}, &1)
+           ),
+           do: {:refused, :unsupported_feature},
+           else: {:ok, base ++ [anthropic_cache_messages: i]}
 
       _ ->
         {:refused, :invalid_request}
     end
+  end
+
+  # The non-system messages as req_llm 1.30 encodes them: it merges each run of
+  # consecutive tool results into one user message.
+  defp wire(conversation) do
+    conversation
+    |> Enum.chunk_by(&(&1.role == :tool_result))
+    |> Enum.flat_map(fn
+      [%{role: :tool_result} | _] = run -> [run]
+      messages -> messages
+    end)
   end
 
   defp model(id) do
