@@ -13,10 +13,12 @@ defmodule Elzoo.ProviderStream.Request do
     end
   end
 
+  # A user message with parts (image input of integration/ai-text, Contract
+  # amendment 2) is not supplied here.
   defp supported(r) do
     if r.output_schema == nil and r.sampling == nil and r.reasoning == :none and
          r.cache_hint == nil and r.stop_sequences == [] and r.provider_options == %{} and
-         system_first?(r.messages),
+         system_first?(r.messages) and not Enum.any?(r.messages, &Map.has_key?(&1, :parts)),
        do: :ok,
        else: {:error, :unsupported_feature}
   end

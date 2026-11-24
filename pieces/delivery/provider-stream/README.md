@@ -38,8 +38,8 @@ private four-argument entry adds a loopback origin for tests only.
 decoded with `Elzoo.AiText.Request.decode/1`. Refused before the credential is
 read: the decoder's `:invalid_request`, `:too_large` and `:unsupported_feature`;
 `:unsupported_feature` for an output schema, sampling, a reasoning level other
-than none, a cache hint, stop sequences, provider options, or a system message
-after a message of another role; `:invalid_request` for a model outside
+than none, a cache hint, stop sequences, provider options, a user message with
+`parts` (image input), or a system message after a message of another role; `:invalid_request` for a model outside
 `models` and for an assistant message with empty text and no tool call. The
 POST body carries `model`, `max_tokens`, `stream: true`,
 `thinking: {"type": "disabled"}`, `system` text blocks, `messages` (a run of

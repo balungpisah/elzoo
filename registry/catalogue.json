@@ -1452,7 +1452,8 @@
       "summary": "A tenant's subscription to a plan version with UTC periods, renewal, trial and cancel",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/plan/piece.json",
       "reason": "ELZ-366: Wave 9 (P13). Monthly and yearly UTC periods from an anchor, no proration (owner Q11 A); plain Ecto/Postgrex table under state/tenant-isolation; feeds domain/entitlement and domain/invoice."
     },
     {
@@ -1460,7 +1461,8 @@
       "summary": "Numbered one-currency invoices with payments, reversals, void and credit notes",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/invoice/piece.json",
       "reason": "ELZ-367: Wave 9 (P13). Gapless numbers per series, no tax or discount (owner Q11 A); plain Ecto/Postgrex tables under state/tenant-isolation; the host posts to domain/journal."
     }
   ]
