@@ -30,7 +30,7 @@
     "READ COMMITTED is a consumer Need that the Piece checks but cannot set. A refresh holds a database transaction and the connection row lock open for one exchange: at most exchange_timeout_ms plus the time of the Secrets, resolver, sealing key and transport Needs, which the host bounds.",
     "The trusted clock, the transport Need's address pinning and the Secrets, resolver and sealing Needs are host Needs; the Piece cannot check that the transport connects only to the given addresses.",
     "Req 0.7.5 with connect_options: [hostname: h] starts one Finch instance per distinct hostname and never stops it (integration/egress-policy README), so the host bounds the providers it declares or pools its own transport.",
-    "The Piece emits no event, but upstream Req/Finch telemetry ([:finch, :request, ...], :send and :recv) carries the %Finch.Request{}, whose form body holds the code, the code_verifier, the refresh_token, the revoked token and, under client_secret_post, the client secret, and whose headers hold the Authorization: Basic value; consumer-installed handlers can observe them, and their collection and redaction are the consumer's responsibility.",
+    "The Piece emits no event, but upstream Req/Finch telemetry ([:finch, :request, ...], :send and :recv) carries the %Finch.Request{}, whose form body holds the code, the code_verifier, the refresh_token, the revoked token and, under client_secret_post, the client secret, and whose headers hold the Authorization: Basic value; because the Piece collects the body with into:, Req 0.7.5 streams through Finch.stream_while/5, so the [:finch, :request, :stop] metadata result also holds the Req request (with the form) and the collected token response body, the new access_token and refresh_token; consumer-installed handlers can observe all of these, and their collection and redaction are the consumer's responsibility.",
     "Attempt rows are never deleted (no DELETE grant): each begin_authorization/3 adds one row with a sealed verifier, without a bound; rate limits and pruning as the table owner are the host's.",
     "A revoke/3 that commits during the code exchange of complete_authorization/3 makes it return :revoked, and the tokens just issued are dropped without a revocation call; they stay valid at the provider until they expire.",
     "Tokens are sealed with one AES-256-GCM layer under the host's key (integration/encryption): a person who holds the key and the database reads them. The authorization URL carries the state.",
@@ -95,7 +95,7 @@
   "operations": {
     "telemetry": {
       "status": "not_applicable",
-      "contract": "The Piece emits no event and no log; its queries pass log: false. The consumer Repo's query telemetry still receives the scope parameters, the tenant-isolation limit. Upstream Req/Finch events that consumer-installed handlers observe carry the request body and the Basic header (see limits); that is the consumer's responsibility."
+      "contract": "The Piece emits no event and no log; its queries pass log: false. The consumer Repo's query telemetry still receives the scope parameters, the tenant-isolation limit. Upstream Req/Finch events that consumer-installed handlers observe carry the request body, the Basic header and, in the [:finch, :request, :stop] result, the token response body with the issued access and refresh tokens (see limits); that is the consumer's responsibility."
     },
     "config": {
       "status": "supported",

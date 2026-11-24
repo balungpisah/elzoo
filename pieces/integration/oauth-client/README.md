@@ -252,9 +252,12 @@ private-key JWT client authentication; the device code grant.
 - The Piece emits no event, but upstream Req and Finch do: the `[:finch, :request, ...]`, `:send`
   and `:recv` telemetry events carry the `%Finch.Request{}`, whose body holds the `code`, the
   `code_verifier`, the `refresh_token`, the revoked token and, under `client_secret_post`, the
-  client secret, and whose headers hold the `Authorization: Basic` value. Consumer-installed
-  handlers of those events can observe them; their collection and redaction are the
-  consumer's responsibility.
+  client secret, and whose headers hold the `Authorization: Basic` value. Because the Piece
+  collects the body with `into:`, Req 0.7.5 streams through `Finch.stream_while/5`, so the
+  `[:finch, :request, :stop]` metadata `result` also holds the Req request (with the form) and
+  the collected token response body: the new `access_token` and `refresh_token`.
+  Consumer-installed handlers of those events can observe all of these; their collection and
+  redaction are the consumer's responsibility.
 - Attempt rows are never deleted (no `DELETE` grant): each `begin_authorization/3` adds one row
   with a sealed verifier, without a bound. Rate-limiting consent and pruning old attempts as the
   table owner are the host's.
