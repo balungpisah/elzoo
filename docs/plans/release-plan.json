@@ -9499,13 +9499,13 @@
       "outputs": [
         "integration/oauth-client"
       ],
-      "acceptance": "New durable integration/oauth-client (Wave 9 Q2 A, Q3 A): tenant connections by authorization code with PKCE S256 (one-use 32-byte state stored as its digest, 600 s) or client credentials, under the state/tenant-isolation floor; tokens sealed with integration/encryption; every exchange one Req POST after EgressPolicy.resolve/3 through a host transport Need, retries and redirects off, bounded by exchange_timeout_ms; access_token/3 is the one function that returns a token (PR #853 answer), valid for the skew or refreshed under the connection row lock (one refresh for concurrent callers); invalid_grant and an unknown refresh under declared rotation set reauthorization_required; revoke/3 calls the revocation endpoint when present and sets revoked either way. Local test server through a Req.Test plug behind a resolver double; state replay/expiry, exchange failures, skew edge, concurrent refresh, rotation, egress refusal, no token in plain bytes, elzoo_app isolation; negative controls on the row lock, state reuse and the seal. Durable, credentials, egress, concurrency: local small gate and full review.",
+      "acceptance": "New durable integration/oauth-client (Wave 9 Q2 A, Q3 A): tenant connections by authorization code with PKCE S256 (one-use 32-byte state stored as its digest, 600 s) or client credentials, under the state/tenant-isolation floor; tokens sealed with integration/encryption; every exchange one Req POST after EgressPolicy.resolve/3 through a host transport Need, retries and redirects off, in a task stopped at exchange_timeout_ms (a 5xx or a stopped task is unknown); access_token/3 is the one function that returns a token (PR #853 answer), valid for the skew or refreshed under the connection row lock (one refresh for concurrent callers); invalid_grant and an unknown refresh under declared rotation set reauthorization_required; revoke/3 calls the revocation endpoint when present and sets revoked either way. Local test server through a Req.Test plug behind a resolver double; state replay/expiry, exchange failures, skew edge, concurrent refresh, rotation, egress refusal, no token in plain bytes, elzoo_app isolation; negative controls on the row lock, state reuse and the seal. Durable, credentials, egress, concurrency: local small gate and full review.",
       "product_aims": [
         "P13"
       ],
       "issue": 868,
       "url": "https://github.com/balungpisah/elzoo/issues/868",
-      "issue_body_sha256": "8418b45e8c32d777b411b1174d583307d95384f406eae84d756900883f119d9f"
+      "issue_body_sha256": "63346e272123ba30fb1c9b30b50139186e60000bed3504d8db1c4a7eec529080"
     },
     {
       "id": "ELZ-362",
@@ -9532,13 +9532,13 @@
       "outputs": [
         "integration/webhook-out"
       ],
-      "acceptance": "New durable integration/webhook-out (Wave 9 Q5 A): endpoints egress-checked at register/3 and at each send, enqueue/3 writes one delivery per listening endpoint, claim_due/3 leases due rows with FOR UPDATE SKIP LOCKED and returns each try's delivery/effect-intent admission (logical reference <delivery_id>/try/<n>); Standard Webhooks webhook-id/-timestamp/-signature (v1 HMAC-SHA-256 over id.timestamp.body); a not-sent refusal retries the same try after RetryTimeout.delay/4; a possibly sent failure gets a new try with the same webhook-id only for a dedup endpoint up to max_tries, else delivery/dead-letter-store; another 4xx is permanent. Local receiver through a Req.Test plug behind a resolver double; signature check from the spec, rebinding at send, crash after enqueue, disjoint claims and lease expiry, dedup vs non-dedup 503, max_tries edge, timeouts, idempotency, elzoo_app isolation; negative controls on the dedup rule, the send-time egress check and the lease. Local small gate and full review.",
+      "acceptance": "New durable integration/webhook-out (Wave 9 Q5 A): endpoints egress-checked at register/3 and at each send, enqueue/3 writes one delivery per listening endpoint, claim_due/3 leases due rows with FOR UPDATE SKIP LOCKED and returns each try's delivery/effect-intent admission (logical reference <delivery_id>/try/<n>); the Adapter stores each send's typed result as an observation, which record/3 applies once per attempt, with a host fallback for an intent found with no result; Standard Webhooks webhook-id/-timestamp/-signature (v1 HMAC-SHA-256 over id.timestamp.body); a not-sent refusal retries the same try after RetryTimeout.delay/4; a possibly sent failure gets a new try with the same webhook-id only for a dedup endpoint up to max_tries, else delivery/dead-letter-store; another 4xx is permanent. Local receiver through a Req.Test plug behind a resolver double; signature check from the spec, rebinding at send, crash after enqueue, disjoint claims and lease expiry, dedup vs non-dedup 503, max_tries edge, timeouts, idempotency, elzoo_app isolation; negative controls on the dedup rule, the send-time egress check and the lease. Local small gate and full review.",
       "product_aims": [
         "P13"
       ],
       "issue": 869,
       "url": "https://github.com/balungpisah/elzoo/issues/869",
-      "issue_body_sha256": "1803b682ba5893b3dfb190949ed080fe5eaa60af80644fc2e474b5a369fc6146"
+      "issue_body_sha256": "ebce5110ca5cd7664ebb3241c344ba24ae549941716009c11e7ff285e99680d8"
     },
     {
       "id": "ELZ-363",
@@ -9568,7 +9568,7 @@
       ],
       "issue": 870,
       "url": "https://github.com/balungpisah/elzoo/issues/870",
-      "issue_body_sha256": "4dcf7529fa60b6d0dfb6d856f64c76d33cd73ea5273b9f24d0a6a912efd7e6c2"
+      "issue_body_sha256": "2087c699b74aaaa97845ad459d813b2f9bc3c8845f1c80f48d27bfdee9720642"
     },
     {
       "id": "ELZ-364",
@@ -9592,7 +9592,7 @@
       ],
       "issue": 871,
       "url": "https://github.com/balungpisah/elzoo/issues/871",
-      "issue_body_sha256": "2ec0bc45360cec9aa6dbc2b9b4ef5fbe6b5760b4b97bb9f429fa3985e2d002e5"
+      "issue_body_sha256": "8d1bebf5c53558f0be76ce7f5f6071e488f6b822fb4569d90016cd1a86963d39"
     },
     {
       "id": "ELZ-365",
@@ -9615,13 +9615,13 @@
       "outputs": [
         "domain/payment-lifecycle"
       ],
-      "acceptance": "New durable provider-neutral domain/payment-lifecycle (Wave 9 Q9 D, Q10 A; replaces RC-24 for this output; integration/payments waits): payments and refunds under the tenant floor, each provider call one delivery/effect-intent intent with logical reference <payment_id>/charge or <payment_id>/refund/<refund_id> so the provider key never derives per Attempt; charge/3 checks the stored approval digest (approval_mismatch); record/3 and apply_event/3 apply only forward transitions; a verified event settles the row while the intent waits for poll/1; refund/3 under the payment row lock refuses over_refund; the succeeded charge returns its compensation {refund, comp/charge, :remaining}, which refunds what is still refundable when it runs (PR #853 answer). Scripted provider; RC-24's cases, compensation twice and after a partial refund, elzoo_app isolation; negative controls on a per-Attempt key, the refund lock and forward-only events. Local small gate and full review.",
+      "acceptance": "New durable provider-neutral domain/payment-lifecycle (Wave 9 Q9 D, Q10 A; replaces RC-24 for this output; integration/payments waits): payments and refunds under the tenant floor, each provider call one delivery/effect-intent intent with logical reference <payment_id>/charge or <payment_id>/refund/<refund_id> so the provider key never derives per Attempt; charge/3 checks the stored approval digest (approval_mismatch); two Adapters (charge, refund) store each provider answer as an observation, which record/3 applies (with a host fallback for an intent with no result), and record/3 and apply_event/3 apply only forward transitions; a verified event settles the row while the intent waits for poll/1; refund/3 under the payment row lock refuses over_refund; the succeeded charge returns its compensation {refund, comp/charge, :remaining}, returned whenever the charge is succeeded, which refunds what is still refundable when it runs (PR #853 answer). Scripted provider; RC-24's cases, compensation twice and after a partial refund, elzoo_app isolation; negative controls on a per-Attempt key, the refund lock and forward-only events. Local small gate and full review.",
       "product_aims": [
         "P10"
       ],
       "issue": 872,
       "url": "https://github.com/balungpisah/elzoo/issues/872",
-      "issue_body_sha256": "74b55dd04b65ba24dda79da640460000d6f4def1d94e860164f79dd64e147b33"
+      "issue_body_sha256": "c86553f53b3c344703b03421f87fbece66ef9e8626414007c77e1f2d148ae150"
     },
     {
       "id": "ELZ-366",
@@ -9644,14 +9644,14 @@
       "outputs": [
         "domain/plan"
       ],
-      "acceptance": "New durable domain/plan (Wave 9 Q11 A): one subscription per tenant to a plan version with a domain/money fee, UTC monthly or yearly periods from the anchor clamped to the month's last day (Cure rule; selected literal laws, every anchor day as an exhaustive test against an independent oracle), trial, renew/3 advancing exactly one period when due under the row lock and returning the period's fee line and its domain/entitlement grant <subscription_id>/<index> (non-overlapping), repeats returning equal values; change at the next renewal, no proration; cancel at period end or now with a grant revocation; past-due and paid marks; expected revisions. Negative controls on the clamp, anchor chaining and the revision check. Local small gate and full review.",
+      "acceptance": "New durable domain/plan (Wave 9 Q11 A): one subscription per tenant to a plan version with a domain/money fee, UTC monthly or yearly periods from the anchor clamped to the month's last day (Cure rule; selected literal laws, every anchor day as an exhaustive test against an independent oracle), trial, renew/3 advancing exactly one period when due (optionally renew_ahead_ms before the boundary) under the row lock and returning the period's fee line and its domain/entitlement grant <subscription_id>/<index> (non-overlapping), repeats returning equal values; change at the next renewal, no proration; cancel at period end or now with a grant revocation; past-due and paid marks; expected revisions. Negative controls on the clamp, anchor chaining and the revision check. Local small gate and full review.",
       "product_aims": [
         "P09",
         "P10"
       ],
       "issue": 873,
       "url": "https://github.com/balungpisah/elzoo/issues/873",
-      "issue_body_sha256": "c63f4a433d996eb7e17c2b31a01049a34d858bfaf12da6ee07c9de277b65468d"
+      "issue_body_sha256": "7363dc1ae3fb2405fa572f2db77b76a8dc6f3a07ab4d05413639a23785443d55"
     },
     {
       "id": "ELZ-367",
@@ -9674,14 +9674,14 @@
       "outputs": [
         "domain/invoice"
       ],
-      "acceptance": "New durable domain/invoice (Wave 9 Q11 A): one-currency invoices with usage lines from a complete domain/pricing charge (incomplete_charge otherwise), plan fee lines and adjustments; finalize/3 takes the next gapless number of the series under the series row lock and names the journal operation invoice/<id>/issue, mark_posted/3 records the host's result; apply_payment/3 up to the total, idempotent by payment_ref; reverse_payment/3 takes an amount (or :remaining) of one applied payment up to what is still applied, idempotent by reversal_id (PR #853 answer); void with nothing paid; credit notes within the corrected total. Concurrent numbering, partial reversal after a partial refund, elzoo_app isolation; negative controls on numbering outside the lock, another currency and whole reversal. Local small gate and full review.",
+      "acceptance": "New durable domain/invoice (Wave 9 Q11 A): one-currency invoices with usage lines from a complete domain/pricing charge (incomplete_charge otherwise), plan fee lines and adjustments; finalize/3 takes the next gapless number of the series under the series row lock and names the journal operation invoice/<id>/issue, mark_posted/3 records the host's result; apply_payment/3 up to the total, idempotent by payment_ref; reverse_payment/3 takes an amount (or :remaining) of one applied payment up to what is still applied, idempotent by reversal_id (PR #853 answer); void with nothing paid or credited; credit notes within the payable, finalized issued with a negative total, reduce the corrected invoice's payable. Concurrent numbering, partial reversal after a partial refund, elzoo_app isolation; negative controls on numbering outside the lock, another currency and whole reversal. Local small gate and full review.",
       "product_aims": [
         "P09",
         "P10"
       ],
       "issue": 874,
       "url": "https://github.com/balungpisah/elzoo/issues/874",
-      "issue_body_sha256": "c2ae36d6d83b05331163c32ff21f1cc3bf7048642d4b4b4512c7e9e3084f2c0e"
+      "issue_body_sha256": "c77145005a790c718bc49e6a8271893b5a2969cdba59a9e4753e08846a654896"
     }
   ],
   "entries": [
