@@ -263,6 +263,10 @@ defmodule Elzoo.PromptAssemblyTest do
     assert one.canonical ==
              ~S({"max_output_tokens":256,"messages":[{"role":"system","text":"Role A\n\nSkill B"},{"role":"user","text":"<<<untrusted-content c8354361fe5663bfb90c77966e012f49 trust=untrusted bytes=10 sources=memory:m1>>>\nremembered\n<<<end untrusted-content c8354361fe5663bfb90c77966e012f49>>>"},{"role":"user","text":"text of u1"},{"role":"assistant","text":"text of a1","tool_calls":[{"arguments":{"q":"c1"},"id":"c1","name":"lookup"}]},{"role":"tool_result","text":"<<<untrusted-content 888b4115f1e1526cff8dccd914e6a9ad trust=untrusted bytes=9 sources=mcp:files/read_file>>>\nresult t1\n<<<end untrusted-content 888b4115f1e1526cff8dccd914e6a9ad>>>","tool_use_id":"c1"},{"role":"user","text":"<<<untrusted-content 139d544b821b13ebea14f1b0fe185772 trust=derived bytes=3 sources=mcp:files/read_file>>>\ndoc\n<<<end untrusted-content 139d544b821b13ebea14f1b0fe185772>>>"},{"role":"user","text":"{\"keep\":\"open_action\",\"record\":{\"note\":\"r1\"}}"}],"model":"model-a","tools":[{"description":"Look a thing up.","input_schema":{"type":"object"},"name":"lookup"}],"version":1})
 
+    # The same input with `image_input: false` gives the same bytes.
+    assert {:ok, %{canonical: same}} = build(Map.put(fixed, :image_input, false))
+    assert same == one.canonical
+
     assert one.estimate == %{
              size: byte_size(one.canonical),
              unit: :tokens,
@@ -326,15 +330,165 @@ defmodule Elzoo.PromptAssemblyTest do
     assert built.image_refs_removed == ["i1", "i2", "t1", "i3", "i4"]
     assert block(hd(history).content) in texts(built)
 
-    for key <- [:image, :document, :parts] do
-      assert build(input(history: [Map.put(user("u1"), key, "x")])) == {:error, :invalid_input}
-      assert build(input(memory: [Map.put(memory("m1"), key, "x")])) == {:error, :invalid_input}
+    for key <- [:image, :document, :parts], image_input <- [false, true] do
+      user = Map.put(user("u1"), key, "x")
+      pictured = Map.put(user, :images, [])
+      assert build(input(history: [user], image_input: image_input)) == {:error, :invalid_input}
+      assert build(input(history: [pictured], image_input: true)) == {:error, :invalid_input}
+      mem = [Map.put(memory("m1"), key, "x")]
+      assert build(input(memory: mem, image_input: image_input)) == {:error, :invalid_input}
     end
 
     for built <- [built, built!(build(input(history: history)))],
         message <- built.request["messages"] do
       refute Enum.any?(["image", "document", "parts"], &Map.has_key?(message, &1))
     end
+  end
+
+  test "image_parts" do
+    pictured = fn id, images -> Map.put(user(id), :images, images) end
+    with_images = &input(Keyword.put(&1, :image_input, true))
+    parts = fn built -> Enum.filter(built.request["messages"], &Map.has_key?(&1, "parts")) end
+    a = %{artifact_id: "photo-a.1", version: 3, media_type: "image/jpeg"}
+    b = %{artifact_id: "photo_b", version: 1, media_type: "image/png"}
+
+    # The newest user entry with two images: one text part, then the image parts in order.
+    built = built!(build(with_images.(history: [pictured.("u1", [a, b])])))
+
+    assert List.last(built.request["messages"]) == %{
+             "role" => "user",
+             "parts" => [
+               %{"type" => "text", "text" => "text of u1"},
+               %{
+                 "type" => "image",
+                 "artifact" => %{"id" => "photo-a.1", "version" => 3},
+                 "media_type" => "image/jpeg"
+               },
+               %{
+                 "type" => "image",
+                 "artifact" => %{"id" => "photo_b", "version" => 1},
+                 "media_type" => "image/png"
+               }
+             ]
+           }
+
+    assert {:ok, %{messages: decoded}, _} = Request.decode(built.canonical, 65_536)
+
+    assert List.last(decoded).parts == [
+             %{type: :text, text: "text of u1"},
+             %{type: :image, artifact_id: "photo-a.1", version: 3, media_type: "image/jpeg"},
+             %{type: :image, artifact_id: "photo_b", version: 1, media_type: "image/png"}
+           ]
+
+    # The estimate is given the request with its image parts as references.
+    canonical = built.canonical
+    assert_received {:estimated, ^canonical}
+
+    # An older user entry's images are left out, with no reference kept.
+    old = %{a | artifact_id: "older-photo"}
+    history = [pictured.("u1", [old]), assistant("a1", []), pictured.("u2", [b])]
+    built = built!(build(with_images.(history: history)))
+    assert Enum.at(built.request["messages"], 1) == %{"role" => "user", "text" => "text of u1"}
+    assert [%{"parts" => [_, %{"artifact" => %{"id" => "photo_b"}}]}] = parts.(built)
+    refute built.canonical =~ "older-photo"
+
+    # A newest user entry with `images: []` is today's text form; no older images take its place.
+    built = built!(build(with_images.(history: [pictured.("u1", [old]), pictured.("u2", [])])))
+    assert parts.(built) == []
+    assert Enum.take(texts(built), -2) == ["text of u1", "text of u2"]
+
+    # Refusals before any drop: a window of 1 would otherwise end in over_limit.
+    ok_history = fn images -> [pictured.("u1", images), user("u2")] end
+
+    assert build(with_images.(history: ok_history.([a]), window: window(1))) ==
+             {:error, :over_limit}
+
+    nine = for i <- 1..9, do: %{b | artifact_id: "p#{i}"}
+
+    refused = [
+      input(history: ok_history.([a])),
+      input(history: ok_history.([a]), image_input: false),
+      with_images.(history: ok_history.(nine)),
+      with_images.(history: ok_history.([Map.put(a, :size, 10)])),
+      with_images.(history: ok_history.([Map.delete(a, :media_type)])),
+      input(history: ok_history.([a]), image_input: "true")
+    ]
+
+    bad_images =
+      for(
+        id <- [String.duplicate("x", 65), "a/b", ".", "..", "", :atom],
+        do: %{a | artifact_id: id}
+      ) ++
+        for(v <- [0, 2_147_483_648, 1.0], do: %{a | version: v}) ++
+        [%{a | media_type: "image/svg+xml"}]
+
+    Stream.repeatedly(fn -> receive do: ({:estimated, _} -> true), after: (0 -> nil) end)
+    |> Enum.take_while(& &1)
+
+    for input <- refused ++ Enum.map(bad_images, &with_images.(history: ok_history.([&1]))) do
+      assert build(%{input | window: window(1)}) == {:error, :invalid_input}
+      refute_received {:estimated, _}
+    end
+
+    # Accepted: eight images, each media type of the set, both edges of the ID and version.
+    built = built!(build(with_images.(history: [pictured.("u1", Enum.take(nine, 8))])))
+    assert [%{"parts" => [_ | images]}] = parts.(built)
+    assert length(images) == 8
+
+    edges =
+      [%{a | artifact_id: String.duplicate("x", 64), version: 2_147_483_647}, %{a | version: 1}] ++
+        for m <- ~w(image/png image/jpeg image/webp image/gif), do: %{a | media_type: m}
+
+    for image <- edges do
+      built = built!(build(with_images.(history: [pictured.("u1", [image])])))
+      assert [%{"parts" => [_, %{"media_type" => m}]}] = parts.(built)
+      assert m == image.media_type
+    end
+
+    # A tool's or a notice's image reference stays a marked block, and
+    # `max_image_refs` still bounds those blocks; the eight image parts are not counted.
+    eight = Enum.take(nine, 8)
+
+    history = [
+      content("i1", "image/png"),
+      assistant("a1", ["c1"]),
+      result("t1", "c1", "image/jpeg"),
+      content("i2", "image/webp"),
+      pictured.("u1", eight)
+    ]
+
+    removed = fn entry ->
+      block(%{entry.content | "content" => "[image reference removed]", "max_bytes" => 4096})
+    end
+
+    [i1, _, t1, i2, _] = history
+
+    for {max, gone} <- [{2, [i1]}, {1, [i1, t1]}] do
+      built = built!(build(with_images.(history: history, max_image_refs: max)))
+      assert built.image_refs_removed == Enum.map(gone, & &1.id)
+      messages = built.request["messages"]
+      shown = fn entry -> if entry in gone, do: removed.(entry), else: block(entry.content) end
+
+      assert %{"role" => "user", "text" => shown.(i1)} in messages
+      assert %{"role" => "user", "text" => shown.(i2)} in messages
+
+      assert %{"role" => "tool_result", "tool_use_id" => "c1", "text" => shown.(t1)} in messages
+
+      assert [%{"parts" => [_ | images]}] = parts.(built)
+      assert Enum.map(images, & &1["artifact"]["id"]) == Enum.map(eight, & &1.artifact_id)
+    end
+
+    # After a tool turn, a drop that removes the newest user entry takes its images with it.
+    history = [pictured.("u1", [a, b]), assistant("a1", ["c1"]), result("t1", "c1")]
+    limit = size_of(with_images.(history: tl(history)))
+    built = built!(build(with_images.(history: history, window: window(limit))))
+    assert built.dropped == [%{part: :history, id: "u1"}]
+    assert parts.(built) == []
+    refute built.canonical =~ "photo"
+
+    built = built!(build(with_images.(history: history)))
+    assert built.dropped == []
+    assert [%{"parts" => [%{"text" => "text of u1"}, _, _]}] = parts.(built)
   end
 
   test "refusals before any drop" do
