@@ -1022,13 +1022,13 @@ defmodule Elzoo.RunEngine do
           decision == {:request_outcome, :out_of_budget})}
   end
 
-  # With expiry reports, a :resume_input that leaves no slot active and no wait listed
-  # makes a waiting Run active again before its pattern call, as settle_protocol/3 does
-  # before the call of a settling input (ELZ-351). Without the option it is unchanged.
-  # The event-wait reader projects the same step through it.
+  # A :resume_input that gives its input (one retained while paused or a held expiry
+  # report) and leaves no slot active and no wait listed makes a waiting Run active
+  # again before its pattern call, as settle_protocol/3 does before the call of a
+  # settling input; this holds for every Run (ELZ-351, ELZ-359). The event-wait reader
+  # projects the same step through it.
   defp resume_phase(state) do
-    if state.control[:expiry_reports] == :owner and active_count(state) == 0 and
-         map_size(state.control.lifecycle.waits) == 0 and
+    if active_count(state) == 0 and map_size(state.control.lifecycle.waits) == 0 and
          state.control.lifecycle.phase == :waiting,
        do: put_in(state.control.lifecycle.phase, :active),
        else: state
@@ -4823,12 +4823,12 @@ defmodule Elzoo.RunEngine do
       when kind in [:configure, :event_activation, :continuation, :lifecycle, :run_view, :finish] ->
         project_pure_event_wait_transition(state, record)
 
-      # The part of a :resume_input step before its pattern call; with expiry reports
-      # it can switch the lifecycle phase (resume_phase/1). The call itself is not
-      # projected, as for a settling protocol input.
+      # The part of a :resume_input step before its pattern call; it can switch the
+      # lifecycle phase (resume_phase/1). The call itself is not projected, as for a
+      # settling protocol input.
       %{kind: :resume_input, occurrence: key} ->
         case event_wait_pattern_invocation(state, record) do
-          {:ok, _} when state.control.expiry_reports == :owner ->
+          {:ok, _} ->
             {:ok,
              state
              |> update_in([:slots, key], &Map.delete(&1, :pending_input))
