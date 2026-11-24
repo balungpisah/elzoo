@@ -107,7 +107,9 @@ defmodule Elzoo.AiText.GoogleTest do
     status = settled(pid)
     key = a.key
     assert_receive {AiText, ^key, delivery}, 5000
-    {delivery, GoogleStub.requests(agent), status, pid}
+    requests = GoogleStub.requests(agent)
+    conforms(requests, ctx)
+    {delivery, requests, status, pid}
   end
 
   # Admission only: returns the result and asserts nothing reached the stub.
@@ -414,6 +416,25 @@ defmodule Elzoo.AiText.GoogleTest do
            "properties" => %{"root" => %{"$ref" => "#/$defs/a"}}
          }
        }, :unsupported_feature},
+      # oneOf, which the reference interprets as anyOf, also nested.
+      {%{"output_schema" => %{"oneOf" => [%{"type" => "number"}, %{"type" => "integer"}]}},
+       :unsupported_feature},
+      {%{
+         "output_schema" =>
+           put_in(answer, ["properties", "answer"], %{
+             "oneOf" => [%{"type" => "integer"}, %{"type" => "string"}]
+           })
+       }, :unsupported_feature},
+      # A tool schema whose root is not an object.
+      {%{
+         "tools" => [
+           Map.put(@lookup, "input_schema", %{"type" => "array", "items" => %{"type" => "string"}})
+         ]
+       }, :unsupported_feature},
+      {%{"tools" => [Map.put(@lookup, "input_schema", %{"properties" => %{}})]},
+       :unsupported_feature},
+      # A final user turn without non-empty text.
+      {%{"messages" => [%{"role" => "user", "text" => ""}]}, :unsupported_feature},
       # Boolean subschemas: valid JSON Schema, no generateContent form.
       {%{"output_schema" => %{"type" => "object", "properties" => %{"x" => true}}},
        :unsupported_feature},
@@ -545,6 +566,39 @@ defmodule Elzoo.AiText.GoogleTest do
              {d["mime_type"], Base.decode64!(d["data"])}
            end) ==
              Enum.map(order, &images[&1])
+  end
+
+  test "G3 a final user turn needs non-empty text; a final tool result is a continuation (admission)" do
+    png = %{"img-png" => {"image/png", Conformance.image()}}
+
+    image = %{
+      "type" => "image",
+      "artifact" => %{"id" => "img-png", "version" => 1},
+      "media_type" => "image/png"
+    }
+
+    for parts <- [[image], [%{"type" => "text", "text" => ""}, image]] do
+      req = request(%{"messages" => [%{"role" => "user", "parts" => parts}]})
+
+      assert {:error, {:refused, :unsupported_feature}} = refused(req, artifacts: image_need(png)),
+             inspect(parts)
+    end
+
+    continuation =
+      request(%{
+        "tools" => [@lookup],
+        "messages" => [
+          %{"role" => "user", "text" => "Q"},
+          %{
+            "role" => "assistant",
+            "text" => "",
+            "tool_calls" => [%{"id" => "c1", "name" => "lookup", "arguments" => %{"q" => "x"}}]
+          },
+          %{"role" => "tool_result", "tool_use_id" => "c1", "text" => "R"}
+        ]
+      })
+
+    assert {:ok, _} = refused(continuation)
   end
 
   ## G4 finish and usage mapping (decode)

@@ -106,7 +106,13 @@ or a `.env` file.
   can have an "error" key"). A tool result that answers no earlier call is
   refused `invalid_request` (the function name is required). A final model turn
   is refused `unsupported_feature` (`req_llm` refuses prefill for Gemini 3 and
-  later). Consecutive `user` contents are merged by `req_llm`.
+  later), and so is a final user message without non-empty text, such as an
+  image-only prompt (the gemini-3.8-flash migration page: "ensure the final
+  user turn contains non-empty text"); a final tool result is a
+  function-response continuation and is sent. Consecutive `user` contents are
+  merged by `req_llm`. Parallel tool results are sent in transcript order with
+  their call ids: the function-calling page says results need not follow call
+  order, because the API maps each one to its call by `id`.
 - Replayed function calls carry `req_llm`'s `thoughtSignature`: the base64
   encoding of `skip_thought_signature_validator`. The Thought signatures page
   names the bare string for function calls that Gemini did not sign; that the
@@ -117,17 +123,22 @@ or a `.env` file.
   the base64 bytes the interface resolved and checked.
 - Tool choice: `auto` `AUTO`, `none` `NONE`, `any` `ANY`, a named tool `ANY`
   with `allowedFunctionNames: [name]`. Tools are declared with a callback that
-  always refuses to run; function calls come back as proposals (data).
+  always refuses to run; function calls come back as proposals (data). A tool
+  schema whose root is not `"type": "object"` is refused
+  `unsupported_feature` (the reference: `parametersJsonSchema` "must describe
+  an object").
 - Structured output: `responseJsonSchema` unchanged, so the schema may use only
   the keywords the reference lists for it (`$id`, `$defs`, `$ref`, `$anchor`,
   `type`, `format`, `title`, `description`, `enum` of strings and numbers,
   `items`, `prefixItems`, `minItems`, `maxItems`, `minimum`, `maximum`,
-  `anyOf`, `oneOf`, `properties`, `additionalProperties`, `required`,
-  `propertyOrdering`), and a `$ref` subschema only the listed `$` keywords.
+  `anyOf`, `properties`, `additionalProperties`, `required`,
+  `propertyOrdering`; not `oneOf`, which the reference interprets as `anyOf`, so
+  its exclusivity would be lost), and a `$ref` subschema only the listed `$`
+  keywords.
   Every `$ref` must name a root `$defs` entry (`#/$defs/<name>`); `$id` and
   `$defs` are accepted only at the root (a nested `$id` starts a resource whose
-  `#/$defs/<name>` is its own); and the references must have no cycle: the reference unrolls cycles only to a
-  limited degree, which is an approximation. A boolean subschema (`true` or
+  `#/$defs/<name>` is its own); and the references must have no cycle: the
+  reference unrolls cycles only to a limited degree, which is an approximation. A boolean subschema (`true` or
   `false`) has no form there either. Any other schema is refused
   `unsupported_feature`, never rewritten (a `$ref` that does not compile is
   refused `invalid_request` by the interface first). Structured output

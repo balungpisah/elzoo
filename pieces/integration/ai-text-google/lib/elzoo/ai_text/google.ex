@@ -33,9 +33,10 @@ defmodule Elzoo.AiText.Google do
   @max_raw_bytes 4_194_304
   @models %{"gemini-3.8-flash" => %{}}
   @refusals ~w(SAFETY PROHIBITED_CONTENT BLOCKLIST SPII IMAGE_SAFETY)
-  # responseJsonSchema: the keywords the fetched reference lists as supported.
+  # responseJsonSchema: the keywords the fetched reference lists as supported,
+  # without oneOf, which the reference interprets as anyOf (exclusivity lost).
   @schema_keywords ~w($id $defs $ref $anchor type format title description enum items
-                      prefixItems minItems maxItems minimum maximum anyOf oneOf
+                      prefixItems minItems maxItems minimum maximum anyOf
                       properties additionalProperties required propertyOrdering)
 
   def models, do: Map.keys(@models)
@@ -62,6 +63,7 @@ defmodule Elzoo.AiText.Google do
     with {:ok, cfg} <- provider_config(config),
          {:ok, model} <- model(request.model),
          :ok <- combination(request),
+         :ok <- tool_schemas(request.tools),
          {:ok, systems, others} <- split(request.messages),
          {:ok, names} <- call_names(others),
          :ok <- output_schema(request.output_schema) do
@@ -121,9 +123,19 @@ defmodule Elzoo.AiText.Google do
 
   defp combination(_), do: :ok
 
+  # parametersJsonSchema "must describe an object": a tool schema whose root is
+  # not type object is refused, never rewritten.
+  defp tool_schemas(tools) do
+    if Enum.all?(tools, &(&1.input_schema["type"] == "object")),
+      do: :ok,
+      else: {:refused, :unsupported_feature}
+  end
+
   # Gemini has one system instruction ahead of the contents: system messages are
   # accepted only before the first other message. req_llm refuses a final model
-  # turn (prefill) for Gemini 3 and later, so it is refused here first.
+  # turn (prefill) for Gemini 3 and later, so it is refused here first. A final
+  # user message must hold non-empty text (gemini-3.8-flash turn validation); a
+  # final tool result is a function-response continuation.
   defp split(messages) do
     {systems, others} = Enum.split_while(messages, &(&1.role == :system))
 
@@ -131,9 +143,16 @@ defmodule Elzoo.AiText.Google do
       Enum.any?(others, &(&1.role == :system)) -> {:refused, :unsupported_feature}
       others == [] -> {:refused, :invalid_request}
       List.last(others).role == :assistant -> {:refused, :unsupported_feature}
+      not final_text?(List.last(others)) -> {:refused, :unsupported_feature}
       true -> {:ok, Enum.map(systems, & &1.text), others}
     end
   end
+
+  defp final_text?(%{role: :user, parts: parts}),
+    do: Enum.any?(parts, &match?(%{type: :text, text: t} when t != "", &1))
+
+  defp final_text?(%{role: :user, text: t}), do: t != ""
+  defp final_text?(%{role: :tool_result}), do: true
 
   # A functionResponse needs the function name: each tool result must answer a
   # call proposed earlier in the transcript.
@@ -193,7 +212,7 @@ defmodule Elzoo.AiText.Google do
       {k, %{} = m} when k in ["$defs", "properties"] ->
         Enum.all?(Map.values(m), &inner?/1)
 
-      {k, l} when k in ["prefixItems", "anyOf", "oneOf"] ->
+      {k, l} when k in ["prefixItems", "anyOf"] ->
         is_list(l) and Enum.all?(l, &inner?/1)
 
       {k, %{} = m} when k in ["items", "additionalProperties"] ->
