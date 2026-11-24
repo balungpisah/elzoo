@@ -10,6 +10,72 @@ mcp_helper =
 
 Code.require_file(mcp_helper)
 
+defmodule Elzoo.McpRuntimeTest.Recorder do
+  @moduledoc """
+  A loopback MCP server for the OAuth groups: ex_mcp's own `ExMCP.HttpPlug`
+  with the ready client helper's Tools handler (the helper is not changed),
+  behind this Plug, which sends the test process
+  `{:recorded, label, authorization_headers}` for each request before it is
+  answered. The client redacts every sent token from its results, so the
+  token value is seen only here.
+  """
+  @behaviour Plug
+  import Plug.Conn
+
+  def start(parent) do
+    ref = {__MODULE__, make_ref()}
+
+    {:ok, _} =
+      Plug.Cowboy.http(
+        __MODULE__,
+        [
+          parent: parent,
+          http_plug:
+            ExMCP.HttpPlug.init(
+              handler: Elzoo.McpClientTest.Tools,
+              server_info: %{name: "elzoo-test", version: "1"},
+              validate_origin: false
+            )
+        ],
+        port: 0,
+        ip: {127, 0, 0, 1},
+        ref: ref
+      )
+
+    %{ref: ref, url: "http://127.0.0.1:#{:ranch.get_port(ref)}/mcp"}
+  end
+
+  def stop(%{ref: ref}) do
+    Plug.Cowboy.shutdown(ref)
+  catch
+    _, _ -> :ok
+  end
+
+  @impl true
+  def init(opts), do: opts
+
+  @impl true
+  def call(conn, opts) do
+    Logger.put_process_level(self(), :none)
+    {:ok, body, conn} = read_body(conn, length: 16_000_000)
+
+    method =
+      case Jason.decode(body) do
+        {:ok, %{"method" => m}} when is_binary(m) -> m
+        _ -> nil
+      end
+
+    label = if conn.method == "POST", do: method || :response, else: {:http, conn.method}
+    send(opts[:parent], {:recorded, label, get_req_header(conn, "authorization")})
+
+    cond do
+      label == {:http, "GET"} -> send_resp(conn, 405, "")
+      label == :response -> send_resp(conn, 202, "")
+      true -> conn |> assign(:raw_body, body) |> ExMCP.HttpPlug.call(opts[:http_plug])
+    end
+  end
+end
+
 defmodule Elzoo.McpRuntimeTest do
   # Each scenario names its acceptance group. No public endpoint is contacted:
   # every admitted config is public by design, so its sessions here are values
@@ -262,6 +328,94 @@ defmodule Elzoo.McpRuntimeTest do
     {:ok, s} = McpClient.connect(c, ctx.sup)
     on_exit(fn -> McpClient.close(s) end)
     {srv, s}
+  end
+
+  ## OAuth helpers (ELZ-370)
+
+  @conn "conn-7c1e-tenant-a-alpha"
+  # Acceptable to the ready client: 30 bytes of b64token, in no fixed or
+  # configured string of the client.
+  @tok_a "oauthA7c1eQ0123456789abcdefghij"
+  @tok_b "oauthB7c1eR9876543210zyxwvutsrq"
+
+  # The host's OAuth Need double: answers `answer` (or runs it in the caller)
+  # until the test switches it; counts calls and records each request.
+  defp oauth_double(answer) do
+    {:ok, d} = Agent.start_link(fn -> %{answer: answer, calls: 0, asked: []} end)
+
+    fun = fn request ->
+      answer =
+        Agent.get_and_update(d, fn st ->
+          {st.answer, %{st | calls: st.calls + 1, asked: [request | st.asked]}}
+        end)
+
+      if is_function(answer, 0), do: answer.(), else: answer
+    end
+
+    {fun, d}
+  end
+
+  defp answer(d, answer), do: Agent.update(d, &%{&1 | answer: answer})
+  # OAuth Need calls, and the requests it was given, since the last read.
+  defp oauth_calls(d), do: Agent.get_and_update(d, &{&1.calls, %{&1 | calls: 0}})
+  defp asked(d), do: Agent.get_and_update(d, &{Enum.reverse(&1.asked), %{&1 | asked: []}})
+
+  defp oauth_opts(fun, overrides) do
+    Keyword.merge(
+      [
+        tenant: "tenant-a",
+        server: "alpha",
+        url: @url,
+        policy: policy(),
+        resolver: elem(resolver({:ok, @public}), 0),
+        credential: %{oauth: @conn},
+        oauth: fun
+      ],
+      overrides
+    )
+  end
+
+  defp oauth_configured(fun, overrides \\ []) do
+    {:ok, config} = McpRuntime.configure(oauth_opts(fun, overrides))
+    config
+  end
+
+  defp recorder do
+    srv = Elzoo.McpRuntimeTest.Recorder.start(self())
+    on_exit(fn -> Elzoo.McpRuntimeTest.Recorder.stop(srv) end)
+    srv.url
+  end
+
+  # {label, authorization headers} of each recorded request, in arrival order.
+  defp recorded(wait \\ 150) do
+    receive do
+      {:recorded, label, auth} -> [{label, auth} | recorded(wait)]
+    after
+      wait -> []
+    end
+  end
+
+  # The ready client in its loopback evidence mode, configured directly (as
+  # loopback/2 does) with the given credential Need, and connected.
+  defp live(ctx, url, credentials) do
+    {:ok, c} =
+      McpClient.configure(
+        binding: RuntimeBinding,
+        runtime: %{server: "alpha", endpoint: url, network: :loopback, addresses: [{127, 0, 0, 1}]},
+        tenant: "tenant-a",
+        credentials: credentials
+      )
+
+    {:ok, s} = McpClient.connect(c, ctx.sup)
+    on_exit(fn -> McpClient.close(s) end)
+    s
+  end
+
+  # One echo tool call through the ready path with a real EffectIntent owner.
+  defp call_echo(ctx, s, snap, x, ref) do
+    {:ok, adm} = McpClient.admission(s.config, declaration(payload("echo", %{"x" => x}), ref), snap)
+    {:ok, bound} = McpClient.context(s, adm, self())
+    McpClient.call_tool(s, adm, owner(s.config, adm, ctx, bound))
   end
 
   ## acceptance groups
@@ -705,6 +859,234 @@ defmodule Elzoo.McpRuntimeTest do
 
     {:ok, {_, [imports: imports]}} = :beam_lib.chunks(:code.which(McpRuntime), [:imports])
     refute Enum.any?(imports, fn {mod, _, _} -> mod in [:telemetry, Logger] end)
+  end
+
+  test "oauth_admission: an OAuth config is admitted after one OAuth Need call; its credential Need asks the OAuth Need on each call and gives its token or credentials_unavailable" do
+    {fun, d} = oauth_double({:ok, @tok_a})
+    {rfun, rcounter} = resolver({:ok, @public})
+    config = oauth_configured(fun, resolver: rfun)
+    assert oauth_calls(d) == 0
+    clients = mcp_clients()
+
+    assert {:ok, %McpClient.Config{} = client} = McpRuntime.admit(config)
+    assert :counters.get(rcounter, 1) == 1
+    # The check: one call, given the tenant and the connection id.
+    assert oauth_calls(d) == 1
+    assert asked(d) == [%{tenant: "tenant-a", connection_id: @conn}]
+    assert mcp_clients() == clients
+
+    assert client.binding == RuntimeBinding and client.tenant == "tenant-a"
+
+    assert client.runtime == %{
+             server: "alpha",
+             endpoint: @url,
+             network: :public,
+             addresses: [{8, 8, 8, 8}, {93, 184, 215, 14}]
+           }
+
+    # The credential Need asks again at each call; nothing is stored.
+    assert client.credentials.() == {:ok, @tok_a}
+    assert client.credentials.() == {:ok, @tok_a}
+    assert oauth_calls(d) == 2
+    answer(d, {:ok, @tok_b})
+    assert client.credentials.() == {:ok, @tok_b}
+
+    for bad <- [
+          {:error, :reauthorization_required},
+          {:error, :revoked},
+          {:ok, 1},
+          :ok,
+          fn -> raise @tok_a end,
+          fn -> throw({:ok, @tok_a}) end,
+          fn -> exit(@tok_a) end
+        ] do
+      answer(d, bad)
+      assert client.credentials.() == {:error, :credentials_unavailable}
+    end
+
+    assert asked(d) |> Enum.uniq() == [%{tenant: "tenant-a", connection_id: @conn}]
+
+    # The check does not apply the client's 24-byte or fixed-string rule: a
+    # short token is admitted (the client then refuses it before each request).
+    answer(d, {:ok, "a"})
+    assert {:ok, _} = McpRuntime.admit(config)
+  end
+
+  test "oauth_loopback: the OAuth credential Need on the ready client's loopback mode lists and calls a tool, and the server sees the token on every request; the measured OAuth Need calls",
+       ctx do
+    {fun, d} = oauth_double({:ok, @tok_a})
+    {:ok, a} = McpRuntime.admit(oauth_configured(fun))
+    url = recorder()
+    oauth_calls(d)
+
+    s = live(ctx, url, a.credentials)
+    connect = recorded()
+    connect_calls = oauth_calls(d)
+
+    assert {:ok, snap} = McpClient.list_tools(s)
+    listing = recorded()
+    list_calls = oauth_calls(d)
+    assert Enum.map(snap.tools, & &1["name"]) == ["echo", "fail", "strict", "structured"]
+
+    assert {:completed, %{content: [%{"text" => "echo:p"}]}} =
+             call_echo(ctx, s, snap, "p", "call-1")
+
+    call = recorded()
+    call_calls = oauth_calls(d)
+
+    assert Enum.map(connect, &elem(&1, 0)) == ["server/discover"]
+    assert Enum.map(listing, &elem(&1, 0)) == ["tools/list", "tools/list", "tools/list"]
+    assert Enum.map(call, &elem(&1, 0)) == ["tools/call"]
+
+    for {label, auth} <- connect ++ listing ++ call do
+      assert auth == ["Bearer " <> @tok_a], inspect(label)
+    end
+
+    # Measured: one call per HTTP request, plus the two redaction calls of a
+    # listing and of a tool call (mcp-client's Discovery and Adapter).
+    # Connect 1, a three-page listing 5, one tool call 3.
+    assert {connect_calls, list_calls, call_calls} == {1, 3 + 2, 1 + 2}
+  end
+
+  test "oauth_refresh: a token switched between two requests of one session is used from the next request on",
+       ctx do
+    {fun, d} = oauth_double({:ok, @tok_a})
+    {:ok, a} = McpRuntime.admit(oauth_configured(fun))
+    s = live(ctx, recorder(), a.credentials)
+    {:ok, snap} = McpClient.list_tools(s)
+    assert Enum.all?(recorded(), &(elem(&1, 1) == ["Bearer " <> @tok_a]))
+
+    assert {:completed, %{content: [%{"text" => "echo:one"}]}} =
+             call_echo(ctx, s, snap, "one", "call-1")
+
+    first = recorded()
+    # The switch is by the test, after the first request and before the second.
+    answer(d, {:ok, @tok_b})
+
+    assert {:completed, %{content: [%{"text" => "echo:two"}]}} =
+             call_echo(ctx, s, snap, "two", "call-2")
+
+    second = recorded()
+    assert first == [{"tools/call", ["Bearer " <> @tok_a]}]
+    assert second == [{"tools/call", ["Bearer " <> @tok_b]}]
+  end
+
+  test "oauth_refusal: reauthorization_required, revoked, unavailable, a malformed answer and a raise, throw or exit refuse at admit/1 and list_tools/2 with no client and no request; an egress refusal calls no Need",
+       ctx do
+    {fun, d} = oauth_double({:ok, @tok_a})
+    config = oauth_configured(fun)
+    {:ok, a} = McpRuntime.admit(config)
+    # A session whose Config is the admitted one and whose client is connected
+    # to the recording server (a stand-in: no public connect is exercised).
+    s = live(ctx, recorder(), fn -> {:ok, @tok_a} end)
+    stand_in = %{s | config: a}
+    recorded()
+    key = {"tenant-a", "alpha"}
+
+    # Control: with a token the listing reaches the recording server.
+    assert %{^key => {:ok, _}} = McpRuntime.list_tools(config, stand_in)
+    assert recorded() != []
+    clients = mcp_clients()
+
+    for bad <- [
+          {:error, :reauthorization_required},
+          {:error, :revoked},
+          {:error, :unavailable},
+          {:error, :not_active},
+          {:error, :in_transaction},
+          {:error, "unavailable"},
+          {:ok, nil},
+          {:ok, 1},
+          {:ok, @tok_a, :extra},
+          :ok,
+          @tok_a,
+          nil,
+          fn -> raise @tok_a end,
+          fn -> throw(@tok_a) end,
+          fn -> exit(@tok_a) end
+        ] do
+      answer(d, bad)
+      oauth_calls(d)
+      assert McpRuntime.admit(config) == {:error, :credentials_unavailable}, inspect(bad)
+      assert oauth_calls(d) == 1
+
+      assert McpRuntime.list_tools(config, stand_in) == %{
+               key => {:unavailable, :credentials_unavailable}
+             }
+
+      assert oauth_calls(d) == 1
+      assert recorded() == [], inspect(bad)
+    end
+
+    assert mcp_clients() == clients
+
+    # Egress first: a refused URL or address calls no Need.
+    answer(d, {:ok, @tok_a})
+    oauth_calls(d)
+
+    for {url, reply, reason} <- [
+          {"http://" <> @host <> "/mcp", {:ok, @public}, :scheme},
+          {"https://other-7c1e.example.test/mcp", {:ok, @public}, :not_allowed},
+          {@url, {:error, :nxdomain}, :dns_failed},
+          {@url, {:ok, [{10, 0, 0, 1}]}, :non_public_address}
+        ] do
+      {rfun, _} = resolver(reply)
+      refused = oauth_configured(fun, url: url, resolver: rfun)
+      assert McpRuntime.admit(refused) == {:error, {:egress, reason}}
+    end
+
+    assert oauth_calls(d) == 0
+  end
+
+  test "oauth_configure: exactly one of secrets and oauth, matching the credential form; a 1..128-byte printable connection id; no extra key; inspect shows no Need, token or connection id" do
+    v = vault()
+    {fun, d} = oauth_double({:ok, @tok_a})
+    oauth = oauth_opts(fun, [])
+    bearer = opts(v, [])
+
+    for bad <- [
+          # An OAuth credential with secrets, a bearer credential with oauth.
+          Keyword.delete(oauth, :oauth) ++ [secrets: secrets(v)],
+          Keyword.delete(bearer, :secrets) ++ [oauth: fun],
+          # Both Needs, with each form; neither, with each form.
+          oauth ++ [secrets: secrets(v)],
+          bearer ++ [oauth: fun],
+          Keyword.delete(oauth, :oauth),
+          Keyword.delete(bearer, :secrets),
+          oauth ++ [oauth: fun],
+          oauth_opts(fun, credential: %{oauth: ""}),
+          oauth_opts(fun, credential: %{oauth: String.duplicate("c", 129)}),
+          oauth_opts(fun, credential: %{oauth: @conn, extra: 1}),
+          oauth_opts(fun, credential: %{oauth: @conn, ref: "r", scope: "s"}),
+          oauth_opts(fun, credential: %{oauth: "conn\n1"}),
+          oauth_opts(fun, credential: %{oauth: "conn" <> <<0x7F>>}),
+          oauth_opts(fun, credential: %{oauth: "conn" <> <<0xC2, 0x85>>}),
+          oauth_opts(fun, credential: %{oauth: <<0xFF>>}),
+          oauth_opts(fun, credential: %{oauth: :conn}),
+          oauth_opts(fun, oauth: fn -> {:ok, @tok_a} end),
+          oauth_opts(fun, oauth: nil),
+          oauth_opts(fun, extra: 1),
+          oauth_opts(fun, tenant: "")
+        ] do
+      assert McpRuntime.configure(bad) == {:error, :configuration}, inspect(Keyword.keys(bad))
+    end
+
+    assert {:ok, _} = McpRuntime.configure(oauth_opts(fun, credential: %{oauth: "c"}))
+
+    assert {:ok, _} =
+             McpRuntime.configure(oauth_opts(fun, credential: %{oauth: String.duplicate("c", 128)}))
+
+    assert {:ok, _} = McpRuntime.configure(oauth_opts(fun, credential: %{oauth: "connexion-é"}))
+    assert oauth_calls(d) == 0
+
+    config = oauth_configured(fun)
+    assert inspect(config) == ~s(#Elzoo.McpRuntime.Config<tenant: "tenant-a", server: "alpha">)
+    {:ok, client} = McpRuntime.admit(config)
+
+    for term <- [config, client, McpRuntime.list_tools(config, offline(client))] do
+      text = inspect(term, limit: :infinity, printable_limit: :infinity)
+      for w <- [@tok_a, @conn, "#Function"], do: refute(text =~ w, w)
+    end
   end
 
   test "example: the checked example builds a config and is refused by the egress policy before any Need" do
