@@ -12,7 +12,7 @@
     "The candidates, their features, the data policy, the costs, the health facts and the trusted clock are the host's; the Piece decides only on what they give, and its health facts are only as fresh as the host stamps them.",
     "No candidate is called and no provider's behaviour is shown here; fallback between real providers is composed in the Wave 9 root acceptance with scripted models.",
     "A provider's retry_after is a cool-down before a new Attempt at that candidate, never a resend of the first request. After a next the first Attempt's possible cost is the host's to record as unknown usage.",
-    "A limiter wait over the route's max_failure_delay_ms is cut to it; the next try is then refused again by the limiter before any send.",
+    "A limiter wait over the route's max_failure_delay_ms is cut to it; when the delay is still shorter than the limiter's wait, the next try is refused again by the limiter before any send.",
     "A provider-specific too_large stops the call for every candidate.",
     "No deadline input: the binding checks the action's deadline before each wait.",
     "No price order, latency or health score, region preference, hedged request or fallback after an unknown outcome."

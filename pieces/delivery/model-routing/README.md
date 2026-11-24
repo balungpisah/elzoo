@@ -75,7 +75,11 @@ Each other candidate is left out with the first reason that applies:
 4. `:stale_health`: no entry, or `now_ms − observed_at_ms > max_health_age_ms`
    (a fact exactly `max_health_age_ms` old is fresh).
 5. `:circuit_open`: `:open` or `:unavailable`. `:half_open` stays eligible;
-   the breaker's own `admit/1` decides its probe.
+   the breaker's own `admit/1` decides its probe. The breaker's `status/1`
+   still reports `:open` after its cooldown (only `admit/1` moves it to
+   `:half_open`), so the host gives `:half_open` for an `:open` status whose
+   `cooldown_remaining_ms` is 0; otherwise that candidate never gets its
+   recovery probe.
 6. `:cooling_down`: `not_before_ms > now_ms`.
 7. `:budget`: its cost is greater than `budget_remaining`.
 
@@ -100,9 +104,10 @@ local rate refusal included) and `outcome`. `facts` has `now_ms` and `random`
 
 A `retry_after` on a refusal other than `throttled` or `overloaded` is ignored.
 `delay/4` caps a limiter wait at the route's `max_failure_delay_ms`, never
-below the backoff, so a wait longer than that is cut to it: the next try is
-then refused again by the limiter before any send, and counts as another
-Attempt at the same ref.
+below the backoff, so a wait longer than that is cut to it. When the delay
+(the cut wait, or the backoff if larger, plus any jitter) is still shorter than
+the limiter's wait, the next try is refused again by the limiter before any
+send, and counts as another Attempt at the same ref.
 
 ## The binding's duty
 
@@ -111,12 +116,14 @@ The caller is the host's model-call binding, not the pattern step.
 - On `{:retry_same, ms}` it waits `ms` (after checking the action's deadline)
   and sends the same request to the same candidate again.
 - On `{:next, _}` for an Attempt that made no intent (`{:not_admitted, _}`) it
-  adds the ref to `tried`, records the cool-down if any, and calls `select/3`
+  adds the ref to `tried` and calls `select/3`
   again **inside the same action**: the next candidate gets the request with
   no new action.
 - On `{:next, _}` for a refused outcome of a sent request it **ends the
   action** with its refusal, with the candidate's ref in the outcome it gives
-  back, and records the first Attempt's possible cost as unknown usage. The
+  back, records the cool-down of a `throttled` or `overloaded` Attempt as
+  that ref's `not_before_ms` for later calls, and records the first Attempt's
+  possible cost as unknown usage. The
   first request is never sent again; `workflow/agent-loop` reads the ref.
 - When the `select/3` after an admission refusal returns
   `{:error, {:no_candidate, _}}`, or `after_failure/3` returns `{:stop, _}`,
