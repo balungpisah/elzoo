@@ -11360,7 +11360,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/invoice/piece.json",
-      "manifest_sha256": "f981d8aa1068cb35da3d6d4b662a746a2051e257051a7f224af9c633461f8ed6"
+      "manifest_sha256": "da5dd624148a77614b6b8771fe0643b51c2691bd15bb3147fb637eb8d6f05bc9"
     }
   ],
   "schema_version": 1,
