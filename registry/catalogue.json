@@ -280,10 +280,11 @@
     {
       "id": "delivery/model-routing",
       "summary": "Select eligible model providers under explicit policy",
-      "disposition": "defer",
-      "phase": "demand-led",
-      "status": "deferred",
-      "reason": "C9 capability/authority/region/budget/health-aware selection; provider translation is integration/ai-model. Fallback preserves separate attempts and possible incurred costs. No router implemented."
+      "disposition": "own",
+      "phase": "P4",
+      "status": "ready",
+      "manifest": "pieces/delivery/model-routing/piece.json",
+      "reason": "ELZ-369: Wave 9 (P13). Pure route selection over capability, provider-data-policy, health age, circuit, cool-down, budget and tried facts that the host gives, and the next step after each Attempt through delivery/retry-timeout; no fallback after an unknown outcome (owner Q8 A); the host's model-call binding calls it."
     },
     {
       "id": "delivery/pubsub",

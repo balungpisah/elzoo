@@ -33,6 +33,8 @@ defmodule Elzoo.PromptAssembly do
   }
   @keeps [:goal, :open_action, :decision, :failed_approach]
   @removed "[image reference removed]"
+  @image_keys [:artifact_id, :version, :media_type]
+  @media_types ~w(image/png image/jpeg image/webp image/gif)
 
   @doc "Builds the request; see the README for the order, the drop order and the results."
   def build(input, estimate) do
@@ -43,7 +45,7 @@ defmodule Elzoo.PromptAssembly do
          :ok <- check_tools(input.tools) do
       {history, removed} = remove_old_image_refs(history, input.max_image_refs)
       memory = Enum.map(memory, &{&1.id, message(&1)})
-      history = Enum.map(history, &Map.put(&1, :message, message(&1)))
+      history = Enum.map(only_newest_images(history), &Map.put(&1, :message, message(&1)))
       fit(input, estimate, memory, segments(history), [], removed)
     end
   end
@@ -51,13 +53,16 @@ defmodule Elzoo.PromptAssembly do
   # Shapes. Content stays a term here; `mark_all/1` checks it.
 
   defp check_input(%{} = input, estimate) when is_function(estimate, 1) do
+    image_input = Map.get(input, :image_input, false)
+
     ok =
-      exact?(input, @input_keys) and text?(input.model) and
+      exact?(Map.delete(input, :image_input), @input_keys) and is_boolean(image_input) and
+        text?(input.model) and
         is_integer(input.max_output_tokens) and
         texts?(input.role_instructions) and input.role_instructions != [] and
         texts?(input.skill_instructions) and
         is_list(input.memory) and Enum.all?(input.memory, &memory?/1) and
-        is_list(input.history) and Enum.all?(input.history, &entry?/1) and
+        is_list(input.history) and Enum.all?(input.history, &entry?(&1, image_input)) and
         is_list(input.tools) and Enum.all?(input.tools, &json?/1) and
         window?(input.window) and
         is_integer(input.max_request_bytes) and input.max_request_bytes in 1..65_536 and
@@ -71,11 +76,33 @@ defmodule Elzoo.PromptAssembly do
 
   defp memory?(item), do: is_map(item) and exact?(item, [:id, :content]) and id?(item.id)
 
-  defp entry?(%{kind: kind} = e) when is_map_key(@entry_keys, kind) do
+  # A `:user` entry may hold `images` only when the caller asks for image input.
+  defp entry?(%{kind: :user, images: images} = e, true),
+    do: images?(images) and entry?(Map.delete(e, :images), true)
+
+  defp entry?(%{kind: kind} = e, _) when is_map_key(@entry_keys, kind) do
     exact?(e, @entry_keys[kind]) and id?(e.id) and fields?(e)
   end
 
-  defp entry?(_), do: false
+  defp entry?(_, _), do: false
+
+  defp images?(images),
+    do:
+      is_list(images) and not List.improper?(images) and length(images) <= 8 and
+        Enum.all?(images, &image?/1)
+
+  defp image?(%{artifact_id: id, version: v, media_type: m} = image),
+    do:
+      exact?(image, @image_keys) and artifact_id?(id) and is_integer(v) and
+        v in 1..2_147_483_647 and m in @media_types
+
+  defp image?(_), do: false
+
+  # The artifact ID rule of ai-text's request decoder.
+  defp artifact_id?(id),
+    do:
+      is_binary(id) and byte_size(id) in 1..64 and Regex.match?(~r/\A[A-Za-z0-9._-]+\z/, id) and
+        id not in [".", ".."]
 
   defp fields?(%{kind: :user, text: text}), do: text?(text)
 
@@ -221,7 +248,24 @@ defmodule Elzoo.PromptAssembly do
     marked
   end
 
+  # Only the newest `:user` entry of the history as given keeps its images;
+  # the others render as text, with no reference kept.
+  defp only_newest_images(history) do
+    newest = history |> Enum.reverse() |> Enum.find_value(&(&1.kind == :user and &1.id))
+
+    Enum.map(history, fn
+      %{kind: :user, id: id} = entry when id != newest -> Map.delete(entry, :images)
+      entry -> entry
+    end)
+  end
+
   # Messages, rendered once.
+
+  defp message(%{kind: :user, text: text, images: [_ | _] = images}),
+    do: %{
+      "role" => "user",
+      "parts" => [%{"type" => "text", "text" => text} | Enum.map(images, &image_part/1)]
+    }
 
   defp message(%{kind: :user, text: text}), do: %{"role" => "user", "text" => text}
 
@@ -244,6 +288,9 @@ defmodule Elzoo.PromptAssembly do
 
   # Memory items have no kind: they are always marked content.
   defp message(%{content: c}), do: block(c)
+
+  defp image_part(%{artifact_id: id, version: v, media_type: m}),
+    do: %{"type" => "image", "artifact" => %{"id" => id, "version" => v}, "media_type" => m}
 
   defp block(marked) do
     {:ok, text} = UntrustedContent.render(marked)

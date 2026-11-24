@@ -8,6 +8,14 @@ defmodule Elzoo.McpServerTest.Host do
   def server, do: :persistent_term.get(__MODULE__)
 end
 
+defmodule Elzoo.McpServerTest.Parsed do
+  @moduledoc "A host that parses the JSON body upstream, as a default Phoenix endpoint does."
+  use Plug.Builder
+
+  plug(Plug.Parsers, parsers: [:json], pass: ["*/*"], json_decoder: Jason)
+  plug(Elzoo.McpServer.Plug, {Elzoo.McpServerTest.Host, :server, []})
+end
+
 defmodule Elzoo.McpServerTest.Router do
   @moduledoc """
   The host router: the Piece's Plug under `forward`, behind a recorder that
@@ -21,6 +29,7 @@ defmodule Elzoo.McpServerTest.Router do
   plug(:dispatch)
 
   forward("/mcp", to: Elzoo.McpServer.Plug, init_opts: {Elzoo.McpServerTest.Host, :server, []})
+  forward("/parsed", to: Elzoo.McpServerTest.Parsed)
 
   match _ do
     send_resp(conn, 404, "")

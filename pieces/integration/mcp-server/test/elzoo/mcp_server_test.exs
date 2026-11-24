@@ -793,7 +793,8 @@ defmodule Elzoo.McpServerTest do
     drain()
 
     assert unknown_tool?(raw(ctx, bob, "tools/call", args))
-    assert unknown_tool?(raw(ctx, bob, "tools/call", args, session: alice_session))
+    # On alice's session, bob meets ex_mcp's session check (ELZ-377), not the tool decision.
+    assert session_not_found?(raw(ctx, bob, "tools/call", args, session: alice_session))
     assert unknown_tool?(raw(ctx, token(ctx, "carol"), "tools/call", args))
     assert unknown_tool?(raw(ctx, alice, "tools/call", %{name: "invoice", arguments: %{}}))
     assert unknown_tool?(raw(ctx, alice, "tools/call", %{name: "deploy", arguments: %{}}))
@@ -812,6 +813,329 @@ defmodule Elzoo.McpServerTest do
 
     assert %{"payload" => %{"done" => true}} = Jason.decode!(text)
     assert length(starts(drain())) == 1
+  end
+
+  defp session_not_found?(
+         {404, %{"error" => %{"code" => -32600, "message" => "Session not found"}}, _}
+       ),
+       do: true
+
+  defp session_not_found?(_), do: false
+
+  # Call counts of the handler double: ex_mcp starts one handler process per
+  # handled request, through Handler.init/1. The module is loaded first, so the
+  # pattern matches one function even when this test runs alone.
+  defp count_handlers do
+    init = {Elzoo.McpServer.Handler, :init, 1}
+    Code.ensure_loaded!(Elzoo.McpServer.Handler)
+    assert :erlang.trace_pattern(init, true, [:call_count]) == 1
+    on_exit(fn -> :erlang.trace_pattern({:_, :_, :_}, false, [:call_count]) end)
+    fn -> count(init) end
+  end
+
+  defp legacy_headers(token, session),
+    do: [
+      {"authorization", "Bearer " <> token},
+      {"mcp-session-id", session},
+      {"mcp-protocol-version", "2025-11-25"}
+    ]
+
+  defp delete(ctx, token, session) do
+    Req.delete!(ctx.web.url,
+      headers: legacy_headers(token, session),
+      retry: false,
+      decode_body: false
+    )
+  end
+
+  # An API-key server whose lookup answers each key ID with its principal; the
+  # key of each ID.
+  defp api_key_server(ctx, principals) do
+    digest_key = :binary.copy(<<7>>, 32)
+    secret = :binary.copy(<<0xA5>>, 32)
+
+    config =
+      TokenVerify.api_key_config(
+        prefix: "ek",
+        digest_key: fn ->
+          {:ok,
+           %Elzoo.Secrets.Credential{
+             value: digest_key,
+             version: 1,
+             expires_at_unix_ms: (@now + 3600) * 1000
+           }}
+        end,
+        lookup: fn id ->
+          {:ok,
+           %{
+             digest: :crypto.mac(:hmac, :sha256, digest_key, secret),
+             principal:
+               Map.merge(
+                 %{auth_epoch: 0, allowed_scopes: [], allowed_spaces: []},
+                 Map.fetch!(principals, id)
+               ),
+             current_epoch: 0,
+             expires_at_unix_s: nil,
+             revoked: false
+           }}
+        end
+      )
+
+    {:ok, server} = McpServer.new(opts(ctx, verifier: {:api_key, config}))
+    Host.put({:ok, server})
+    Map.new(principals, fn {id, _} -> {id, "ek_#{id}_" <> b64(secret)} end)
+  end
+
+  test "ELZ-377 1: a session is bound to its principal; another principal's request on it is 404 -32600 before the handler",
+       ctx do
+    handlers = count_handlers()
+    alice = token(ctx, "alice")
+    args = %{name: "summarize", arguments: %{"text" => "t"}}
+
+    {200, %{"result" => %{"tools" => _}}, session} = raw(ctx, alice, "tools/list", %{})
+
+    {200, %{"result" => %{"content" => [_]}}, _} =
+      raw(ctx, alice, "tools/call", args, session: session)
+
+    assert length(starts(drain())) == 1
+
+    # bob (same tenant) and carol (another tenant), each with a valid token.
+    for {who, method, params} <- [
+          {"bob", "tools/call", args},
+          {"bob", "tools/list", %{}},
+          {"carol", "tools/list", %{}},
+          {"carol", "tools/call", %{name: "invoice", arguments: %{}}}
+        ] do
+      before = handlers.()
+      assert session_not_found?(raw(ctx, token(ctx, who), method, params, session: session))
+      assert handlers.() == before, "#{who} #{method}"
+      # The verifier's Needs only: no authority, bots, start or result Need.
+      assert for({:need, name, _} <- drain(), do: name) == [:clock, :subject]
+    end
+
+    # A re-issued token of alice (same tenant, kind and id) keeps her session.
+    reissued = token(ctx, "alice", %{"iat" => @now - 5, "exp" => @now + 900})
+    assert reissued != alice
+
+    {200, %{"result" => %{"content" => [_]}}, _} =
+      raw(ctx, reissued, "tools/call", args, session: session)
+
+    assert length(starts(drain())) == 1
+  end
+
+  test "ELZ-377 2: another principal's DELETE of a session is 404 and the session lives; its own DELETE is 204 and ends it",
+       ctx do
+    handlers = count_handlers()
+    alice = token(ctx, "alice")
+    {200, _, session} = raw(ctx, alice, "tools/list", %{})
+
+    before = handlers.()
+    resp = delete(ctx, token(ctx, "bob"), session)
+    assert resp.status == 404
+
+    assert %{"error" => %{"code" => -32600, "message" => "Session not found"}} =
+             Jason.decode!(resp.body)
+
+    assert delete(ctx, token(ctx, "carol"), session).status == 404
+    assert handlers.() == before
+
+    assert {200, %{"result" => %{"tools" => _}}, _} =
+             raw(ctx, alice, "tools/list", %{}, session: session)
+
+    assert delete(ctx, alice, session).status == 204
+    assert session_not_found?(raw(ctx, alice, "tools/list", %{}, session: session))
+    # Control: an ended session stays ended for every principal.
+    assert delete(ctx, alice, session).status == 404
+  end
+
+  test "ELZ-377 3: the binding takes tenant, kind and id: each differing alone is another principal",
+       ctx do
+    keys =
+      api_key_server(ctx, %{
+        "Humalice01" => %{kind: :human, id: "alice", tenant: "acme"},
+        "Humalice02" => %{kind: :human, id: "alice", tenant: "acme"},
+        "Svcalice01" => %{kind: :service, id: "alice", tenant: "acme"},
+        "Humalice03" => %{kind: :human, id: "alice", tenant: "globex"},
+        "Humcarol01" => %{kind: :human, id: "carol", tenant: "acme"}
+      })
+
+    {200, %{"result" => %{"tools" => _}}, human} = raw(ctx, keys["Humalice01"], "tools/list", %{})
+    {200, %{"result" => %{"tools" => _}}, service} = raw(ctx, keys["Svcalice01"], "tools/list", %{})
+
+    # The service and the human named alice in acme do not share a session.
+    assert session_not_found?(raw(ctx, keys["Svcalice01"], "tools/list", %{}, session: human))
+    assert session_not_found?(raw(ctx, keys["Humalice01"], "tools/list", %{}, session: service))
+    assert delete(ctx, keys["Svcalice01"], human).status == 404
+    # alice of globex differs by tenant alone, carol of acme by id alone.
+    assert session_not_found?(raw(ctx, keys["Humalice03"], "tools/list", %{}, session: human))
+    assert session_not_found?(raw(ctx, keys["Humcarol01"], "tools/list", %{}, session: human))
+
+    # Control: another key of the same principal uses the session.
+    assert {200, %{"result" => %{"tools" => _}}, _} =
+             raw(ctx, keys["Humalice02"], "tools/list", %{}, session: human)
+  end
+
+  @modern_meta %{
+    "io.modelcontextprotocol/protocolVersion" => "2026-07-28",
+    "io.modelcontextprotocol/clientCapabilities" => %{},
+    "io.modelcontextprotocol/clientInfo" => %{"name" => "raw", "version" => "1"}
+  }
+
+  # A POST that must complete within 1 s (a listen stream would not): its
+  # status and decoded body.
+  defp quick(ctx, headers, body) do
+    started = System.monotonic_time(:millisecond)
+    resp = post(ctx, headers, body, receive_timeout: 1_000)
+    assert System.monotonic_time(:millisecond) - started < 1_000
+    assert Req.Response.get_header(resp, "content-type") |> Enum.all?(&(&1 =~ "json"))
+    {resp.status, Jason.decode!(resp.body)}
+  end
+
+  test "ELZ-377 4: a subscriptions/listen header is -32601 from the Plug, body unread; other listen shapes meet ex_mcp's rejections",
+       ctx do
+    handlers = count_handlers()
+    {:ok, server} = McpServer.new(opts(ctx, body_limit: 1_024))
+    Host.put({:ok, server})
+    alice = token(ctx, "alice")
+    auth = [{"authorization", "Bearer " <> alice}]
+    modern = [{"mcp-protocol-version", "2026-07-28"}]
+    filter = %{"toolsListChanged" => true}
+    listen = rpc(7, "subscriptions/listen", %{"notifications" => filter, "_meta" => @modern_meta})
+
+    refused = %{
+      "jsonrpc" => "2.0",
+      "id" => nil,
+      "error" => %{"code" => -32601, "message" => "Method not found"}
+    }
+
+    before = handlers.()
+    drain()
+
+    assert quick(ctx, auth ++ modern ++ [{"mcp-method", "subscriptions/listen"}], listen) ==
+             {200, refused}
+
+    # Over body_limit (1,024): still the Plug's answer, not 413.
+    big =
+      rpc(7, "subscriptions/listen", %{
+        "notifications" => filter,
+        "_meta" => @modern_meta,
+        "pad" => String.duplicate("p", 2_000)
+      })
+
+    assert byte_size(big) > 1_024
+
+    assert quick(ctx, auth ++ modern ++ [{"mcp-method", "subscriptions/listen"}], big) ==
+             {200, refused}
+
+    assert handlers.() == before
+    assert for({:need, name, _} <- drain(), do: name) == [:clock, :subject, :clock, :subject]
+
+    # The header naming another method: ex_mcp's header check refuses the body.
+    assert {400,
+            %{
+              "error" => %{
+                "code" => -32020,
+                "message" => "Mcp-Method header does not match the JSON-RPC body"
+              }
+            }} =
+             quick(ctx, auth ++ modern ++ [{"mcp-method", "tools/list"}], listen)
+
+    # A legacy-era body naming the method, on alice's session.
+    {200, _, session} = raw(ctx, alice, "tools/list", %{})
+    before = handlers.()
+
+    assert {200,
+            %{
+              "id" => 8,
+              "error" => %{
+                "code" => -32602,
+                "message" => "Subscription request rejected",
+                "data" => %{
+                  "reason" => ~s({:method_not_available, "subscriptions/listen", "2025-11-25"})
+                }
+              }
+            }} =
+             quick(
+               ctx,
+               legacy_headers(alice, session),
+               rpc(8, "subscriptions/listen", %{"notifications" => filter})
+             )
+
+    assert handlers.() == before
+
+    # No token: 401 before the header check.
+    resp = post(ctx, [{"mcp-method", "subscriptions/listen"}] ++ modern, listen)
+    assert {resp.status, resp.body} == {401, ~s({"error":"unauthorized"})}
+
+    # Control: over body_limit without the listen header is ex_mcp's 413.
+    assert post(ctx, auth ++ modern ++ [{"mcp-method", "tools/list"}], big).status == 413
+  end
+
+  test "ELZ-377 4: behind a host's Plug.Parsers (JSON), tools/list still works", ctx do
+    resp =
+      Req.post!(String.replace_suffix(ctx.web.url, "/mcp", "/parsed"),
+        headers: [
+          {"content-type", "application/json"},
+          {"accept", "application/json, text/event-stream"},
+          {"authorization", "Bearer " <> token(ctx, "alice")},
+          {"mcp-protocol-version", "2026-07-28"},
+          {"mcp-method", "tools/list"}
+        ],
+        body: rpc(1, "tools/list", %{"_meta" => @modern_meta}),
+        retry: false,
+        decode_body: false
+      )
+
+    assert resp.status == 200, resp.body
+    assert %{"result" => %{"tools" => tools}} = Jason.decode!(resp.body)
+    assert Enum.map(tools, & &1["name"]) == ["echo", "summarize"]
+  end
+
+  test "ELZ-377 5: a GET with accept text/event-stream is 404; a request-scoped SSE answer ends with its request",
+       ctx do
+    handlers = count_handlers()
+    alice = token(ctx, "alice")
+    {200, _, session} = raw(ctx, alice, "tools/list", %{})
+    before = handlers.()
+
+    for headers <- [[{"authorization", "Bearer " <> alice}], legacy_headers(alice, session)] do
+      resp =
+        Req.get!(ctx.web.url,
+          headers: [{"accept", "text/event-stream"} | headers],
+          retry: false,
+          decode_body: false,
+          receive_timeout: 1_000
+        )
+
+      assert resp.status == 404
+    end
+
+    assert handlers.() == before
+
+    # A modern request with _meta.progressToken that accepts text/event-stream
+    # gets ex_mcp's request-scoped SSE answer: one event with the result, and
+    # the stream ends with the request (within 1 s).
+    started = System.monotonic_time(:millisecond)
+
+    resp =
+      post(
+        ctx,
+        [
+          {"authorization", "Bearer " <> alice},
+          {"mcp-protocol-version", "2026-07-28"},
+          {"mcp-method", "tools/list"}
+        ],
+        rpc(9, "tools/list", %{"_meta" => Map.put(@modern_meta, "progressToken", "p1")}),
+        receive_timeout: 1_000
+      )
+
+    assert System.monotonic_time(:millisecond) - started < 1_000
+
+    assert {resp.status, Req.Response.get_header(resp, "content-type")} ==
+             {200, ["text/event-stream"]}
+
+    assert ["data: " <> event] = String.split(resp.body, "\r\n\r\n", trim: true)
+    assert %{"id" => 9, "result" => %{"tools" => [_, _]}} = Jason.decode!(event)
   end
 
   defp nest(0), do: 0
