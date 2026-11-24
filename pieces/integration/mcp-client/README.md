@@ -76,7 +76,7 @@ real server).
 | `refused{invalid_arguments}` | arguments are not an object or fail the snapshot input schema (local) | `rejected` / `not_dispatched` / `permanent` | yes |
 | `refused{too_large}` | request over `max_request_bytes`, or refused by the transport before sending | `rejected` / `not_dispatched` / `permanent` | yes |
 | `refused{target_refused}` | ex_mcp's target policy or credential-origin guard refused before sending | `rejected` / `not_dispatched` / `permanent` | yes |
-| `refused{credentials_unavailable}` | the credential Need fails, raises, throws, exits or returns another shape | `timed_out` / `not_dispatched` / `unavailable` | yes |
+| `refused{credentials_unavailable}` | the credential Need fails, raises, throws, exits or returns another shape, or its token would be the session's 65th distinct one | `timed_out` / `not_dispatched` / `unavailable` | yes |
 | `refused{not_connected}` | the session is closed or the connection failed before a byte | `timed_out` / `not_dispatched` / `unavailable` | yes |
 | `refused{invalid_request}` | at admission only: malformed declaration payload or release reference; no intent | — | — |
 | `refused{authentication_failed}` | HTTP 401 or 403 (named upstream assumption that nothing ran) | `failed` / `dispatched` / `permanent` | no |
@@ -117,7 +117,13 @@ hands to ex_mcp is first recorded in the session's private ledger (a process tha
 records and redacts, never returns a token, keeps the tokens in a `:private` ETS table
 it owns, hides its state from `:sys` status and crash reports, and stops when the
 client exits for any reason); a token that cannot be
-recorded is not sent. Every occurrence of the exact bytes of those tokens, and of the
+recorded is not sent. One session's ledger holds at most 64 distinct tokens and frees
+none during the session: a request whose token would be the 65th distinct one is
+refused before any byte, as `refused{credentials_unavailable}` at a call and
+`{:error, :credentials_unavailable}` at a listing (`connect/2` starts the session with
+an empty ledger, so it never meets the bound); a token the ledger already holds is
+still sent; a new session (`connect/2`) has an empty ledger; so a host whose credential
+Need gives a new token for each request reconnects within 64 requests (T34). Every occurrence of the exact bytes of those tokens, and of the
 credential as resolved before and after the operation, in server-supplied strings of a
 tool result or a tool listing (the negotiated protocol version included) is replaced by
 `[redacted]` inside the ledger, before delivery, before the digest and before the
@@ -166,7 +172,9 @@ data is the result by design and is redacted.
 
 - **Credential Need** (bearer token): called before each request, inside ex_mcp's
   client process; never stored by this Piece, never logged; `integration/secrets` is
-  deferred, so the host supplies it.
+  deferred, so the host supplies it. One session sends at most 64 distinct tokens, its
+  handshake included: a host whose Need rotates reconnects (`close/1`, then
+  `connect/2`) before a request would need a 65th.
 - **Recipient Need**: a trusted local process for tool results.
 - **Application**: the consumer starts `ex_mcp`'s application (it starts its own
   supervisors, and needs `plug_cowboy`/`cowboy` even for client use).
@@ -196,7 +204,10 @@ beyond `close/1` (in-flight calls end `unknown`; no pause or drain).
 
 One transport; no stdio (that slice belongs with `runtime/os-isolation`), OAuth,
 resources, prompts, subscriptions, tasks or sampling; no claim about what a tool does;
-no TLS or public endpoint in the evidence; content is not durably retained. Runtime
+no TLS or public endpoint in the evidence; content is not durably retained. One session
+sends at most 64 distinct tokens: the request that would carry a 65th is refused
+`credentials_unavailable`, the reason a failing Need also gives, with no signal before
+it and no eviction, and only a new session (`connect/2`) sends again with new tokens. Runtime
 mode: the addresses are as fresh as the host's check, and a reconnect needs new ones
 (a new `configure/1`); the `:loopback` runtime network is evidence support, not an
 egress policy; no run-time change of a configured endpoint. The ex_mcp facts it
