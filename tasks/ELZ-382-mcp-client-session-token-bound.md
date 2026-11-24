@@ -27,7 +27,7 @@ Checked at `a9b1badb`; confirm each before you start, and comment on the issue i
 
 ## The change
 
-- The README's "Credential rule and redaction" paragraph states: one session's ledger holds at most 64 distinct tokens; a request whose token would be the 65th distinct one is refused before any byte, as `{:error, :credentials_unavailable}` at `connect/2` or `refused{credentials_unavailable}` at a call or listing; a token the ledger already holds is still sent; a new session (`connect/2`) has an empty ledger; so a host whose credential Need gives a new token for each request reconnects within 64 requests. The "Limits" section repeats it in one sentence, and the "Needs" section names the host duty to reconnect.
+- The README's "Credential rule and redaction" paragraph states: one session's ledger holds at most 64 distinct tokens; a request whose token would be the 65th distinct one is refused before any byte, as `refused{credentials_unavailable}` at a call and `{:error, :credentials_unavailable}` at a listing (`connect/2` starts the session with an empty ledger, so it never meets the bound); a token the ledger already holds is still sent; a new session (`connect/2`) has an empty ledger; so a host whose credential Need gives a new token for each request reconnects within 64 requests. The "Limits" section repeats it in one sentence, and the "Needs" section names the host duty to reconnect.
 - `piece.json` states the bound in `contract` and `limits` and grounds it with the new test; the `note` and `manifest_sha256` of the index row follow `piece.json`.
 - No change to `lib/`.
 
