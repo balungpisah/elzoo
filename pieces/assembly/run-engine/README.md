@@ -1201,15 +1201,17 @@ the root is given the outcome) pause the Run on 50,000, and the next input appli
 under protocol v2 `event_waits/3` and `transcript/3` read the paused Run. In
 `outcome_waiting_in_the_mailbox_takes_the_later_deadline`, once in v1 and once in
 v2, the engine is suspended with `:sys.suspend/1`, the work completes while the
-callback still gives 30,000 and the callback gives 50,000 before the engine resumes:
-the outcome carries 50,000. Five temporary negative controls each made a named test
+callback still gives 30,000, and the callback gives 50,000 and the clock 36,000 before
+the engine resumes: the outcome carries 50,000 and keeps the time when the work
+finished (35,000). Six temporary negative controls each made a named test
 fail and were reverted: the dispatch-time sample in both paths (the next input
 returns `{:error, :durable_unit_transition_failed}`, and
 `report_uses_the_current_deadline` holds no report), the sample in the v1 handler
 only (the v2 test), the sample in the AsyncWork wrap when the work finishes (the
 mailbox test in v1 and v2), that wrap sample kept in the v2 path only (the mailbox
-test in v2) and the guard of `expire_and_report/3` removed (the existing `:pause`
-test of `bound_edges` whose outcome carries a passed deadline). The deadline is the
+test in v2), the outcome's `at_ms` taken from the clock when it is handled (the
+mailbox test in v1 and v2) and the guard of `expire_and_report/3` removed (the
+existing `:pause` test of `bound_edges` whose outcome carries a passed deadline). The deadline is the
 callback's value when the delivery is handled, not when the work finished; the two
 differ by the time the delivery waits in the engine's mailbox. A second delivery of
 an outcome already committed has no case (only a crafted message reaches it): v1

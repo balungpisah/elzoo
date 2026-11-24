@@ -1130,11 +1130,15 @@ defmodule Elzoo.RunEngineV2Test do
     send(task, :finish)
     await_v2_mailbox(engine)
     Agent.update(c.context, &Map.put(&1, :pause_deadline, 50_000))
+    Agent.update(c.clock, fn _ -> 36_000 end)
     :ok = :sys.resume(engine)
 
     contexts = await_v2_local_outcome_contexts(c)
     assert_v2_paused_and_read(c, engine)
     assert contexts == [%{pause_deadline: 50_000}]
+    # The outcome keeps the time when the work finished, not when it was handled.
+    assert for({"local:" <> _, r} <- protocol_records_with_ids(c), do: r.input["at_ms"]) ==
+             [35_000]
   end
 
   # A v2 :pause Run with request cap 1 whose root asks local work "slow" (blocked until

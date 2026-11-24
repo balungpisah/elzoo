@@ -1062,12 +1062,15 @@ defmodule Elzoo.RunEngineTest do
       send(task, :finish)
       await_mailbox(engine)
       Agent.update(c.context, &Map.put(&1, :pause_deadline, 50_000))
+      Agent.update(c.clock, fn _ -> 36_000 end)
       :ok = :sys.resume(engine)
 
       contexts = await_local_outcome_contexts(c)
       assert {:ok, :applied} = RunEngine.input(engine, "w", wake(), later_deadline())
       assert_paused_at(c, engine, 50_000)
       assert contexts == [%{pause_deadline: 50_000}]
+      # The outcome keeps the time when the work finished, not when it was handled.
+      assert local_outcome_times(c) == [35_000]
       Process.unregister(:run_engine_observer)
     end
   end
@@ -1113,6 +1116,12 @@ defmodule Elzoo.RunEngineTest do
       left == 0 -> flunk("no local-work outcome was committed")
       true -> Process.sleep(5) && await_local_outcome_contexts(c, left - 1)
     end
+  end
+
+  defp local_outcome_times(c) do
+    for %{kind: "input"} = row <- rows(c),
+        {1, {"local:" <> _, record}} <- [:erlang.binary_to_term(row.payload, [:safe])],
+        do: record.input["at_ms"]
   end
 
   defp await_mailbox(pid, left \\ 400) do
