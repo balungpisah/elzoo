@@ -90,7 +90,15 @@ environment or a `.env` file.
   or `1h` (`anthropic_prompt_cache_ttl`). The breakpoint set must be exactly
   `system` (plus `tools` when tools are present) and at most one message; any
   other set or TTL is refused `unsupported_feature`, more than four breakpoints
-  `invalid_request`, all before any request. Anthropic's cache has no
+  `invalid_request`, all before any request. A message breakpoint names the
+  `i`-th non-system message; an index past them is `invalid_request`.
+  `req_llm` 1.30.0 applies the position to its wire list, in which each run of
+  consecutive tool results is one message whose last block it marks. So the
+  named message is sent at its own wire index and marked exactly: a message that
+  is not a tool result, or the last tool result of its run (its `tool_result`
+  block in the merged message). A tool result before the end of its run is
+  refused `unsupported_feature`, as `req_llm` would mark a later block. No hint
+  is sent with an index that `req_llm` would drop. Anthropic's cache has no
   caller-visible key; tenants sharing one key share Anthropic's prompt cache, so
   where isolation matters configure one credential per tenant.
 - A tool result's `is_error` flag is carried to the wire `tool_result` block
@@ -125,13 +133,9 @@ Refusals, all before any byte is sent:
   page says vision is available on every model.
 - A cache breakpoint on a parts message is refused `unsupported_feature`
   (`req_llm` would mark its last block; a breakpoint inside a parts message is
-  kept open). `req_llm` applies the message index to its wire list, in which
-  each run of consecutive tool results is one message, so a breakpoint whose
-  index names the parts message in either list is refused. A breakpoint on a
-  text message of a request with image parts is kept. (For a request with
-  tool-result runs, the index on the wire can name a later message than the
-  neutral index; that shift exists for text-only requests too and is not
-  changed here.)
+  kept open). A breakpoint on a text message of a request with image parts is
+  sent at that message's wire index, as for any request (see the cache hint
+  above).
 - An image whose base64 encoding is over the documented per-image limit is
   refused `too_large`.
 
@@ -212,7 +216,9 @@ interface's documentation for how a caller retries with its own ground).
   limit on both sides through `translate/2`, ai-text's largest image sent);
   usage and cache scenarios (cold write, warm read, mixed TTL,
   below minimum, absent fields, disagreeing totals); cache-hint and reasoning
-  translation and refusals before any request; documented error statuses and a
+  translation and refusals before any request; a message breakpoint on and after
+  a run of tool results, with and without image parts, marked at its wire index,
+  and one inside the run refused with no request; documented error statuses and a
   redirect, one request each; transport timeout with one request; malformed 2xx;
   redaction in results, inspect, owner state, debug logs and `req_llm` telemetry;
   ambient keys (environment, application configuration, a `.env` file across an
@@ -227,7 +233,10 @@ interface's documentation for how a caller retries with its own ground).
   record and the pinned source): `req_llm` adds `anthropic-beta` headers for tools
   and prompt caching (its `beta_features/2`);
   it adjusts sampling silently (not reachable here) and encodes reasoning from
-  model metadata.
+  model metadata. The message breakpoint's wire index models its merge of
+  consecutive tool results (`merge_consecutive_tool_results/1`) and its marking
+  of a message's last block; a later `req_llm` that encodes differently needs
+  this rule checked again.
 - Telemetry `planned`: no Elzoo event. Because every response is halted, the
   `req_llm` response-side events of these calls are not emitted; its request
   start event may be, with payload capture off by default. Config `supported`
