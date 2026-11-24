@@ -86,7 +86,8 @@ environment or a `.env` file.
 
 ## Capabilities and translation
 
-- Features: tools, structured output, cache hint, reasoning (`low`, `medium`,
+- Features: tools, structured output, cache hint, image input (see "Image
+  input"), reasoning (`low`, `medium`,
   `high`, `max` sent as `reasoning.effort`; a request without reasoning sends
   `reasoning.effort: "none"` explicitly, because the model's default is
   `medium`). **Sampling and stop sequences are not declared**: `req_llm`'s
@@ -99,7 +100,8 @@ environment or a `.env` file.
 - Structured output uses `text.format` (`json_schema`, `strict: false`) with the
   caller's schema unchanged; the interface validates the returned text.
   Structured output together with tools is refused `unsupported_feature`.
-- Messages: system and user text become `input_text` input items; assistant text
+- Messages: system and user text become `input_text` input items; a user
+  message of parts becomes one user input item (see "Image input"); assistant text
   and earlier tool calls are replayed as output and `function_call` items; a tool
   result becomes `function_call_output`. **A tool result with `is_error: true` is
   refused `unsupported_feature`**: `function_call_output` has no error member in
@@ -123,13 +125,45 @@ environment or a `.env` file.
 - Breakpoints: `prompt_cache_breakpoint: {"mode": "explicit"}` on exactly the
   addressed parts. `:system` needs exactly one system message; `{:message, i}`
   indexes the **non-system** messages in order and must name a user message.
-  `:tools`, a missing or ambiguous system message, or an assistant or tool-result
-  target is refused `unsupported_feature`; an index beyond the non-system
+  `:tools`, a missing or ambiguous system message, an assistant or tool-result
+  target, or a user message of parts (image input) is refused
+  `unsupported_feature`; an index beyond the non-system
   messages `invalid_request`. All before any request or credential read.
 - Without a hint: no key, no options, no markers. OpenAI's default implicit
   prefix caching then applies, **scoped by OpenAI to the organization or project,
   not to the Elzoo tenant**: tenants sharing one OpenAI credential may share that
   cache. Where isolation matters, configure one credential or project per tenant.
+
+### Image input
+
+The interface resolves each image part of a user message through its artifact
+Need and hands this Piece the bytes. A user message of parts becomes **one user
+input message with the parts in order**: a text part as `input_text`, an image
+part as `input_image` whose `image_url` is a `data:<media type>;base64,<bytes>`
+URL, with `detail: "auto"` (set through the `req_llm` content-part metadata).
+The pinned `InputImageContent` requires `detail`, so every image validates
+against it. A request without image parts translates byte for byte as before
+(the golden wire requests of O1, recorded before image input was added).
+
+- **The data URL bound.** The pinned schema bounds an input image's `image_url`
+  at 20,971,520 characters, in the definition `InputImageContentParamAutoParam`
+  only; `InputImageContent`, which every image is validated against, has no
+  bound. The interface's largest `max_image_bytes` is 5,242,880, so a data URL
+  is at most 23 + 4 × ⌈5,242,880 / 3⌉ = 6,990,531 characters (the longest
+  prefix, `data:image/jpeg;base64,`, is 23). No refusal is added for it; the
+  largest image is validated against both definitions.
+- **OpenAI's documented limits** (images-and-vision guide,
+  `https://platform.openai.com/docs/guides/images-vision`, fetched 2026-11-24):
+  PNG, JPEG, WEBP and non-animated GIF; up to 512 MB total payload and up to
+  1,500 images per request; up to 30,000 patches per image after the model's
+  resizing for the chosen `detail`, an image over it rejected and not resized;
+  image tokens count toward the model's input and context limits. The guide's
+  sizing table does not list `gpt-6.1-terra`. This Piece checks none of these:
+  pixel dimensions, patches and GIF animation are not checked, and the
+  interface's own bounds (at most 8 images, 5,242,880 bytes each, 41,943,040 in
+  all) are far below the payload and count limits.
+- A cache breakpoint on a parts message is refused `unsupported_feature`.
+- Not supplied: a `detail` other than `auto`, file-ID or URL images, documents.
 
 ## Usage and cache counters
 
@@ -196,11 +230,20 @@ failed/dispatched/retryable and not redispatched by default.
   JSON Schema exclusivity rejects even the document's minimal request shape. A
   value must still satisfy at least one documented branch; exclusivity is not
   checked. Every
-  captured request validates as `CreateResponse`, every documented-format stub as
+  captured request validates as `CreateResponse` (each image part also as
+  `InputImageContent`), every documented-format stub as
   `Response` or `ErrorResponse`; the malformed and partial-usage fixtures are
   negative controls that the schema rejects.
 - **Tests** (`test/elzoo/ai_text_openai_test.exs`): the interface's conformance
-  kit; usage and cache scenarios; cache-key vectors; cache-hint mapping and
+  kit, each request equal to its golden wire request
+  (`test/fixtures/openai/o1_wire.json`: method, path, headers other than the
+  key, decoded body, recorded before image input); the interface's
+  `:image_input` scenario (one user message of `input_text` and an
+  `input_image` data URL of the PNG with `detail: "auto"`, valid as
+  `InputImageContent`); each media type's data URL prefix and eight images in
+  order with interleaved text; a cache breakpoint on a parts message refused
+  with no request; an image of the largest `max_image_bytes` valid against both
+  image definitions; usage and cache scenarios; cache-key vectors; cache-hint mapping and
   refusals; reasoning, sampling, stop, model and tool-result refusals; structured
   output and tool choice; finish and status mapping; error statuses and a
   redirect with one request each; timeout with one request; malformed 2xx;
