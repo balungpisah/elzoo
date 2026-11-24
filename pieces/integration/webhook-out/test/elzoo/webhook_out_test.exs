@@ -932,7 +932,7 @@ defmodule Elzoo.WebhookOutTest do
 
       assert_receive :inserted
       recorder = Task.async(fn -> record(b, t, 1, :unknown) end)
-      Harness.poll(fn -> Harness.waiting() > 0 end)
+      Harness.poll(fn -> Harness.waiting(ctx.prefix) > 0 end)
       send(writer.pid, :commit)
       assert {:ok, :committed} = Task.await(writer)
       assert {:ok, :applied} = Task.await(recorder)

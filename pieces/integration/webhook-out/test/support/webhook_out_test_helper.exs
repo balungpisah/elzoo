@@ -178,9 +178,18 @@ defmodule Elzoo.WebhookOut.Harness do
     rows
   end
 
-  @doc "Lock requests that wait (pg_locks, not granted); the tests run one at a time."
-  def waiting do
-    [[n]] = q!(OwnerRepo, "SELECT count(*) FROM pg_locks WHERE NOT granted")
+  @doc """
+  Backends that wait for a lock (pg_locks, not granted) while running a statement on the
+  observations table of schema `prefix`, which is random per run, so no other run counts.
+  """
+  def waiting(prefix) do
+    [[n]] =
+      q!(
+        OwnerRepo,
+        "SELECT count(DISTINCT l.pid) FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE NOT l.granted AND strpos(a.query, $1) > 0",
+        [~s("#{prefix}".elzoo_webhook_observations)]
+      )
+
     n
   end
 
