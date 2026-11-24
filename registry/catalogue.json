@@ -1427,7 +1427,8 @@
       "summary": "Tenant OAuth connections: PKCE and client credentials, sealed tokens, one refresh at a time",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/integration/oauth-client/piece.json",
       "reason": "ELZ-361: Wave 9 (P13). Tenant connections (owner Q2 A) over the locked Req, Jason and OTP crypto (Q3 A); plain Ecto/Postgrex tables under state/tenant-isolation; first caller integration/mcp-runtime (RC-59)."
     },
     {
