@@ -1236,6 +1236,120 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
     end
   end
 
+  # ------------------------------------------------------------ group 5: isolation
+
+  describe "group 5: isolation" do
+    test "each tenant's flows; owner-only DDL, scoped reads, 42501 inserts, updates of the other tenant",
+         %{w: w} do
+      oauth = Tools.oauth!(w)
+      hooks = w.hooks.binding
+
+      for t <- ["T1", "T2"] do
+        lower = String.downcase(t)
+
+        # An authorization-code connection (one attempt row).
+        assert {_, _, {:ok, %{state: :active}}} = Tools.authorize!(w, oauth, t, "conn-" <> lower)
+
+        # A delivered and a dead-lettered webhook.
+        ok = H.endpoint(w, "ok-" <> lower, ["order.paid"], true)
+        dl = H.endpoint(w, "dl-" <> lower, ["order.paid"], false)
+        for e <- [ok, dl], do: assert({:ok, :applied} = WebhookOut.register(hooks, t, e))
+        H.hook_answers(w, "/hooks/ok-" <> lower, [200])
+        H.hook_answers(w, "/hooks/dl-" <> lower, [503])
+
+        assert {:ok, %{deliveries: 2}} =
+                 WebhookOut.enqueue(hooks, t, %{
+                   event_id: "evt-" <> lower,
+                   name: "order.paid",
+                   payload: %{"order" => 1}
+                 })
+
+        [_, _] = H.hook_round!(w, t)
+
+        assert %{state: :delivered} =
+                 H.hook_status(w, t, H.delivery_id("ok-" <> lower, "evt-" <> lower))
+
+        assert %{state: :dead_lettered} =
+                 H.hook_status(w, t, H.delivery_id("dl-" <> lower, "evt-" <> lower))
+
+        # A subscription.
+        assert {:ok, %{subscription: %{state: :active}}} =
+                 Plan.create(w.plan, t, %{
+                   subscription_id: "sub-" <> lower,
+                   plan: %{plan_id: "pro", version: 1},
+                   fee: H.eur(2_900),
+                   interval: :month,
+                   start_ms: H.now(w),
+                   trial_end_ms: nil
+                 })
+
+        # A compensated invoice checkout with one applied event.
+        :ok = H.accounts!(w, t)
+        invoice = "inv-" <> lower
+        H.invoice!(w, t, invoice, [{:adjustment, "a1", H.eur(500), "order", "order/" <> invoice}])
+        H.finalize!(w, t, invoice)
+        id = "iso-" <> lower
+
+        {:ok, :applied} =
+          LedgerCheckout.open(
+            w.checkout,
+            t,
+            H.invoice_payment(id, invoice, 500, to: "never-opened")
+          )
+
+        {_, :pending} = H.charged!(w, t, id, @pending)
+
+        event =
+          Provider.event("ev-" <> lower, {:charge, "checkout." <> id}, :succeeded, 500, "ch_1")
+
+        assert {:ok, %{applied: true, state: :succeeded}} =
+                 PaymentLifecycle.apply_event(w.lc, t, event)
+
+        assert {:ok, %{state: :compensating, wait: %{for: :refund_intent, admission: a}}} =
+                 H.resume(w, t, id)
+
+        {_, :succeeded} = H.refund!(w, t, id, a, @refunded)
+        assert H.resume(w, t, id) == {:ok, %{state: :compensated, wait: nil}}
+      end
+
+      tables = for {k, names} <- H.new_tables(), name <- names, do: {w.p[k], name}
+      assert length(tables) == 18
+
+      for {s, table} <- tables do
+        name = "#{s}.#{table}"
+
+        # Owner only, as elzoo_app.
+        assert H.denied?(H.try_app("ALTER TABLE #{name} NO FORCE ROW LEVEL SECURITY")), name
+        assert H.denied?(H.try_app("DROP POLICY elzoo_tenant_floor ON #{name}")), name
+
+        # Reads without a tenant predicate, in T2's scope and then in T1's.
+        tenants = fn t -> H.read_as(t, "SELECT DISTINCT tenant FROM #{name}") |> List.flatten() end
+        assert tenants.("T2") == ["T2"], name
+        assert tenants.("T1") == ["T1"], name
+
+        # In T1's scope, a copy of a T1 row naming T2 is refused (42501).
+        insert =
+          "INSERT INTO #{name} SELECT (jsonb_populate_record(NULL::#{name}, " <>
+            "to_jsonb(t) || '{\"tenant\": \"T2\"}')).* FROM #{name} t LIMIT 1"
+
+        assert H.rls_denied?(H.try_as("T1", insert)), name
+
+        update = "UPDATE #{name} SET tenant = tenant WHERE tenant = 'T2'"
+
+        if table in H.insert_only() do
+          # Refused by privilege, before row security.
+          result = H.try_as("T1", update)
+          assert H.denied?(result) and not H.rls_denied?(result), name
+        else
+          # T2's rows match none in T1's scope; in T2's own scope the same update matches them.
+          assert {:ok, %{num_rows: 0}} = H.try_as("T1", update), name
+          assert {:ok, %{num_rows: n}} = H.try_as("T2", update)
+          assert n > 0, name
+        end
+      end
+    end
+  end
+
   defp inline_data(value) when is_map(value) do
     Enum.flat_map(value, fn
       {k, v} when k in ["inline_data", "inlineData"] -> [v]
