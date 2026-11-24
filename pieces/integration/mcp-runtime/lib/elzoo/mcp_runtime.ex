@@ -4,8 +4,9 @@ defmodule Elzoo.McpRuntime do
   One MCP server that a tenant added at run time, turned into a ready
   `integration/mcp-client` runtime config only after three steps: the
   `integration/egress-policy` admits the URL and every resolved address is
-  public; the `integration/secrets` reference releases the bearer token once
-  (the check before connecting); the client is configured with
+  public; the credential releases a token once (the check before connecting):
+  an `integration/secrets` reference, or the host's OAuth Need for a tenant
+  OAuth connection; the client is configured with
   `Elzoo.McpClient.RuntimeBinding` and exactly the checked host, port and
   address set. The host then uses the ready client unchanged: `connect/2`,
   `admission/3`, `context/3` (the context bound to the admission) and
@@ -14,7 +15,7 @@ defmodule Elzoo.McpRuntime do
   alias Elzoo.{EgressPolicy, McpClient, Secrets}
   alias Elzoo.McpClient.{RuntimeBinding, Session}
 
-  @keys [:tenant, :server, :url, :policy, :resolver, :credential, :secrets]
+  @keys [:tenant, :server, :url, :policy, :resolver, :credential]
   @bounds [
     :protocol_mode,
     :call_timeout_ms,
@@ -34,10 +35,21 @@ defmodule Elzoo.McpRuntime do
   defmodule Config do
     @moduledoc """
     One tenant-added server: tenant, server text, URL, egress policy and
-    resolver Need, credential reference, `secrets` function and the ready
-    client bounds. Inspect shows the tenant and the server text only.
+    resolver Need, credential, its Need (`secrets` for a reference, `oauth`
+    for an OAuth connection; the other is nil) and the ready client bounds.
+    Inspect shows the tenant and the server text only.
     """
-    @enforce_keys [:tenant, :server, :url, :policy, :resolver, :credential, :secrets, :bounds]
+    @enforce_keys [
+      :tenant,
+      :server,
+      :url,
+      :policy,
+      :resolver,
+      :credential,
+      :secrets,
+      :oauth,
+      :bounds
+    ]
     defstruct @enforce_keys
 
     defimpl Inspect do
@@ -50,9 +62,13 @@ defmodule Elzoo.McpRuntime do
 
   @doc """
   Builds the config from exactly `tenant`, `server`, `url`, `policy`,
-  `resolver`, `credential` (`%{ref: ref, scope: scope}`) and `secrets` (a
+  `resolver` and `credential`, plus the Need of the credential form, plus
+  optional ready client bounds. `%{ref: ref, scope: scope}` takes `secrets` (a
   one-argument function from the credential request to the trusted
-  `Elzoo.Secrets` context), plus optional ready client bounds. Returns
+  `Elzoo.Secrets` context); `%{oauth: connection_id}` (1..128 bytes of
+  printable UTF-8) takes `oauth` (a one-argument function given
+  `%{tenant: tenant, connection_id: connection_id}` that returns
+  `{:ok, token}` or `{:error, atom}`). Returns
   `{:ok, config}` or `{:error, :configuration}`; calls no Need. A URL with a
   query is `:configuration`; every other URL rule is the egress policy's, at
   `admit/1`.
@@ -61,21 +77,21 @@ defmodule Elzoo.McpRuntime do
     with true <- Keyword.keyword?(opts),
          keys = Keyword.keys(opts),
          true <- Enum.uniq(keys) == keys,
-         true <- Enum.all?(@keys, &(&1 in keys)),
-         true <- Enum.all?(keys, &(&1 in @keys or &1 in @bounds)),
+         {:ok, need} <- form(opts[:credential]),
+         true <- Enum.all?([need | @keys], &(&1 in keys)),
+         true <- Enum.all?(keys, &(&1 in [need | @keys] or &1 in @bounds)),
          true <- is_binary(opts[:url]) and not query?(opts[:url]),
          %EgressPolicy{hosts: %MapSet{}, ports: %MapSet{}} <- opts[:policy],
-         true <- is_function(opts[:resolver], 1) and is_function(opts[:secrets], 1),
-         %{ref: ref, scope: scope} = request when map_size(request) == 2 <- opts[:credential],
-         true <- not is_struct(request) and is_binary(ref) and is_binary(scope),
+         true <- is_function(opts[:resolver], 1) and is_function(opts[need], 1),
          config = %Config{
            tenant: opts[:tenant],
            server: opts[:server],
            url: opts[:url],
            policy: opts[:policy],
            resolver: opts[:resolver],
-           credential: request,
+           credential: opts[:credential],
            secrets: opts[:secrets],
+           oauth: opts[:oauth],
            bounds: Keyword.take(opts, @bounds)
          },
          {:ok, _} <- client(config, @stand_in.endpoint, @stand_in.addresses) do
@@ -89,6 +105,27 @@ defmodule Elzoo.McpRuntime do
 
   def configure(_), do: {:error, :configuration}
 
+  # The credential form and the key of its Need.
+  defp form(%{ref: ref, scope: scope} = request)
+       when map_size(request) == 2 and not is_struct(request) and is_binary(ref) and
+              is_binary(scope),
+       do: {:ok, :secrets}
+
+  defp form(%{oauth: id} = request)
+       when map_size(request) == 1 and not is_struct(request) and is_binary(id) and
+              byte_size(id) in 1..128,
+       do: if(printable?(id), do: {:ok, :oauth}, else: :error)
+
+  defp form(_), do: :error
+
+  # oauth-client's connection_id text: UTF-8 with no C0 or C1 control or DEL.
+  defp printable?(<<>>), do: true
+
+  defp printable?(<<c::utf8, rest::binary>>) when c > 0x1F and (c < 0x7F or c > 0x9F),
+    do: printable?(rest)
+
+  defp printable?(_), do: false
+
   # The ready client refuses a query; URI.new/1 raises on invalid UTF-8, which
   # the egress policy then refuses as :malformed.
   defp query?(url),
@@ -97,7 +134,9 @@ defmodule Elzoo.McpRuntime do
   @doc """
   Admits the server: the egress policy first (`{:error, {:egress, reason}}`),
   then one credential check (`{:error, :credentials_expired}` or
-  `{:error, :credentials_unavailable}`), then the ready client runtime config
+  `{:error, :credentials_unavailable}`; an OAuth credential is
+  `:credentials_unavailable` on any answer but `{:ok, binary}`), then the ready
+  client runtime config
   pinned to the checked host, port and addresses (`{:ok, client_config}`, or
   `{:error, :configuration}` on a refusal). Nothing later runs after a
   refusal; no client or socket is started.
@@ -131,7 +170,7 @@ defmodule Elzoo.McpRuntime do
                addresses: addresses
              },
              tenant: c.tenant,
-             credentials: need(c.secrets, c.credential)
+             credentials: need(c)
            ] ++ c.bounds
          ) do
       {:ok, client} -> {:ok, client}
@@ -139,15 +178,34 @@ defmodule Elzoo.McpRuntime do
     end
   end
 
-  # The zero-arity credential Need of the ready client: resolves the reference
-  # again at each request; nothing is stored.
-  defp need(secrets, request) do
+  # The zero-arity credential Need of the ready client: resolves the reference,
+  # or asks the OAuth Need, again at each request; nothing is stored.
+  defp need(%Config{oauth: nil, secrets: secrets, credential: request}) do
     fn ->
       case resolve(secrets, request) do
         {:ok, credential} -> {:ok, Secrets.reveal(credential)}
         {:error, _} -> {:error, :credentials_unavailable}
       end
     end
+  end
+
+  defp need(%Config{oauth: oauth, tenant: tenant, credential: %{oauth: id}}) do
+    fn ->
+      case ask(oauth, tenant, id) do
+        {:ok, token} -> {:ok, token}
+        :error -> {:error, :credentials_unavailable}
+      end
+    end
+  end
+
+  # One call of the host's OAuth Need: only {:ok, binary} passes.
+  defp ask(oauth, tenant, id) do
+    case oauth.(%{tenant: tenant, connection_id: id}) do
+      {:ok, token} when is_binary(token) -> {:ok, token}
+      _ -> :error
+    end
+  catch
+    _, _ -> :error
   end
 
   defp resolve(secrets, request) do
@@ -161,13 +219,20 @@ defmodule Elzoo.McpRuntime do
     Secrets.resolve(request, context)
   end
 
-  # The check before connecting or listing: one resolution in the calling
-  # process; the value is dropped.
-  defp check(%Config{secrets: secrets, credential: request}) do
+  # The check before connecting or listing: one resolution, or one OAuth Need
+  # call, in the calling process; the value is dropped.
+  defp check(%Config{oauth: nil, secrets: secrets, credential: request}) do
     case resolve(secrets, request) do
       {:ok, _} -> :ok
       {:error, :expired} -> {:error, :credentials_expired}
       {:error, _} -> {:error, :credentials_unavailable}
+    end
+  end
+
+  defp check(%Config{oauth: oauth, tenant: tenant, credential: %{oauth: id}}) do
+    case ask(oauth, tenant, id) do
+      {:ok, _} -> :ok
+      :error -> {:error, :credentials_unavailable}
     end
   end
 

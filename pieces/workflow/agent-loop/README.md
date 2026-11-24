@@ -12,7 +12,8 @@ authority: the engine does that for every action.
 ## Interface
 
 `Elzoo.AgentLoop.new(spec)` returns `{:ok, state}` or `{:error, :invalid_spec |
-{:sources, reason} | :state_too_large}`. `spec` is a map with exactly these atom keys:
+{:sources, reason} | :state_too_large}`. `spec` is a map with exactly these atom keys,
+and optionally `image_input`, `model_attempts` and `move_on`:
 
 | Key | Value |
 | --- | --- |
@@ -21,7 +22,16 @@ authority: the engine does that for every action.
 | `sources` | the operand of `ToolRegistry.snapshot/1`, captured at Run start; its refusal is `{:sources, reason}` unchanged |
 | `result_limits` | the `limits` of `ToolResultLimit.decide/3`: `%{max_bytes: 1_024..1_048_576, artifact_max_bytes: pos_integer}` |
 | `ask` | `nil`, or the alias (`[a-zA-Z0-9_-]{1,64}`) of the one listed tool whose calls are questions to a person; an alias that `resolve/2` does not resolve in the first snapshot is `:invalid_spec` |
-| `turn_limit` | 1 to 256, the largest number of model calls; no default |
+| `turn_limit` | 1 to 256, the largest number of model-call actions, each Attempt counted (see "Attempts"); no default |
+| `image_input` (optional) | a boolean, default `false`; given to `build/2` unchanged as its `image_input`; `true` admits `images` in a start and a message (see "Images") |
+| `model_attempts` (optional) | 1 to 4, default 1: the most Attempts of one model call; 1 is no second Attempt |
+| `move_on` (optional) | required when `model_attempts` is over 1 and refused when it is 1: a non-empty list, without duplicates, of the strings `throttled`, `overloaded`, `authentication_failed`, `permission_denied` and `not_found`; any other member (an unknown reason such as `timeout`, `transport`, `malformed_response` or `provider_error`, a request fault, a no-send reason) is `:invalid_spec` |
+
+With `model_attempts` over 1, `max_request_bytes` must be at most 64,512, so that an
+Attempt payload fits the engine's 65,536 bytes; a larger one is `:invalid_spec`. A
+spec without the three optional keys, or with `model_attempts: 1` and `image_input:
+false` written out, gives the same requests, finishes and state as before they
+existed: written-out defaults are not stored.
 
 A spec that is not plain data (a struct, a pid, a function) is `:invalid_spec`.
 
@@ -38,10 +48,12 @@ All keys are strings; each schema version is 1.
 
 | Use | Kind | Schema key | Payload |
 | --- | --- | --- | --- |
-| model call | `model_call` | `elzoo/ai-text-request` | the `request` of `build/2` |
+| model call (Attempt 1) | `model_call` | `elzoo/ai-text-request` | the `request` of `build/2` |
+| model call (Attempt 2 and later) | `model_call` | `elzoo.agent-loop.model-attempt` | exactly `{"request": request, "attempts": [entry]}` (see "Attempts") |
 | model result (completed) | | `elzoo.ai-text.result` | JSON view of ai-text; only `content`, `finish` and `tool_proposals` (each with `id`, `name`, `arguments`, `malformed`) are read |
-| message, start | | `elzoo.agent-loop.message` | exactly `{"text": text}`, not empty |
-| start that names a skill | | `elzoo.agent-loop.message` | exactly `{"text": text, "skill": {"tool": alias, "name": name}}`: `text` not empty, `skill` exactly these two members, all three texts; a `message` with a `skill` member is refused |
+| model result (`refused`, `failed`) | | `elzoo.ai-text.result` | read only for `reason`, `retry_after` and `candidate` (see "Attempts") |
+| message, start | | `elzoo.agent-loop.message` | exactly `{"text": text}`, not empty; with `image_input`, also `images` (see "Images") |
+| start that names a skill | | `elzoo.agent-loop.message` | exactly `{"text": text, "skill": {"tool": alias, "name": name}}`: `text` not empty, `skill` exactly these two members, all three texts; with `image_input`, also `images`; a `message` with a `skill` member is refused |
 | tool action | `tool_call` (callable `{:adapter, _, _}`) or `nested_callable` (`{:nested, _, _}`) | `elzoo.agent-loop.tool-call` | exactly `alias`, `source`, `tool`, `version`, `arguments` |
 | ask action | `ask_person` | `elzoo.agent-loop.ask` | exactly `{"person_id": 1..256 bytes, "question": not empty}` from the validated arguments |
 | answer | (`person_answer`) | `elzoo.agent-loop.answer` | exactly `{"text": text}` |
@@ -59,12 +71,14 @@ at least one is set. An outcome that is not completed is read only for its class
 and an optional `"reason"` member in `[a-z0-9_]{1,64}`.
 
 A finish is `answered` with `reason` `null` and `action_id` the completed model
-call that gave the answer (the answer is the `content` of that recorded outcome; it
-is not copied), or `stopped` with `action_id` `null` and the reason `turn_limit`,
-`model_call_not_completed`, `model_stopped`, `request_not_built` or
-`state_over_bound`. `turns` counts the model calls made.
+call that gave the answer, the action ID of its completed Attempt (the answer is the
+`content` of that recorded outcome; it is not copied), or `stopped` with `action_id`
+`null` and the reason `turn_limit`, `model_call_not_completed`, `model_stopped`,
+`request_not_built` or `state_over_bound`. `turns` counts the model calls made: each
+model-call action asked, each Attempt counted.
 
-Identities derive from `id`: model call `N` (from 1) is `id:m:N`; call `I` of turn
+Identities derive from `id`: model call `N` (from 1) is `id:m:N`, and Attempt `K`
+(from 2) of that call is `id:m:N:K`; call `I` of turn
 `N` (the position of the proposal, from 1, also for a proposal that makes no action)
 is `id:t:N:I`, its store action `id:s:N:I`; the start load (see "Start load") is the
 action `id:t:0:1`; the finish is `id:finish`. History
@@ -96,13 +110,15 @@ open request, and only an applied one is read.
 
 The first rule that holds decides; no rule reads the words of the content.
 
-1. The class is not `completed`: `stopped`, `model_call_not_completed`. No second try.
+1. The class is not `completed`: see "Attempts"; without them (`model_attempts`
+   1), `stopped`, `model_call_not_completed`, and no second try.
 2. Another key, or a read member not in the form above: `stopped`, `model_stopped`.
 3. `finish` is `stop`, no proposal and no message waits: `answered` when the content
    is not empty, else `stopped`, `model_stopped`.
 4. `finish` is neither `stop` nor `tool_calls`, or `tool_calls` with no proposal:
    `stopped`, `model_stopped`.
-5. The turn count equals `turn_limit`: `stopped`, `turn_limit`. No tool runs.
+5. The model-call actions asked, each Attempt counted, equal `turn_limit`:
+   `stopped`, `turn_limit`. No tool runs.
 6. Otherwise the turn runs.
 
 ## One turn
@@ -148,6 +164,66 @@ and no call is removed. Then `build/2` gets the spec members, `skill_instruction
 (loaded texts in load order), `memory: []`, the history and
 `ToolRegistry.tools(snapshot)`. An error is `stopped`, `request_not_built`; on
 success the entries in `dropped` leave the history of the state.
+
+## Attempts
+
+Attempt 1 of model call `N` is the action `id:m:N` under `elzoo/ai-text-request`
+with the request as its payload. When the applied outcome of Attempt `K` of call
+`N` is not `completed`, the first rule that holds decides:
+
+1. The class is `refused` or `failed`, the outcome is under `elzoo.ai-text.result`
+   version 1, its payload has a `"reason"` in `move_on`, `K` is below
+   `model_attempts`, and the model-call actions asked so far are fewer than
+   `turn_limit`: Attempt `K + 1`, the action `id:m:N:<K+1>` of kind `model_call`
+   under `elzoo.agent-loop.model-attempt` version 1, with the payload
+   `{"request": request, "attempts": [entry]}`, one entry per earlier Attempt in
+   order: `{"attempt": J, "reason": R, "retry_after": S | null, "candidate": C |
+   null}`. `retry_after` (an integer 0 to 86,400) and `candidate` (1 to 64 bytes of
+   `[a-z0-9_.-]`) are taken from the outcome payload when the binding put them there
+   in that form, and are `null` otherwise. `request` is built again by `build/2`
+   from the same history and tools (the state holds no payload); a message that
+   arrived during the call still waits, so under a deterministic estimate it equals
+   the request of Attempt 1. A build error is `stopped`, `request_not_built`. A
+   request deeper than 31 JSON levels (each object and each array one level, the
+   count of `core/payload-schema`) gets no Attempt: the wrapper would pass the
+   engine's depth 32, so it is `stopped`, `model_call_not_completed`.
+2. The same, but the model-call actions asked so far equal `turn_limit`:
+   `stopped`, `turn_limit`.
+3. Otherwise (an `unknown` or other class, another schema, a reason outside
+   `move_on` or none, `K` equal to `model_attempts`): `stopped`,
+   `model_call_not_completed`. A request that may have reached a provider is never
+   asked again.
+
+A completed Attempt is read as in "One model result". The `:assistant` entry of call
+`N` keeps the ID `id:m:N`; an `answered` finish names the action ID of the completed
+Attempt. Each Attempt counts as one model call for `turn_limit` and `turns`.
+
+The host's side: the host registers the payload schema
+`{"elzoo.agent-loop.model-attempt", 1}` with the engine (without it the engine
+refuses Attempt 2 as `payload_schema`), and a binding for
+`elzoo.agent-loop.model-attempt` (a schema map entry or the same single binding)
+whose result schema is `elzoo.ai-text.result` version 1. That binding sends
+`request`, reads `attempts` for `delivery/model-routing`, and puts `reason`,
+`retry_after` and `candidate` in the payload of a refused outcome. The request is
+built for `spec.model` and fitted to `spec.window`: the binding rewrites `model` to
+each candidate's model, and nothing checks the request against that candidate's
+window. The step decides only whether to ask again.
+
+## Images
+
+With `image_input: true`, each start form and the message form may hold one more
+member, `images`: 0 to 8 references `{"artifact": {"id": id, "version": v},
+"media_type": m}`, by the rules of ai-text's request decoder: `id` 1 to 64 bytes of
+letters, digits and `-_.`, never `.` or `..`; `version` 1 to 2,147,483,647;
+`media_type` `image/png`, `image/jpeg`, `image/webp` or `image/gif`; no other
+member. A non-empty list is copied to the `:user` entry of that message as
+`images: [%{artifact_id: id, version: v, media_type: m}]`; an empty list adds no
+key. `images` to a spec without `image_input`, nine references or a malformed one
+make the payload malformed: no change, no request. `build/2` renders the images of
+the newest `:user` entry as image parts, so they are sent with each model call
+until a newer message arrives, unless the drop order of `build/2` removes that
+entry to fit the request (then its images go with it, and no older entry's images
+take their place); a tool result's image reference stays a marked reference block.
 
 ## Declarations
 
@@ -203,10 +279,13 @@ are held in the state and sent in every request whole.
 ## State form (for source-copy owners)
 
 Plain data. While open: `%{phase: :new | :model | :tools | :stores, spec:
-spec_without_sources, snapshot: tool_registry_snapshot, skills: [{name,
+spec_without_sources_and_written_defaults, snapshot: tool_registry_snapshot, skills: [{name,
 instructions}], history: [prompt_assembly_entry], waiting: [user_entry], users: k,
-turns: n, open: nil | open}`. `open` holds the `PatternStep` tracker, `actions` (the
-open action ids to the turn number or proposal position) and, in a turn, `turn: %{n:,
+turns: n, open: nil | open}`, and `later: m` from the first Attempt 2 of the Run on:
+the Attempts asked after the first of their call, so that `turns + later` is the
+count of model-call actions. `open` holds the `PatternStep` tracker, `actions` (the
+open action ids to the turn number or proposal position), during Attempt 2 or later
+`attempts` (the entries of the earlier Attempts) and, in a turn, `turn: %{n:,
 content:, slots:}`, one slot per proposal: `%{index:, left_out: line}`, or `%{index:,
 echo:, action:, source_kind:, result:}` where `result` is `nil`, `{:result,
 marked_map, ref_media_type}`, `{:store, pending, payload}` or `{:stored, pending}`.
@@ -235,17 +314,23 @@ not make are outside the Contract.
   `validator_disagreement`, `not_resolved`, `request_not_built`, `run_ended`,
   `start_loads_skill`, `start_load_refused`, `start_load_not_pinned_skill`,
   `start_load_not_run`, `start_load_survives_refold`, `model_repeat_after_start_load`,
-  `existing_behaviour`, plus `new_refusals` and `laws_and_example` (law check, source audit and the checked
+  `existing_behaviour`, `attempts_golden`, `attempt_after_throttle`, `attempt_bound`,
+  `attempt_refusals`, `attempt_spec`, `attempt_identities`, `person_images`, plus
+  `new_refusals` and `laws_and_example` (law check, source audit and the checked
   example `examples/agent_loop.exs`: a start, one tool turn, the answer). Each
   request passes `PatternStep.decode/1`, each model call payload `Request.decode/2`
-  with 65,536 bytes, and each state is plain data within the state bound. The step
+  with 65,536 bytes (for an Attempt, its `request`; the whole Attempt payload also
+  passes `PayloadSchema.check/3`, the engine's JSON form, depth 32 and 65,536
+  bytes), and each state is plain data within the state bound. The step
   table, history, notices, bounds and calls into the composed Pieces have tests
   only. Negative controls: `permit` that permits `Other` fails the law check; a next
   model call at the first tool outcome fails `one_turn_one_request`; a start load
   that skips the source-kind check fails `start_load_not_pinned_skill`; a start load
   that puts the skill into the state without the declaration rule fails
   `start_load_refused`; a notice of the start load written as a `:tool_result` entry
-  instead of `:content` fails `start_loads_skill`. Finite
+  instead of `:content` fails `start_loads_skill`; an Attempt after an `unknown`
+  outcome fails `attempt_refusals`; images not copied to the `:user` entry fail
+  `person_images`. Finite
   scenarios, not a universal proof.
 - Upstream: the Contracts of `workflow/tool-registry`, `workflow/tool-result-limit`,
   `workflow/prompt-assembly`, `workflow/pattern-step`, `workflow/untrusted-content`
@@ -257,7 +342,10 @@ not make are outside the Contract.
 
 Needs: an engine that records each input before the step reads it, gives only
 inputs of its Attempt, and checks payload, budget, authority and approval for every
-action; the model-call binding of ELZ-141 with `tool_proposals`; a tool binding that
+action; the model-call binding of ELZ-141 with `tool_proposals`; with
+`model_attempts` over 1, the registered schema and binding of "Attempts", whose
+refused outcomes carry the facts that the provider reported; with `image_input`, a
+host that vouches that the images are the person's; a tool binding that
 maps `source` and `tool` to a real Adapter call or nested callable, marks each result
 truthfully and gives a declaration only for a skill load or a listing; a `tool_call`
 binding for `elzoo.tool-result-limit.store` with the receipt as the whole payload;
@@ -275,8 +363,19 @@ Limits: no provider is called; each test input is a literal neutral map, and tha
 providers accept the refusal rule, and the notice of a start load as a `user`
 message after the start message, is shown on `Request.decode/2` and the pure
 `translate/2` only. The step verifies no person and gives an answer no authority. No
-memory, compaction or member message. A call that did not complete is never tried
-again; no rule for a second Attempt. `answered` is not evidence that the work is
+memory, compaction or member message. A new Attempt follows only a declared
+refusal that the provider reported, by the bounded rule of "Attempts": no
+per-reason policy and no Attempt after `unknown`; the host's binding sends each
+Attempt, chooses its candidate and puts the refusal facts in the outcome, and the
+step trusts their shape only. A rebuilt request equals the earlier one only under a
+deterministic estimate; an Attempt's possible cost is the host's to record. A
+request at the engine's depth bound of 32 gets no Attempt 2. Each candidate's model
+and window are the binding's: the request is fitted to `spec.window` only. A tool
+call that did not complete is never tried again. The newest user message's images
+are sent with each model call of its turns, unless the drop order of `build/2`
+removes that entry; no images in older turns. With
+`integration/ai-token-count` as the estimate, an image build stops
+`request_not_built`. `answered` is not evidence that the work is
 done. No engine claim: the ready `assembly/run-engine` completes a Run with a root
 `finish` only when it names a completed action (a `stopped` finish comes back
 refused), gives a pattern no `cancel`, late outcome or `message` while an action is
