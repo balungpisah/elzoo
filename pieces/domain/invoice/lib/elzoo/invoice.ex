@@ -588,7 +588,10 @@ defmodule Elzoo.Invoice do
   end
 
   defp new_credit_note(b, tenant, r, digest) do
+    # A credit note of this invoice_id created (and maybe finalized) while this call waited for
+    # the corrected invoice's row decides before its state and payable, as a repeat does.
     with {:ok, c} <- fetch(b, tenant, r.corrects, " FOR UPDATE"),
+         :fresh <- created_meanwhile(b, tenant, r, digest),
          :ok <-
            if(c.kind == :invoice and c.state in [:open, :paid],
              do: :ok,
@@ -625,6 +628,13 @@ defmodule Elzoo.Invoice do
       else
         same_request(b, tenant, r, digest)
       end
+    end
+  end
+
+  defp created_meanwhile(b, tenant, r, digest) do
+    case fetch(b, tenant, r.invoice_id, "") do
+      {:ok, _} -> same_request(b, tenant, r, digest)
+      {:error, :unknown_invoice} -> :fresh
     end
   end
 

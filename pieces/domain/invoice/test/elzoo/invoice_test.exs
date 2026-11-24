@@ -396,7 +396,16 @@ defmodule Elzoo.InvoiceTest do
     end)
 
     assert void(inv, "o") == {:ok, :applied}
-    assert %{state: :void, number: 1} = get!(inv, "o")
+    assert %{state: :void, number: 1, posting: %{state: :pending}} = get!(inv, "o")
+
+    # The host records its post of the voided invoice's operation before it reverses it.
+    assert Invoice.mark_posted(inv, "T1", %{
+             invoice_id: "o",
+             operation_id: "invoice/o/issue",
+             result: :duplicate
+           }) == {:ok, :applied}
+
+    assert %{state: :void, posting: %{state: :posted}} = get!(inv, "o")
 
     open!(inv, "paid", 100)
     assert pay(inv, "paid", "p1", 10) == {:ok, :applied}
@@ -468,6 +477,49 @@ defmodule Elzoo.InvoiceTest do
              behind_row(p, "i", [fn -> finalize(inv, "a") end, fn -> finalize(inv, "b") end])
 
     assert get!(inv, "i").credited in [money(60), money(50)]
+  end
+
+  test "6 a repeated credit_note/3 that waited while its first call was created and finalized",
+       %{inv: inv} do
+    open!(inv, "i", 100)
+    me = self()
+    handler = "elz367-pause-#{System.unique_integer()}"
+
+    # The repeat pauses right after its plain read of the credit note (not yet created), before it
+    # locks the corrected invoice's row.
+    :telemetry.attach(
+      handler,
+      [:elzoo, :invoice_test, :app_repo, :query],
+      fn _, _, meta, _ ->
+        if Process.get(:pause_after_read) == true and meta.params == ["T1", "cn"] and
+             not String.contains?(meta.query, "FOR ") do
+          Process.delete(:pause_after_read)
+          send(me, {:paused, self()})
+
+          receive do
+            :go -> :ok
+          end
+        end
+      end,
+      nil
+    )
+
+    repeat =
+      Task.async(fn ->
+        Process.put(:pause_after_read, true)
+        credit(inv, "cn", "i", [adj("c1", -60)])
+      end)
+
+    assert_receive {:paused, pid}, 10_000
+    assert credit(inv, "cn", "i", [adj("c1", -60)]) == {:ok, :applied}
+    assert {:ok, %{number: 2}} = finalize(inv, "cn")
+    send(pid, :go)
+    result = Task.await(repeat, 20_000)
+    :telemetry.detach(handler)
+
+    # Its payable is now 40, but the existing credit note decides: the same request duplicate.
+    assert result == {:ok, :duplicate}
+    assert get!(inv, "i").credited == money(60)
   end
 
   test "6 a credit note on a paid invoice shows a credit balance", %{inv: inv} do
