@@ -171,8 +171,9 @@ defmodule Elzoo.AiText do
   equals `byte_size(bytes)` and whose `sha256` equals the lowercase hex SHA-256
   of `<<hash_format::8, bytes>>`; a record `media_type` other than the part's is
   `:invalid_request`; an image over `max_image_bytes`, or images together over
-  `max_total_image_bytes`, is `:too_large`; any other failure (an error, a
-  raise, another shape, a mismatch) is `:input_unavailable`. The provider then
+  `max_total_image_bytes`, is `:too_large` (checked before the hash); any other
+  failure (an error, a raise, another shape, a mismatch) is
+  `:input_unavailable`. The provider then
   gets each image part as `%{type: :image, media_type: m, bytes: bytes}`.
   """
   def check(%Config{} = c, request) do
@@ -270,15 +271,7 @@ defmodule Elzoo.AiText do
   defp resolve_part(_c, %{type: :text} = part, acc), do: {part, acc}
 
   defp resolve_part(c, %{type: :image} = part, {:ok, total}) do
-    bounds = c.image_bounds
-
-    case read(c.artifacts, part) do
-      {:ok, bytes} when byte_size(bytes) > bounds.max_image_bytes ->
-        {part, {:error, :too_large}}
-
-      {:ok, bytes} when total + byte_size(bytes) > bounds.max_total_image_bytes ->
-        {part, {:error, :too_large}}
-
+    case read(c, part, total) do
       {:ok, bytes} ->
         {%{type: :image, media_type: part.media_type, bytes: bytes},
          {:ok, total + byte_size(bytes)}}
@@ -289,19 +282,27 @@ defmodule Elzoo.AiText do
   end
 
   # One Need call; the answer must be the referenced version, with bytes that
-  # match its recorded size and content hash.
-  defp read(need, part) do
+  # match its recorded size and content hash. The bounds are checked before the
+  # hash, so an oversized answer is never hashed.
+  defp read(c, part, total) do
+    bounds = c.image_bounds
+
     with {:ok, %{record: %{} = r, bytes: bytes}} when is_binary(bytes) <-
-           need.(%{artifact_id: part.artifact_id, version: part.version}),
+           c.artifacts.(%{artifact_id: part.artifact_id, version: part.version}),
          true <- Map.get(r, :artifact_id) == part.artifact_id,
          true <- Map.get(r, :version) == part.version,
          true <- Map.get(r, :size_bytes) == byte_size(bytes),
+         {:bounds, true} <-
+           {:bounds,
+            byte_size(bytes) <= bounds.max_image_bytes and
+              total + byte_size(bytes) <= bounds.max_total_image_bytes},
          format when is_integer(format) and format in 1..255 <- Map.get(r, :hash_format),
          true <- Map.get(r, :sha256) == content_hash(format, bytes) do
       if Map.get(r, :media_type) == part.media_type,
         do: {:ok, bytes},
         else: {:error, :invalid_request}
     else
+      {:bounds, false} -> {:error, :too_large}
       _ -> {:error, :input_unavailable}
     end
   rescue

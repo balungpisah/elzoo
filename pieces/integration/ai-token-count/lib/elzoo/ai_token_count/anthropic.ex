@@ -25,7 +25,7 @@ defmodule Elzoo.AiTokenCount.Anthropic do
   `:unsupported_feature` and `:unknown_model`.
   """
   def estimate(payload) do
-    case Request.decode(payload) do
+    case payload |> Request.decode() |> without_parts() do
       {:ok, %{output_schema: schema}, _canonical} when schema != nil ->
         # Anthropic adds a system prompt of no documented size for structured output.
         {:refused, :unsupported_feature}
@@ -52,6 +52,16 @@ defmodule Elzoo.AiTokenCount.Anthropic do
         {:refused, reason}
     end
   end
+
+  # A user message with parts (image input of integration/ai-text, Contract
+  # amendment 2): no fixture covers image tokens, so no bound is claimed.
+  defp without_parts({:ok, request, _canonical} = decoded) do
+    if Enum.any?(request.messages, &Map.has_key?(&1, :parts)),
+      do: {:error, :unsupported_feature},
+      else: decoded
+  end
+
+  defp without_parts(other), do: other
 
   defp tool_prompt([]), do: 0
   defp tool_prompt([_ | _]), do: @tool_prompt

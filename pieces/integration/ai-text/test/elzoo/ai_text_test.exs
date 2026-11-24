@@ -875,6 +875,17 @@ defmodule Elzoo.AiTextTest do
       )
 
     assert {:error, {:refused, :too_large}} = admit(c, parts_request([image_part("a")]))
+
+    # The bounds come before the hash: an oversized answer with a wrong hash is
+    # too_large, so it is never hashed.
+    {:ok, %{record: rec}} = elem(stored("big", "12345"), 1)
+
+    c2 =
+      image_config(%{"big" => {:ok, %{record: %{rec | sha256: "0"}, bytes: "12345"}}},
+        image_bounds: %{max_image_bytes: 4, max_total_image_bytes: 7}
+      )
+
+    assert {:error, {:refused, :too_large}} = admit(c2, parts_request([image_part("big")]))
     assert {:ok, _} = admit(c, parts_request([image_part("b"), image_part("c")]))
 
     assert {:error, {:refused, :too_large}} =

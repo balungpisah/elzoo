@@ -33,7 +33,10 @@ that `integration/ai-text` admits. They are decoded with
 - `:invalid_request`, `:too_large` and `:unsupported_feature` are the reasons of
   `Request.decode/1`, unchanged. A request with an `output_schema` is also
   refused `:unsupported_feature`: for structured output Anthropic adds a system
-  prompt of no documented size, so no bound is claimed.
+  prompt of no documented size, so no bound is claimed. A request with a user
+  message of `parts` (image input of `integration/ai-text`) is refused
+  `:unsupported_feature` too: no fixture covers image tokens, and the canonical
+  bytes hold only the image reference.
 - `:unknown_model`: `LLMDB.model(:anthropic, model)` does not return `{:ok, _}`.
   An alias that `llm_db` resolves is accepted; `model_id` is the text of the
   request, unchanged.
