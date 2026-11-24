@@ -126,12 +126,15 @@ long, and the host Repo's `:timeout` must exceed that time (oauth-client's Consu
 Needs, issue #886). Each call of that Need is one database transaction.
 The ready client calls the Need before, during and after each request: during, inside
 the request's bound (`call_timeout_ms` for a listing page or a tool call,
-`handshake_timeout_ms` for connect); before and after, for redaction, inside
-`call_tool/3`'s wait of `call_timeout_ms` plus 5,000 ms and around each listing. The
-host keeps the Need's waits within those bounds. A longer wait makes a listing a
-timeout and a tool call `{:unknown, :timeout}`, which after a successful response is
-an unknown outcome after the tool ran (the owner's settlement stays authoritative; by
-the code path, not measured).
+`handshake_timeout_ms` for connect); before and after, for redaction: around a tool
+call inside `call_tool/3`'s wait of `call_timeout_ms` plus 5,000 ms, and around a
+whole listing (before its first page and after its last) with no bound of their own,
+so a slow Need there only delays the listing. The host keeps the Need's waits within
+those bounds. A longer wait during a page request fails the listing with the ready
+client's finite reason; a longer wait around a tool call makes it
+`{:unknown, :timeout}`, which after a successful response is an unknown outcome after
+the tool ran (the owner's settlement stays authoritative). By the code path, not
+measured.
 
 ## Grounding
 
