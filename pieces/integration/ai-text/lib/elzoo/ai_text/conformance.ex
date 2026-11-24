@@ -25,6 +25,14 @@ defmodule Elzoo.AiText.Conformance do
   `:throttled` (the provider's documented rate-limit status with a 7-second
   retry-after), `:overloaded` (its documented overload status) and
   `:server_error` (its documented internal-error status).
+
+  `image_scenarios/0` (Contract amendment 2) is offered only to a provider that
+  declares `:image_input`, apart from `scenarios/0`: `:image_input` sends one
+  user message with a text part and one PNG image part (`image/0`, a 1×1 PNG)
+  by reference; the provider's test configures `artifacts: image_need()`, the
+  Need double that answers that reference, and realizes stub `:text`. The kit
+  checks the completion; the provider's test checks that its wire request
+  carries the `image/0` bytes.
   """
 
   @text "Conformance reply."
@@ -69,11 +77,61 @@ defmodule Elzoo.AiText.Conformance do
     %{id: :server_error, stub: :server_error, extra: %{}}
   ]
 
+  # A 1x1 PNG.
+  @png Base.decode64!(
+         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+       )
+  @image_id "conformance-image"
+
+  @image_scenarios [
+    %{
+      id: :image_input,
+      stub: :text,
+      extra: %{
+        "messages" => [
+          %{"role" => "system", "text" => "Answer briefly."},
+          %{
+            "role" => "user",
+            "parts" => [
+              %{"type" => "text", "text" => "Describe the image."},
+              %{
+                "type" => "image",
+                "artifact" => %{"id" => @image_id, "version" => 1},
+                "media_type" => "image/png"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+
   def text, do: @text
   def scenarios, do: @scenarios
   def ids, do: Enum.map(@scenarios, & &1.id)
+  def image_scenarios, do: @image_scenarios
 
-  def scenario(id), do: Enum.find(@scenarios, &(&1.id == id))
+  @doc "The image bytes of the `:image_input` scenario."
+  def image, do: @png
+
+  @doc "The artifact read Need double of `:image_input`: answers its one reference as `Elzoo.Artifact.get/4` does."
+  def image_need do
+    record = %{
+      artifact_id: @image_id,
+      version: 1,
+      hash_format: 1,
+      sha256: Base.encode16(:crypto.hash(:sha256, <<1, @png::binary>>), case: :lower),
+      size_bytes: byte_size(@png),
+      media_type: "image/png"
+    }
+
+    fn
+      %{artifact_id: @image_id, version: 1} -> {:ok, %{record: record, bytes: @png}}
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def scenario(id), do: Enum.find(@scenarios ++ @image_scenarios, &(&1.id == id))
 
   @doc "The scenario's request object (the interface's request JSON) for `model`."
   def request(id, model) do
@@ -138,6 +196,12 @@ defmodule Elzoo.AiText.Conformance do
          :ok <- is(c.usage.source == :provider_reported, :usage_source),
          :ok <- is(is_integer(Elzoo.AiModel.Usage.amount(c.usage, :output_tokens)), :usage) do
       is(is_binary(c.provenance.response_id), :provenance)
+    end
+  end
+
+  defp expect(:image_input, {:completed, c}) do
+    with :ok <- is(c.content == @text, :content) do
+      is(c.finish == :stop, :finish)
     end
   end
 
