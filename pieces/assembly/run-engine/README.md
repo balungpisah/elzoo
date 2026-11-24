@@ -530,11 +530,19 @@ control until a new Run is configured on the unit, so room comes back only when
 other state leaves control. `cancel` needs no entry. Such an input (`wake`,
 `start`, `message`, granted `resource_event`) is given to the root only when no
 slot is active: a slot is active while it is not settled or while it holds a
-pending input (a settling input kept while paused, or a held expiry report).
+pending input (a settling input kept while paused, or a held expiry report). A
+`wake`, `start` or `message` also needs the lifecycle to permit new work, which a
+`:waiting` Run does not (`RemainWaiting`); the paragraph below says when a Run is
+`:active` again.
 
 Paused accepted results retain their pattern input until
 continue, without dispatch while paused; monetary exhaustion still takes
-lifecycle precedence below the request-count cap.
+lifecycle precedence below the request-count cap. After `continue`, the drain gives
+each retained input by a `:resume_input` record. When that leaves no slot active and
+no wait listed, the fold makes a `:waiting` Run `:active` again before the pattern
+call, as a settlement outside a pause does, so the next permitted `wake` reaches the
+root; while another slot is active the Run stays `:waiting`. This holds for every
+Run, with or without `expiry_reports`.
 
 Expiry reports (`expiry_reports: :owner`). Without the option, the expiry pass of
 an input settles each slot past its deadline `expired` and tells no pattern. With
@@ -580,11 +588,10 @@ a `wake` at the cap), a cancel, the Run deadline, a `:finish` Budget exhaustion,
 change of Attempt and the close of the owner. An expiry pass while paused holds its
 reports; after `continue` they are given in `order` with the inputs retained while
 paused (in one paused step, reports first, then the retained input). Only the pass of
-the current Attempt holds reports. With the option, the fold of each `:resume_input`
-record makes the lifecycle `:active` again before its pattern call when the Run is
-`:waiting`, no slot is active and no wait is listed, so the next permitted `wake`
-reaches the root. Without the option that step is unchanged (a Run that resumes a
-retained input after `continue` and then opens nothing stays `:waiting`).
+the current Attempt holds reports. The fold of a `:resume_input` record that gives a
+report switches the lifecycle as one that gives a retained paused input (above): a
+`:waiting` Run with no slot active and no wait listed is `:active` again before the
+pattern call, so after the last report the next permitted `wake` reaches the root.
 
 Reports replay: the hold is part of the fold of the expiring input and the give is a
 `:resume_input` record; the fold reads no clock, process or start option. If the
@@ -1158,6 +1165,21 @@ entry of an input that settles a slot is taken to be covered by the 4,096 bytes 
 that slot. A state at the exact byte of the control bound can still fail a step by
 a change of a few bytes. A Run recorded before this repair can fold to another state
 (Elzoo is not released).
+
+The groups `resumed_input_reopens_the_root` and
+`resumed_input_with_open_work_stays_waiting` of `test/elzoo/run_engine_test.exs`, and
+the test `native_v2_resumed_input` of `test/elzoo/run_engine_v2_test.exs`, exercise
+the resumed retained input without `expiry_reports` (#843): after `continue` a root
+whose retained answer opens nothing is `:active`, stays so across a restart that
+recovers the unit from its history, and is given the next `wake`, whose request is
+admitted; with running local work or a second waiting ask the Run stays `:waiting`
+and the `wake` is not given to the root; under protocol v2 `event_waits/3` and
+`transcript/3` read the Run and the next `wake` reaches the root. Three temporary
+negative controls each made a named test fail and were reverted: the switch kept
+for `expiry_reports: :owner` only (the first group and the v2 test), no
+`active_count/1` condition (the local-work test) and the event-wait projection kept
+for the option only (the v2 test: `event_waits/3` returns `{:error, :history}`). A
+Run recorded before this repair can fold to another phase (Elzoo is not released).
 
 `test/elzoo/run_engine_expiry_report_test.exs` exercises `expiry_reports: :owner`
 on disposable PostgreSQL with one pinned engine identity:

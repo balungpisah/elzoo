@@ -884,6 +884,166 @@ defmodule Elzoo.RunEngineTest do
     end
   end
 
+  # ELZ-359 (#843): a :resume_input step that gives an input retained while paused,
+  # with no slot left active, makes the waiting Run active again for every Run.
+  describe "resumed_input_reopens_the_root" do
+    test "after continue a resumed answer that opens nothing leaves the Run active, and the next wake reaches the root" do
+      Process.register(self(), :run_engine_observer)
+
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :waiting,
+             %{
+               name: "root",
+               script: [
+                 request([action("answer", "ask_person")]),
+                 :wait,
+                 request([action("after", "ask_person")])
+               ]
+             }}
+        )
+
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:pattern_input, "root", %{"kind" => "start"}}
+      pause_answer_continue(engine)
+
+      assert_receive {:pattern_input, "root", %{"kind" => "person_answer", "action_id" => "answer"}}
+      refute_receive {:pattern_input, _, _}, 200
+      assert view(engine).phase == :active
+      assert no_slot_active?(unit_state(c))
+
+      engine = restart(c, engine, [])
+      assert view(engine).phase == :active
+      refute_receive {:pattern_input, _, _}, 200
+
+      assert {:ok, :applied} = RunEngine.input(engine, "wake", wake(), verified())
+      assert_receive {:pattern_input, "root", %{"kind" => "wake"}}
+      refute_receive {:pattern_input, _, _}, 200
+      view = view(engine)
+      assert view.request_count == 2
+      assert slot_by(view, "after").phase == :waiting
+      Process.unregister(:run_engine_observer)
+    end
+  end
+
+  describe "resumed_input_with_open_work_stays_waiting" do
+    test "running local work keeps the Run waiting after the resumed answer, and a wake is not given to the root" do
+      Process.register(self(), :run_engine_observer)
+      parent = self()
+
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :waiting,
+             %{
+               name: "root",
+               script: [
+                 request([action("answer", "ask_person"), action("work")]),
+                 :wait,
+                 :wait
+               ]
+             }}
+        )
+
+      bindings =
+        Map.update!(
+          c.opts[:bindings],
+          "local_work",
+          &Map.put(&1, :work, fn a -> {TestPattern, :blocked, [parent, a["payload"]]} end)
+        )
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:local_started, task}
+      assert_receive {:pattern_input, "root", %{"kind" => "start"}}
+      pause_answer_continue(engine)
+
+      assert_receive {:pattern_input, "root", %{"kind" => "person_answer"}}
+      assert slot_by(view(engine), "work").phase == :running
+      assert view(engine).phase == :waiting
+
+      assert {:ok, :applied} = RunEngine.input(engine, "wake", wake(), verified())
+      refute_receive {:pattern_input, _, _}, 300
+      assert view(engine).phase == :waiting
+      send(task, :finish)
+      Process.unregister(:run_engine_observer)
+    end
+
+    test "a second waiting ask keeps the Run waiting after the resumed answer, and a wake is not given to the root" do
+      Process.register(self(), :run_engine_observer)
+
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :waiting,
+             %{
+               name: "root",
+               script: [
+                 request([action("answer", "ask_person"), action("other", "ask_person")]),
+                 :wait,
+                 :wait
+               ]
+             }}
+        )
+
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:pattern_input, "root", %{"kind" => "start"}}
+      pause_answer_continue(engine)
+
+      assert_receive {:pattern_input, "root", %{"kind" => "person_answer"}}
+      assert slot_by(view(engine), "other").phase == :waiting
+      assert view(engine).phase == :waiting
+
+      assert {:ok, :applied} = RunEngine.input(engine, "wake", wake(), verified())
+      refute_receive {:pattern_input, _, _}, 300
+      assert view(engine).phase == :waiting
+      Process.unregister(:run_engine_observer)
+    end
+  end
+
+  # Pauses, settles the ask "answer" at {1, 0} with a person answer kept while paused,
+  # and continues: the continue reply comes after the retained answer is given.
+  defp pause_answer_continue(engine) do
+    assert {:ok, :applied} =
+             RunEngine.control(
+               engine,
+               "pause",
+               %{kind: :pause, pause_deadline: 50_000},
+               verified()
+             )
+
+    answer =
+      result("answer")
+      |> Map.put("kind", "person_answer")
+      |> Map.put("person_id", "person")
+      |> Map.delete("outcome")
+
+    assert {:ok, :applied} =
+             RunEngine.input(
+               engine,
+               "answer",
+               answer,
+               verified(%{occurrence: {1, 0}, verified_person: "person", actual: 0})
+             )
+
+    assert view(engine).phase == :paused
+    refute_received {:pattern_input, _, %{"kind" => "person_answer"}}
+
+    assert {:ok, :applied} =
+             RunEngine.control(
+               engine,
+               "continue",
+               %{kind: :continue, person_id: "person", run_deadline: 60_000},
+               verified(%{verified_person: "person"})
+             )
+  end
+
+  defp no_slot_active?(state),
+    do: Enum.all?(state.slots, fn {_, s} -> s.phase == :settled and is_nil(s[:pending_input]) end)
+
   describe "Three reused identities and log reader" do
     test "two reused refusals settle only their occurrences, original result remains original" do
       req = request([action("same")])
