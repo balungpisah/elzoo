@@ -10756,7 +10756,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-batch/piece.json",
-      "manifest_sha256": "d4598d176f1bc6847ac44245309eee4064fd575d8d890890f7d17bbe0adaced6",
+      "manifest_sha256": "d2359bd216c7eeac3e884dc7933a9e6e1bc3c0e4df3d8d2eca5122c8f8a90592",
       "baseline_status": "not in baseline (new row, ELZ-085)"
     },
     {
