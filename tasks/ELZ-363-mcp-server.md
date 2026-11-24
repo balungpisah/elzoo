@@ -1,0 +1,81 @@
+# ELZ-363 — Elzoo's bots as MCP tools: a verified caller lists the bots it may run, and a call is one Run with a bounded wait
+
+- Phase: Wave 9 Level 1
+- Dependencies: ELZ-024, ELZ-033, ELZ-083, ELZ-115, ELZ-267, ELZ-268
+- Release: V1B
+- Output: new `integration/mcp-server` Piece
+- Change class: Piece-only
+- Owned paths: `pieces/integration/mcp-server/**` and its own catalogue/release-plan rows and generated views only. Do not edit root/shared code, another Piece (including `integration/mcp-client`, `integration/token-verify`, `domain/authorization`, `domain/principal`, `core/payload-schema` and `assembly/run-engine`), `mix.exs`, `mix.lock` or CI.
+
+## Outcome and boundary
+
+One Piece in plain Elixir over the server side of the pinned `ex_mcp` 1.8.1 and the direct `plug`: a Plug that the host mounts in its own router (no server of its own, as Wave 4 decided). Each request's bearer token is verified with `integration/token-verify` into a principal before any MCP handling. `tools/list` returns one tool per bot that the host lists for the principal's tenant and that `domain/authorization` allows the principal to run. `tools/call` checks the arguments against the bot's start schema with `core/payload-schema`, starts one Run of the bot's pinned version through a host Need with the principal as the acting principal, and waits a declared bounded time for its finish through a host Need that reads it. The Contract source is the `integration/mcp-server` section of [the Wave 9 plan](../docs/plans/bot-platform-wave9.md) ("Level 1"), under owner answer Q4 A (2026-11-24; "Owner answers (2026-11-24)" there).
+
+A call therefore gets a Run's budget, authority, approvals and record, and never runs a tool outside the engine. Each call is a new Run: MCP gives no idempotency key, so a retried call starts a second Run, which the README states. The Piece starts no Run and calls no engine itself: Run allocation and the pinned start are the host's composition (`state/recipe-store` `pin/4`, `workflow/version-pin`, the Run owner's create and begin, the engine's `start` input), as the Wave 8 root acceptance composes them.
+
+The Piece takes untrusted input from the network and makes an authentication and authorization decision on every request, so this task keeps the local small gate and gets the full review of the coordinator guide ("Reviewer by risk"; `AGENTS.md` sections 5 and 6).
+
+## Facts on `main` that this task builds on
+
+Checked at `main` `2face3fc` and `deps/ex_mcp` 1.8.1. The task's first step re-checks the `ex_mcp` facts; if one differs, stop and comment on the issue with the gap.
+
+- `ExMCP.HttpPlug` (`deps/ex_mcp/lib/ex_mcp/http_plug.ex`) is a Streamable HTTP Plug that answers every request and halts, so it is mounted with `forward` (lines 35–50). `:handler_opts` may be a one-arity function called with the `Plug.Conn` (lines 17–21), resolved after the body is read (lines 1037–1055), so the handler's `init/1` sees what the host's earlier Plug put in `conn.assigns`; the callbacks themselves get no conn. `body_limit` (default 1,000,000) bounds the read body, over it HTTP 413 (lines 216, 577–580, 984–987). `handler_call_timeout` (default 10,000 ms) bounds each callback, and a timeout is JSON-RPC `-32603` with `handler_timeout` (lines 23–25, 178; `message_processor/method_handlers.ex` lines 324–336). Its own bearer check runs only with `oauth_enabled: true` and is off otherwise (lines 217, 2935–2968). The legacy HTTP+SSE transport is off by default (line 94).
+- `ExMCP.Server.Handler` (`deps/ex_mcp/lib/ex_mcp/server/handler.ex`): `handle_list_tools(cursor, state)` returns `{:ok, tools, next_cursor, state}` with each tool a map holding `name`, `description` and `inputSchema` (lines 107–117, 354–356); `handle_call_tool(name, arguments, state)` returns `{:ok, result, state}` or `{:error, reason, state}` (lines 389–393); a result with `isError: true` is a tool error, and `{:error, reason}` becomes a tool error result, except that a reason containing "unknown tool" becomes JSON-RPC `-32602` (`method_handlers.ex` lines 548–555; `result_normalizer.ex` lines 307–310, 420–422). `ex_mcp` does not check arguments against `inputSchema` in handler mode.
+- `Elzoo.TokenVerify.verify_jwt(token, %JwtConfig{}, now_unix_s)` and `verify_api_key(key, %ApiKeyConfig{}, now_unix_s)` take the raw token (at most 8,192 bytes), not a header, and return `{:ok, %Elzoo.Principal{}}` or `{:error, atom}`; the tenant comes from the host's subject or lookup Need (`pieces/integration/token-verify/README.md`, lines 7, 25–37, 75–88).
+- `%Elzoo.Principal{kind, id, tenant, auth_epoch, delegated_by, allowed_scopes, allowed_spaces}`; texts are 1..128 bytes.
+- `Elzoo.Authorization.decide(policy, proposal, authority_context)`: the proposal has exactly `tenant`, `resource`, `action_id`, `payload`, `writes` (1..256 `%{target, field, value}`, non-empty) and optionally `proposer` and `effect_class`; the trusted context is `%{proposer, effect_class, own, parent}`; it returns `{:ok, %{verdict: :allow | :ask | :deny, ...}}` or `{:error, {:invalid_input | :unavailable_context, reason}}`; no matching rule is DENY (`pieces/domain/authorization/README.md`, lines 93–130, 180–241).
+- `Elzoo.PayloadSchema.build(port, schema)` returns `{:ok, checked}` or `{:error, :invalid_schema | :invalid_port}`; `check(checked, port, payload)` returns `:ok` or an error (`:invalid_payload`, `:too_large` over 65,536 bytes of compact JSON, `:too_deep` over depth 32, `{:violations, list}`, ...).
+- `assembly/run-engine`'s `result(engine, scope, limits)` returns `{:ok, %{run_id, attempt_id, operation_id, action_id, schema_id, schema_version, payload, evidence_ref}}`, `{:pending, :not_completed}` for an open Run (also paused or waiting for a person), `{:terminal, outcome}` for `:failed | :cancelled | :out_of_budget | :out_of_time`, or `{:error, reason}`; it is a one-shot read, so a bounded wait polls it. The engine takes the acting principal as text of at most 200 bytes. This Piece calls neither: the host Needs below carry these shapes, so the task does not depend on ELZ-127 or ELZ-170 (a coordinator check of the plan's dependency list).
+- `integration/mcp-client`'s `:loopback` evidence mode talks over a real loopback socket (ex_mcp's Mint client), not a Req transport; its tests serve `ExMCP.HttpPlug` with `Plug.Cowboy` on `127.0.0.1` and an ephemeral port (`pieces/integration/mcp-client/test/support/mcp_client_test_helper.exs`, lines 88–121). `plug_cowboy` is locked through `ex_mcp`. So the acceptance below serves this Piece's Plug the same way; that is a test of the client against this server, not a public connect.
+- `state/recipe-store` after ELZ-358 (#821 closed): a generation holds at most 10,000 records and is carried into the next with only the live state; the live state is bounded at 5,000 records of a carry, and a Run that never unpins holds a place in every carry (`pieces/state/recipe-store/README.md`, lines 88–89, 143–149). Every call here is one pinned Run, so the README states that the host unpins finished Runs.
+
+## Interface
+
+- `Elzoo.McpServer.new(opts)` takes exactly:
+  - `verifier`: `{:jwt, %Elzoo.TokenVerify.JwtConfig{}}` or `{:api_key, %Elzoo.TokenVerify.ApiKeyConfig{}}`;
+  - `clock`: a zero-arity trusted Need returning Unix seconds;
+  - `policy`: a `domain/authorization` policy, and `authority`: a one-arity Need given the principal that returns `{:ok, own}`, the principal's current authority set (the `own` of the context);
+  - `bots`: a one-arity Need given the tenant that returns `{:ok, bots}`, 0..64 maps `%{bot_id, name, description, start_schema, schema_version}`: `bot_id` 1..128 bytes; `name` matching `[a-z0-9_-]{1,64}` and unique; `description` 1..1,024 bytes of UTF-8; `start_schema` a decoded JSON Schema object; `schema_version` 1..2^31−1;
+  - `start`: a one-arity Need given `%{tenant, principal, bot_id, call_id, arguments}` that starts one Run of the bot's pinned version with the principal as its acting principal and returns `{:ok, run_id}` (1..128 bytes) or `{:error, atom}`;
+  - `result`: a one-arity Need given `%{tenant, principal, run_id}` that returns what the engine's `result/3` returns for that Run;
+  - `call_timeout_ms` (1..60,000), `poll_interval_ms` (10..5,000, default 250) and `body_limit` (1,024..1,048,576, default 131,072).
+
+  It returns `{:ok, server}` or `{:error, :invalid}`.
+- `Elzoo.McpServer.Plug`: `init(server)`, `call(conn, server)`. Mounted with `forward "/mcp", Elzoo.McpServer.Plug, server`. It reads exactly one `authorization` header of the form `Bearer <token>` (RFC 6750, the scheme ASCII case-insensitive, the token 1..8,192 bytes); none, another form or a refused token is HTTP 401 with `www-authenticate: Bearer` and a fixed JSON body, halted before any MCP handling and before the body is read. A verified principal is assigned and the request goes to `ExMCP.HttpPlug` with `handler: Elzoo.McpServer.Handler`, `handler_opts` a one-arity function that reads the principal from the conn's assigns, `handler_call_timeout` equal to `call_timeout_ms` plus 5,000, `body_limit`, the legacy SSE transport off and `oauth_enabled: false`. The task records any other `ExMCP.HttpPlug` option it sets (for example origin validation) in the README with its value.
+- `tools/list`: the tenant is the principal's. Each bot of the `bots` Need is listed when `Elzoo.Authorization.decide(policy, proposal, context)` returns `verdict: :allow` for the proposal `%{tenant, resource: "mcp-server", action_id: "mcp.run/" <> bot_id, payload: nil, writes: [%{target: "bot/" <> bot_id, field: "run", value: true}]}` and the context `%{proposer: principal.id, effect_class: "mcp.run", own: own, parent: :none}`. `:ask` and `:deny` are not listed, and an error of the decision or of a Need gives an empty list for that bot only (the README says so). Tools are in `name` byte order, all in one page (`next_cursor` `nil`); each has `name`, `description` and `inputSchema` (the start schema).
+- `tools/call(name, arguments)`: the bot is found and decided again as for the list (so a list read earlier grants nothing); an unknown or not allowed name is the tool error `unknown tool` (JSON-RPC `-32602`). The arguments are checked with `Elzoo.PayloadSchema.check/3` against the start schema, built with the port `%{"id" => bot_id, "direction" => "input", "schema_id" => bot_id, "schema_version" => schema_version}`; any refusal is the tool error `invalid_arguments`, with no Run started and no violation echoed. Then one `start` call with a fresh `call_id` (16 random bytes, lowercase hex); an error is the tool error `start_failed`. Then the `result` Need is called at once and every `poll_interval_ms` until `call_timeout_ms` from the start:
+  - `{:ok, completion}`: the result is one text content holding the canonical JSON of `%{"run_id", "payload"}`;
+  - `{:terminal, outcome}`: the tool error `{"run_id", "outcome"}`;
+  - `{:pending, :not_completed}` at the bound: the tool error `{"run_id", "state": "running"}`; the Run goes on;
+  - `{:error, _}`: the tool error `{"run_id", "state": "unknown"}`.
+
+  Every result and error is at most 65,536 bytes (a larger completion is the tool error `{"run_id", "state": "result_too_large"}`) and never holds a token. A `start` Need that raises, throws or exits is `start_failed`; a `result` Need that does so is treated as `{:error, _}`.
+
+## Kept open (owner's "no corner" rule)
+
+The bot map, the Needs' request maps and the error set may gain optional keys and members in place before the first release.
+
+- *Resources and prompts*; *one tool per tenant tool* (Q4 B, a proxy, which would need its own checks).
+- *An idempotency key in `_meta`* that maps a retried call to its first Run.
+- *Progress notifications* while a Run is open; *the MCP authorization flow* with an authorization server (ex_mcp's protected-resource metadata, mounted at the host root); *stdio*.
+
+## Acceptance
+
+The server is this Piece's Plug in a test router served with `Plug.Cowboy` on `127.0.0.1` and an ephemeral port, as `integration/mcp-client`'s tests serve theirs; the client is the ready `integration/mcp-client` in `:loopback` evidence mode, configured directly; tokens are JWTs signed by a test key and verified by `integration/token-verify` with a test subject Need; `start` and `result` are scripted Needs whose results follow the engine's `result/3` shapes.
+
+1. The ready client lists only the bots that the policy allows the principal and calls one: the scripted Run completes, and the call returns its payload with its Run ID.
+2. Two principals of one tenant with different authority see different lists; a bot that the policy answers `:ask` is not listed; a principal of another tenant sees only its tenant's bots.
+3. No token, a malformed header, an expired token and a token signed by a key the verifier does not hold are each HTTP 401 before MCP handling (the handler is not started: a counting handler double shows it), with no Need called.
+4. A call of a bot that is not listed for the principal (another principal's bot) is `unknown tool` with no `start` call, also when the name was listed to another session.
+5. An argument that fails its schema, one of 65,537 bytes and one of depth 33 each give `invalid_arguments` with no `start` call.
+6. A call over the bound: the scripted Run stays pending past `call_timeout_ms` and the call returns the tool error with its Run ID; the Run then completes, and its `result` read returns the completion. A call at `call_timeout_ms` 1 and at 60,000 with the handler timeout set from it.
+7. A terminal Run (`:failed`) and a `result` error give their tool errors; a completion over 65,536 bytes gives `result_too_large`; no result or error holds the token (checked on the wire bytes).
+8. A request body over `body_limit` is HTTP 413.
+9. Two calls with equal arguments start two Runs (two `call_id`s), as the README states.
+10. Negative controls, one at a time, each restored before the final gates: skip the authorization decision (case 2's other-principal case fails); skip the schema check (case 5 starts a Run); call the handler before the token check (case 3's handler counter fails).
+
+Run the Piece tests and the new-Piece small gate locally (`mix check --piece "$(git merge-base origin/main HEAD)"`), the roadmap and claims checks and the diff check. The full independent review of the coordinator guide, the exact-head hosted check and the merge queue are required.
+
+## Limits to state
+
+The token verifier's configuration, the policy, the authority Need, the bot list and the `start` and `result` Needs are the host's; the Piece decides only on what they give. A retried call starts a second Run. A Run still open at the bound goes on, and its result is read by the host, not over MCP. The bounded wait polls. The evidence is the ready client against the Plug on a loopback socket and scripted Run Needs; no live MCP host and no engine are exercised here (the Wave 9 root acceptance composes them). Every call pins a recipe version: the host must unpin finished Runs, or `state/recipe-store`'s live-state bound refuses new pins. No resources, prompts, progress, idempotency key, MCP authorization flow or stdio.

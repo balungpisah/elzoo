@@ -1421,6 +1421,46 @@
       "status": "ready",
       "manifest": "pieces/workflow/skill/piece.json",
       "reason": "Bot platform wave 3 (P13). A skill is a tool source of the registry: loading is a recorded tool call and grants no authority; the tools of the skill still pass the checks of the engine."
+    },
+    {
+      "id": "integration/oauth-client",
+      "summary": "Tenant OAuth connections: PKCE and client credentials, sealed tokens, one refresh at a time",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-361: Wave 9 (P13). Tenant connections (owner Q2 A) over the locked Req, Jason and OTP crypto (Q3 A); plain Ecto/Postgrex tables under state/tenant-isolation; first caller integration/mcp-runtime (RC-59)."
+    },
+    {
+      "id": "integration/webhook-out",
+      "summary": "Signed outbound events to tenant endpoints with egress checks at each send",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-362: Wave 9 (P13). Standard Webhooks signatures (owner Q5 A); a new try after a possibly sent failure only for a deduplicating endpoint, else a dead letter; plain Ecto/Postgrex tables under state/tenant-isolation."
+    },
+    {
+      "id": "integration/mcp-server",
+      "summary": "Elzoo's bots as MCP tools: a verified caller lists the bots it may run, a call is one Run",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-363: Wave 9 (P13). One tool per runnable bot (owner Q4 A) over the pinned ex_mcp server side; a host-mounted Plug, no server of its own."
+    },
+    {
+      "id": "domain/plan",
+      "summary": "A tenant's subscription to a plan version with UTC periods, renewal, trial and cancel",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-366: Wave 9 (P13). Monthly and yearly UTC periods from an anchor, no proration (owner Q11 A); plain Ecto/Postgrex table under state/tenant-isolation; feeds domain/entitlement and domain/invoice."
+    },
+    {
+      "id": "domain/invoice",
+      "summary": "Numbered one-currency invoices with payments, reversals, void and credit notes",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-367: Wave 9 (P13). Gapless numbers per series, no tax or discount (owner Q11 A); plain Ecto/Postgrex tables under state/tenant-isolation; the host posts to domain/journal."
     }
   ]
 }

@@ -1,0 +1,115 @@
+# ELZ-361 — Tenant OAuth connections: authorization code with PKCE and client credentials, sealed tokens, one refresh at a time, and revocation
+
+- Phase: Wave 9 Level 1
+- Dependencies: ELZ-033, ELZ-105, ELZ-270, ELZ-271, ELZ-273, ELZ-285
+- Release: V1B
+- Output: new `integration/oauth-client` Piece
+- Change class: Piece-only
+- Owned paths: `pieces/integration/oauth-client/**` and its own catalogue/release-plan rows and generated views only. Do not edit root/shared code, another Piece (including `integration/secrets`, `integration/egress-policy`, `integration/encryption`, `integration/mcp-client`, `integration/mcp-runtime` and `state/tenant-isolation`), `mix.exs`, `mix.lock` or CI.
+
+## Outcome and boundary
+
+One durable Piece in plain Elixir, Ecto, Postgrex, Req, Jason and OTP `:crypto` over a consumer-owned Ecto Repo on PostgreSQL 16: a tenant's **connections** to OAuth 2.0 authorization servers that the host declares, made by an authorization code grant with PKCE that a tenant admin consents to once, or by a client credentials grant; their access and refresh tokens sealed at rest; a token handed out only while it is valid for a declared skew, else refreshed under the connection row lock so that concurrent callers make one refresh; and revocation. The Contract source is the `integration/oauth-client` section of [the Wave 9 plan](../docs/plans/bot-platform-wave9.md) ("Level 1"), under owner answers Q2 A and Q3 A (2026-11-24; "Owner answers (2026-11-24)" there) and RC-59 ("OAuth with integration/oauth-client waits for wave 9"). The first caller is the OAuth credential of `integration/mcp-runtime` (Wave 9 Level 2); this task does not change it.
+
+Under Q3 A the Piece writes only the token lifecycle (when to refresh, one refresh at a time, sealing, revocation): the wire formats are made and parsed by Req and Jason, which are locked, and no OAuth library is added. Per-person connections (Q2 B) are kept open (below).
+
+This task corrects one rule of the plan's sketch (PR #853 review): the sketch said tokens never appear in results while the credential Need returns one. Here `access_token/3` is **the one function that returns a token value**, for the credential Need only; no other result, error, `inspect` output or telemetry event holds a token, a refresh token, a client secret, a code, a PKCE verifier or a `state` value.
+
+The Piece keeps durable state, holds credentials, makes outbound calls to tenant-chosen hosts and serializes concurrent writers, so this task keeps the local small gate and gets the full review of the coordinator guide ("Reviewer by risk"; `AGENTS.md` sections 5 and 6); the hosted `check-piece` run does not replace the local run.
+
+## Facts on `main` that this task builds on
+
+Checked at `main` `2face3fc`. Confirm each before you start; if one differs, stop and comment on the issue.
+
+- `Elzoo.Secrets.resolve(request, context)` (`pieces/integration/secrets/lib/elzoo/secrets.ex`) takes exactly `%{ref, scope}` (each 1..128 bytes) and the trusted context (`grant`, `resolver`, optional `clock`), and returns `{:ok, %Elzoo.Secrets.Credential{}}` or `{:error, :malformed | :unavailable | :denied | :missing | :expired}`; `Elzoo.Secrets.reveal/1` gives the value; the Credential's `inspect` is `#Elzoo.Secrets.Credential<redacted>`.
+- `Elzoo.Encryption.seal(plaintext, aad, key_id, credential)` returns `{:ok, envelope}` or `{:error, :malformed | :key}` (the key a Credential whose value is exactly 32 bytes); `Elzoo.Encryption.open(envelope, aad, keys)` returns `{:ok, plaintext}` or `{:error, :malformed | :no_key | :unavailable | :invalid}`, with `keys.(key_id, version)` the arity-2 key Need; `key_ref/1` reads the key reference of an envelope. A per-subject key is a host convention.
+- `Elzoo.EgressPolicy.check/2` is pure and refuses a scheme other than `https` (`:scheme`); `Elzoo.EgressPolicy.resolve(url, policy, resolver)` calls the resolver Need once after `check/2` and returns `{:ok, %{host, port, addresses}}` or `{:error, reason}` with `reason` in `:malformed | :scheme | :host | :not_allowed | :port | :dns_failed | :unavailable | :non_public_address`. It ships no client: the caller connects only to a returned address, with SNI and `Host` set to `host`, and sends a redirect back through `resolve/3` (`pieces/integration/egress-policy/README.md`, about lines 122–131). The policy is the opaque value of `policy/1` (`hosts:` and `ports:`).
+- The ready provider Pieces evidence their HTTP calls through an injected Req transport: `provider_config: %{plug: plug}` passed as Req's `:plug` option with `retry: false` (`pieces/integration/ai-text-anthropic/lib/elzoo/ai_text/anthropic.ex`, about line 201), and a function plug stub that records each request (`test/support/ai_text_anthropic_test_helper.exs`). Locked: `req` 0.7.5, `jason` 1.4.5, `plug` 1.20.3; no OAuth library is locked.
+- `integration/mcp-client`'s `credentials` option is a zero-arity function returning `{:ok, bearer_token}` (`pieces/integration/mcp-client/README.md`, lines 46–47); its auth provider accepts only a 1..4096-byte RFC 6750 `b64token` of at least 24 bytes, and anything else is `refused{credentials_unavailable}`.
+- The durable-Piece pattern is `domain/quota` (`pieces/domain/quota/lib/elzoo/quota.ex`): `Migration.install/1` installs `Elzoo.TenantIsolation.Migration.install/1` and protects each table with `protect/2` (`tenant_column: "tenant"`, `space_column: nil`); writes check `repo.in_transaction?()` (`:in_transaction`) before any query, run in `Elzoo.TenantIsolation.transact/3` with scope `%{tenant: t}`, read `current_setting('transaction_isolation')` first and refuse anything but `read committed` as `:isolation`; every statement passes `log: false`; a `DBConnection.ConnectionError` or `Postgrex.Error` is `:unavailable`.
+- ELZ-285: tests `SET ROLE` to `ELZOO_TEST_APP_ROLE` on every connection and fail, not skip, when it is unset (for example `pieces/delivery/dead-letter-store/test/support/dead_letter_store_test_helper.exs`).
+- The Piece makes its exchanges directly through Req; it starts no `delivery/effect-intent` owner, so it does not depend on ELZ-023 (a coordinator check of the plan's dependency list). The no-hidden-retry rule is kept by retries and redirects off and by the rotation rule below.
+
+## Interface
+
+Module `Elzoo.OauthClient`. Every function after `new/1` takes the binding, the tenant and one request map.
+
+- `Elzoo.OauthClient.Migration.install(prefix)`, called from a consumer migration's `up/0` by the table owner, installs the tenant-isolation readers in `prefix` and creates two protected tables: connections, `PRIMARY KEY (tenant, connection_id)`; authorization attempts, `PRIMARY KEY (tenant, state_digest)` with an index on `(tenant, connection_id)`. A bad `prefix` raises `ArgumentError` with one fixed message before any DDL.
+- `new(opts)` takes exactly:
+  - `repo`, `prefix`;
+  - `providers`: 1..64 maps, unique by `provider_id`, each exactly `%{provider_id, authorization_endpoint, token_endpoint, revocation_endpoint, redirect_uri, client_id, client_secret_ref, client_auth, scopes_allowed, refresh_rotation}`. `provider_id` is 1..64 bytes of `[a-z0-9._-]`; the three endpoints (`revocation_endpoint` may be `nil`) pass `Elzoo.EgressPolicy.check/2` under `policy`; `redirect_uri` is an `https` URL of at most 2,048 bytes that is only placed in requests, never fetched; `client_id` is 1..256 bytes; `client_secret_ref` is `nil` or a Secrets `%{ref, scope}`; `client_auth` is `:client_secret_basic`, `:client_secret_post` or `:none` (`:none` exactly when `client_secret_ref` is `nil`); `scopes_allowed` is 1..64 unique scope tokens (RFC 6749 `scope-token`, 1..128 bytes); `refresh_rotation` is a boolean, `true` when the provider may rotate refresh tokens;
+  - `policy` (an `Elzoo.EgressPolicy.policy/1` value) and `resolver` (the egress resolver Need);
+  - `transport`: a one-arity Need given `%{host, port, addresses}` that returns `{:ok, req_options}`, a keyword list that the Piece adds to its Req request (production: options that connect only to the given addresses; tests: `[plug: stub]`). The Piece sets `retry: false`, `redirect: false` and `receive_timeout` after the host's options, so they cannot be turned back on;
+  - `exchange_timeout_ms` (1..30,000, default 10,000): the bound of every exchange, and so of the time a refresh holds the connection row lock;
+  - `secrets`: a one-arity function from a Secrets request to its trusted context (as `integration/mcp-runtime` takes it);
+  - `sealing`: `%{key_id, key, keys}`: `key_id` 1..128 bytes, `key` a zero-arity Need returning `{:ok, %Elzoo.Secrets.Credential{}}` (the current 32-byte key), `keys` the `Elzoo.Encryption.open/3` key Need;
+  - `clock`: a zero-arity trusted Need returning Unix milliseconds;
+  - optional `skew_ms` (0..3,600,000, default 60,000).
+
+  It returns `{:ok, binding}` or `{:error, :invalid}`, and calls no Need.
+- A **connection** is `%{connection_id, provider_id, grant, scopes, state, expires_at_ms, revision}`: `connection_id` 1..128 bytes; `grant` `:authorization_code` or `:client_credentials`; `scopes` a subset of the provider's `scopes_allowed`; `state` `:pending`, `:active`, `:reauthorization_required` or `:revoked`; `expires_at_ms` `nil` or the access token's expiry by the trusted clock; `revision` from 1. The row holds the access token and the refresh token only as `Elzoo.Encryption` envelopes, with the AAD the canonical bytes of `{tenant, connection_id, field}`.
+- `begin_authorization(b, tenant, %{connection_id, provider_id, scopes})` creates the connection `:pending` with grant `:authorization_code`, or takes an existing one of the same provider in any state but `:revoked`; another provider, or another grant, for the same `connection_id` is `:conflict`. It records one attempt: a `state` of 32 random bytes from `:crypto.strong_rand_bytes/1`, stored only as its SHA-256; a PKCE S256 verifier (RFC 7636, 32 random bytes, base64url), stored sealed; valid for 600,000 ms by the trusted clock. It returns `{:ok, %{authorization_url}}`, the provider's authorization endpoint with `response_type=code`, `client_id`, `redirect_uri`, `scope`, `state` and `code_challenge` with `code_challenge_method=S256`. The URL holds the `state`, so it is the one result that carries a secret value of this attempt; the README says so.
+- `complete_authorization(b, tenant, %{state, code})` takes the host's callback values (each 1..2,048 bytes). It refuses an unknown, used or expired `state` as `:invalid_state` before any exchange, and marks the attempt used in the transaction that reads it, so a `state` is used at most once. It then makes one authorization code exchange (below). Success makes the connection `:active` with the new sealed tokens; a refusal or an unknown outcome leaves it as it was and returns the error. A `state` of another tenant is unknown under row security, so it is `:invalid_state` as well.
+- `connect_client(b, tenant, %{connection_id, provider_id, scopes})` creates an `:active` client credentials connection with no token; idempotent by `connection_id` with equal bytes, else `:conflict`.
+- `access_token(b, tenant, %{connection_id})` returns `{:ok, token}`, a token valid for at least `skew_ms` by the trusted clock, or an error. It is the one function that returns a token value. The mcp-client credential Need is `fn -> Elzoo.OauthClient.access_token(b, tenant, %{connection_id: id}) end`.
+- `revoke(b, tenant, %{connection_id})` makes one revocation call (RFC 7009) when the provider has a `revocation_endpoint`, and sets `:revoked` with the tokens removed whatever that call returns; a repeat on a `:revoked` connection is `{:ok, :duplicate}` with no call.
+- `get(b, tenant, %{connection_id})` returns `{:ok, connection}` without any token.
+- `verify(b)` runs `Elzoo.TenantIsolation.verify/3` for both tables and returns `:ok` or `{:error, {table, reason}}`.
+
+Errors are `{:error, reason}` with a fixed atom: `:invalid`, `:in_transaction`, `:isolation`, `:unknown_provider`, `:unknown_connection`, `:conflict`, `:scope`, `:invalid_state`, `:not_active`, `:reauthorization_required`, `:revoked`, `:egress`, `:secret_unavailable`, `:seal`, `:exchange_refused`, `:exchange_unknown`, `:malformed_response`, `:unavailable`. No error echoes an ID, a URL, a token, a code or a provider message.
+
+## Rules
+
+**Exchanges.** Each token exchange (authorization code, refresh, client credentials) and each revocation is one POST of `application/x-www-form-urlencoded` to the provider's endpoint, made like this: `Elzoo.EgressPolicy.resolve/3` of the endpoint (an error is `:egress`, before any byte is sent); the client secret, when there is one, through `Elzoo.Secrets.resolve/2` and placed by `client_auth` (a failure is `:secret_unavailable`, before any byte is sent); the transport Need with the resolved `%{host, port, addresses}`; then exactly one Req request with retries and redirects off and `receive_timeout` `exchange_timeout_ms`. The Piece never repeats an exchange inside one call. Its result is one of:
+- `refused`: a 4xx or 5xx response; an `error` of `invalid_grant` is kept as its own case for a refresh;
+- `unknown`: a timeout, a transport error or a 3xx;
+- `malformed`: a 2xx whose body is not a JSON object of at most 65,536 bytes with a non-empty `access_token` of at most 4,096 bytes, `token_type` equal to `bearer` (ASCII case-insensitive), an integer `expires_in` of 1..31,536,000 when present (without it `expires_at_ms` is the clock before the request, so the next `access_token/3` exchanges again), an optional `refresh_token` of 1..4,096 bytes and an optional `scope`;
+- success: the sealed tokens, `expires_at_ms` = the clock before the request plus `expires_in` × 1,000.
+
+**`access_token/3`** reads the connection with `SELECT ... FOR UPDATE` in one transaction:
+1. `:revoked` → `:revoked`; `:reauthorization_required` → `:reauthorization_required`; `:pending` → `:not_active`.
+2. A token valid until at least `now + skew_ms` → `{:ok, token}`, with nothing written.
+3. Otherwise, still holding the lock: for `:client_credentials`, one client credentials exchange; for `:authorization_code`, one refresh with the stored refresh token (none stored → `:reauthorization_required` is set and returned). Success stores the new tokens (a refresh response without `refresh_token` keeps the old one), bumps `revision`, commits and returns the token.
+4. A refresh refused `invalid_grant` sets `:reauthorization_required` and returns it. Another refusal returns `:exchange_refused` and changes nothing.
+5. A refresh with an unknown or malformed outcome: when the provider declares `refresh_rotation: true`, the refresh token may be spent, and it is never sent again: the connection is set `:reauthorization_required` and that is returned. With `refresh_rotation: false` nothing changes and `:exchange_unknown` (or `:malformed_response`) is returned; the next call may refresh again with the same token. For a client credentials connection an unknown outcome changes nothing: the next call asks for a new token.
+
+So two concurrent callers of one connection make at most one exchange: the second waits on the row lock, then reads the token the first stored. The lock is held at most `exchange_timeout_ms` plus the time of the Secrets, resolver and transport Needs, which the README states as the host's bound.
+
+**Writes** check shape and bounds (`:invalid`), then `repo.in_transaction?()` (`:in_transaction`), both before any query, then run in `Elzoo.TenantIsolation.transact/3` with the READ COMMITTED check (`:isolation`) as `domain/quota` does; every statement passes `log: false`. A refusal commits nothing. A database failure is `:unavailable` and says nothing about whether a write committed.
+
+`inspect` of the binding shows no Need, secret reference value or key. `piece.json` declares telemetry `not_applicable`, the config of the binding and its bounds, control `not_applicable`, and the dependencies `state/tenant-isolation`, `integration/secrets`, `integration/egress-policy` and `integration/encryption`; the providers include `req`, `jason`, `ecto_sql` and `postgrex`. The README states the minimum grants of the application role (`USAGE` on `prefix`; `SELECT, INSERT, UPDATE` on both tables; no `DELETE`; the PUBLIC defaults that the floor needs).
+
+## Kept open (owner's "no corner" rule)
+
+The provider map, the connection and the request maps may gain optional keys, and the grant, state, `client_auth` and error sets may gain members, in place before the first release.
+
+- *Per-person connections* (Q2 B): an optional `subject` key of the connection, with `integration/mcp-runtime` keying lists by person (a new list Contract under RC-59).
+- *Authorization server discovery* (RFC 8414) and MCP protected-resource metadata: an optional provider key that names an issuer instead of the endpoints.
+- *Dynamic client registration* (RFC 7591); *private-key JWT client authentication* (a `client_auth` member); *the device code grant* (a `grant` member).
+
+## Acceptance
+
+Tests run on the worker's disposable PostgreSQL 16 (`ELZOO_TEST_DATABASE_URL`) with a `DBConnection.ConnectionPool` Repo, not the Sandbox, in random schemas dropped afterwards. The authorization server is a local test server: a `Req.Test` function plug given through the transport Need, behind a resolver double that answers a public address for an allowlisted name (or a private one for the refusal cases), as ELZ-283 and ELZ-079 evidence their calls; no socket is opened.
+
+1. The full code flow: `begin_authorization/3`, the plug checks the PKCE verifier of the exchange against the challenge of the URL and the client authentication of each `client_auth`, `complete_authorization/3` makes the connection `:active`, and `access_token/3` returns the token.
+2. `state`: replayed after success, replayed after a refused exchange, of another tenant, expired at 600,000 ms and accepted at 599,999 ms, and unknown; each is `:invalid_state` with no exchange (the plug counts requests).
+3. An exchange refused (400 `invalid_request`), malformed (each rule of the success shape at its edge: `access_token` of 4,096 and 4,097 bytes, a body of 65,536 and 65,537 bytes, `token_type` `Bearer` accepted and `mac` refused), a 302 (unknown, not followed) and timed out at `exchange_timeout_ms` (unknown).
+4. Expiry at the skew edge: a token valid until `now + skew_ms` is returned with no exchange; one valid until `now + skew_ms − 1` is refreshed.
+5. Two concurrent `access_token/3` calls behind a barrier (the plug holds the first refresh until the second call is seen waiting in `pg_locks`) make one refresh and return the same token.
+6. A refresh refused `invalid_grant` sets `:reauthorization_required`, and the next call returns it with no exchange. A refresh that times out under `refresh_rotation: true` sets `:reauthorization_required` and the refresh token is never sent again; under `refresh_rotation: false` it returns `:exchange_unknown` and the next call refreshes with the same token.
+7. Client credentials: `connect_client/3`, the first `access_token/3` asks for a token, an expired token gives a new one, and an unknown outcome changes nothing.
+8. `revoke/3` with an endpoint (one call), without one (no call), with a refused call (still `:revoked`), and repeated (`:duplicate`, no call); `access_token/3` then returns `:revoked`.
+9. Egress: an endpoint whose name the resolver double resolves to a private address, a resolver failure and a provider declared with an `http` endpoint (refused at `new/1`); in each runtime case no request reaches the plug.
+10. The lock bound: an exchange held by the plug until `exchange_timeout_ms` returns `:exchange_unknown`, and another caller then takes the row lock.
+11. Secrets: a client secret the Secrets context refuses is `:secret_unavailable` with no request sent; a sealing key the key Need refuses is `:seal` with nothing written.
+12. No token in plain bytes: a direct read of both tables inside a tenant scope finds neither the access token, the refresh token, the PKCE verifier nor the `state`; `inspect` of the binding, of each result and of each error holds no secret value; `get/3` holds no token.
+13. Row security as `elzoo_app` (ELZ-285): `verify/1` passes; under T1 a T2 connection is `:unknown_connection` for every function; a direct insert of a T2 row into each table fails with SQLSTATE 42501; every function succeeds with only the README grants.
+14. A caller's open transaction gives `:in_transaction` before any query for every function except `new/1` and `verify/1`; a Repo whose connections default to `repeatable read` gets `:isolation` with nothing written.
+15. The credential Need shape: every result of `access_token/3` is `{:ok, token}` with `token` a binary or `{:error, atom}` from the list above, so the composition `fn -> access_token(...) end` meets mcp-client's `{:ok, bearer_token}` rule; the test server's tokens are `b64token`s of 24..4,096 bytes. The test does not start an mcp-client session (that is the Level 2 mcp-runtime task).
+16. Negative controls, one at a time, each restored before the final gates: drop the row lock of `access_token/3` (case 5 makes two refreshes); accept a `state` twice (case 2's replay case fails); skip the seal (case 12 finds the token).
+
+Run the Piece tests and the new-Piece small gate locally (`mix check --piece "$(git merge-base origin/main HEAD)"`), the roadmap and claims checks and the diff check. The full independent review of the coordinator guide ("Reviewer by risk"), the exact-head hosted check and the merge queue are required.
+
+## Limits to state
+
+The `state/tenant-isolation` limits apply. READ COMMITTED is a consumer Need. The trusted clock, the transport Need's address pinning and the Secrets, resolver and sealing Needs are host Needs; the Piece cannot check that the transport connects only to the given addresses. Tokens are sealed with one AES-256-GCM layer under the host's key (`integration/encryption`); a person who holds the key and the database reads them. A refresh holds a database transaction open for one exchange. A token without `expires_in` is refreshed at the next call. The authorization URL carries the `state`. No live authorization server is exercised: the evidence is a local test server through the Req transport behind a resolver double, with no successful public connect. No discovery, dynamic registration, JWT client authentication, device code, per-person connection or telemetry.

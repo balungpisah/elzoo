@@ -2625,8 +2625,7 @@
       "release": "V2",
       "stage": "pieces",
       "outputs": [
-        "integration/payments",
-        "domain/payment-lifecycle"
+        "integration/payments"
       ],
       "dependencies": [
         "ELZ-033",
@@ -2636,7 +2635,7 @@
         "RC-22",
         "ELZ-024"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "blocked: unpublished admission proposal; domain/payment-lifecycle moved to published ELZ-365 (provider-neutral); integration/payments waits until a paying consumer names a provider (owner Wave 9 Q9 D, 2026-11-24)",
       "contract": "Separate API/webhook translation from payment/refund policy. Stable logical payment id across attempts; uncertain dispatch enters reconciliation. Choose provider before binding semantics.",
       "acceptance": "Timeout-after-charge, concurrent over-refund, duplicate/out-of-order webhook, signature failure and changed approved amount. Provider settlement is not proved by a local journal.",
       "reuse": "Maintained provider SDK plus provider test environment; provider choice is a mandatory job decision, not a guessed universal contract.",
@@ -9477,6 +9476,212 @@
       "issue": 865,
       "url": "https://github.com/balungpisah/elzoo/issues/865",
       "issue_body_sha256": "8b8d305639a1a87d357f6c3696d7b91af9b50da462ea10241f9f80bbec1e9523"
+    },
+    {
+      "id": "ELZ-361",
+      "title": "ELZ-361 — Tenant OAuth connections: authorization code with PKCE and client credentials, sealed tokens, one refresh at a time, and revocation",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-105",
+        "ELZ-270",
+        "ELZ-271",
+        "ELZ-273",
+        "ELZ-285"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-361-oauth-client.md"
+      ],
+      "outputs": [
+        "integration/oauth-client"
+      ],
+      "acceptance": "New durable integration/oauth-client (Wave 9 Q2 A, Q3 A): tenant connections by authorization code with PKCE S256 (one-use 32-byte state stored as its digest, 600 s) or client credentials, under the state/tenant-isolation floor; tokens sealed with integration/encryption; every exchange one Req POST after EgressPolicy.resolve/3 through a host transport Need, retries and redirects off, bounded by exchange_timeout_ms; access_token/3 is the one function that returns a token (PR #853 answer), valid for the skew or refreshed under the connection row lock (one refresh for concurrent callers); invalid_grant and an unknown refresh under declared rotation set reauthorization_required; revoke/3 calls the revocation endpoint when present and sets revoked either way. Local test server through a Req.Test plug behind a resolver double; state replay/expiry, exchange failures, skew edge, concurrent refresh, rotation, egress refusal, no token in plain bytes, elzoo_app isolation; negative controls on the row lock, state reuse and the seal. Durable, credentials, egress, concurrency: local small gate and full review.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 868,
+      "url": "https://github.com/balungpisah/elzoo/issues/868",
+      "issue_body_sha256": "8418b45e8c32d777b411b1174d583307d95384f406eae84d756900883f119d9f"
+    },
+    {
+      "id": "ELZ-362",
+      "title": "ELZ-362 — Signed outbound events to tenant endpoints, egress-checked at registration and at each send, with a new try after a possibly sent failure only for a deduplicating endpoint",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-006",
+        "ELZ-023",
+        "ELZ-033",
+        "ELZ-105",
+        "ELZ-270",
+        "ELZ-271",
+        "ELZ-285",
+        "ELZ-301",
+        "ELZ-357"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-362-webhook-out.md"
+      ],
+      "outputs": [
+        "integration/webhook-out"
+      ],
+      "acceptance": "New durable integration/webhook-out (Wave 9 Q5 A): endpoints egress-checked at register/3 and at each send, enqueue/3 writes one delivery per listening endpoint, claim_due/3 leases due rows with FOR UPDATE SKIP LOCKED and returns each try's delivery/effect-intent admission (logical reference <delivery_id>/try/<n>); Standard Webhooks webhook-id/-timestamp/-signature (v1 HMAC-SHA-256 over id.timestamp.body); a not-sent refusal retries the same try after RetryTimeout.delay/4; a possibly sent failure gets a new try with the same webhook-id only for a dedup endpoint up to max_tries, else delivery/dead-letter-store; another 4xx is permanent. Local receiver through a Req.Test plug behind a resolver double; signature check from the spec, rebinding at send, crash after enqueue, disjoint claims and lease expiry, dedup vs non-dedup 503, max_tries edge, timeouts, idempotency, elzoo_app isolation; negative controls on the dedup rule, the send-time egress check and the lease. Local small gate and full review.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 869,
+      "url": "https://github.com/balungpisah/elzoo/issues/869",
+      "issue_body_sha256": "1803b682ba5893b3dfb190949ed080fe5eaa60af80644fc2e474b5a369fc6146"
+    },
+    {
+      "id": "ELZ-363",
+      "title": "ELZ-363 — Elzoo's bots as MCP tools: a verified caller lists the bots it may run, and a call is one Run with a bounded wait",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-024",
+        "ELZ-033",
+        "ELZ-083",
+        "ELZ-115",
+        "ELZ-267",
+        "ELZ-268"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-363-mcp-server.md"
+      ],
+      "outputs": [
+        "integration/mcp-server"
+      ],
+      "acceptance": "New integration/mcp-server (Wave 9 Q4 A): a Plug the host forwards to, bearer token verified by integration/token-verify before any MCP handling (401 otherwise), then ExMCP.HttpPlug 1.8.1 with a handler; tools/list gives each host-listed bot that domain/authorization allows the principal (proposal on bot/<id> run), tools/call decides again, checks arguments with core/payload-schema, starts one Run through a host start Need and polls a host result Need up to call_timeout_ms (1..60,000); an open Run returns its Run ID and goes on; each call is a new Run; results bounded to 65,536 bytes, no token echoed. The ready mcp-client in loopback mode against the Plug on a loopback socket with scripted Run Needs; negative controls on the authorization decision, the schema check and the token-before-handler order. Untrusted input and auth: local small gate and full review.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 870,
+      "url": "https://github.com/balungpisah/elzoo/issues/870",
+      "issue_body_sha256": "4dcf7529fa60b6d0dfb6d856f64c76d33cd73ea5273b9f24d0a6a912efd7e6c2"
+    },
+    {
+      "id": "ELZ-364",
+      "title": "ELZ-364 — integration/ai-text takes images in a user message by artifact reference, for a provider that declares image input",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-079",
+        "ELZ-096"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-364-ai-text-image-input.md"
+      ],
+      "outputs": [],
+      "acceptance": "In-place integration/ai-text Contract amendment 2 (Wave 9 Q7 A, absorbs integration/ai-multimodal): a user message may hold parts (text, and image by state/artifact reference with media type png/jpeg/webp/gif, at most 8 images); the capability set gains :image_input (undeclared is unsupported_feature); a host artifacts Need resolves each reference before translation at admission and in the Adapter, checking record identity, media type, size and the hash_format-prefixed SHA-256 and per-image/total bounds; a failure is the local refusal input_unavailable at admission and the new attested no-send tag input_unavailable at dispatch (Cure decision, table and no_send updated); document stays refused; a request without parts is byte for byte today's (golden recorded on the base first); a conformance scenario :image_input. Negative controls on the capability check, the hash check and the no-send mark. Local small gate and full review. Output none.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 871,
+      "url": "https://github.com/balungpisah/elzoo/issues/871",
+      "issue_body_sha256": "2ec0bc45360cec9aa6dbc2b9b4ef5fbe6b5760b4b97bb9f429fa3985e2d002e5"
+    },
+    {
+      "id": "ELZ-365",
+      "title": "ELZ-365 — One payment's charge and refunds through a provider Need, with unknown outcomes reconciled, verified events applied forward only, and the compensation of a succeeded charge",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-023",
+        "ELZ-031",
+        "ELZ-033",
+        "ELZ-270",
+        "ELZ-285"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-365-payment-lifecycle.md"
+      ],
+      "outputs": [
+        "domain/payment-lifecycle"
+      ],
+      "acceptance": "New durable provider-neutral domain/payment-lifecycle (Wave 9 Q9 D, Q10 A; replaces RC-24 for this output; integration/payments waits): payments and refunds under the tenant floor, each provider call one delivery/effect-intent intent with logical reference <payment_id>/charge or <payment_id>/refund/<refund_id> so the provider key never derives per Attempt; charge/3 checks the stored approval digest (approval_mismatch); record/3 and apply_event/3 apply only forward transitions; a verified event settles the row while the intent waits for poll/1; refund/3 under the payment row lock refuses over_refund; the succeeded charge returns its compensation {refund, comp/charge, :remaining}, which refunds what is still refundable when it runs (PR #853 answer). Scripted provider; RC-24's cases, compensation twice and after a partial refund, elzoo_app isolation; negative controls on a per-Attempt key, the refund lock and forward-only events. Local small gate and full review.",
+      "product_aims": [
+        "P10"
+      ],
+      "issue": 872,
+      "url": "https://github.com/balungpisah/elzoo/issues/872",
+      "issue_body_sha256": "74b55dd04b65ba24dda79da640460000d6f4def1d94e860164f79dd64e147b33"
+    },
+    {
+      "id": "ELZ-366",
+      "title": "ELZ-366 — A tenant's subscription to a plan version: UTC monthly or yearly periods from an anchor, a trial, renewal with the period's fee line and grant, changes at the next period, cancel at period end or now",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-031",
+        "ELZ-033",
+        "ELZ-270",
+        "ELZ-285",
+        "ELZ-300"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-366-plan.md"
+      ],
+      "outputs": [
+        "domain/plan"
+      ],
+      "acceptance": "New durable domain/plan (Wave 9 Q11 A): one subscription per tenant to a plan version with a domain/money fee, UTC monthly or yearly periods from the anchor clamped to the month's last day (Cure rule; selected literal laws, every anchor day as an exhaustive test against an independent oracle), trial, renew/3 advancing exactly one period when due under the row lock and returning the period's fee line and its domain/entitlement grant <subscription_id>/<index> (non-overlapping), repeats returning equal values; change at the next renewal, no proration; cancel at period end or now with a grant revocation; past-due and paid marks; expected revisions. Negative controls on the clamp, anchor chaining and the revision check. Local small gate and full review.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 873,
+      "url": "https://github.com/balungpisah/elzoo/issues/873",
+      "issue_body_sha256": "c63f4a433d996eb7e17c2b31a01049a34d858bfaf12da6ee07c9de277b65468d"
+    },
+    {
+      "id": "ELZ-367",
+      "title": "ELZ-367 — Numbered invoices of one currency: usage, fee and adjustment lines, gapless numbers per series, payment application and reversal, void and credit notes",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-031",
+        "ELZ-033",
+        "ELZ-270",
+        "ELZ-285",
+        "ELZ-304"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-367-invoice.md"
+      ],
+      "outputs": [
+        "domain/invoice"
+      ],
+      "acceptance": "New durable domain/invoice (Wave 9 Q11 A): one-currency invoices with usage lines from a complete domain/pricing charge (incomplete_charge otherwise), plan fee lines and adjustments; finalize/3 takes the next gapless number of the series under the series row lock and names the journal operation invoice/<id>/issue, mark_posted/3 records the host's result; apply_payment/3 up to the total, idempotent by payment_ref; reverse_payment/3 takes an amount (or :remaining) of one applied payment up to what is still applied, idempotent by reversal_id (PR #853 answer); void with nothing paid; credit notes within the corrected total. Concurrent numbering, partial reversal after a partial refund, elzoo_app isolation; negative controls on numbering outside the lock, another currency and whole reversal. Local small gate and full review.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 874,
+      "url": "https://github.com/balungpisah/elzoo/issues/874",
+      "issue_body_sha256": "c2ae36d6d83b05331163c32ff21f1cc3bf7048642d4b4b4512c7e9e3084f2c0e"
     }
   ],
   "entries": [
@@ -10000,10 +10205,10 @@
     },
     {
       "id": "domain/payment-lifecycle",
-      "job": "RC-24",
-      "note": "Authorize/capture/refund/unknown-outcome transitions for C3; provider-specific semantics and reconciliation before retries. No provider adopted. Unknown-outcome recovery mechanics are shared with delivery/effect-intent (ELZ-023).",
+      "job": "ELZ-365",
+      "note": "Planned provider-neutral payment lifecycle over a consumer-owned Ecto Repo on PostgreSQL 16 under the state/tenant-isolation floor (ELZ-365 replaces RC-24 for this output): one payment's charge and refunds, each provider call one delivery/effect-intent intent whose provider key derives from the logical payment or refund ID, never per Attempt (ELZ-025); approval digest check; verified provider events applied forward only; concurrent refunds serialized with over_refund refused; the succeeded charge's compensation refunds what is still refundable. No provider named (owner Q9 D).",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -11113,6 +11318,46 @@
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/skill/piece.json",
       "manifest_sha256": "d6df0640abb580ef906d6e579a0245fb2f0fab1cf0f88ccf752f84faafa02e09",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/oauth-client",
+      "job": "ELZ-361",
+      "note": "Planned tenant OAuth connections over a consumer-owned Ecto Repo on PostgreSQL 16 under the state/tenant-isolation floor: authorization code with PKCE S256 and one-use state, client credentials, tokens sealed with integration/encryption, every exchange one egress-checked Req POST with retries and redirects off, access_token/3 the one function that returns a token (refresh under the connection row lock, one refresh for concurrent callers), reauthorization_required after invalid_grant or an unknown refresh under rotation, revocation. Per-person connections, discovery, dynamic registration, JWT client auth and device code stay addable.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/webhook-out",
+      "job": "ELZ-362",
+      "note": "Planned signed outbound events over a consumer-owned Ecto Repo on PostgreSQL 16 under the state/tenant-isolation floor: endpoints egress-checked at registration and each send, one delivery per listening endpoint, leased due-row claims, Standard Webhooks v1 HMAC-SHA-256 signatures, one delivery/effect-intent intent per try, a not-sent refusal retried on the same try, a possibly sent failure given a new try with the same webhook-id only for a deduplicating endpoint up to max_tries, else delivery/dead-letter-store.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/mcp-server",
+      "job": "ELZ-363",
+      "note": "Planned MCP server Plug over the pinned ex_mcp server side: bearer token verified by integration/token-verify before MCP handling, one tool per host-listed bot that domain/authorization allows the caller, arguments checked by core/payload-schema, one Run per call through a host start Need with a bounded wait on a host result Need; a Run open at the bound goes on and is named by its Run ID; a retried call starts a second Run.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/plan",
+      "job": "ELZ-366",
+      "note": "Planned subscriptions over a consumer-owned Ecto Repo on PostgreSQL 16 under the state/tenant-isolation floor: one subscription per tenant to a plan version with a domain/money fee, UTC monthly or yearly periods from an anchor clamped to the month's last day, trial, renewal of exactly one due period returning its fee line and domain/entitlement grant, change at the next period without proration, cancel at period end or now.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/invoice",
+      "job": "ELZ-367",
+      "note": "Planned invoices over a consumer-owned Ecto Repo on PostgreSQL 16 under the state/tenant-isolation floor: one currency per invoice, usage lines from complete domain/pricing charges, plan fee lines and adjustments, gapless numbers per series under the series row lock, the domain/journal operation ID that the host posts, payment application and partial reversal by amount, void with nothing paid and credit notes. No tax or discount.",
+      "baseline_status": "planned",
+      "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     }
   ],

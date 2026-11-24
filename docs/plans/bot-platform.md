@@ -268,8 +268,8 @@ closure section and its open handoff. Wave 8's Levels 1–2 and its root
 consumer acceptance `ELZ-349` are merged on `main`; see
 [bot-platform-wave8.md](bot-platform-wave8.md) for its dispositions, its
 closure section and its open handoff. Wave 9 is planned in
-[bot-platform-wave9.md](bot-platform-wave9.md) and is registered when the
-owner answers its questions. Wave 9 retains the existing serial rule: a wave
+[bot-platform-wave9.md](bot-platform-wave9.md); the owner answered its
+questions on 2026-11-24, and its Level 1 is published. Wave 9 retains the existing serial rule: a wave
 is registered when the preceding wave and its pre-registration gates are
 accepted. A handle with a job in brackets
 is an existing catalogue row that the job owns; the one exception is
@@ -415,6 +415,10 @@ Resolved on 2026-11-21 (owner), from the evaluation of the Continuum library (He
 - **Deferred until a caller needs them (owner, 2026-11-21):** more schedule policies for `state/scheduler` (pause after a failed occurrence, a maximum number of occurrences, run now, jitter, the last result handed to the next occurrence); a ramped rollout of a recipe version; a progress heartbeat for `runtime/async-work`, likely first for Wave 7 `assembly/knowledge-ingest`; a business-key reuse rule for `assembly/durable-job`; and a Nexus-style call shape (callers name an endpoint, completion and cancel by token) for the Wave 8 a2a Pieces.
 - **First release, frozen record fixtures (owner, 2026-11-21):** when the first release freezes the record formats, the tests of `assembly/run-engine`, `workflow/pattern-step` and `runtime/recipe-test` gain committed record fixtures written by the released code, so a later version must still read them. Not before: no older format exists yet.
 
+Resolved on 2026-11-24 (owner, "All recommended for Q1–Q12"); these decisions govern Wave 9 ([bot-platform-wave9.md](bot-platform-wave9.md#owner-answers-2026-11-24)) and its published tasks:
+
+- **Wave 9 questions (owner, 2026-11-24):** Q1–Q8 and Q10–Q12 take option A of the Wave 9 plan: Lua code mode in the ready `runtime/lua-sandbox` (Q1); tenant OAuth connections (Q2) over the locked Req, Jason and OTP `:crypto` (Q3); each runnable bot as one MCP tool (Q4); Standard Webhooks with a new try only for a deduplicating endpoint (Q5); both new model providers (Q6); image input only, by artifact reference (Q7); no fallback after an unknown model outcome (Q8); the saga log in `assembly/ledger-checkout` (Q10); UTC monthly and yearly subscriptions without proration and one-currency invoices without tax (Q11); no channel adapter (Q12). Q9 takes D: no provider is named, so `integration/payments` waits and the root acceptance scripts the provider. The plan's readings of the saga rules (one saga log) and of the retry delay (a provider's `retry_after` is a routing cool-down, never a resend) stand. First use: ELZ-361 to ELZ-367.
+
 Resolved on 2026-11-23 (owner, "Yes. Go"); these decisions govern Wave 8 ([bot-platform-wave8.md](bot-platform-wave8.md#owner-answers-2026-11-23)) and its published tasks:
 
 - **Wave 8 questions (owner, 2026-11-23):** Q1–Q8 take option A of the Wave 8 plan: a room is a chain of Runs on fresh Units (Q1, the room-life decision); `workflow/turn-policy` ships the rules `:addressed` (lead-bot and mention-only presets, with an optional host-vouched `reply_to_member`), `:round_robin`, a bounded `:everyone` and `:decided` (one decision action of a new `elzoo.room.pick` v1 schema, an untrusted pick that falls back to the default member), each through one host-rule plug that keeps every guard of the step (Q2, expanded; bidding, skill or priority routing, time-of-day rules and per-member rates left as host rules, per-bot stop and resume kept open); a child Run starts through a host-bound `tool_call` (Q3); `workflow/work-item` narrowed replaces RC-11 (Q4); Piece-owned tables under the tenant floor for mail and chains (Q5); `domain/principal`'s one level, with the lineage and `max_depth` in the grant (Q6); A2A stays deferred (Q7); the rollover threshold of Q8 A, whose per-message reserve also counts the decision action and is the worst case over every rule the room may use, with at most `max_bot_turns` turns per message (Q8). A runtime rule switch (`set_rule` under a policy key `rule_change`, and `allowed_patterns` in the delegation grant) is kept open, not built. The coordinator recorded two readings for the owner to correct: the atomic step of the chain decision is the mailbox's link transaction, and the default `:request_cancel` reaches only an idle child. First use: ELZ-344 to ELZ-347.
@@ -427,7 +431,7 @@ Resolved on 2026-11-22 (owner); these decisions govern Wave 7 ([bot-platform-wav
 | --- | --- |
 | Confirm room rollover default (fresh Unit before 256 lifetime actions of `assembly/run-engine`) | answered 2026-11-23: candidate 1 (Wave 8 Q1 A); ELZ-344 (the chain), and `delivery/room` at Wave 8 Level 2 |
 | The turn policies of a room | answered 2026-11-23: Wave 8 Q2 A, expanded; ELZ-345 |
-| The language of model-written code | asked as Q1 of [bot-platform-wave9.md](bot-platform-wave9.md#provider-prerequisites-and-open-questions) (recommended: Lua in the ready `runtime/lua-sandbox`) |
+| The language of model-written code | answered 2026-11-24: Lua in the ready `runtime/lua-sandbox` (Wave 9 Q1 A, [bot-platform-wave9.md](bot-platform-wave9.md#owner-answers-2026-11-24)); a composition in the Wave 9 root acceptance, not a Piece |
 
 ## Check
 

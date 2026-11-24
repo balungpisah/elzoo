@@ -1,0 +1,84 @@
+# ELZ-366 — A tenant's subscription to a plan version: UTC monthly or yearly periods from an anchor, a trial, renewal with the period's fee line and grant, changes at the next period, cancel at period end or now
+
+- Phase: Wave 9 Level 1
+- Dependencies: ELZ-031, ELZ-033, ELZ-270, ELZ-285, ELZ-300
+- Release: V2
+- Output: new `domain/plan` Piece
+- Change class: Piece-only
+- Owned paths: `pieces/domain/plan/**` and its own catalogue/release-plan rows and generated views only. Do not edit root/shared code, another Piece (including `domain/money`, `domain/entitlement`, `domain/invoice` and `state/tenant-isolation`), `mix.exs`, `mix.lock` or CI.
+
+## Outcome and boundary
+
+One durable Piece over a consumer-owned Ecto Repo on PostgreSQL 16, with its period rule in Cure: a tenant's **subscription** to one plan version at a time, with a fee of one `domain/money` amount per period, periods that are UTC calendar months or years counted from an **anchor** and clamped to the month's last day, an optional trial, a renewal that advances exactly one period when it is due and returns that period's **fee line** and its **grant** for `domain/entitlement`, a plan change that takes effect at the next renewal, and a cancel at period end or now. The Contract source is the `domain/plan` section of [the Wave 9 plan](../docs/plans/bot-platform-wave9.md) ("Level 1"), under owner answer Q11 A (2026-11-24; "Owner answers (2026-11-24)" there) and the owner's plan-types decision of 2026-11-21 ("Subscriptions wait for Wave 9 (`domain/plan`, `domain/invoice`)").
+
+The Piece prices nothing beyond the declared fee, writes no grant, invoice or journal row, and has no timer: the host calls `renew/3` with its trusted time (for example from a `state/scheduler` tick), stores the grant facts that it returns in its `domain/entitlement` facts, and puts the fee line on a `domain/invoice` invoice. No proration in this version (Q11 A).
+
+The Piece keeps durable state and serializes concurrent renewals, so this task keeps the local small gate and gets the full review of the coordinator guide ("Reviewer by risk"; `AGENTS.md` sections 5 and 6).
+
+## Facts on `main` that this task builds on
+
+Checked at `main` `2face3fc`. Confirm each before you start; if one differs, stop and comment on the issue.
+
+- `domain/money`: `%Elzoo.Money.Amount{currency, minor_units}`; `Elzoo.Money.Codec.encode/2` and `decode/2` give its canonical bytes; the bundle is pure.
+- `domain/entitlement` (`pieces/domain/entitlement/README.md`, lines 26–30, 60–100): the host stores plans and grants and supplies them to `resolve(facts, tenant, now_ms)`. A grant is exactly `%{grant_id, tenant, plan_id, version, valid_from_ms, valid_to_ms, grace_until_ms, revoked_at_ms}`, the last three may be `nil`, `valid_to_ms` is greater than `valid_from_ms` and exclusive, and texts are 1..128 bytes. Two grants of one tenant that are active or in grace at one time are `{:error, :overlap}`, so one active subscription per tenant is the rule of this version, and consecutive period grants (`valid_to_ms` of one equal to `valid_from_ms` of the next) do not overlap.
+- `domain/quota` takes a window as an opaque host period ID and derives no window from a time; no ready Piece has a Cure rule over calendar dates. The pinned Cure checks an equality law by reduction over literal values; `int_eq`, `<=`, `<` and `+` on symbolic `Int` values are neutral, so a law that quantifies over every day as a symbol does not reduce (`pieces/workflow/approval/README.md`, lines 457–466; `tasks/ELZ-357-retry-delay-from-failure.md`, the Cure facts). Decision code uses `pickup`, not `if` ([Cure notes](../docs/cure-notes.md), lines 75–76).
+- The durable-Piece pattern is `domain/quota`'s (`Migration.install/1`, `transact/3`, the READ COMMITTED check, `log: false`, `:unavailable`); ELZ-285's application role is `ELZOO_TEST_APP_ROLE`.
+
+## The period rule (Cure)
+
+A Cure module `Elzoo.PlanPeriod` holds the pure rule over civil dates: `days_in_month(year, month)` (the Gregorian rule: 29 in February of a year divisible by 4 and not by 100, or by 400), and `boundary(anchor_year, anchor_month, anchor_day, interval, k)` for `k ≥ 0`, the date that is `k` months (`interval` `Month`) or `12k` months (`Year`) after the anchor's month, with day `min(anchor_day, days_in_month(...))`. A boundary is always computed from the anchor, never from the boundary before it: a 31 January anchor gives 28 or 29 February, then 31 March. Elixir converts a Unix millisecond time to and from a UTC civil date and time of day with OTP `:calendar`; a boundary keeps the anchor's UTC time of day.
+
+The selected laws are those that the pinned Cure checks: the leap-year cases (`days_in_month` of February 2024, 2100, 2000 and 2027 equal 29, 28, 29 and 28) and boundary cases over literals (anchor 31 January with `k` 1, 2 and 13; anchor 29 February 2024, yearly, `k` 1 and 4; anchor 15 March, `k` 0). The rule over every anchor day and month is test evidence: an exhaustive test over every anchor day 1..31 of every month, in a leap and a non-leap year, for `k` 0..24 monthly and 0..8 yearly, against an independent oracle written in the test: the year and month shifted by integer arithmetic on `year * 12 + month − 1`, and the day `min(anchor_day, Date.days_in_month(Date.new!(y, m, 1)))`. If the worker finds a law form that the pinned Cure checks for every day, it may state it as well and says so in the pull request.
+
+## Interface
+
+Module `Elzoo.Plan`. Every function after `new/1` takes the binding, the tenant and one request map.
+
+- `Elzoo.Plan.Migration.install(prefix)` installs the tenant-isolation readers and one protected table, subscriptions, `PRIMARY KEY (tenant, subscription_id)`, with a unique partial index on `tenant` for rows whose state is not `canceled`. A bad `prefix` raises `ArgumentError` before any DDL.
+- `new(opts)` takes exactly `repo` and `prefix`; `{:ok, binding}` or `{:error, :invalid}`.
+- A **subscription** is `%{subscription_id, plan: %{plan_id, version}, fee, interval, anchor_ms, state, period, trial_end_ms, cancel_at_period_end, pending_change, revision}`: `subscription_id` 1..100 bytes; `plan_id` 1..128 bytes and `version` 1..2^31−1 (the `domain/entitlement` plan identity); `fee` a non-negative `domain/money` amount; `interval` `:month` or `:year`; `state` `:trialing`, `:active`, `:past_due` or `:canceled`; `period` `%{index, start_ms, end_ms}` (index 0 is the trial, index `k ≥ 1` runs from boundary `k − 1` to boundary `k`); `pending_change` `nil` or `%{plan, fee}`; `revision` from 1. Times are Unix milliseconds 0..2^63−1, compared only after conversion.
+- A **fee line** is `%{subscription_id, period: %{index, start_ms, end_ms}, plan: %{plan_id, version}, amount}`; `domain/invoice` takes this shape. A **grant** is the `domain/entitlement` grant `%{grant_id: "<subscription_id>/<index>", tenant, plan_id, version, valid_from_ms: start_ms, valid_to_ms: end_ms, grace_until_ms: nil, revoked_at_ms: nil}`; a **revocation** is `%{grant_id, revoked_at_ms}`.
+- `create(p, tenant, %{subscription_id, plan, fee, interval, start_ms, trial_end_ms})`: `trial_end_ms` `nil` or greater than `start_ms`. The anchor is `trial_end_ms`, or `start_ms` without a trial. With a trial the subscription is `:trialing` in period 0 (`start_ms` to the anchor) and the result is `{:ok, %{subscription, fee_line: nil, grants: [grant_of_period_0]}}`; without one it is `:active` in period 1 and the result holds that period's fee line and grant. Idempotent by `subscription_id`: equal bytes return the stored first result as `{:ok, ...}` with `duplicate: true`; other bytes are `:conflict`; a tenant that holds a subscription that is not `:canceled` gets `:subscription_exists`.
+- `renew(p, tenant, %{subscription_id, from_index, now_ms})`. Under the row lock:
+  - the current period's index is `from_index`: when `now_ms < end_ms` it is `:not_due`; otherwise, for `cancel_at_period_end`, the subscription becomes `:canceled` and the result has no fee line and no grant; else the pending change, if any, becomes the plan and fee, the period advances exactly one (period `from_index + 1`, also from the trial), a `:trialing` subscription becomes `:active`, and the result holds the new period's fee line and grant;
+  - the current index is `from_index + 1` and that period was made by a renewal from `from_index`: the stored result of that renewal again, with `duplicate: true`, and nothing written;
+  - otherwise `:stale_period`.
+
+  A renewal far past its due time still advances one period; the host calls again for the next one, so every period gets its fee line. It returns `{:ok, %{subscription, fee_line, grants, duplicate}}`.
+- `change(p, tenant, %{subscription_id, expected_revision, plan, fee})` sets `pending_change` (no proration); `cancel(p, tenant, %{subscription_id, expected_revision, at: :period_end | :now, now_ms})`: `:period_end` sets `cancel_at_period_end`; `:now` makes it `:canceled` and returns the revocation of the current period's grant at `now_ms`, with no refund and no fee line; `mark_past_due(p, tenant, %{subscription_id, expected_revision})` (from `:active`) and `mark_paid(p, tenant, %{subscription_id, expected_revision})` (from `:past_due` to `:active`) take the host's reading of the invoice. Each transition names the expected revision: another revision is `:stale_revision`; a transition not allowed from the state is `{:state, state}`; a canceled subscription takes none.
+- `get(p, tenant, %{subscription_id})`; `verify(p)` checks the table with `Elzoo.TenantIsolation.verify/3`.
+
+Errors are fixed atoms that never echo an ID: `:invalid`, `:in_transaction`, `:isolation`, `:conflict`, `:subscription_exists`, `:unknown_subscription`, `:not_due`, `:stale_period`, `:stale_revision`, `{:state, state}`, `:unavailable`.
+
+## Rules
+
+Writes check shape and bounds (`:invalid`), then `repo.in_transaction?()` (`:in_transaction`) before any query, then run in `Elzoo.TenantIsolation.transact/3` with the READ COMMITTED check; every statement passes `log: false`. `renew/3` and every transition take the subscription row with `SELECT ... FOR UPDATE`, so two concurrent renewals of one period commit one advance, and the other returns the duplicate. The row keeps the last renewal's result (its `from_index` and its fee line and grant) so that a repeat returns equal values. A past-due subscription renews like an active one; when to cancel it is the host's dunning policy. Amounts are stored as their `Codec.encode/2` bytes.
+
+`piece.json` declares telemetry and control `not_applicable`, the config of the binding, and the dependencies `state/tenant-isolation` and `domain/money`, and names `domain/entitlement` as the consumer of its grant shape; the README states the minimum grants of the application role and that the host stores the returned grants.
+
+## Kept open (owner's "no corner" rule)
+
+The interval, state and error sets may gain members and the subscription, request and result maps optional keys in place before the first release.
+
+- *Proration* of a change (Q11 C), as an option of `change/3` that returns an adjustment line.
+- *More intervals* (week, quarter); *a tenant-local anchor*; *usage-based minimums*; *dunning schedules*.
+- *Several active subscriptions per tenant*, with entitlement stacking (needs the matching `domain/entitlement` change).
+
+## Acceptance
+
+1. The period rule: the selected Cure laws compile and audit clean (no axioms, holes or unresolved, as the ready Cure Pieces audit theirs), and the exhaustive test of the rule section passes against its independent oracle.
+2. Renewal at `end_ms − 1` is `:not_due` with nothing written, and at `end_ms` advances one period with its fee line and grant; a renewal of a 31 January anchor gives periods ending 28 February, 31 March and 30 April (2027), and of a 29 February 2024 yearly anchor 28 February 2025 and 29 February 2028.
+3. A repeated renewal of the same `from_index` returns equal values with `duplicate: true` and writes nothing (the row's revision is unchanged); a `from_index` two behind is `:stale_period`.
+4. A trial: `:trialing` in period 0 with a grant and no fee line; the renewal at the trial's end makes it `:active` in period 1 with its fee line.
+5. A change takes effect at the next renewal (the fee line and the grant carry the new plan and fee), not before; a cancel at period end ends it at the next renewal with no fee line; a cancel now returns the revocation; a canceled subscription refuses every transition, and the tenant may then create another.
+6. The grants of three consecutive periods resolve with `Elzoo.Entitlement.resolve/3` (with matching host plan facts) at times inside each period to that period's grant, and never to `:overlap`.
+7. Two concurrent renewals behind a barrier (another connection holds the row lock until both are seen waiting in `pg_locks`) commit one advance; the other returns the duplicate.
+8. `create/3` duplicate, conflict and `:subscription_exists`; `:stale_revision` and `{:state, state}` for each transition.
+9. Row security as `elzoo_app` (ELZ-285): `verify/1` passes; another tenant's subscription is `:unknown_subscription`; a direct insert of a T2 row fails with SQLSTATE 42501; every function succeeds with only the README grants. A caller's open transaction gives `:in_transaction` before any query; a `repeatable read` Repo gets `:isolation`.
+10. Negative controls, one at a time, each restored before the final gates: skip the clamp (case 1's exhaustive test and case 2's 31 January case fail); chain boundaries from the previous boundary instead of the anchor (case 2's 31 March case fails); drop the revision check of `change/3` (case 8's stale case fails).
+
+Run the Piece tests and the new-Piece small gate locally (`mix check --piece "$(git merge-base origin/main HEAD)"`), the roadmap and claims checks and the diff check. The full independent review of the coordinator guide, the exact-head hosted check and the merge queue are required.
+
+## Limits to state
+
+The trusted time, the storage of the returned grants and fee lines, and the past-due reading are the host's. UTC only; a period boundary keeps the anchor's UTC time of day. One active subscription per tenant. No proration, refund, tax, dunning, timer or invoice. The rule over every day is test evidence, not a proof, unless the pull request states a checked law. The `state/tenant-isolation` limits apply.
