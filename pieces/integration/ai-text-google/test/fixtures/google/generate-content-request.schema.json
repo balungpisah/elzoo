@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Hand-derived, not copied, from the Gemini API reference for POST /v1beta/models/{model}:generateContent: the OpenAPI document https://aistudio.google.com/api-reference/generate-content.openapi.json (info.version v1beta, fetched 2026-11-24, source SHA-256 a11386534137dfde9430553b9ee63ffc25a2c6e41908e5192cabcb650252773c), schemas GenerateContentRequest, Content, Part (x-google-oneofs data), Blob, FunctionCall, FunctionResponse, Tool, FunctionDeclaration, ToolConfig, FunctionCallingConfig and GenerationConfig. Only the members this Piece sends are admitted (additionalProperties false); every other documented member is rejected on purpose. Recorded choices: GenerateContentRequest lists model as required, but the REST method binds it from the path (models/{model}), so the body has no model member; the snake_case inline_data/mime_type spelling is admitted beside inlineData/mimeType because the reference's REST examples use it (proto3 JSON parsers accept both); Part admits exactly one member of its data oneof, optionally with thoughtSignature; systemInstruction holds text parts only, as the reference says; responseJsonSchema needs responseMimeType, as the reference says.",
+  "type": "object",
+  "required": ["contents"],
+  "additionalProperties": false,
+  "properties": {
+    "contents": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/Content" }
+    },
+    "systemInstruction": {
+      "type": "object",
+      "required": ["parts"],
+      "additionalProperties": false,
+      "properties": {
+        "parts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["text"],
+            "additionalProperties": false,
+            "properties": { "text": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/Tool" }
+    },
+    "toolConfig": { "$ref": "#/$defs/ToolConfig" },
+    "generationConfig": { "$ref": "#/$defs/GenerationConfig" }
+  },
+  "$defs": {
+    "Content": {
+      "type": "object",
+      "required": ["role", "parts"],
+      "additionalProperties": false,
+      "properties": {
+        "role": { "enum": ["user", "model"] },
+        "parts": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/Part" }
+        }
+      }
+    },
+    "Signature": { "type": "string", "pattern": "^[A-Za-z0-9+/]*={0,2}$" },
+    "Part": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["text"],
+          "additionalProperties": false,
+          "properties": {
+            "text": { "type": "string" },
+            "thoughtSignature": { "$ref": "#/$defs/Signature" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["inlineData"],
+          "additionalProperties": false,
+          "properties": {
+            "inlineData": {
+              "type": "object",
+              "required": ["mimeType", "data"],
+              "additionalProperties": false,
+              "properties": {
+                "mimeType": { "$ref": "#/$defs/ImageMimeType" },
+                "data": { "$ref": "#/$defs/Bytes" }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["inline_data"],
+          "additionalProperties": false,
+          "properties": {
+            "inline_data": {
+              "type": "object",
+              "required": ["mime_type", "data"],
+              "additionalProperties": false,
+              "properties": {
+                "mime_type": { "$ref": "#/$defs/ImageMimeType" },
+                "data": { "$ref": "#/$defs/Bytes" }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["functionCall"],
+          "additionalProperties": false,
+          "properties": {
+            "functionCall": {
+              "type": "object",
+              "required": ["name"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "$ref": "#/$defs/FunctionName" },
+                "id": { "type": "string" },
+                "args": { "type": "object" }
+              }
+            },
+            "thoughtSignature": { "$ref": "#/$defs/Signature" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["functionResponse"],
+          "additionalProperties": false,
+          "properties": {
+            "functionResponse": {
+              "type": "object",
+              "required": ["name", "response"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "$ref": "#/$defs/FunctionName" },
+                "id": { "type": "string" },
+                "response": { "type": "object" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ImageMimeType": {
+      "enum": ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/heic", "image/heif", "image/gif", "image/avif"]
+    },
+    "Bytes": { "type": "string", "pattern": "^[A-Za-z0-9+/]*={0,2}$" },
+    "FunctionName": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}$" },
+    "Tool": {
+      "type": "object",
+      "required": ["functionDeclarations"],
+      "additionalProperties": false,
+      "properties": {
+        "functionDeclarations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "description"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "pattern": "^[A-Za-z0-9_:.-]{1,128}$" },
+              "description": { "type": "string" },
+              "parametersJsonSchema": { "type": "object" }
+            }
+          }
+        }
+      }
+    },
+    "ToolConfig": {
+      "type": "object",
+      "required": ["functionCallingConfig"],
+      "additionalProperties": false,
+      "properties": {
+        "functionCallingConfig": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": { "enum": ["AUTO", "ANY", "NONE", "VALIDATED"] },
+            "allowedFunctionNames": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string" }
+            }
+          },
+          "if": { "required": ["allowedFunctionNames"] },
+          "then": { "required": ["mode"], "properties": { "mode": { "enum": ["ANY", "VALIDATED"] } } }
+        }
+      }
+    },
+    "GenerationConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxOutputTokens": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "responseMimeType": { "enum": ["text/plain", "application/json", "text/x.enum"] },
+        "responseJsonSchema": { "type": "object" }
+      },
+      "dependentRequired": { "responseJsonSchema": ["responseMimeType"] }
+    }
+  }
+}
