@@ -1334,12 +1334,17 @@ defmodule Elzoo.Wave9.Bots do
     :sys.replace_state(host, fn _ -> w end)
 
     ExUnit.Callbacks.on_exit(fn ->
+      # Each engine starts its Effect-intent owners and unlinks them (run_engine.ex, intent/3),
+      # so they outlive the engine. Their pids are read from the engine before it stops.
+      owners = for {_, e} <- Agent.get(engines, & &1), pid <- engine_intents(e.engine), do: pid
       for {_, e} <- Agent.get(engines, & &1), pid <- [e.engine, e.async], do: stop(pid)
 
-      # The Run owner starts its Effect-intent owners linked to itself. They end with it, and
-      # are gone before a task they wait on is stopped, so none of them writes into a schema
-      # that is being dropped.
+      # Every Effect-intent owner, the engines' and the Run owner's (linked to it), ends before a
+      # task it waits on is stopped: an owner whose task stops writes a :Lost event into its
+      # tenant schema, which would race the DROP SCHEMA below (40P01).
+      for pid <- owners, do: shutdown(pid)
       for {_, t} <- tenants, do: stop_linked(t.run)
+      for pid <- owners, do: refute(Process.alive?(pid))
 
       for {_, t} <- tenants,
           pid <- [t.evidence, t.lock, t.directory, t.supervisor, t.tasks, t.context],
@@ -1360,6 +1365,24 @@ defmodule Elzoo.Wave9.Bots do
     if Process.alive?(pid), do: GenServer.stop(pid)
   catch
     :exit, _ -> :ok
+  end
+
+  defp engine_intents(engine) do
+    if Process.alive?(engine),
+      do: for({_, pid} <- :sys.get_state(engine).intents, is_pid(pid), do: pid),
+      else: []
+  catch
+    :exit, _ -> []
+  end
+
+  # Stop one process with :shutdown and wait until it is gone.
+  defp shutdown(pid) do
+    ref = Process.monitor(pid)
+    Process.exit(pid, :shutdown)
+
+    receive do
+      {:DOWN, ^ref, :process, _, _} -> :ok
+    end
   end
 
   # Stop a process with :shutdown and wait until it and every process linked to it are gone.

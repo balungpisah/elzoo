@@ -329,14 +329,20 @@ One local run of the module (`mix test test/wave9_tools_doors_models_money_test.
 | group 4, refunds, unknown, drift, top-up | 395.4 |
 | group 5, isolation | 634.4 |
 
-Fifteen consecutive whole-module runs (`--repeat-until-failure 14`) passed in 13.8 to 14.9 s
-each, after the first-review repairs. Two failures came before those repairs. One whole-module
-run failed once in group 1, before the read-order change of #931 (below). The reviewer saw one
-failure in 14 runs in the code-mode test's teardown: `DROP SCHEMA … CASCADE` deadlocked
-(40P01) with an Effect-intent owner of the Run owner. That owner was linked to the Run owner
-and survived its `:normal` stop. When its held task was stopped, it wrote a `:Lost` event into
-the schema being dropped. The teardown now stops each Run owner with `:shutdown` and waits for
-it and its linked owners to exit before it stops the tasks and drops the schemas.
+After the repairs, 20 consecutive whole-module runs (`--repeat-until-failure 19`) passed in
+12.6 to 19.4 s each. Two failures came before the repairs. One whole-module run failed once in group 1, before
+the read-order change of #931 (below). The other was in the code-mode test's teardown, about 1
+in 10 to 14 runs: `DROP SCHEMA … CASCADE` of a tenant schema deadlocked (40P01) with an
+`INSERT` into that schema's `elzoo_log_records`. The writer is an Effect-intent owner that the
+run engine starts and then unlinks (`intent/3` in `run_engine.ex`), so it outlives its engine.
+When the held module call's task was stopped, the owner wrote a `:Lost` event while the schema
+was being dropped. A first repair, which stopped only the Run owner's linked owners, did not
+reach it. The teardown now reads each engine's intent owners before the engine stops, shuts
+them down and waits for each to exit, and asserts that none is alive before the tasks stop and
+the schemas drop. A probe made in the worktree and then removed (never committed) showed the
+mechanism. It counted the tenant log records just before the tasks stop and 300 ms later. In
+the code-mode test, with the owners left running, 13 engine owners were alive and T1's count
+went from 446 to 447. With the repair, none was alive and the count stayed at 446.
 
 The root suite's per-test limit is 120,000 ms (`test/test_helper.exs`), and no test sets a
 `@tag timeout:`.
