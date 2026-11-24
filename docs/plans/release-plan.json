@@ -10624,7 +10624,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-text-openai/piece.json",
-      "manifest_sha256": "a3845c8d74f284ce4747faa0198ff1eae69681e5ca7b3bce72baf11731556366"
+      "manifest_sha256": "b143c5015b388e2475a16e2ea65a228841935ccdff9f93a102c347a9602520b8"
     },
     {
       "id": "integration/ai-embedding",
