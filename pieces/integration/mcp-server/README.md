@@ -181,9 +181,10 @@ request without a token is HTTP 401.
   blocks is bounded only by ex_mcp's handler timeout (`call_timeout_ms +
   5_000`, JSON-RPC `-32603` `handler_timeout`). The `clock` Need and the
   verifier's own Needs (`subject`, `lookup`, `digest_key`) run in the Plug
-  before ex_mcp, so only the host's HTTP server bounds them. Upstream observation at ex_mcp 1.8.1 on OTP 29.1.2:
-  ex_mcp then stops the handler with a 1,000 ms timeout and catches only
-  exits. If the handler ends within about a millisecond of that timeout,
+  before ex_mcp, so only the host's HTTP server bounds them.
+- Upstream observation at ex_mcp 1.8.1 on OTP 29.1.2: after a handler timeout,
+  ex_mcp stops the handler with a 1,000 ms timeout and catches only exits. If
+  the handler ends within about a millisecond of that timeout,
   `proc_lib:stop/3` raises `timeout_value`, and the request ends as HTTP 500
   with an empty body instead of `-32603`.
 - The evidence is the ready client and raw HTTP against the Plug on a loopback

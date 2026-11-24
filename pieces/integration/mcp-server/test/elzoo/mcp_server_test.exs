@@ -538,6 +538,10 @@ defmodule Elzoo.McpServerTest do
         schema_version: 2_147_483_647
       })
 
+    # 64 bots, the accepted edge of 0..64 (65 gives no bot, in the test above).
+    many = for n <- 1..64, do: bot.(%{bot_id: "m#{n}", name: "m#{n}"})
+    assert serve.(many) |> Enum.sort() == Enum.map(1..64, &"m#{&1}") |> Enum.sort()
+
     assert serve.([edge, bot.(%{bot_id: "b2", name: "a-_9"})]) == [
              "a-_9",
              String.duplicate("n", 64)
