@@ -333,7 +333,7 @@ defmodule Elzoo.McpRuntimeTest do
   ## OAuth helpers (ELZ-370)
 
   @conn "conn-7c1e-tenant-a-alpha"
-  # Acceptable to the ready client: 30 bytes of b64token, in no fixed or
+  # Acceptable to the ready client: 31 bytes of b64token, in no fixed or
   # configured string of the client.
   @tok_a "oauthA7c1eQ0123456789abcdefghij"
   @tok_b "oauthB7c1eR9876543210zyxwvutsrq"

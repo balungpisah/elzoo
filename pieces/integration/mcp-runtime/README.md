@@ -99,8 +99,8 @@ the ready Adapter as `unknown{adapter_error}` before any send. So a session of
 another runtime config, one with another tenant, server text or URL, cannot execute
 an intent admitted under this one. The intent identity is the ready runtime
 identity: tenant, `"mcp:runtime"`, `"mcp-client-runtime"`, `"tools/call"` and the
-68-byte `"rt1:"` digest of server, endpoint and `ref`. The credential reference, the
-addresses and the bounds are not in it: two configs that differ only there are the
+68-byte `"rt1:"` digest of server, endpoint and `ref`. The credential (its form,
+reference or connection id), the addresses and the bounds are not in it: two configs that differ only there are the
 same server under one key, so a session of a config admitted again (new addresses)
 can recover an intent of the earlier one, and keeping one credential per
 `{tenant, server}` is the host's duty.
@@ -122,6 +122,10 @@ one database transaction and the connection row lock for up to its
 `exchange_timeout_ms` plus its Needs, so one request of the ready client can wait
 that long, and the host Repo's `:timeout` must exceed that time (oauth-client's
 Consumer Needs, issue #886). Each call of that Need is one database transaction.
+The Need runs inside the ready client's request, so its wait counts against that
+request's bound: keep it below `call_timeout_ms` (a listing page or a tool call)
+and `handshake_timeout_ms` (connect). A longer wait makes a listing a timeout and a
+tool call an unknown outcome with nothing sent (by the code path; not measured).
 
 ## Grounding
 
@@ -170,7 +174,8 @@ but breaks the client's 24-byte or fixed-string rule is admitted and then refuse
 before each request (`credentials_unavailable`). `admit/1` called inside a host
 transaction gets oauth-client's `:in_transaction` through the Need and refuses
 `credentials_unavailable`. The pairing and the `list_tools/2` match tie tenant, server text and
-URL only: configs that differ only in credential reference, addresses or bounds share
+URL only: configs that differ only in credential (form, reference or connection id),
+addresses or bounds share
 the intent identity, so one credential per `{tenant, server}` is the host's duty. The
 ready client's Adapter context is not opaque: host code that edits a context's
 session or key bypasses the pairing. No claim about what a tool
