@@ -9963,6 +9963,185 @@
       "issue": 902,
       "url": "https://github.com/balungpisah/elzoo/issues/902",
       "issue_body_sha256": "2b4e3b46230db705d0678a4a74a9f1f4af4ef2b87f30755ed268e088faf137da"
+    },
+    {
+      "id": "ELZ-379",
+      "title": "ELZ-379 — Tools, doors, models and money end to end on PostgreSQL as a non-owner application role",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-006",
+        "ELZ-009",
+        "ELZ-011",
+        "ELZ-022",
+        "ELZ-023",
+        "ELZ-024",
+        "ELZ-028",
+        "ELZ-031",
+        "ELZ-053",
+        "ELZ-079",
+        "ELZ-083",
+        "ELZ-096",
+        "ELZ-105",
+        "ELZ-114",
+        "ELZ-115",
+        "ELZ-116",
+        "ELZ-122",
+        "ELZ-126",
+        "ELZ-127",
+        "ELZ-136",
+        "ELZ-137",
+        "ELZ-140",
+        "ELZ-142",
+        "ELZ-163",
+        "ELZ-170",
+        "ELZ-171",
+        "ELZ-178",
+        "ELZ-179",
+        "ELZ-267",
+        "ELZ-268",
+        "ELZ-270",
+        "ELZ-271",
+        "ELZ-272",
+        "ELZ-273",
+        "ELZ-280",
+        "ELZ-283",
+        "ELZ-285",
+        "ELZ-297",
+        "ELZ-299",
+        "ELZ-300",
+        "ELZ-301",
+        "ELZ-304",
+        "ELZ-322",
+        "ELZ-351",
+        "ELZ-357",
+        "ELZ-358",
+        "ELZ-361",
+        "ELZ-362",
+        "ELZ-363",
+        "ELZ-364",
+        "ELZ-365",
+        "ELZ-366",
+        "ELZ-367",
+        "ELZ-369",
+        "ELZ-370",
+        "ELZ-373",
+        "ELZ-374",
+        "ELZ-375",
+        "ELZ-376",
+        "ELZ-377",
+        "ELZ-378"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-379-wave9-tools-doors-models-money-acceptance.md"
+      ],
+      "outputs": [],
+      "acceptance": "Real PostgreSQL 16 and MinIO, every Piece call and every Store on the elzoo_app role (the test fails, not skips, when the role is missing, privileged or bypasses row security), as Wave 9 Level 3 under Q1-Q8 and Q10-Q12 A and Q9 D, written against the merged Contracts: tools - an OAuth code flow with PKCE against a local authorization server, a tenant MCP server admitted by mcp-runtime with %{oauth: id} and listed and called by an agent-loop bot through the ready client in :loopback mode, one refresh for two concurrent callers, invalid_grant giving credentials_unavailable with no MCP request; code mode through a harness binding that builds the lua-tool spec (declared calls complete, an undeclared function sandbox_refused unlisted_name, steps, the bytecode signature lua_error, an expired module call reported under expiry_reports: :owner); doors - the mounted mcp-server reached by the ready client (per-principal lists, one Run per call, the running bound, invalid_arguments, an expired token 401, another tenant's valid token not refused but scoped, a legacy session 404, listen -32601), webhook-out signed deliveries verified by a local receiver (dedup 503 then 2xx with one webhook-id, non-dedup dead-lettered, a private address at send not sent then retries_exhausted); models - routing over ai-text-compatible and ai-text-google stubs (throttle with retry_after to a new Attempt with unknown usage metered, :tried then :cooling_down, a data-policy denial, own credentials only, an image only to the image-capable candidate, unknown stops, a local rate wait); money - a trial subscription renewing on 28 February, a numbered invoice posted once, a checkout with duplicate and late events, reverse-order compensation, needs_operator, over_refund, an unknown charge until poll, approval_mismatch, a no-negative wallet top-up with a scripted provider; owner-only DDL, tenant reads and 42501 inserts on every new table; update refused by privilege on the three insert-only tables; five harness negative controls (three replace plan controls that cannot be performed). Full gate (mix check --affected origin/main), full review, merge queue. Output none.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 919,
+      "url": "https://github.com/balungpisah/elzoo/issues/919",
+      "issue_body_sha256": "0b7c24a0fb2599af48e46802f4216435a31bc8d2f4bc2700c95071c7ad2eaf6c"
+    },
+    {
+      "id": "ELZ-380",
+      "title": "ELZ-380 — integration/ai-text-anthropic marks exactly the message that a cache breakpoint names, or refuses the hint before any byte",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-079",
+        "ELZ-371"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-380-ai-text-anthropic-cache-breakpoint-wire-index.md"
+      ],
+      "outputs": [],
+      "acceptance": "Repair of integration/ai-text-anthropic for #913, same Piece ID: a message cache breakpoint is sent at the named message's index in req_llm's wire list (each run of consecutive tool results one message), so it marks exactly that message; a tool result that is not the last of its run is unsupported_feature, a parts message stays refused, an index past the end stays invalid_request, and no index is ever dropped; requests without such a run unchanged byte for byte. Tests: the issue's case, the last message after a run, inside a run, the image-parts form; the ELZ-371 image test's merged request moves to the sent controls (marker on the second tool result) and its parts-message breakpoint stays refused; goldens and A3 unchanged. Negative controls: the neutral index unchanged; no refusal inside a run. Provider key and external effect: local small gate and full review. Output none.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 920,
+      "url": "https://github.com/balungpisah/elzoo/issues/920",
+      "issue_body_sha256": "197ebab1a96f510f8497830631086ca6ace66d91e4f4f8484d4cc0f322a6ddd6"
+    },
+    {
+      "id": "ELZ-381",
+      "title": "ELZ-381 — integration/ai-text refuses an image of zero bytes before any provider sees it",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-079",
+        "ELZ-364"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-381-ai-text-zero-byte-image.md"
+      ],
+      "outputs": [],
+      "acceptance": "Change in place of integration/ai-text for #914 (coordinator decision): an image whose matching record and bytes are empty is refused invalid_request at admission before any intent or translate, and is the attested no-send input_unavailable tag at dispatch; a zero-byte answer that mismatches stays input_unavailable; one byte is accepted; nothing else changes and the providers keep their fixtures. Negative control: drop the check. Local small gate (dependents' tests included) and full review. Output none.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 921,
+      "url": "https://github.com/balungpisah/elzoo/issues/921",
+      "issue_body_sha256": "f4d47f0de68cc289f5f8c412c9e8482947e70973e17a9306348dfb157a4c54f2"
+    },
+    {
+      "id": "ELZ-382",
+      "title": "ELZ-382 — integration/mcp-client states and tests its bound of 64 distinct tokens per session",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-083"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-382-mcp-client-session-token-bound.md"
+      ],
+      "outputs": [],
+      "acceptance": "Repair of integration/mcp-client for #912, same Piece ID, no code change: the README (credential rule, Needs, Limits) and piece.json state the session ledger's bound of 64 distinct tokens (the 65th refused credentials_unavailable before any byte, a held token still sent, a new connect/2 starts empty) and a new test grounds it with a rotating credential Need against the loopback server, counting the handshake's tokens from the server's record. Negative control: @max 65. A signal or eviction stays open. Local small gate and full review. Output none.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 922,
+      "url": "https://github.com/balungpisah/elzoo/issues/922",
+      "issue_body_sha256": "223fe7fd3abc6fa25c9d92ee8a43d4255448b38b59db39169a91ef8ed67a908b"
+    },
+    {
+      "id": "ELZ-383",
+      "title": "ELZ-383 — integration/ai-batch names the text interface's attested no-send set, of which the batch path reaches only credentials_unavailable",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-085",
+        "ELZ-364"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-383-ai-batch-no-send-wording.md"
+      ],
+      "outputs": [],
+      "acceptance": "Text repair of integration/ai-batch for #882, same Piece ID, no behaviour change: nine places (the Binding, SubmitAdapter and CancelAdapter moduledocs, one Adapter comment, two README passages, and the piece.json contract, staged-body limit and grounding claim) name the text interface's attested no-send set (Outcome.no_send/0: credentials_unavailable and input_unavailable), of which the batch path reaches only credentials_unavailable. Tests unchanged. Credentials and external effect: local small gate and full review. Output none.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 923,
+      "url": "https://github.com/balungpisah/elzoo/issues/923",
+      "issue_body_sha256": "3decb122784180a0701e6a37821c52ac1183bda55c327e9c67a0000b26e39765"
     }
   ],
   "entries": [

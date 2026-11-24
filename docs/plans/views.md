@@ -427,6 +427,11 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-376](https://github.com/balungpisah/elzoo/issues/900) | V1B / pieces | ELZ-142, ELZ-375 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-377](https://github.com/balungpisah/elzoo/issues/901) | V1B / pieces | ELZ-363 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-378](https://github.com/balungpisah/elzoo/issues/902) | V2 / pieces | ELZ-023, ELZ-031, ELZ-033, ELZ-270, ELZ-285, ELZ-297, ELZ-365, ELZ-367 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-379](https://github.com/balungpisah/elzoo/issues/919) | V2 / pieces | ELZ-006, ELZ-009, ELZ-011, ELZ-022, ELZ-023, ELZ-024, ELZ-028, ELZ-031, ELZ-053, ELZ-079, ELZ-083, ELZ-096, ELZ-105, ELZ-114, ELZ-115, ELZ-116, ELZ-122, ELZ-126, ELZ-127, ELZ-136, ELZ-137, ELZ-140, ELZ-142, ELZ-163, ELZ-170, ELZ-171, ELZ-178, ELZ-179, ELZ-267, ELZ-268, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-280, ELZ-283, ELZ-285, ELZ-297, ELZ-299, ELZ-300, ELZ-301, ELZ-304, ELZ-322, ELZ-351, ELZ-357, ELZ-358, ELZ-361, ELZ-362, ELZ-363, ELZ-364, ELZ-365, ELZ-366, ELZ-367, ELZ-369, ELZ-370, ELZ-373, ELZ-374, ELZ-375, ELZ-376, ELZ-377, ELZ-378 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-380](https://github.com/balungpisah/elzoo/issues/920) | V1B / pieces | ELZ-079, ELZ-371 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-381](https://github.com/balungpisah/elzoo/issues/921) | V1B / pieces | ELZ-079, ELZ-364 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-382](https://github.com/balungpisah/elzoo/issues/922) | V1B / pieces | ELZ-083 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-383](https://github.com/balungpisah/elzoo/issues/923) | V1B / pieces | ELZ-085, ELZ-364 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -630,13 +635,13 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-291, ELZ-305, ELZ-306, ELZ-307, ELZ-308, ELZ-309, ELZ-315, ELZ-311, ELZ-312, ELZ-310, ELZ-318, ELZ-317, ELZ-322, ELZ-325, ELZ-328, ELZ-329, ELZ-330, ELZ-331, ELZ-332, ELZ-333, ELZ-334, ELZ-335, ELZ-337, ELZ-338, ELZ-339, ELZ-340, ELZ-341, ELZ-342, ELZ-343, ELZ-344, ELZ-345, ELZ-346, ELZ-347, ELZ-348, ELZ-349, ELZ-351, ELZ-352, ELZ-354, ELZ-355, ELZ-357, ELZ-358, ELZ-359, ELZ-360, ELZ-361, ELZ-362, ELZ-363, ELZ-364, ELZ-368, ELZ-369, ELZ-370, ELZ-371, ELZ-372, ELZ-373, ELZ-374, ELZ-375, ELZ-376, ELZ-377.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-291, ELZ-305, ELZ-306, ELZ-307, ELZ-308, ELZ-309, ELZ-315, ELZ-311, ELZ-312, ELZ-310, ELZ-318, ELZ-317, ELZ-322, ELZ-325, ELZ-328, ELZ-329, ELZ-330, ELZ-331, ELZ-332, ELZ-333, ELZ-334, ELZ-335, ELZ-337, ELZ-338, ELZ-339, ELZ-340, ELZ-341, ELZ-342, ELZ-343, ELZ-344, ELZ-345, ELZ-346, ELZ-347, ELZ-348, ELZ-349, ELZ-351, ELZ-352, ELZ-354, ELZ-355, ELZ-357, ELZ-358, ELZ-359, ELZ-360, ELZ-361, ELZ-362, ELZ-363, ELZ-364, ELZ-368, ELZ-369, ELZ-370, ELZ-371, ELZ-372, ELZ-373, ELZ-374, ELZ-375, ELZ-376, ELZ-377, ELZ-380, ELZ-381, ELZ-382, ELZ-383.
 
 ### V2-ACCEPT
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350, ELZ-353, ELZ-365, ELZ-366, ELZ-367, ELZ-378.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350, ELZ-353, ELZ-365, ELZ-366, ELZ-367, ELZ-378, ELZ-379.
 
 Prior release gate: V1-ACCEPT.
 
@@ -5180,3 +5185,53 @@ Publication copy: [tasks/ELZ-378-ledger-checkout.md](../../tasks/ELZ-378-ledger-
 **Product aims:** P10.
 
 **Acceptance:** New assembly/ledger-checkout (Wave 9 Q9 D, Q10 A, settled decision 1; replaces RC-41 for this output): checkout and step tables under the tenant floor; an invoice payment (charge through payment-lifecycle create/charge/get with payment_id checkout.<id>, invoice apply_payment with payment_ref checkout/<id>, journal post checkout/<id>/settle) or a top-up (charge, wallet post, optional host allowance grant Need with a declared parallel group); each step recorded before it starts, its result and compensation in one checkout transaction, calls to other Pieces outside it; a pending or unknown charge waits with nothing registered; a definite failure compensates in reverse order (comp/charge refund of the rest, reverse_payment, journal reverse, revoke), each idempotent by its key; a failed compensation stops needs_operator; resume/3 holds a session advisory lock per checkout (a second caller calls nothing and waits busy) and after a crash re-asks by key; a parallel group starts both members and is decided when both are definite; in_transaction and isolation record nothing; list_running/3 bounded, for open or needs_operator checkouts. Coordinator decision (2026-11-24, automated review of PR #917): each charge pass calls create/3 first (conflict a definite failure) and an existing payment of another amount or recipient is approval_mismatch, never adopted. Coordinator checks: no quota allowance function on main, so the allowance is a host Need; plan not called (fee lines are invoice data). Durable money state: local small gate and full review.
+
+### ELZ-379
+
+ELZ-379 — Tools, doors, models and money end to end on PostgreSQL as a non-owner application role
+
+Publication copy: [tasks/ELZ-379-wave9-tools-doors-models-money-acceptance.md](../../tasks/ELZ-379-wave9-tools-doors-models-money-acceptance.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** Real PostgreSQL 16 and MinIO, every Piece call and every Store on the elzoo_app role (the test fails, not skips, when the role is missing, privileged or bypasses row security), as Wave 9 Level 3 under Q1-Q8 and Q10-Q12 A and Q9 D, written against the merged Contracts: tools - an OAuth code flow with PKCE against a local authorization server, a tenant MCP server admitted by mcp-runtime with %{oauth: id} and listed and called by an agent-loop bot through the ready client in :loopback mode, one refresh for two concurrent callers, invalid_grant giving credentials_unavailable with no MCP request; code mode through a harness binding that builds the lua-tool spec (declared calls complete, an undeclared function sandbox_refused unlisted_name, steps, the bytecode signature lua_error, an expired module call reported under expiry_reports: :owner); doors - the mounted mcp-server reached by the ready client (per-principal lists, one Run per call, the running bound, invalid_arguments, an expired token 401, another tenant's valid token not refused but scoped, a legacy session 404, listen -32601), webhook-out signed deliveries verified by a local receiver (dedup 503 then 2xx with one webhook-id, non-dedup dead-lettered, a private address at send not sent then retries_exhausted); models - routing over ai-text-compatible and ai-text-google stubs (throttle with retry_after to a new Attempt with unknown usage metered, :tried then :cooling_down, a data-policy denial, own credentials only, an image only to the image-capable candidate, unknown stops, a local rate wait); money - a trial subscription renewing on 28 February, a numbered invoice posted once, a checkout with duplicate and late events, reverse-order compensation, needs_operator, over_refund, an unknown charge until poll, approval_mismatch, a no-negative wallet top-up with a scripted provider; owner-only DDL, tenant reads and 42501 inserts on every new table; update refused by privilege on the three insert-only tables; five harness negative controls (three replace plan controls that cannot be performed). Full gate (mix check --affected origin/main), full review, merge queue. Output none.
+
+### ELZ-380
+
+ELZ-380 — integration/ai-text-anthropic marks exactly the message that a cache breakpoint names, or refuses the hint before any byte
+
+Publication copy: [tasks/ELZ-380-ai-text-anthropic-cache-breakpoint-wire-index.md](../../tasks/ELZ-380-ai-text-anthropic-cache-breakpoint-wire-index.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair of integration/ai-text-anthropic for #913, same Piece ID: a message cache breakpoint is sent at the named message's index in req_llm's wire list (each run of consecutive tool results one message), so it marks exactly that message; a tool result that is not the last of its run is unsupported_feature, a parts message stays refused, an index past the end stays invalid_request, and no index is ever dropped; requests without such a run unchanged byte for byte. Tests: the issue's case, the last message after a run, inside a run, the image-parts form; the ELZ-371 image test's merged request moves to the sent controls (marker on the second tool result) and its parts-message breakpoint stays refused; goldens and A3 unchanged. Negative controls: the neutral index unchanged; no refusal inside a run. Provider key and external effect: local small gate and full review. Output none.
+
+### ELZ-381
+
+ELZ-381 — integration/ai-text refuses an image of zero bytes before any provider sees it
+
+Publication copy: [tasks/ELZ-381-ai-text-zero-byte-image.md](../../tasks/ELZ-381-ai-text-zero-byte-image.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Change in place of integration/ai-text for #914 (coordinator decision): an image whose matching record and bytes are empty is refused invalid_request at admission before any intent or translate, and is the attested no-send input_unavailable tag at dispatch; a zero-byte answer that mismatches stays input_unavailable; one byte is accepted; nothing else changes and the providers keep their fixtures. Negative control: drop the check. Local small gate (dependents' tests included) and full review. Output none.
+
+### ELZ-382
+
+ELZ-382 — integration/mcp-client states and tests its bound of 64 distinct tokens per session
+
+Publication copy: [tasks/ELZ-382-mcp-client-session-token-bound.md](../../tasks/ELZ-382-mcp-client-session-token-bound.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair of integration/mcp-client for #912, same Piece ID, no code change: the README (credential rule, Needs, Limits) and piece.json state the session ledger's bound of 64 distinct tokens (the 65th refused credentials_unavailable before any byte, a held token still sent, a new connect/2 starts empty) and a new test grounds it with a rotating credential Need against the loopback server, counting the handshake's tokens from the server's record. Negative control: @max 65. A signal or eviction stays open. Local small gate and full review. Output none.
+
+### ELZ-383
+
+ELZ-383 — integration/ai-batch names the text interface's attested no-send set, of which the batch path reaches only credentials_unavailable
+
+Publication copy: [tasks/ELZ-383-ai-batch-no-send-wording.md](../../tasks/ELZ-383-ai-batch-no-send-wording.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Text repair of integration/ai-batch for #882, same Piece ID, no behaviour change: nine places (the Binding, SubmitAdapter and CancelAdapter moduledocs, one Adapter comment, two README passages, and the piece.json contract, staged-body limit and grounding claim) name the text interface's attested no-send set (Outcome.no_send/0: credentials_unavailable and input_unavailable), of which the batch path reaches only credentials_unavailable. Tests unchanged. Credentials and external effect: local small gate and full review. Output none.
