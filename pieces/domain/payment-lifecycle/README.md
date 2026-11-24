@@ -107,7 +107,8 @@ database `TEMP` privilege that PUBLIC has by default).
   tenant), with a state that is not a forward transition, or with another amount or currency is
   stored `applied: false` and changes nothing. `state` is the operation's current state, `nil`
   for an unknown operation.
-- `get(lc, tenant, %{payment_id})` returns `{:ok, %{payment, refunds, compensation}}`;
+- `get(lc, tenant, %{payment_id})` reads under a share lock of the payment row, so it waits for
+  a writer and sees its rows together, and returns `{:ok, %{payment, refunds, compensation}}`;
   `payment` is `%{payment_id, amount, recipient, approval_digest, state, provider_ref, refunded,
   revision}` with `refunded` the sum of the refunds that are not `:failed`, and each refund
   `%{refund_id, amount, state, provider_ref}`.
@@ -229,18 +230,26 @@ When the observation write of a completed or declined answer fails, `send_effect
 dispatched and a later poll asks the provider again. `fallback: :unknown` then applies, since no
 row holds that attempt.
 
-The RefundAdapter's `send_effect/1` first reads the refund row and its observation rows under the
-tenant scope. When the refund is `:failed` or an observation of it holds a poll `:no_effect`
-(applied or not), it returns `refund_closed`, `rejected / not_dispatched / permanent`, which
-disarms the intent, and calls no provider. When that read fails it returns `store_unavailable`,
-`timed_out / not_dispatched / retryable`, and calls no provider. Both are attested no-sends:
-the Adapter made no provider call.
+Each Adapter's `send_effect/1` first reads its operation's row and observation rows under the
+tenant scope, and calls no provider when the operation is closed:
+
+- The RefundAdapter returns `refund_closed`, `rejected / not_dispatched / permanent`, when the
+  refund is `:failed` or an observation of it holds a poll `:no_effect` (applied or not).
+- The ChargeAdapter returns `charge_closed`, with the same mapping, when the charge is
+  `:succeeded` or `:failed` or an observation of it holds a final answer (a completed
+  `:succeeded` or `:failed`, or a decline), applied or not. So a declined charge whose intent a
+  poll `:no_effect` made rearmable is never sent again, since `:failed` is final.
+
+Both disarm the intent. When that read fails, either Adapter returns `store_unavailable`,
+`timed_out / not_dispatched / retryable`. All three are attested no-sends: the Adapter made no
+provider call.
 
 `poll/1` calls `poll` once, stores the answer the same way, and returns a completed envelope for
 `{:ok, %{state: :succeeded | :failed}}`, the `pending` certificate for `{:ok, %{state:
 :pending}}` and `:pending`, and the `no_effect` and `unavailable` certificates for those
-answers. When the write of a completed answer, or of a refund's `:no_effect`, fails, it returns
-the `pending` certificate instead. Completed envelopes and certificates carry an HMAC seal with
+answers. A poll answer outside these shapes, or a raise, is stored as `unavailable` and returns
+the `unavailable` certificate. When the write of a completed answer, or of a refund's
+`:no_effect`, fails, it returns the `pending` certificate instead. Completed envelopes and certificates carry an HMAC seal with
 the lifecycle value's process-local key; `authenticate/2` checks it. That is the Adapter's own
 integrity, not provider authentication, and a value from before a restart fails it.
 

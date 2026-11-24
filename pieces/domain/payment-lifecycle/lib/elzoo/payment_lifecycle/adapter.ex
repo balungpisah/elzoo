@@ -38,7 +38,7 @@ defmodule Elzoo.PaymentLifecycle.Adapter do
          true <- elem(a.operation, 0) == kind do
       case gate(lc, a) do
         {:ok, charge_ref} -> send_once(lc, a, key, n, aid, charge_ref)
-        :closed -> failure(:refund_closed)
+        :closed -> failure(if(kind == :charge, do: :charge_closed, else: :refund_closed))
         :error -> failure(:store_unavailable)
       end
     else
@@ -50,8 +50,8 @@ defmodule Elzoo.PaymentLifecycle.Adapter do
     _, _ -> failure(:adapter_error)
   end
 
-  # The RefundAdapter reads the refund row and its observations first; a charge has no gate.
-  defp gate(_lc, %{operation: {:charge, _}}), do: {:ok, nil}
+  # Each Adapter reads its operation's row and observations first, under the tenant scope.
+  defp gate(lc, %{tenant: t, operation: {:charge, id}}), do: PL.charge_gate(lc, t, id)
 
   defp gate(lc, %{tenant: t, operation: {:refund, id, rid}}),
     do: PL.refund_gate(lc, t, id, rid)
@@ -142,7 +142,7 @@ defmodule Elzoo.PaymentLifecycle.Adapter do
          {:ok, a} <- PL.decode_arguments(req.arguments),
          true <- elem(a.operation, 0) == kind do
       answer = poll_answer(lc, key, kind)
-      stored = if answer == :invalid, do: :error, else: store(lc, a, n, "poll", answer)
+      stored = store(lc, a, n, "poll", answer)
 
       case answer do
         {"ok", state, ref, _} when state in [:succeeded, :failed] ->
@@ -177,7 +177,7 @@ defmodule Elzoo.PaymentLifecycle.Adapter do
     case lc.provider.poll(%{idempotency_key: key, kind: kind}) do
       {:ok, %{provider_ref: ref, state: s} = r}
       when map_size(r) == 2 and s in [:succeeded, :pending, :failed] ->
-        if PL.text?(ref, 256), do: {"ok", s, ref, nil}, else: :invalid
+        if PL.text?(ref, 256), do: {"ok", s, ref, nil}, else: malformed()
 
       :no_effect ->
         {"no_effect", nil, nil, nil}
@@ -189,13 +189,16 @@ defmodule Elzoo.PaymentLifecycle.Adapter do
         {"unavailable", nil, nil, nil}
 
       _ ->
-        :invalid
+        malformed()
     end
   rescue
-    _ -> :invalid
+    _ -> malformed()
   catch
-    _, _ -> :invalid
+    _, _ -> malformed()
   end
+
+  # A poll answer outside the Contract's shapes, or a raise, is stored as unavailable.
+  defp malformed, do: {"unavailable", nil, nil, "malformed"}
 
   # ── results ───────────────────────────────────────────────────────────
 

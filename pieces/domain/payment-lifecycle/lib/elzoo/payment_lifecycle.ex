@@ -595,7 +595,9 @@ defmodule Elzoo.PaymentLifecycle do
          :ok <- outside(lc) do
       run(lc, tenant, fn ->
         with :ok <- isolation(lc),
-             {:ok, p} <- read_payment(lc, tenant, id, "") do
+             # FOR SHARE waits for and then excludes every writer of this payment, each of
+             # which takes the row FOR UPDATE, so the rows below are one consistent view.
+             {:ok, p} <- read_payment(lc, tenant, id, " FOR SHARE") do
           refunds =
             rows(
               lc,
@@ -607,6 +609,12 @@ defmodule Elzoo.PaymentLifecycle do
             end)
 
           {:ok, total} = Codec.decode(p.amount)
+          {:ok, zero} = Money.from_minor_units(total.currency, 0)
+
+          refunded =
+            Enum.reduce(refunds, zero, fn r, acc ->
+              if r.state == :failed, do: acc, else: elem(Money.add(acc, r.amount), 1)
+            end)
 
           payment = %{
             payment_id: p.payment_id,
@@ -615,7 +623,7 @@ defmodule Elzoo.PaymentLifecycle do
             approval_digest: p.approval_digest,
             state: p.state,
             provider_ref: p.provider_ref,
-            refunded: held(lc, tenant, id, total),
+            refunded: refunded,
             revision: p.revision
           }
 
@@ -744,7 +752,7 @@ defmodule Elzoo.PaymentLifecycle do
 
   # Writes the operation's new state and provider ref when it changed, and bumps the payment's
   # revision. Returns the payment with its current state and revision.
-  defp save(_lc, _tenant, p, %{state: state}, {state, _}), do: p
+  defp save(_lc, _tenant, p, %{state: state, provider_ref: ref}, {state, ref}), do: p
 
   defp save(lc, tenant, p, %{kind: :charge}, {state, ref}) do
     query(
@@ -865,6 +873,31 @@ defmodule Elzoo.PaymentLifecycle do
       end)
 
     if result == {:ok, :stored}, do: :ok, else: :error
+  end
+
+  @doc false
+  # The ChargeAdapter's check before a send: :ok, :closed when the charge is final or one of its
+  # observations holds a final answer (a completed :succeeded or :failed, or a decline), applied
+  # or not, or :error.
+  def charge_gate(lc, tenant, payment_id) do
+    run(lc, tenant, fn ->
+      with :ok <- isolation(lc) do
+        case rows(
+               lc,
+               "SELECT p.state, EXISTS (SELECT 1 FROM #{table(lc, :observations)} o WHERE o.tenant = p.tenant AND o.payment_id = p.payment_id AND o.operation_ref = $3 AND (o.answer = 'declined' OR (o.answer = 'ok' AND o.state IN ('succeeded', 'failed')))) FROM #{table(lc, :payments)} p WHERE p.tenant = $1 AND p.payment_id = $2",
+               [tenant, payment_id, charge_ref(payment_id)]
+             ) do
+          [[state, closed]] when state in ["succeeded", "failed"] or closed -> {:ok, :closed}
+          [[_, false]] -> {:ok, :open}
+          _ -> {:error, :unknown_payment}
+        end
+      end
+    end)
+    |> case do
+      {:ok, :closed} -> :closed
+      {:ok, :open} -> {:ok, nil}
+      _ -> :error
+    end
   end
 
   @doc false

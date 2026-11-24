@@ -226,6 +226,37 @@ defmodule Elzoo.PaymentLifecycleTest do
                {:ok, %{state: :succeeded, compensation: comp("p1")}}
     end
 
+    test "a malformed poll answer is stored as unavailable and changes nothing", ctx do
+      create!(ctx.lc, "p1")
+      Script.script(:charge, [{:unknown, :timeout}])
+      Script.script(:poll, [:garbage])
+      {pid, _} = charge_intent(ctx, "p1")
+      run(pid, :dispatch)
+      assert %{phase: {:Dispatched, :Fresh, 1}} = run(pid, :poll)
+
+      assert observations(ctx.p, "p1/charge") == [
+               {1, 1, "send", "unknown", nil, false},
+               {2, 1, "poll", "unavailable", nil, false}
+             ]
+
+      assert record(ctx.lc, {:charge, "p1"}, 1) == {:ok, %{state: :unknown, compensation: nil}}
+    end
+
+    test "observations recorded together keep the provider ref of a round trip to the same state",
+         ctx do
+      paid!(ctx.lc, "p1")
+      Script.script(:refund, [{:unknown, :timeout}])
+      Script.script(:poll, [{:ok, %{provider_ref: "re_42", state: :pending}}])
+      {pid, _} = refund_intent(ctx, "p1", "r1", eur(10))
+      run(pid, :dispatch)
+      run(pid, :poll)
+
+      assert record(ctx.lc, {:refund, "p1", "r1"}, 1) ==
+               {:ok, %{state: :pending, compensation: comp("p1")}}
+
+      assert %{state: :pending, provider_ref: "re_42"} = refund_state(ctx.lc, "p1", "r1")
+    end
+
     test "a crash after the send with no observation stored: fallback :unknown makes it :unknown",
          ctx do
       create!(ctx.lc, "p1")
@@ -382,6 +413,24 @@ defmodule Elzoo.PaymentLifecycleTest do
     end
   end
 
+  test "3 a declined charge closes its intent: a :rearm and :dispatch after a poll :no_effect calls no provider",
+       ctx do
+    create!(ctx.lc, "p1")
+    Script.script(:charge, [{:declined, "card_declined"}, @ok_succeeded])
+    Script.script(:poll, [:no_effect])
+    {pid, _} = charge_intent(ctx, "p1")
+    run(pid, :dispatch)
+    assert %{phase: {:Definite, :ProviderNoEffect, 1}} = run(pid, :poll)
+
+    # The decline is stored and not yet applied; the gate reads it anyway.
+    {:ok, _} = Intent.advance(pid, :rearm)
+    status = run(pid, :dispatch)
+    assert status.phase == {:Definite, :AdapterNoSend, 2} and status.flags.disarmed
+    assert length(Script.calls(:charge)) == 1
+
+    assert record(ctx.lc, {:charge, "p1"}, 2) == {:ok, %{state: :failed, compensation: nil}}
+  end
+
   # ------------------------------------------------------------ 4
 
   describe "4 refunds are serialized by the payment row lock" do
@@ -405,6 +454,15 @@ defmodule Elzoo.PaymentLifecycleTest do
       assert Enum.count(results, &(&1 == {:error, :over_refund})) == 1
       assert length(Harness.truth(ctx.p).refunds) == 1
       assert payment(ctx.lc, "p1").refunded == eur(60)
+    end
+
+    test "get/3 reads under the payment row lock, so a writer's rows are seen together", ctx do
+      paid!(ctx.lc, "p1")
+      holder = Harness.hold!(ctx.p, "T1", "p1")
+      task = Task.async(fn -> PL.get(ctx.lc, "T1", %{payment_id: "p1"}) end)
+      Harness.await_waiting!(1)
+      Harness.release!(holder)
+      assert {:ok, %{payment: %{state: :succeeded}}} = Task.await(task)
     end
 
     test "a pending and an unknown refund are held", ctx do

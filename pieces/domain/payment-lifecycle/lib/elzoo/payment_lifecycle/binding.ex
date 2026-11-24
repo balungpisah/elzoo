@@ -19,17 +19,17 @@ defmodule Elzoo.PaymentLifecycle.Binding do
     observation_unrecorded: {"unknown", "dispatched", "unclassified"},
     timeout: {"timed_out", "unknown", "unclassified"},
     transport: {"unknown", "unknown", "unclassified"},
-    adapter_error: {"unknown", "unknown", "unclassified"}
+    adapter_error: {"unknown", "unknown", "unclassified"},
+    # The operation's row could not be read before the send: no provider call.
+    store_unavailable: {"timed_out", "not_dispatched", "retryable"}
   }
-  @refund Map.merge(@common, %{
-            # The refund is :failed or a poll :no_effect of it is stored: no provider call.
-            refund_closed: {"rejected", "not_dispatched", "permanent"},
-            # The refund row could not be read: no provider call.
-            store_unavailable: {"timed_out", "not_dispatched", "retryable"}
-          })
+  # The charge is final, or a final answer of it is stored: no provider call.
+  @charge Map.put(@common, :charge_closed, {"rejected", "not_dispatched", "permanent"})
+  # The refund is :failed or a poll :no_effect of it is stored: no provider call.
+  @refund Map.put(@common, :refund_closed, {"rejected", "not_dispatched", "permanent"})
 
   @doc "The failure table of an operation."
-  def failures(:charge), do: @common
+  def failures(:charge), do: @charge
   def failures(:refund), do: @refund
 
   @doc "The attested not-dispatched tags of an operation."
