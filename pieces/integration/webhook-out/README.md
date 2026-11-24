@@ -179,10 +179,32 @@ for t <- tries do
   # Start a new owner, or keep the live one of this key; a restarted owner is read-only.
   pid = MyApp.Intents.owner(t.admission, binding: MyApp.Webhooks, adapter_context: b)
   if t.rearm, do: Elzoo.EffectIntent.advance(pid, :rearm)
-  Elzoo.EffectIntent.advance(pid, :dispatch)
-  # ... once the send task has settled:
+
+  fallback =
+    case Elzoo.EffectIntent.advance(pid, :dispatch) do
+      # The Adapter stores its result before the send task ends.
+      {:ok, :dispatched} ->
+        MyApp.Intents.await_settled(pid)
+        nil
+
+      # Refused. Past the try's deadline with no possibly sent attempt, the try has expired:
+      # without :expired, every later claim returns the same try again.
+      {:error, _} ->
+        if MyApp.Clock.now_ms() >= t.admission.deadline and MyApp.Intents.no_possible_send?(pid),
+          do: :expired,
+          # Otherwise read the owner as the fallback table below says (nil while unsure).
+          else: MyApp.Intents.fallback(pid)
+    end
+
+  # The owner's attempt count, or 1 when it is 0 (an expired try that was never dispatched).
   %{attempts: n} = Elzoo.EffectIntent.status(pid)
-  Elzoo.WebhookOut.record(b, tenant, %{delivery_id: t.delivery_id, try: t.try, attempt: n, fallback: nil})
+
+  Elzoo.WebhookOut.record(b, tenant, %{
+    delivery_id: t.delivery_id,
+    try: t.try,
+    attempt: max(n, 1),
+    fallback: fallback
+  })
 end
 
 Elzoo.WebhookOut.file_dead_letters(b, tenant, %{limit: 64})
@@ -220,14 +242,15 @@ When no observation is stored, `fallback` is what the host read from the intent 
 | `:delivered` | `status/1` shows the intent confirmed | delivered |
 | `:unknown` | the intent is dispatched, stranded or recovered read-only with no result | possibly sent |
 | `:not_sent` | a recorded no-send failure is the last attempt | not sent |
-| `:expired` | the try's `deadline` has passed and the owner shows no possibly sent attempt | dead letter `deadline_before_dispatch` when no attempt of the try was dispatched, else `deadline_expired`; no new try |
+| `:expired` | the try's `deadline` has passed and the owner shows no possibly sent attempt; `attempt` is the owner's attempt count, or 1 when it is 0 | dead letter `deadline_before_dispatch` when no attempt of the try was dispatched, else `deadline_expired`; no new try |
 
 A stored observation wins over every fallback but `:expired`. The Piece stores the fallback as
 that attempt's observation. An Adapter write of the same attempt that committed, or is in flight,
 before that insert wins over the fallback; one that comes after it changes nothing. So the host
 names a fallback only once the owner shows that attempt's send task settled, or the owner is
 recovered read-only.
-`:expired` is applied once per try, whatever is stored for the attempt named, and is `:invalid`
+`:expired` is applied once per try, whatever is stored for the attempt named (the owner's attempt
+count, or 1 when it is 0, since `attempt` is 1..256), and is `:invalid`
 before the deadline.
 
 | Result | Effect |
@@ -271,7 +294,9 @@ A receiver checks a request with the Standard Webhooks check. It decodes the bas
 `<webhook-id>.<webhook-timestamp>.<raw body>`. It compares that in constant time with each
 space-separated `v1,<signature>` entry of `webhook-signature`, refuses a timestamp outside its
 tolerance, and deduplicates by `webhook-id` when it was registered with `dedup: true`. The
-Standard Webhooks libraries do all of this.
+Standard Webhooks libraries do all of this. A `webhook-id` is unique only within one tenant, so a
+receiver that serves several tenants' endpoints scopes its deduplication by endpoint or by signing
+secret as well as by `webhook-id`.
 
 ## Limits
 
@@ -289,6 +314,8 @@ Standard Webhooks libraries do all of this.
   clock.
 - No live receiver is exercised: the evidence is a local receiver through the Req transport
   behind a resolver double, with no successful public connect.
+- A `webhook-id` (the tenant's `event_id`) is unique only within one tenant: a receiver that
+  serves several tenants scopes its deduplication by endpoint or secret.
 - No endpoint disable, secret rotation, event filters, fan-out bound or asymmetric signature
   (`v1a`).
 

@@ -22,6 +22,7 @@
     "READ COMMITTED, the trusted clock, the transport Need's address pinning, the tenant policy and the host's fallback reading of an intent with no observation are host Needs.",
     "Req 0.7.5 with connect_options: [hostname: h] starts one Finch instance per distinct hostname and never stops it; endpoint hosts are tenant-supplied, so the host's transport Need must pool or bound its connections itself.",
     "A delivered event is delivered at least once to a dedup endpoint and at most once to another; a receiver that does not deduplicate by webhook-id may see one event twice only if it was registered as deduplicating.",
+    "A webhook-id (the tenant's event_id) is unique only within one tenant: a receiver that serves several tenants scopes its deduplication by endpoint or secret.",
     "Event payloads are kept with no expiry or purge in this version; a timestamp is the sender's clock.",
     "No live receiver is exercised: the evidence is a local receiver through the Req transport behind a resolver double, with no successful public connect.",
     "No endpoint disable, secret rotation, event filters, fan-out bound or asymmetric signature (v1a).",
