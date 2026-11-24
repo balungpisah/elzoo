@@ -404,6 +404,66 @@ defmodule Elzoo.McpRuntimeTest do
     assert counts(v) == {0, 0}
   end
 
+  # Recorded on the base before the OAuth credential form (ELZ-370): the client
+  # config of the admission group's bearer config, every field but the
+  # credential Need, and its Need's results and Secrets call counts.
+  test "golden_bearer: the admission group's bearer config gives the recorded client config and credential Need results and counts" do
+    v = vault()
+    url = "https://MCP-7c1e.Example.Test:443/mcp"
+    {fun, _} = resolver({:ok, @public})
+    config = configured(v, url: url, resolver: fun, max_tools: 3, call_timeout_ms: 1_234)
+    assert counts(v) == {0, 0}
+    assert {:ok, %McpClient.Config{} = client} = McpRuntime.admit(config)
+    assert counts(v) == {1, 1}
+
+    # The seal key is random per configure: its shape only.
+    assert <<_::binary-size(32)>> = client.seal_key
+
+    assert Map.drop(Map.from_struct(client), [:credentials, :seal_key]) == %{
+             runtime: %{
+               server: "alpha",
+               endpoint: "https://MCP-7c1e.Example.Test:443/mcp",
+               addresses: [{8, 8, 8, 8}, {93, 184, 215, 14}],
+               network: :public
+             },
+             binding: Elzoo.McpClient.RuntimeBinding,
+             tenant: "tenant-a",
+             settings: %{
+               server: "alpha",
+               endpoint: %{
+                 port: 443,
+                 scheme: "https",
+                 host: "mcp-7c1e.example.test",
+                 url: "https://MCP-7c1e.Example.Test:443/mcp"
+               },
+               addresses: [{8, 8, 8, 8}, {93, 184, 215, 14}],
+               network: :public
+             },
+             max_tools: 3,
+             call_timeout_ms: 1234,
+             handshake_timeout_ms: 10000,
+             max_descriptor_bytes: 16384,
+             max_pages: 8,
+             max_request_bytes: 65536,
+             max_response_bytes: 1_048_576,
+             protocol_mode: :modern_only
+           }
+
+    assert is_function(client.credentials, 0)
+    ref = ref("tenant-a", "alpha")
+    assert client.credentials.() == {:ok, "tok-ref-7c1e-tenant-a-alpha-SECRET-9f3a7c0123456789ab"}
+    assert counts(v) == {1, 1}
+    assert client.credentials.() == {:ok, token(ref)}
+    assert counts(v) == {1, 1}
+    now(v, 1_000_000)
+    assert client.credentials.() == {:error, :credentials_unavailable}
+    assert counts(v) == {1, 1}
+    now(v, 100)
+    reply(v, ref, {:error, :missing})
+    assert client.credentials.() == {:error, :credentials_unavailable}
+    assert counts(v) == {1, 1}
+  end
+
   test "credentials: expired is credentials_expired; denied, missing, unavailable and a raise, throw or exit of secrets are credentials_unavailable; each after egress passes and before any client" do
     v = vault(expiry: %{ref("tenant-a", "alpha") => 500})
     ref = ref("tenant-a", "alpha")
