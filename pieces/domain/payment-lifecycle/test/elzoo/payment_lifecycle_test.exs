@@ -431,6 +431,24 @@ defmodule Elzoo.PaymentLifecycleTest do
     assert record(ctx.lc, {:charge, "p1"}, 2) == {:ok, %{state: :failed, compensation: nil}}
   end
 
+  test "3 a charge settled :failed by an event closes its intent with no final observation stored",
+       ctx do
+    create!(ctx.lc, "p1")
+    Script.script(:charge, [{:unknown, :timeout}, @ok_succeeded])
+    Script.script(:poll, [:no_effect])
+    {pid, _} = charge_intent(ctx, "p1")
+    run(pid, :dispatch)
+
+    assert {:ok, %{applied: true, state: :failed}} = event(ctx.lc, "ev-f", {:charge, "p1"}, :failed)
+
+    assert %{phase: {:Definite, :ProviderNoEffect, 1}} = run(pid, :poll)
+    {:ok, _} = Intent.advance(pid, :rearm)
+    status = run(pid, :dispatch)
+    assert status.phase == {:Definite, :AdapterNoSend, 2} and status.flags.disarmed
+    assert length(Script.calls(:charge)) == 1
+    assert payment(ctx.lc, "p1").state == :failed
+  end
+
   # ------------------------------------------------------------ 4
 
   describe "4 refunds are serialized by the payment row lock" do
