@@ -259,6 +259,13 @@ Engine facts recorded on the way, not cases:
   keeps no completion. The test asserts the loop's own finish payload and the finish's
   `refused` settlement.
 - A `message` given while a slot is active is the subject of #930 (above).
+- `RunEngine.result/3` of a completed Run rechecks the owner's revision. `Run.status/2` reports
+  that as the revision of the owner's whole stream, so another Run of the same shared owner that
+  commits during the read makes it `{:error, :completion_mismatch}`. This happened once, in group
+  1, when two bot Runs completed at about the same time. mcp-server would answer such a read as
+  `state: unknown`. This is [#931](https://github.com/balungpisah/elzoo/issues/931), its own
+  issue. The harness now reads those two results only after both Runs are completed in the
+  owner, and no assertion changed.
 
 ## Negative controls
 
@@ -294,7 +301,25 @@ Each control was one temporary edit in the worktree, run, recorded and reverted 
     git diff --check
     python3 scripts/check-roadmap.py --live
 
-TIMES
+One local run of the module (`mix test test/wave9_tools_doors_models_money_test.exs --slowest
+11`, exit 0) on this orb: 11 tests, 21.3 s in total, of which these are the tests (ms):
+
+| Test | ms |
+| --- | --- |
+| setup | 306.1 |
+| group 1, OAuth | 1,532.0 |
+| group 1, code mode | 3,229.5 |
+| group 2, the mounted server | 3,730.9 |
+| group 2, events out | 353.6 |
+| group 3, models | 4,185.2 |
+| group 4, renewal | 200.4 |
+| group 4, invoice and checkout | 322.7 |
+| group 4, compensation | 414.5 |
+| group 4, refunds, unknown, drift, top-up | 395.4 |
+| group 5, isolation | 634.4 |
+
+Six consecutive whole-module runs (`--repeat-until-failure 5`) passed in 14.8 to 23.3 s each.
+Before the read-order change of #931, one whole-module run failed once in group 1 (below).
 
 The root suite's per-test limit is 120,000 ms (`test/test_helper.exs`), and no test sets a
 `@tag timeout:`.
@@ -302,8 +327,9 @@ The root suite's per-test limit is 120,000 ms (`test/test_helper.exs`), and no t
 ## Limits
 
 The task's "Limits to state" are the full list, including the amended line for #930. This
-report adds only the engine fact above: a loop that finishes `stopped` leaves its Run with no
-completion. In short: models and the payment provider are scripted, so there is no claim about
+report adds only the two engine facts above: a loop that finishes `stopped` leaves its Run with
+no completion, and under a shared Run owner `result/3` of a completed Run can be
+`completion_mismatch` while another Run commits (#931). In short: models and the payment provider are scripted, so there is no claim about
 answer quality, provider behaviour or settlement. The authorization server, the webhook
 receiver and the compatible endpoints are `Req.Test` plugs behind a resolver double, and the
 Gemini endpoint is a plug through its test option, all with no socket. Elzoo's MCP server and

@@ -207,6 +207,20 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
       end)
 
       H.env(w, :release_refresh, true)
+
+      # result/3 rechecks the Run owner's revision, which covers every Run of the tenant's shared
+      # owner (#931): the results are read once both Runs are completed in the owner.
+      for label <- ["bot2", "bot3"] do
+        B.finished!(w, label)
+
+        B.await!(fn ->
+          match?(
+            {:ok, %{outcome: :completed}},
+            Elzoo.RunApprovalRelease.status(w.tenants["T1"].run, label)
+          )
+        end)
+      end
+
       answered!(w, "bot2")
       answered!(w, "bot3")
       assert [_] = Tools.token_requests(w, "refresh_token")
