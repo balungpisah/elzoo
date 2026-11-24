@@ -10619,12 +10619,12 @@
     {
       "id": "integration/ai-text-openai",
       "job": "ELZ-087",
-      "note": "OpenAI Responses API provider of integration/ai-text through req_llm 1.30's documented provider-callback API, for the evidenced model gpt-6.1-terra only (other models refused invalid_request; the req_llm route is asserted to be POST /v1/responses): max_retries 0, store false, one HTTP exchange with the body bounded to 4 MiB of wire bytes while received (an oversized response of any status is unknown{malformed_response}) and every response halted by an Elzoo step (no redirect, no retry, no req_llm error value); max_output_tokens below 16 refused; key only from the injected Need as api_key; sampling and stop sequences not declared; no caller provider option; structured output through text.format json_schema; reasoning none, low, medium, high, max sent as reasoning.effort; a tool result with is_error true refused; cache hint mapped to a prompt_cache_key derived from tenant and local key, explicit-mode prompt_cache_options with TTL 30m or 12h and prompt_cache_breakpoint markers on exactly the addressed system and user parts, or refused; usage and cache counters from named fields of the pinned ResponseUsage with absent fields :unknown; status failed unknown; error statuses mapped to the interface's failure tags.",
+      "note": "OpenAI Responses API provider of integration/ai-text through req_llm 1.30's documented provider-callback API, for the evidenced model gpt-6.1-terra only (other models refused invalid_request; the req_llm route is asserted to be POST /v1/responses): max_retries 0, store false, one HTTP exchange with the body bounded to 4 MiB of wire bytes while received (an oversized response of any status is unknown{malformed_response}) and every response halted by an Elzoo step (no redirect, no retry, no req_llm error value); max_output_tokens below 16 refused; key only from the injected Need as api_key; sampling and stop sequences not declared; no caller provider option; structured output through text.format json_schema; image input declared: a user message of parts sent as one user input message with the parts in order, text as input_text and each image as input_image with a base64 data URL of its bytes and detail auto, a cache breakpoint on a parts message refused unsupported_feature; reasoning none, low, medium, high, max sent as reasoning.effort; a tool result with is_error true refused; cache hint mapped to a prompt_cache_key derived from tenant and local key, explicit-mode prompt_cache_options with TTL 30m or 12h and prompt_cache_breakpoint markers on exactly the addressed system and user parts, or refused; usage and cache counters from named fields of the pinned ResponseUsage with absent fields :unknown; status failed unknown; error statuses mapped to the interface's failure tags.",
       "baseline_status": "not in baseline (new row, ELZ-087)",
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-text-openai/piece.json",
-      "manifest_sha256": "0b06972986de2a55410aed457e63a4f6e4a3d967841817a1c1ace809818cc551"
+      "manifest_sha256": "b143c5015b388e2475a16e2ea65a228841935ccdff9f93a102c347a9602520b8"
     },
     {
       "id": "integration/ai-embedding",
@@ -11356,11 +11356,11 @@
     {
       "id": "workflow/prompt-assembly",
       "job": "ELZ-140",
-      "note": "Pure build of one integration/ai-text request from role and skill instructions, selected memory, history and tools in one declared order (one system message, one memory block, one message per history entry, marked content only as rendered blocks), within a caller-supplied token window and estimate and the hard request bounds of ai-text; one declared drop order (oldest unit of a call with its results, then the last memory item) never drops instructions, tools, keep-rule records or the newest unit; older image references become a fixed marked text; refusals before any drop, over_limit when nothing is left to drop.",
+      "note": "Pure build of one integration/ai-text request from role and skill instructions, selected memory, history and tools in one declared order (one system message, one memory block, one message per history entry, marked content only as rendered blocks), within a caller-supplied token window and estimate and the hard request bounds of ai-text; one declared drop order (oldest unit of a call with its results, then the last memory item) never drops instructions, tools, keep-rule records or the newest unit; older image references become a fixed marked text; with the optional image_input true, only the newest user history entry renders its host-vouched images (0..8 artifact references in the ai-text image rules) as image parts after its text part, other user entries leave their images out, and tool-result and content image references always stay marked reference blocks bounded by max_image_refs; without image_input the request and canonical bytes are unchanged; refusals before any drop, over_limit when nothing is left to drop.",
       "baseline_status": "not in baseline (new row, RC-54)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/prompt-assembly/piece.json",
-      "manifest_sha256": "b3c386797ec5c933b1f61fe3c4a86e547c3dd8c1ee9ee74479241d8e70ed5e79",
+      "manifest_sha256": "9dcfa2a28861ea1512b0fd76156ff12e975011f59f65566cd0b95a89bf98e29b",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

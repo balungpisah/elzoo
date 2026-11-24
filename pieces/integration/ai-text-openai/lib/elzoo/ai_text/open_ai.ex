@@ -26,6 +26,11 @@ defmodule Elzoo.AiText.OpenAI do
   only as `api_key:` from the injected Need. Sampling and stop sequences are not
   declared. No caller provider option is declared: the wire cache key and cache
   options are derived from the neutral cache hint only.
+
+  Image input: a user message of parts becomes one user input message with the
+  parts in order, text as `input_text` and each image as `input_image` with a
+  `data:` URL of its bytes and `detail: "auto"`. A cache breakpoint on a parts
+  message is refused `:unsupported_feature`.
   """
   @behaviour Elzoo.AiText.Provider
 
@@ -44,7 +49,7 @@ defmodule Elzoo.AiText.OpenAI do
       piece: @piece,
       provider: "openai",
       wire_surface: "responses",
-      features: [:tools, :structured_output, :cache_hint, :reasoning],
+      features: [:tools, :structured_output, :cache_hint, :reasoning, :image_input],
       reasoning: [:low, :medium, :high, :max],
       cache_ttls: ["30m", "12h"],
       convention: %{input_includes_cached: true},
@@ -144,8 +149,9 @@ defmodule Elzoo.AiText.OpenAI do
   # Cache hint: explicit mode with exactly the hint's breakpoints, each on a
   # unique addressable input_text part. `:system` needs exactly one system
   # message; `{:message, i}` indexes the non-system messages in order and must
-  # name a user message. `:tools`, a missing or ambiguous system target and a
-  # non-user target are refused :unsupported_feature; an index beyond the
+  # name a user text message. `:tools`, a missing or ambiguous system target, a
+  # non-user target and a user message of parts are refused
+  # :unsupported_feature; an index beyond the
   # non-system messages :invalid_request. Returns the set of positions (indexes
   # into the full message list) to mark.
   defp cache(%{cache_hint: nil}), do: {:ok, MapSet.new(), []}
@@ -168,7 +174,7 @@ defmodule Elzoo.AiText.OpenAI do
 
         {:message, n}, {:ok, acc} ->
           case Enum.at(others, n) do
-            {%{role: :user}, i} -> {:cont, {:ok, [i | acc]}}
+            {%{role: :user, text: _}, i} -> {:cont, {:ok, [i | acc]}}
             {_, _} -> {:halt, {:refused, :unsupported_feature}}
             nil -> {:halt, {:refused, :invalid_request}}
           end
@@ -198,6 +204,9 @@ defmodule Elzoo.AiText.OpenAI do
          {%{role: :user, text: t}, i} ->
            ReqLLM.Context.user([part(t, i, targets)])
 
+         {%{role: :user, parts: parts}, _} ->
+           ReqLLM.Context.user(Enum.map(parts, &content/1))
+
          {%{role: :assistant, text: t, tool_calls: calls}, _} ->
            ReqLLM.Context.assistant(t,
              tool_calls: Enum.map(calls, &%{id: &1.id, name: &1.name, arguments: &1.arguments})
@@ -214,6 +223,14 @@ defmodule Elzoo.AiText.OpenAI do
       do: ReqLLM.Message.ContentPart.text(text, @breakpoint),
       else: ReqLLM.Message.ContentPart.text(text)
   end
+
+  # A part of a user message: text as input_text, an image (resolved by the
+  # interface) as input_image with its bytes in a data URL and detail "auto",
+  # which the pinned InputImageContent requires.
+  defp content(%{type: :text, text: t}), do: ReqLLM.Message.ContentPart.text(t)
+
+  defp content(%{type: :image, media_type: m, bytes: bytes}),
+    do: ReqLLM.Message.ContentPart.image(bytes, m, %{detail: "auto"})
 
   # Tools are declared with a callback that refuses to run: proposals are data.
   defp tools(list) do
