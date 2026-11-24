@@ -449,6 +449,34 @@ defmodule Elzoo.PaymentLifecycleTest do
     assert payment(ctx.lc, "p1").state == :failed
   end
 
+  test "3 a failed pre-send read is store_unavailable with no provider call, then a rearm sends",
+       ctx do
+    paid!(ctx.lc, "p1")
+    create!(ctx.lc, "p2")
+    Script.script(:charge, [@ok_succeeded])
+    Script.script(:refund, [{:ok, %{provider_ref: "re_1", state: :succeeded}}])
+    {charge_pid, ca} = charge_intent(ctx, "p2")
+    {refund_pid, ra} = refund_intent(ctx, "p1", "r1", eur(10))
+    obs = Harness.table(ctx.p, :observations)
+    Harness.q!(OwnerRepo, ~s(REVOKE SELECT ON #{obs} FROM "#{ctx.role}"))
+
+    for pid <- [charge_pid, refund_pid] do
+      status = run(pid, :dispatch)
+      # Attested no-send, retryable: not disarmed.
+      assert status.phase == {:Definite, :AdapterNoSend, 1} and not status.flags.disarmed
+    end
+
+    assert Script.calls() == []
+    Harness.q!(OwnerRepo, ~s(GRANT SELECT ON #{obs} TO "#{ctx.role}"))
+
+    for {pid, a, callback} <- [{charge_pid, ca, :charge}, {refund_pid, ra, :refund}] do
+      {:ok, _} = Intent.advance(pid, :rearm)
+      assert %{phase: {:Confirmed, 2}} = run(pid, :dispatch)
+      assert [%{idempotency_key: key}] = Script.calls(callback)
+      assert key == a.key
+    end
+  end
+
   # ------------------------------------------------------------ 4
 
   describe "4 refunds are serialized by the payment row lock" do
