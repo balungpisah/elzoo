@@ -119,7 +119,8 @@ and one request map with exactly the listed keys.
   malformed exchange leaves the connection as it was.
 - `connect_client(b, tenant, %{connection_id, provider_id, scopes})` creates an `:active` client
   credentials connection with no token: `{:ok, :applied}`, `{:ok, :duplicate}` for an existing
-  one with equal provider, grant and scopes, else `:conflict`.
+  one with equal provider, grant and scopes, `:revoked` for a revoked one of that provider, else
+  `:conflict`.
 - `access_token(b, tenant, %{connection_id})` returns `{:ok, token}` or `{:error, reason}`
   ("Tokens" below). It is the one function that returns a token value.
 - `revoke(b, tenant, %{connection_id})` makes one RFC 7009 revocation call when the provider has
@@ -143,15 +144,15 @@ provider message. A connection of another tenant is `:unknown_connection` under 
 Each token exchange (authorization code, refresh, client credentials) and each revocation is one
 POST of `application/x-www-form-urlencoded` to the provider's endpoint:
 
-1. `Elzoo.EgressPolicy.resolve/3` of the endpoint; an error is `:egress`, before any byte.
-2. The client secret, when there is one, through `Elzoo.Secrets.resolve/2`, placed by
+1. For an exchange that returns tokens, the sealing key Need, checked by a probe seal; a failure
+   is `:seal`, before any byte, so a rotated refresh token is never received without a key to
+   seal it.
+2. `Elzoo.EgressPolicy.resolve/3` of the endpoint; an error is `:egress`, before any byte.
+3. The client secret, when there is one, through `Elzoo.Secrets.resolve/2`, placed by
    `client_auth`: `client_secret_basic` as `Authorization: Basic` over the form-encoded
    `client_id:secret` (RFC 6749 section 2.3.1), `client_secret_post` as `client_id` and
    `client_secret` in the body, `none` as `client_id` in the body. A failure is
    `:secret_unavailable`, before any byte.
-3. For an exchange that returns tokens, the sealing key Need, checked by a probe seal; a failure
-   is `:seal`, before any byte, so a rotated refresh token is never received without a key to
-   seal it.
 4. The transport Need with the resolved `%{host, port, addresses}`; a failure is `:egress`.
 5. Exactly one Req request, with retries, redirects and compression off, in a task that the
    Piece kills (`Task.shutdown/2`, `:brutal_kill`) when it has not answered within
@@ -248,6 +249,18 @@ private-key JWT client authentication; the device code grant.
 - Req 0.7.5 with `connect_options: [hostname: h]` starts one Finch instance per distinct
   hostname and never stops it (`integration/egress-policy` README), so the host bounds the
   providers it declares or pools its own transport.
+- The Piece emits no event, but upstream Req and Finch do: the `[:finch, :request, ...]`, `:send`
+  and `:recv` telemetry events carry the `%Finch.Request{}`, whose body holds the `code`, the
+  `code_verifier`, the `refresh_token`, the revoked token and, under `client_secret_post`, the
+  client secret, and whose headers hold the `Authorization: Basic` value. Consumer-installed
+  handlers of those events can observe them; their collection and redaction are the
+  consumer's responsibility.
+- Attempt rows are never deleted (no `DELETE` grant): each `begin_authorization/3` adds one row
+  with a sealed verifier, without a bound. Rate-limiting consent and pruning old attempts as the
+  table owner are the host's.
+- A `revoke/3` that commits while the code exchange of `complete_authorization/3` is in flight
+  makes that call return `:revoked`; the tokens the provider just issued are dropped without a
+  revocation call and stay valid at the provider until they expire.
 - Tokens are sealed with one AES-256-GCM layer under the host's key: a person who holds the key
   and the database reads them. The authorization URL carries the `state`.
 - A token without `expires_in` lives `default_lifetime_s`, or, with that `nil`, is exchanged

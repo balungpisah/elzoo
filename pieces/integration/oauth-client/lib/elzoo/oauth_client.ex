@@ -375,7 +375,8 @@ defmodule Elzoo.OauthClient do
 
   @doc """
   Create an `:active` client credentials connection with no token: `{:ok, :applied}`, or
-  `{:ok, :duplicate}` for an existing one with equal provider, grant and scopes, else `:conflict`.
+  `{:ok, :duplicate}` for an existing one with equal provider, grant and scopes, `:revoked` for a
+  revoked one of that provider, else `:conflict`.
   """
   def connect_client(binding, tenant, request) do
     with {:ok, b} <- checked(binding),
@@ -395,6 +396,9 @@ defmodule Elzoo.OauthClient do
           {:ok, {:ok, :applied}}
         else
           case connection(b, tenant, id, :lock) do
+            {:ok, %{provider_id: ^provider_id, grant: :client_credentials, state: :revoked}} ->
+              {:error, :revoked}
+
             {:ok, %{provider_id: ^provider_id, grant: :client_credentials, scopes: ^scopes}} ->
               {:ok, {:ok, :duplicate}}
 

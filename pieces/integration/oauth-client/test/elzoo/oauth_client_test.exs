@@ -544,6 +544,47 @@ defmodule Elzoo.OauthClientTest do
              2
   end
 
+  test "6 the other outcomes: pending, no refresh token, another refusal, a malformed refresh",
+       ctx do
+    begin!(ctx.b, "pend")
+    assert token(ctx.b, "pend") == {:error, :not_active}
+
+    # an authorization code connection without a stored refresh token
+    authorize!(ctx, "nort", body: body(refresh_token: :drop))
+    set_clock(ctx, @t0 + @hour)
+    n = Server.count(ctx.server)
+    assert token(ctx.b, "nort") == {:error, :reauthorization_required}
+    assert {:ok, %{state: :reauthorization_required}} = get(ctx.b, "nort")
+    assert Server.count(ctx.server) == n
+
+    set_clock(ctx, @t0)
+    %{body: keep} = authorize!(ctx, "keep")
+    %{body: rot} = authorize!(ctx, "rot", provider: "rotating")
+    set_clock(ctx, @t0 + @hour)
+    {:ok, before} = get(ctx.b, "keep")
+
+    # a refusal other than invalid_grant changes nothing
+    respond(ctx, {401, %{"error" => "invalid_client"}})
+    assert token(ctx.b, "keep") == {:error, :exchange_refused}
+    assert get(ctx.b, "keep") == {:ok, before}
+
+    # a malformed refresh: nothing changes without rotation, the token is spent with it
+    respond(ctx, {200, body(token_type: "mac")})
+    assert token(ctx.b, "keep") == {:error, :malformed_response}
+    assert get(ctx.b, "keep") == {:ok, before}
+    assert token(ctx.b, "rot") == {:error, :reauthorization_required}
+    m = Server.count(ctx.server)
+    assert token(ctx.b, "rot") == {:error, :reauthorization_required}
+    assert Server.count(ctx.server) == m
+
+    fresh = body()
+    respond(ctx, {200, fresh})
+    assert token(ctx.b, "keep") == {:ok, fresh["access_token"]}
+    sent = Enum.map(Server.requests(ctx.server), & &1.form["refresh_token"])
+    assert Enum.count(sent, &(&1 == keep["refresh_token"])) == 3
+    assert Enum.count(sent, &(&1 == rot["refresh_token"])) == 1
+  end
+
   # ------------------------------------------------------------ 7
 
   test "7 client credentials: a token on first use, a new one after expiry, unknown changes nothing",
@@ -602,6 +643,12 @@ defmodule Elzoo.OauthClientTest do
     respond(ctx, {200, three = body()})
     assert token(ctx.b, "svc") == {:ok, three["access_token"]}
     assert Server.count(ctx.server) == 5
+
+    # a revoked client credentials connection is not taken again
+    respond(ctx, {200, ""})
+    assert revoke(ctx.b, "svc") == {:ok, :applied}
+    assert connect(ctx.b, "svc", "post") == {:error, :revoked}
+    assert connect(ctx.b, "svc", "acme") == {:error, :conflict}
   end
 
   # ------------------------------------------------------------ 8
