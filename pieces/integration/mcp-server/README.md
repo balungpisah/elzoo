@@ -66,13 +66,28 @@ The server has a redacted `Inspect`.
    `www-authenticate: Bearer` and the body `{"error":"unauthorized"}`. The Plug
    halts before the body is read, so no MCP handler is started and no Need
    other than the clock and the verifier's own is called.
-2. **ex_mcp.** A verified principal is assigned to the conn, and the request
+2. **No `subscriptions/listen`.** The Piece serves no subscription, resource or
+   stream. A verified request with an `mcp-method` header equal to
+   `subscriptions/listen` is answered by the Plug, whatever its body and its
+   size: HTTP 200 with
+   `{"jsonrpc":"2.0","id":null,"error":{"code":-32601,"message":"Method not found"}}`
+   and no stream. The Plug reads no body (hence `"id": null`), so a host that
+   parses the body upstream (a default Phoenix endpoint) keeps working. The
+   header alone decides whether a listen stream can open: ex_mcp opens one only
+   for a modern-era request, which must carry one `Mcp-Method` header equal to
+   the body's `method`. The shapes left to ex_mcp are refused by it with no
+   stream: a modern body naming the method under a header naming another is
+   HTTP 400 `-32020`, and a legacy-era body naming it is `-32602`
+   ("Subscription request rejected").
+3. **ex_mcp.** A verified principal is assigned to the conn, and the request
    goes to `ExMCP.HttpPlug` with these options:
 
    | Option | Value |
    | --- | --- |
    | `handler` | `Elzoo.McpServer.Handler` |
    | `handler_opts` | a one-arity function that reads the server and the principal from the conn |
+   | `tenant_id` | a one-arity function of the conn: the principal's `tenant` |
+   | `principal_id` | a one-arity function of the conn: `"<kind>:<id>"` of the principal, such as `"human:alice"` |
    | `handler_call_timeout` | `call_timeout_ms + 5_000` |
    | `body_limit` | `body_limit` (over it HTTP 413) |
    | `server_info` | `%{name: "elzoo-mcp-server", version: "1"}` |
@@ -89,11 +104,20 @@ The server has a redacted `Inspect`.
 
    ex_mcp starts one handler process per request and stops it afterwards. The
    handler's `init/1` gets the current request's principal, so every callback
-   decides on that principal only. Sessions are ex_mcp's and are not bound to
-   the principal (`oauth_enabled: false`). A session ID grants no tool: every
-   request is verified and decided on its own token. It is not secret from
-   ex_mcp's session operations, though: any verified caller that holds another
-   caller's session ID can end that session with `DELETE`.
+   decides on that principal only.
+
+   **Sessions.** Sessions and their store are ex_mcp's (`ExMCP.SessionManager`,
+   process-local, with its upstream defaults of 10,000 sessions and a one-hour
+   TTL). A legacy-era `initialize` binds the new session to `tenant_id` and
+   `principal_id`; a kind holds no `:`, so a `service` and a `human` with one
+   `id` are two principals. A later request or `DELETE` that names the session
+   with a token of another tenant, kind or id is refused by ex_mcp's session
+   check with HTTP 404 and JSON-RPC `-32600` "Session not found", before any
+   handler starts and with no Need beyond the token check. The same principal's
+   requests work, also with a re-issued token, and its `DELETE` is 204. A
+   modern-era request ignores session headers, and ex_mcp scopes its
+   cancellation to the same identity. A session ID still grants no tool: every
+   request is verified and decided on its own token.
 
 ## tools/list
 
@@ -172,7 +196,10 @@ request without a token is HTTP 401.
   `start` and `result` are scripted Needs, and the listed scenarios pass (see
   `piece.json`). Negative controls: skipping the authorization decision,
   skipping the schema check and starting the handler before the token check
-  each make the tests fail.
+  each make the tests fail; so do dropping `tenant_id` and `principal_id`
+  (each alone, or the kind from `principal_id`, fails its own case) and
+  dropping the listen refusal (ex_mcp then answers `-32602`
+  `subscription_filter_authorizer_required` instead of the Plug's `-32601`).
 - Upstream: `ex_mcp` 1.8.1 `ExMCP.HttpPlug` and handler-mode behaviour, and
   Plug 1.20.3 `forward`, as read at the pinned versions.
 
@@ -198,10 +225,14 @@ request without a token is HTTP 401.
 - Before a modern-era `tools/call`, ex_mcp calls `tools/list` itself to check
   header annotations, so the `authority` and `bots` Needs run twice for that
   call, each under its own handler timeout.
-- ex_mcp serves a modern-era `subscriptions/listen` request from its own
-  subscription registry, without the handler. It runs only after the token
-  check, but its response stays open (ex_mcp's default lifetime is one hour)
-  and this Piece publishes nothing to it.
+- The session binding is ex_mcp's session check on the identity that the
+  Piece gives, and with it the principal scope of modern-era cancellation. It
+  binds tenant, kind and id, not `auth_epoch`: a re-issued token keeps the
+  principal's sessions (kept open).
+- The listen refusal is by header; a body naming the method is left to ex_mcp's
+  own rejections. Bounding a stream by the token's expiry is kept open:
+  `integration/token-verify` does not return the expiry, and the Piece serves
+  no stream.
 - Not supplied: resources, prompts, progress notifications, an idempotency key
   in `_meta`, the MCP authorization flow (protected-resource metadata and an
   authorization server) and stdio.
