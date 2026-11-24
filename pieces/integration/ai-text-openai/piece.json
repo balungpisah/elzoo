@@ -45,6 +45,7 @@
     "lib/elzoo/ai_text/open_ai.ex",
     "lib/elzoo/ai_text/open_ai/usage.ex",
     "test/elzoo/ai_text_openai_test.exs",
+    "test/fixtures/openai/o1_wire.json",
     "test/fixtures/openai/responses.schema.json",
     "test/support/ai_text_openai_test_helper.exs"
   ],

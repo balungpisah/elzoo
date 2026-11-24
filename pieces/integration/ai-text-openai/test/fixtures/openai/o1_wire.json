@@ -1,0 +1,778 @@
+{
+  "finish_length": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "finish_other": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "finish_refusal": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "malformed_success": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "overloaded": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "server_error": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "structured_invalid": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false,
+        "text": {
+          "format": {
+            "name": "output",
+            "schema": {
+              "additionalProperties": false,
+              "properties": {
+                "answer": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "answer"
+              ],
+              "type": "object"
+            },
+            "strict": false,
+            "type": "json_schema"
+          }
+        }
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "structured_valid": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false,
+        "text": {
+          "format": {
+            "name": "output",
+            "schema": {
+              "additionalProperties": false,
+              "properties": {
+                "answer": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "answer"
+              ],
+              "type": "object"
+            },
+            "strict": false,
+            "type": "json_schema"
+          }
+        }
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "text_completion": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "throttled": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "timeout_after_send": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "tool_invalid_json": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false,
+        "tool_choice": "auto",
+        "tools": [
+          {
+            "description": "Look up a term.",
+            "name": "lookup",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "q": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "q"
+              ],
+              "type": "object"
+            },
+            "strict": false,
+            "type": "function"
+          }
+        ]
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "tool_schema_invalid": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false,
+        "tool_choice": "auto",
+        "tools": [
+          {
+            "description": "Look up a term.",
+            "name": "lookup",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "q": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "q"
+              ],
+              "type": "object"
+            },
+            "strict": false,
+            "type": "function"
+          }
+        ]
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "tool_well_formed": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false,
+        "tool_choice": "auto",
+        "tools": [
+          {
+            "description": "Look up a term.",
+            "name": "lookup",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "q": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "q"
+              ],
+              "type": "object"
+            },
+            "strict": false,
+            "type": "function"
+          }
+        ]
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "usage_omitted": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Answer briefly.",
+                "type": "input_text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Conformance prompt.",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 256,
+        "model": "gpt-6.1-terra",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "stream": false
+      },
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "user-agent",
+          "req/0.7.5"
+        ]
+      ],
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ]
+}

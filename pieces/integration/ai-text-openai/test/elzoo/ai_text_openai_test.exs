@@ -229,8 +229,23 @@ defmodule Elzoo.AiText.OpenAITest do
 
   defp stub_for(:server_error), do: {500, [], OpenAIStub.error("server_error")}
 
-  test "O1 conformance kit on Responses; stubs documented (malformed one a rejected negative control); requests validate (kit + stub + pinned schema)",
+  # The wire request of each O1 scenario (method, path, headers other than the
+  # key, decoded body), recorded before image input was added (ELZ-372): a
+  # request without image parts must translate byte for byte as it did then.
+  @golden_file Path.expand("../fixtures/openai/o1_wire.json", __DIR__)
+
+  defp golden(req),
+    do: %{
+      "method" => req.method,
+      "path" => req.path,
+      "headers" => for({k, v} <- req.headers, k != "authorization", do: [k, v]),
+      "body" => wire(req)
+    }
+
+  test "O1 conformance kit on Responses; stubs documented (malformed one a rejected negative control); requests validate and equal the golden wire requests (kit + stub + pinned schema + golden)",
        ctx do
+    goldens = Jason.decode!(File.read!(@golden_file))
+
     for s <- Conformance.scenarios() do
       response =
         if s.stub == :malformed_success,
@@ -242,7 +257,10 @@ defmodule Elzoo.AiText.OpenAITest do
 
       assert :ok == Conformance.check(s.id, delivery, length(requests)), inspect({s.id, delivery})
       conforms(requests, ctx)
+      assert Enum.map(requests, &golden/1) == goldens[Atom.to_string(s.id)], inspect(s.id)
     end
+
+    assert Map.keys(goldens) == Enum.sort(Enum.map(Conformance.ids(), &Atom.to_string/1))
   end
 
   ## O2 usage and cache counters, each from a named pinned-schema field
