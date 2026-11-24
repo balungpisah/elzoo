@@ -133,9 +133,11 @@ defmodule Elzoo.AiText.Google do
 
   # Gemini has one system instruction ahead of the contents: system messages are
   # accepted only before the first other message. req_llm refuses a final model
-  # turn (prefill) for Gemini 3 and later, so it is refused here first. A final
-  # user message must hold non-empty text (gemini-3.8-flash turn validation); a
-  # final tool result is a function-response continuation.
+  # turn (prefill) for Gemini 3 and later, so it is refused here first. The final
+  # Gemini turn is the trailing run of user and tool-result messages, which
+  # req_llm merges into one user content: it must hold non-empty text
+  # (gemini-3.8-flash turn validation), unless it holds tool results only (a
+  # function-response continuation).
   defp split(messages) do
     {systems, others} = Enum.split_while(messages, &(&1.role == :system))
 
@@ -143,16 +145,21 @@ defmodule Elzoo.AiText.Google do
       Enum.any?(others, &(&1.role == :system)) -> {:refused, :unsupported_feature}
       others == [] -> {:refused, :invalid_request}
       List.last(others).role == :assistant -> {:refused, :unsupported_feature}
-      not final_text?(List.last(others)) -> {:refused, :unsupported_feature}
+      not final_turn?(others) -> {:refused, :unsupported_feature}
       true -> {:ok, Enum.map(systems, & &1.text), others}
     end
   end
 
-  defp final_text?(%{role: :user, parts: parts}),
+  defp final_turn?(messages) do
+    turn = messages |> Enum.reverse() |> Enum.take_while(&(&1.role != :assistant))
+    Enum.all?(turn, &(&1.role == :tool_result)) or Enum.any?(turn, &text?/1)
+  end
+
+  defp text?(%{role: :user, parts: parts}),
     do: Enum.any?(parts, &match?(%{type: :text, text: t} when t != "", &1))
 
-  defp final_text?(%{role: :user, text: t}), do: t != ""
-  defp final_text?(%{role: :tool_result}), do: true
+  defp text?(%{role: :user, text: t}), do: t != ""
+  defp text?(_), do: false
 
   # A functionResponse needs the function name: each tool result must answer a
   # call proposed earlier in the transcript.

@@ -568,7 +568,8 @@ defmodule Elzoo.AiText.GoogleTest do
              Enum.map(order, &images[&1])
   end
 
-  test "G3 a final user turn needs non-empty text; a final tool result is a continuation (admission)" do
+  test "G3 the final Gemini turn needs non-empty text; tool results alone are a continuation (admission + captured request)",
+       ctx do
     png = %{"img-png" => {"image/png", Conformance.image()}}
 
     image = %{
@@ -577,12 +578,42 @@ defmodule Elzoo.AiText.GoogleTest do
       "media_type" => "image/png"
     }
 
-    for parts <- [[image], [%{"type" => "text", "text" => ""}, image]] do
-      req = request(%{"messages" => [%{"role" => "user", "parts" => parts}]})
+    image_only = %{"role" => "user", "parts" => [image]}
+    blank = %{"role" => "user", "parts" => [%{"type" => "text", "text" => ""}, image]}
+
+    call = %{
+      "role" => "assistant",
+      "text" => "",
+      "tool_calls" => [%{"id" => "c1", "name" => "lookup", "arguments" => %{"q" => "x"}}]
+    }
+
+    result = %{"role" => "tool_result", "tool_use_id" => "c1", "text" => "R"}
+    q = %{"role" => "user", "text" => "Q"}
+
+    for messages <- [
+          [image_only],
+          [blank],
+          # The text is in an earlier turn: the final turn is image-only.
+          [q, call, result, image_only]
+        ] do
+      req = request(%{"tools" => [@lookup], "messages" => messages})
 
       assert {:error, {:refused, :unsupported_feature}} = refused(req, artifacts: image_need(png)),
-             inspect(parts)
+             inspect(messages)
     end
+
+    # A question and its image in consecutive user messages form one final turn.
+    split = %{"role" => "user", "text" => "What is in this image?"}
+
+    {{:outcome, _, {:completed, _}}, [req], _, _} =
+      run(ctx, request(%{"messages" => [split, image_only]}), fn _ -> ok_text() end,
+        artifacts: image_need(png)
+      )
+
+    assert [%{"role" => "user", "parts" => [%{"text" => "What is in this image?"}, img]}] =
+             wire(req)["contents"]
+
+    assert Base.decode64!(img["inline_data"]["data"]) == Conformance.image()
 
     continuation =
       request(%{
@@ -599,6 +630,13 @@ defmodule Elzoo.AiText.GoogleTest do
       })
 
     assert {:ok, _} = refused(continuation)
+
+    # On the wire, the final turn is the function response alone.
+    {{:outcome, _, {:completed, _}}, [req], _, _} =
+      run(ctx, continuation, fn _ -> ok_text() end)
+
+    assert %{"role" => "user", "parts" => [%{"functionResponse" => %{"id" => "c1"}}]} =
+             List.last(wire(req)["contents"])
   end
 
   ## G4 finish and usage mapping (decode)

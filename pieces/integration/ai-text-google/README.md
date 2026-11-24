@@ -106,11 +106,13 @@ or a `.env` file.
   can have an "error" key"). A tool result that answers no earlier call is
   refused `invalid_request` (the function name is required). A final model turn
   is refused `unsupported_feature` (`req_llm` refuses prefill for Gemini 3 and
-  later), and so is a final user message without non-empty text, such as an
-  image-only prompt (the gemini-3.8-flash migration page: "ensure the final
-  user turn contains non-empty text"); a final tool result is a
-  function-response continuation and is sent. Consecutive `user` contents are
-  merged by `req_llm`. Parallel tool results are sent in transcript order with
+  later). Consecutive user and tool-result messages are merged by `req_llm`
+  into one `user` content, so the final Gemini turn is the trailing run of
+  them: it must hold non-empty text (the gemini-3.8-flash migration page:
+  "ensure the final user turn contains non-empty text"), so a question and its
+  image in two consecutive user messages are sent, and an image-only final turn
+  is refused `unsupported_feature`. A final turn of tool results only is a
+  function-response continuation and is sent. Parallel tool results are sent in transcript order with
   their call ids: the function-calling page says results need not follow call
   order, because the API maps each one to its call by `id`.
 - Replayed function calls carry `req_llm`'s `thoughtSignature`: the base64
