@@ -11410,7 +11410,7 @@
       "baseline_status": "not in baseline (new row, RC-56)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/agent-loop/piece.json",
-      "manifest_sha256": "41b0f1323733b28d665bde9005c90e3580d36ac1a5de2fef3b172b6bdc25a1b8",
+      "manifest_sha256": "06b7485c568b8841f1482c59e367e38e07feb4e0b75e4eac2cd8f3c00cccfbb8",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
