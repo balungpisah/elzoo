@@ -76,6 +76,7 @@ The server has a redacted `Inspect`.
    | `handler_call_timeout` | `call_timeout_ms + 5_000` |
    | `body_limit` | `body_limit` (over it HTTP 413) |
    | `server_info` | `%{name: "elzoo-mcp-server", version: "1"}` |
+   | `server_capabilities` | `%{tools: %{}}` (what modern `server/discover` advertises) |
    | `legacy_http_sse` | `false` |
    | `oauth_enabled` | `false` |
    | `validate_origin` | `false` |
@@ -107,8 +108,10 @@ proposal = %{tenant: principal.tenant, resource: "mcp-server",
 context = %{proposer: principal.id, effect_class: "mcp.run", own: own, parent: :none}
 ```
 
-`:ask` and `:deny` are not listed. A decision that errors or raises, or a start
-schema that `core/payload-schema` does not build, leaves out that bot only. A
+`:ask` and `:deny` are not listed. A decision that errors or raises, a start
+schema whose root `"type"` is not `"object"` (MCP requires an object-rooted
+`inputSchema`), or one that `core/payload-schema` does not build, leaves out
+that bot only. A
 failed `authority` or `bots` Need, or an invalid bot list, gives an empty list.
 Tools come in `name` byte order, all on one page (no `nextCursor`). Each tool
 has `name`, `description` and `inputSchema` (the start schema).
@@ -120,7 +123,8 @@ has `name`, `description` and `inputSchema` (the start schema).
    `:allow` for this principal is the error `unknown tool`, which ex_mcp sends
    as JSON-RPC `-32602`.
 2. ex_mcp's handler mode merges the request's `_meta` into the arguments map,
-   so that reserved MCP member is removed. Then `Elzoo.PayloadSchema.check/3`
+   so that reserved MCP member is removed. An argument that the caller itself
+   names `_meta` is removed with it, so a start schema must not rely on one. Then `Elzoo.PayloadSchema.check/3`
    checks the arguments against the start schema, built with the port
    `%{"id" => bot_id, "direction" => "input", "schema_id" => bot_id,
    "schema_version" => schema_version}`. Any refusal, including more than
@@ -191,6 +195,9 @@ request without a token is HTTP 401.
   socket with scripted Run Needs. No live MCP host, TLS, public endpoint or
   engine is exercised; the Wave 9 root acceptance composes them.
 - ex_mcp's own debug logs and telemetry are upstream.
+- Before a modern-era `tools/call`, ex_mcp calls `tools/list` itself to check
+  header annotations, so the `authority` and `bots` Needs run twice for that
+  call, each under its own handler timeout.
 - ex_mcp serves a modern-era `subscriptions/listen` request from its own
   subscription registry, without the handler. It runs only after the token
   check, but its response stays open (ex_mcp's default lifetime is one hour)

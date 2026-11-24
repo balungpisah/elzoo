@@ -172,7 +172,8 @@ defmodule Elzoo.McpServer do
 
   # Each valid host bot that the policy allows the principal to run, with its
   # checked start schema. A failed Need or an invalid bot list gives no bot; a
-  # failed decision or a schema that does not build drops that bot only.
+  # failed decision, or a schema that is not object-rooted or does not build,
+  # drops that bot only.
   defp runnable(server, principal) do
     with {:ok, {:ok, own}} <- need(server.authority, principal),
          {:ok, {:ok, bots}} <- need(server.bots, principal.tenant),
@@ -181,6 +182,8 @@ defmodule Elzoo.McpServer do
       |> Enum.sort_by(& &1.name)
       |> Enum.flat_map(fn bot ->
         with true <- allowed?(server.policy, principal, own, bot),
+             # MCP requires an inputSchema whose root type is "object".
+             "object" <- Map.get(bot.start_schema, "type"),
              {:ok, checked} <- PayloadSchema.build(port(bot), bot.start_schema) do
           [{bot, checked}]
         else

@@ -60,6 +60,9 @@ defmodule Elzoo.McpServer.Plug do
       handler_call_timeout: server.call_timeout_ms + 5_000,
       body_limit: server.body_limit,
       server_info: %{name: "elzoo-mcp-server", version: "1"},
+      # Modern server/discover reads the capabilities from here, not from the
+      # handler's initialize answer.
+      server_capabilities: %{tools: %{}},
       legacy_http_sse: false,
       oauth_enabled: false,
       # Every request carries its own bearer token, which no browser attaches by

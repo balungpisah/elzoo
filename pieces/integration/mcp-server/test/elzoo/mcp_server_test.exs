@@ -466,7 +466,15 @@ defmodule Elzoo.McpServerTest do
       bots: fn _ -> exit(:bots_down) end,
       bots: fn _ ->
         {:ok,
-         [%{bot_id: "b", name: "Bad Name", description: "d", start_schema: %{}, schema_version: 1}]}
+         [
+           %{
+             bot_id: "b",
+             name: "Bad Name",
+             description: "d",
+             start_schema: %{"type" => "object"},
+             schema_version: 1
+           }
+         ]}
       end,
       bots: fn "acme" ->
         {:ok,
@@ -476,7 +484,7 @@ defmodule Elzoo.McpServerTest do
              bot_id: "b#{&1}",
              name: "b#{&1}",
              description: "d",
-             start_schema: %{},
+             start_schema: %{"type" => "object"},
              schema_version: 1
            }
          )}
@@ -490,17 +498,56 @@ defmodule Elzoo.McpServerTest do
       assert names(client(ctx, token(ctx, "alice"))) == [], "#{key}"
     end
 
-    remote = %{"$ref" => "https://schemas.example/x.json"}
-    bots = fn "acme" -> {:ok, [%{hd(@bots["acme"]) | start_schema: remote} | tl(@bots["acme"])]} end
-    {:ok, server} = McpServer.new(Keyword.put(base, :bots, bots))
-    Host.put({:ok, server})
-    assert names(client(ctx, token(ctx, "alice"))) == ["echo"]
+    # A schema that does not build, or whose root type is not "object" (MCP's
+    # inputSchema rule), drops that bot alone: summarize goes, echo stays.
+    for schema <- [
+          %{"type" => "object", "$ref" => "https://schemas.example/x.json"},
+          %{},
+          %{"type" => ["object"]},
+          %{"type" => "string"}
+        ] do
+      bots = fn "acme" ->
+        {:ok, [%{hd(@bots["acme"]) | start_schema: schema} | tl(@bots["acme"])]}
+      end
+
+      {:ok, server} = McpServer.new(Keyword.put(base, :bots, bots))
+      Host.put({:ok, server})
+      assert names(client(ctx, token(ctx, "alice"))) == ["echo"], inspect(schema)
+    end
+  end
+
+  test "server/discover (modern era) advertises the tools capability", ctx do
+    resp =
+      post(
+        ctx,
+        [
+          {"authorization", "Bearer " <> token(ctx, "alice")},
+          {"mcp-protocol-version", "2026-07-28"},
+          {"mcp-method", "server/discover"}
+        ],
+        rpc(1, "server/discover", %{
+          "_meta" => %{
+            "io.modelcontextprotocol/protocolVersion" => "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities" => %{},
+            "io.modelcontextprotocol/clientInfo" => %{"name" => "raw", "version" => "1"}
+          }
+        })
+      )
+
+    assert resp.status == 200, resp.body
+    assert %{"result" => %{"capabilities" => %{"tools" => %{}}}} = Jason.decode!(resp.body)
   end
 
   test "tools/list: each bot-list rule at its edge; a list that breaks one gives no bot", ctx do
     bot = fn fields ->
       Map.merge(
-        %{bot_id: "b1", name: "b1", description: "d", start_schema: %{}, schema_version: 1},
+        %{
+          bot_id: "b1",
+          name: "b1",
+          description: "d",
+          start_schema: %{"type" => "object"},
+          schema_version: 1
+        },
         fields
       )
     end
