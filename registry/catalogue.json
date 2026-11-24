@@ -1482,8 +1482,9 @@
       "summary": "OpenAI-compatible Chat Completions provider at an egress-checked base URL",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-374: Wave 9 (P13). A self-hosted or regional model endpoint (owner Q6 A), admitted through integration/egress-policy, with a host-declared model table."
+      "status": "ready",
+      "reason": "ELZ-374: Wave 9 (P13). A self-hosted or regional model endpoint (owner Q6 A), admitted through integration/egress-policy, with a host-declared model table.",
+      "manifest": "pieces/integration/ai-text-compatible/piece.json"
     }
   ]
 }
