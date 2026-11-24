@@ -17,7 +17,7 @@
     "delivery/dead-letter",
     "delivery/time"
   ],
-  "contract": "Local bounded volatile attempt/deadline runner over pure retry policy; default forbids possibly-dispatched retries; validates and correlates completed results; dead-letter sink failures settle as unsettled.",
+  "contract": "Local bounded volatile attempt/deadline runner over pure retry policy; default forbids possibly-dispatched retries; validates and correlates completed results; dead-letter sink failures settle as unsettled. delay/4: a retry delay from a not-dispatched failure, clamped, with optional full jitter; every other class keeps backoff.",
   "limits": [
     "Local single-node volatile operations; no durability, exactly-once, at-least-once, distributed credit or shedding.",
     "Capacity bounds admitted operations (including backoff), not OTP mailbox bytes. Caller call timeout means unknown admission.",
@@ -26,12 +26,14 @@
     "Blocking sink blocks the runner; raises, throws, exits and non-ok returns yield unsettled. No operational drain or telemetry supplied.",
     "Attempts run with :brutal_kill shutdown; the runner removes each attempt child through a synchronous Task.Supervisor.terminate_child/2 with no timeout before retry, resubmission or settlement, so trap_exit cannot cause the default 5000 ms wait, but a busy or unresponsive supervisor delays or blocks the runner; use a dedicated Task.Supervisor or one holding only :brutal_kill children. If the supervisor died or a restarted one no longer owns the child, the runner sends the task an untrappable :kill without waiting. Task cleanup code does not run and an external Effect may persist.",
     "Helper laws do not prove the runner, integer comparisons, classification or conservation; those have finite test/model evidence.",
-    "RedispatchIdempotent is a caller assertion, not a checked provider guarantee."
+    "RedispatchIdempotent is a caller assertion, not a checked provider guarantee.",
+    "The jittered range bounds are finite test evidence, not laws. The random value is the caller's; the Runner uses `:rand` in its process, not a cryptographic source."
   ],
   "files": [
     "cure/elzoo/retry_policy.cure",
     "lib/elzoo/retry_timeout.ex",
     "lib/elzoo/retry_timeout/runner.ex",
+    "test/elzoo/retry_delay_test.exs",
     "test/elzoo/retry_policy_test.exs",
     "test/elzoo/retry_runner_test.exs"
   ],
@@ -55,6 +57,48 @@
       "claim": "dispatched_not_retried_when_forbidden: selected production helper law only; supplied decisions/mode, not a full runner/receiver invariant."
     },
     {
+      "kind": "proof",
+      "file": "cure/elzoo/retry_policy.cure",
+      "symbol": "delay_completed_is_backoff",
+      "claim": "delay_completed_is_backoff: selected production helper law only; delay of a completed result equals backoff for every policy, attempt, failure delay and random value; not the ranges, the runner or boundary validation."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/retry_policy.cure",
+      "symbol": "delay_permanent_is_backoff",
+      "claim": "delay_permanent_is_backoff: selected production helper law only; delay of a permanent result equals backoff for every policy, attempt, failure delay and random value; not the ranges, the runner or boundary validation."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/retry_policy.cure",
+      "symbol": "delay_dispatched_is_backoff",
+      "claim": "delay_dispatched_is_backoff: selected production helper law only; delay of a possibly dispatched result equals backoff for every policy, attempt, failure delay and random value; not the ranges, the runner or boundary validation."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/retry_policy.cure",
+      "symbol": "delay_retryable_none_without_failure_is_backoff",
+      "claim": "delay_retryable_none_without_failure_is_backoff: selected production helper law only; under JitterNone with no failure delay, a retryable delay equals backoff; not the ranges, the runner or boundary validation."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/retry_policy.cure",
+      "symbol": "delay_retryable_none_with_failure_is_max",
+      "claim": "delay_retryable_none_with_failure_is_max: selected production helper law only; under JitterNone with a failure delay, a retryable delay equals max(min(fd, max_failure_delay_ms), backoff); not the ranges, the runner or boundary validation."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/retry_policy.cure",
+      "symbol": "delay_retryable_full_without_failure_is_spread",
+      "claim": "delay_retryable_full_without_failure_is_spread: selected production helper law only; under JitterFull with no failure delay, a retryable delay equals the spread of random over 0..backoff; not the ranges, the runner or boundary validation."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/retry_policy.cure",
+      "symbol": "delay_retryable_full_with_failure_is_max_plus_spread",
+      "claim": "delay_retryable_full_with_failure_is_max_plus_spread: selected production helper law only; under JitterFull with a failure delay, a retryable delay equals max(min(fd, max_failure_delay_ms), backoff) plus the spread; not the ranges, the runner or boundary validation."
+    },
+    {
       "kind": "type",
       "file": "cure/elzoo/retry_policy.cure",
       "claim": "Pinned Cure checks production declarations/decisions; direct erased callers remain responsible for valid terms."
@@ -68,6 +112,11 @@
       "kind": "test",
       "file": "test/elzoo/retry_runner_test.exs",
       "claim": "Named decision matrix, audit/negative controls or OTP terminal-path/timer/capacity/restart scenarios, finite evidence not proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/retry_delay_test.exs",
+      "claim": "Golden backoff/decide table recorded before ELZ-357, delay/4 cases, boundary and order, a seeded jitter sweep against an independent formula with its range bounds, and runner class/random use; finite evidence not proofs."
     },
     {
       "kind": "upstream",

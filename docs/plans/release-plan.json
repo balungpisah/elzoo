@@ -9846,12 +9846,12 @@
     {
       "id": "delivery/retry-timeout",
       "job": "ELZ-006",
-      "note": "Local bounded volatile attempt/deadline runner over pure retry policy; default forbids possibly-dispatched retries; validates and correlates completed results; dead-letter sink failures settle as unsettled.",
+      "note": "Local bounded volatile attempt/deadline runner over pure retry policy; default forbids possibly-dispatched retries; validates and correlates completed results; dead-letter sink failures settle as unsettled. delay/4: a retry delay from a not-dispatched failure, clamped, with optional full jitter; every other class keeps backoff.",
       "baseline_status": "ready",
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/retry-timeout/piece.json",
-      "manifest_sha256": "c4a5b91c649ae8e037138ec79c115c79f3e428bad64cd137d1efadaba8b1d5a5"
+      "manifest_sha256": "6c66629e41b3d2a2d41ca7e96028208e2d95d15076c58c1bd23fa931da9ee2e2"
     },
     {
       "id": "delivery/routing",
