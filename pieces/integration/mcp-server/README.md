@@ -115,8 +115,9 @@ The server has a redacted `Inspect`.
    check with HTTP 404 and JSON-RPC `-32600` "Session not found", before any
    handler starts and with no Need beyond the token check. The same principal's
    requests work, also with a re-issued token, and its `DELETE` is 204. A
-   modern-era request ignores session headers, and ex_mcp scopes its
-   cancellation to the same identity. A session ID still grants no tool: every
+   modern-era request ignores session headers; with the identity set, ex_mcp
+   1.8.1 scopes its cancellation to the same principal and tenant (as read in
+   its code, not tested here). A session ID still grants no tool: every
    request is verified and decided on its own token.
 
 ## tools/list
@@ -226,9 +227,9 @@ request without a token is HTTP 401.
   header annotations, so the `authority` and `bots` Needs run twice for that
   call, each under its own handler timeout.
 - The session binding is ex_mcp's session check on the identity that the
-  Piece gives, and with it the principal scope of modern-era cancellation. It
-  binds tenant, kind and id, not `auth_epoch`: a re-issued token keeps the
-  principal's sessions (kept open).
+  Piece gives, and with it (as read upstream, not tested) the principal scope
+  of modern-era cancellation. It binds tenant, kind and id, not `auth_epoch`:
+  a re-issued token keeps the principal's sessions (kept open).
 - The listen refusal is by header; a body naming the method is left to ex_mcp's
   own rejections. Bounding a stream by the token's expiry is kept open:
   `integration/token-verify` does not return the expiry, and the Piece serves

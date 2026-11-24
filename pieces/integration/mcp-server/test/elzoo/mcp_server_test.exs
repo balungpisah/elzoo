@@ -823,10 +823,12 @@ defmodule Elzoo.McpServerTest do
   defp session_not_found?(_), do: false
 
   # Call counts of the handler double: ex_mcp starts one handler process per
-  # handled request, through Handler.init/1.
+  # handled request, through Handler.init/1. The module is loaded first, so the
+  # pattern matches one function even when this test runs alone.
   defp count_handlers do
     init = {Elzoo.McpServer.Handler, :init, 1}
-    :erlang.trace_pattern(init, true, [:call_count])
+    Code.ensure_loaded!(Elzoo.McpServer.Handler)
+    assert :erlang.trace_pattern(init, true, [:call_count]) == 1
     on_exit(fn -> :erlang.trace_pattern({:_, :_, :_}, false, [:call_count]) end)
     fn -> count(init) end
   end
