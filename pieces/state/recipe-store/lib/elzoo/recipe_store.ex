@@ -6,13 +6,18 @@ defmodule Elzoo.RecipeStore do
 
   The bytes of a version are an artifact of `state/artifact` (the compact JSON
   of the neutral package, under the artifact ID of the 64 hex characters of its
-  identity). Everything else is a record of the one stream `recipe-store/<tenant>`
-  of the ready Store (`state/event-log`): `stored`, verdict, `published`, pin,
-  unpin and delete mark. A change reads the stream, decides on the folded state
-  with the pure `Cure.Elzoo.RecipeStore.decide/6` and appends one record at the
-  head revision, so two changes of one tenant are in one order. On a conflict it
-  reads again, at most 3 tries, then `{:error, :contended}`; an indeterminate
-  append is `{:error, :indeterminate}` and never tried again.
+  identity). Everything else is a record of the live generation of the tenant
+  stream in the ready Store (`state/event-log`): `stored`, verdict,
+  `published`, pin, unpin and delete mark. Generation 1 is
+  `recipe-store/<tenant>`, generation `n` ≥ 2 is `recipe-store/<tenant>/<n>`.
+  A change reads the live generation, decides on its folded state with the pure
+  `Cure.Elzoo.RecipeStore.decide/6` and appends one record at its head
+  revision, so two changes of one tenant are in one order. A full generation
+  (10,000 records) never changes again: a change that would append to it first
+  writes its carry (a `recipe_carried` header and the live state, at most 5,000
+  records, else `{:error, :stream_full}`) as the next generation. On a conflict
+  of any append it reads again, at most 3 tries, then `{:error, :contended}`;
+  an indeterminate append is `{:error, :indeterminate}` and not tried again.
 
   A delete commits the mark first and only then deletes the artifact versions,
   so no artifact record is deleted while the tenant stream holds no mark.
@@ -27,6 +32,7 @@ defmodule Elzoo.RecipeStore do
   @cure :"Cure.Elzoo.RecipeStore"
   @version 1
   @max_records 10_000
+  @max_carry 5_000
   @max_tries 3
   @max_run_id 128
   @page 1_000
@@ -37,7 +43,8 @@ defmodule Elzoo.RecipeStore do
   @pinned "recipe_pinned"
   @unpinned "recipe_unpinned"
   @deleted "recipe_deleted"
-  @kinds [@stored, @checked, @published, @pinned, @unpinned, @deleted]
+  @carried "recipe_carried"
+  @kinds [@stored, @checked, @published, @pinned, @unpinned, @deleted, @carried]
 
   @identity ~r/\Arecipe-package-v1:sha256:[0-9a-f]{64}\z/
   @segment ~r/\A[A-Za-z0-9._-]+\z/
@@ -100,9 +107,9 @@ defmodule Elzoo.RecipeStore do
          {:ok, loaded} <- load(rs, caller.tenant) do
       case put_step(rs, caller, loaded, identity, false) do
         {:append, _, _, _} ->
-          if loaded.revision >= @max_records,
-            do: {:error, :stream_full},
-            else: write_then_record(rs, caller, loaded, identity, bytes)
+          # A refusal of the carry that needs no write comes before the bytes.
+          with {:ok, _, _} <- carry_plan(rs, loaded),
+               do: write_then_record(rs, caller, loaded, identity, bytes)
 
         {:done, result} ->
           result
@@ -269,7 +276,7 @@ defmodule Elzoo.RecipeStore do
     end
   end
 
-  @doc "The versions of the tenant in the order of their `stored` records, from the tenant stream only."
+  @doc "The versions of the tenant in the order of their `stored` records, from the live generation only."
   def versions(rs, caller) do
     with :ok <- store(rs), :ok <- check_caller(caller), {:ok, loaded} <- load(rs, caller.tenant) do
       published = loaded.state.published
@@ -317,7 +324,7 @@ defmodule Elzoo.RecipeStore do
   defp reason(:Pinned), do: :pinned
   defp reason(:Published), do: :published
 
-  # ── one change: read, decide, append at the head revision ────────────
+  # ── one change: read, decide, carry if full, append at the head revision ──
 
   # `fun` gets the folded state and gives `{:done, result}` or
   # `{:append, kind, payload, result}`. The first state may be given.
@@ -332,21 +339,93 @@ defmodule Elzoo.RecipeStore do
       {:done, result} ->
         result
 
-      {:append, kind, payload, result} ->
-        case append(rs, loaded, kind, payload) do
-          :ok -> result
-          :conflict when tries > 1 -> change(rs, tenant, nil, fun, tries - 1)
-          :conflict -> {:error, :contended}
-          {:error, _} = failure -> failure
+      {:append, _, _, _} = decision ->
+        with {:ok, batches, live} <- carry_plan(rs, loaded) do
+          case write_batches(rs, batches) do
+            :ok ->
+              # Decided again on the new live generation, whose fold equals the old one.
+              decision = if batches == [], do: decision, else: fun.(live)
+              record(rs, tenant, live, decision, fun, tries)
+
+            failure ->
+              again(rs, tenant, failure, fun, tries)
+          end
         end
     end
   end
 
-  defp append(_rs, %{revision: revision}, _kind, _payload) when revision >= @max_records,
-    do: {:error, :stream_full}
+  defp record(_rs, _tenant, _live, {:done, result}, _fun, _tries), do: result
 
-  defp append(rs, %{stream: stream, revision: expected}, kind, payload) do
-    with {:ok, rows, request} <- rows(rs, stream, expected, kind, payload) do
+  defp record(rs, tenant, live, {:append, kind, payload, result}, fun, tries) do
+    case append(rs, live.stream, live.revision, [{kind, payload}]) do
+      :ok -> result
+      failure -> again(rs, tenant, failure, fun, tries)
+    end
+  end
+
+  defp again(rs, tenant, :conflict, fun, tries) when tries > 1,
+    do: change(rs, tenant, nil, fun, tries - 1)
+
+  defp again(_rs, _tenant, :conflict, _fun, _tries), do: {:error, :contended}
+  defp again(_rs, _tenant, {:error, _} = failure, _fun, _tries), do: failure
+
+  # Rules 1 and 2 of a change that appends: the batches that make the live
+  # generation one that is not full, and the live generation after them.
+  # Pure: every refusal here is made before any write.
+  defp carry_plan(rs, %{pending: %{rows: written} = pending} = loaded) do
+    carry = carry(loaded.state, loaded.generation)
+
+    if prefix?(written, carry) do
+      rest = Enum.drop(carry, length(written))
+      live = %{loaded | generation: pending.generation, stream: pending.stream, pending: nil}
+      {:ok, batches(rs, pending.stream, length(written), rest), %{live | revision: length(carry)}}
+    else
+      {:error, {:log, :malformed}}
+    end
+  end
+
+  defp carry_plan(rs, %{revision: revision} = loaded) when revision >= @max_records do
+    carry = carry(loaded.state, loaded.generation)
+
+    if length(carry) > @max_carry do
+      {:error, :stream_full}
+    else
+      next = loaded.generation + 1
+      stream = stream(loaded.tenant, next)
+
+      {:ok, batches(rs, stream, 0, carry),
+       %{loaded | generation: next, stream: stream, revision: length(carry)}}
+    end
+  end
+
+  defp carry_plan(_rs, loaded), do: {:ok, [], loaded}
+
+  defp prefix?(written, carry) do
+    length(written) <= length(carry) and
+      Enum.zip_with(written, carry, fn row, {kind, payload} ->
+        row.kind == kind and row.schema_version == @version and row.payload == payload
+      end)
+      |> Enum.all?()
+  end
+
+  defp batches(rs, stream, expected, records) do
+    records
+    |> Enum.chunk_every(rs.limits.max_batch_size)
+    |> Enum.map_reduce(expected, fn chunk, at -> {{stream, at, chunk}, at + length(chunk)} end)
+    |> elem(0)
+  end
+
+  defp write_batches(rs, batches) do
+    Enum.reduce_while(batches, :ok, fn {stream, expected, records}, :ok ->
+      case append(rs, stream, expected, records) do
+        :ok -> {:cont, :ok}
+        failure -> {:halt, failure}
+      end
+    end)
+  end
+
+  defp append(rs, stream, expected, records) do
+    with {:ok, rows, request} <- rows(rs, stream, expected, records) do
       case Store.write(rs.log, :append, [stream, expected, rows, []], request) do
         {:committed, _} -> :ok
         {:conflict, _} -> :conflict
@@ -356,38 +435,46 @@ defmodule Elzoo.RecipeStore do
     end
   end
 
-  defp rows(rs, stream, expected, kind, payload) do
+  defp rows(rs, stream, expected, records) do
     nonce = :crypto.strong_rand_bytes(16)
 
-    row = %Log.Record{
-      stream: stream,
-      sequence: expected + 1,
-      kind: kind,
-      schema_version: @version,
-      payload: payload,
-      nonce: nonce
-    }
+    rows =
+      records
+      |> Enum.with_index(expected + 1)
+      |> Enum.map(fn {{kind, payload}, sequence} ->
+        row = %Log.Record{
+          stream: stream,
+          sequence: sequence,
+          kind: kind,
+          schema_version: @version,
+          payload: payload,
+          nonce: nonce
+        }
 
-    row = %{row | digest: Log.digest(row)}
+        %{row | digest: Log.digest(row)}
+      end)
 
     request = %{
       stream: stream,
       expected: expected,
-      records: [{kind, @version, payload}],
+      records: for({kind, payload} <- records, do: {kind, @version, payload}),
       outbox: []
     }
 
     with :ok <- Log.preflight(request, rs.fold, rs.limits),
-         :ok <- Log.validate_row(row, rs.fold, rs.limits) do
-      {:ok, [row],
+         :ok <-
+           Enum.find_value(rows, :ok, fn row ->
+             with :ok <- Log.validate_row(row, rs.fold, rs.limits), do: nil
+           end) do
+      {:ok, rows,
        %{
          operation: :append,
          stream: stream,
          expected: expected,
-         target: expected + 1,
+         target: expected + length(rows),
          nonce: nonce,
-         digest: Codec.hash([Log.canonical_bytes(row)]),
-         records: [row]
+         digest: Codec.hash(Enum.map(rows, &Log.canonical_bytes/1)),
+         records: rows
        }}
     else
       {:rejected, reason} -> {:error, {:log, reason}}
@@ -463,26 +550,123 @@ defmodule Elzoo.RecipeStore do
 
   defp canonical(value), do: Jason.encode!(value)
 
-  # ── the tenant stream ────────────────────────────────────────────────
+  # ── the generations of the tenant stream ─────────────────────────────
 
-  defp stream(tenant), do: "recipe-store/" <> tenant
+  # A tenant holds no `/`, so no generation of one tenant is a stream of another.
+  defp stream(tenant, 1), do: "recipe-store/" <> tenant
+  defp stream(tenant, n), do: "recipe-store/" <> tenant <> "/" <> Integer.to_string(n)
 
+  # The live generation: the last non-empty one `G` when it is complete,
+  # else `G − 1`, whose fold the stopped carry in `pending` is checked against.
   defp load(rs, tenant) do
-    stream = stream(tenant)
+    with {:ok, top, heads} <- probe_up(rs, tenant, 1, 2, %{}),
+         {:ok, rows} <- read_generation(rs, tenant, top, heads),
+         {:ok, k, facts} <- header(rows, top) do
+      if top == 1 or length(rows) >= 1 + k do
+        live(tenant, top, rows, facts, nil)
+      else
+        pending = %{generation: top, stream: stream(tenant, top), rows: rows}
 
-    with {:ok, head} <- head(rs, stream),
-         {:ok, rows} <- read_rows(rs, stream, 1, head.revision, []),
-         {:ok, state} <- fold(rows) do
-      {:ok, %{stream: stream, revision: head.revision, state: state}}
+        with {:ok, before} <- read_generation(rs, tenant, top - 1, heads),
+             {:ok, _, before_facts} <- header(before, top - 1),
+             do: live(tenant, top - 1, before, before_facts, pending)
+      end
     end
   end
 
-  defp head(rs, stream) do
-    case Store.read(rs.log, :head, [stream]) do
-      {:ok, %{low_water: 0} = head} -> {:ok, head}
+  defp live(tenant, n, rows, facts, pending) do
+    with {:ok, state} <- fold(facts) do
+      {:ok,
+       %{
+         tenant: tenant,
+         generation: n,
+         stream: stream(tenant, n),
+         revision: length(rows),
+         state: state,
+         pending: pending
+       }}
+    end
+  end
+
+  # `G` from head reads only: generations 2, 4, 8, … until one is empty, then a
+  # binary search between the last non-empty and the first empty probe.
+  defp probe_up(rs, tenant, last, n, heads) do
+    with {:ok, heads, filled} <- probe(rs, tenant, n, heads) do
+      if filled,
+        do: probe_up(rs, tenant, n, 2 * n, heads),
+        else: bisect(rs, tenant, last, n, heads)
+    end
+  end
+
+  defp bisect(_rs, _tenant, lo, hi, heads) when hi - lo <= 1, do: {:ok, lo, heads}
+
+  defp bisect(rs, tenant, lo, hi, heads) do
+    mid = div(lo + hi, 2)
+
+    with {:ok, heads, filled} <- probe(rs, tenant, mid, heads) do
+      if filled,
+        do: bisect(rs, tenant, mid, hi, heads),
+        else: bisect(rs, tenant, lo, mid, heads)
+    end
+  end
+
+  defp probe(rs, tenant, n, heads) do
+    case Store.read(rs.log, :head, [stream(tenant, n)]) do
+      {:ok, head} -> {:ok, Map.put(heads, n, head), head.revision > 0}
+      {:error, reason} -> {:error, {:log, reason}}
+    end
+  end
+
+  defp read_generation(rs, tenant, n, heads) do
+    stream = stream(tenant, n)
+
+    reply =
+      case heads do
+        %{^n => head} -> {:ok, head}
+        _ -> Store.read(rs.log, :head, [stream])
+      end
+
+    case reply do
+      {:ok, %{low_water: 0, revision: revision}} -> read_rows(rs, stream, 1, revision, [])
       {:ok, %{low_water: low}} -> {:error, {:log, {:pruned, low}}}
       {:error, reason} -> {:error, {:log, reason}}
     end
+  end
+
+  # Record 1 of a generation ≥ 2 is its carry header `{"from": n − 1, "records": k}`.
+  defp header(rows, 1), do: {:ok, 0, rows}
+
+  defp header([%{kind: @carried, schema_version: @version, payload: payload} | facts], n) do
+    from = n - 1
+
+    case Jason.decode(payload) do
+      {:ok, %{"v" => @version, "from" => ^from, "records" => k}} when is_integer(k) and k >= 0 ->
+        {:ok, k, facts}
+
+      _ ->
+        {:error, {:log, :malformed}}
+    end
+  end
+
+  defp header(_rows, _n), do: {:error, {:log, :malformed}}
+
+  # The carry of a folded state: the header, then for each version in stored
+  # order its stored, latest check, delete mark and live pins (Run IDs in byte
+  # order), then the published pointer. Its fold is the state again.
+  defp carry(state, from) do
+    facts =
+      Enum.flat_map(state.order, fn id ->
+        v = state.versions[id]
+
+        [{@stored, payload(id)}] ++
+          if(v.checked, do: [{@checked, payload(id, upper_cost: v.upper_cost)}], else: []) ++
+          if(v.deleted, do: [{@deleted, payload(id)}], else: []) ++
+          for(run <- Enum.sort(v.pins), do: {@pinned, payload(id, run_id: run)})
+      end) ++
+        if(state.published, do: [{@published, payload(state.published)}], else: [])
+
+    header = Jason.encode!(%{"from" => from, "records" => length(facts), "v" => @version})
+    [{@carried, header} | facts]
   end
 
   defp read_rows(_rs, _stream, from, revision, acc) when from > revision,
@@ -543,7 +727,7 @@ defmodule Elzoo.RecipeStore do
   defp decode(@deleted, id, _), do: {:ok, {:deleted, id}}
 
   defp decode(@checked, id, %{"upper_cost" => cost}) when is_integer(cost) and cost >= 0,
-    do: {:ok, {:checked, id}}
+    do: {:ok, {:checked, id, cost}}
 
   defp decode(@pinned, id, %{"run_id" => run}),
     do: with(:ok <- run_id(run), do: {:ok, {:pinned, id, run}})
@@ -561,13 +745,21 @@ defmodule Elzoo.RecipeStore do
       else: %{
         state
         | versions:
-            Map.put(state.versions, id, %{checked: false, pins: MapSet.new(), deleted: false}),
+            Map.put(state.versions, id, %{
+              checked: false,
+              upper_cost: nil,
+              pins: MapSet.new(),
+              deleted: false
+            }),
           order: [id | state.order]
       }
   end
 
   defp apply_event(state, {:published, id}), do: %{state | published: id}
-  defp apply_event(state, {:checked, id}), do: update(state, id, &%{&1 | checked: true})
+
+  defp apply_event(state, {:checked, id, cost}),
+    do: update(state, id, &%{&1 | checked: true, upper_cost: cost})
+
   defp apply_event(state, {:deleted, id}), do: update(state, id, &%{&1 | deleted: true})
 
   defp apply_event(state, {:pinned, id, run}),

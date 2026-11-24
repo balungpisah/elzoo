@@ -708,7 +708,7 @@ defmodule Elzoo.RecipeStoreTest do
 
   describe "bounds_and_redaction" do
     @tag backend: :memory
-    test "a tenant stream of 10,000 records refuses each change that appends with :stream_full",
+    test "a full tenant stream of settled records is carried by the next change that appends",
          %{store: store, c: c, stream: stream} do
       %{rs: rs, art: art} = H.build(store)
       id = checked!(rs, c, H.package())
@@ -725,20 +725,32 @@ defmodule Elzoo.RecipeStoreTest do
       assert {:ok, head} = Elzoo.DurableLog.Store.read(store, :head, [stream])
       assert head.revision == 10_000
 
+      # The settled filler is not carried: each change that appends succeeds.
       other = H.package(name: "late")
-      assert {:error, :stream_full} = RecipeStore.pin(rs, c, id, "run-2")
-      assert {:error, :stream_full} = RecipeStore.unpin(rs, c, id, "run-1")
-      assert {:error, :stream_full} = RecipeStore.check(rs, c, id, H.facts())
-      assert {:error, :stream_full} = RecipeStore.put(rs, c, other)
-      # nothing was written for the refused put
-      assert {:error, :not_found} = artifact_versions(art, c, other["identity"])
+      assert {:ok, :pinned} = RecipeStore.pin(rs, c, id, "run-2")
+      assert {:ok, :unpinned} = RecipeStore.unpin(rs, c, id, "run-1")
+      assert {:ok, _} = RecipeStore.check(rs, c, id, H.facts())
+      other_id = other["identity"]
+      assert {:ok, ^other_id} = RecipeStore.put(rs, c, other)
+      assert {:ok, [%{state: :committed}]} = artifact_versions(art, c, other_id)
+      assert {:ok, :pinned} = RecipeStore.pin(rs, c, id, "run-1")
+      assert {:ok, %{revision: 10_000}} = Elzoo.DurableLog.Store.read(store, :head, [stream])
 
       # a call that appends nothing, and each read, still works
-      assert {:ok, :pinned} = RecipeStore.pin(rs, c, id, "run-1")
+      generation2 = stream <> "/2"
+      before = H.rows(store, generation2)
+      assert {"recipe_pinned", %{"run_id" => "run-1"}} = List.last(before)
       assert {:ok, :unpinned} = RecipeStore.unpin(rs, c, id, "never-pinned")
       assert {:ok, %{previous: ^id}} = RecipeStore.publish(rs, c, id)
       assert {:ok, ^id} = RecipeStore.put(rs, c, H.package())
-      assert {:ok, [%{identity: ^id, pins: 1, published: true}]} = RecipeStore.versions(rs, c)
+      assert H.rows(store, generation2) == before
+
+      assert {:ok,
+              [
+                %{identity: ^id, pins: 2, published: true},
+                %{identity: ^other_id, pins: 0, published: false}
+              ]} = RecipeStore.versions(rs, c)
+
       assert {:ok, ^id} = RecipeStore.published(rs, c)
       assert {:error, :pinned} = RecipeStore.delete(rs, c, id)
       assert {:ok, _} = RecipeStore.get(rs, c, id)
@@ -814,7 +826,7 @@ defmodule Elzoo.RecipeStoreTest do
       assert %RecipeStore{} = rs
 
       assert Map.keys(RecipeStore.kinds()) |> Enum.sort() ==
-               ~w(recipe_checked recipe_deleted recipe_pinned recipe_published recipe_stored recipe_unpinned)
+               ~w(recipe_carried recipe_checked recipe_deleted recipe_pinned recipe_published recipe_stored recipe_unpinned)
 
       assert Enum.all?(Map.values(RecipeStore.kinds()), &(&1 == :non_state_bearing))
       assert {:error, {:invalid, :opts}} = RecipeStore.new([])

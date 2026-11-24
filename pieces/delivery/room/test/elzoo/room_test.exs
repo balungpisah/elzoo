@@ -607,6 +607,26 @@ defmodule Elzoo.RoomTest do
     end
   end
 
+  # Generation 1 of the tenant stream filled to 10,000 records with `kind`
+  # records of the first version: settled when unpinned, live pins when pinned.
+  defp fill!(w, kind) do
+    filler =
+      for n <- 1..(10_000 - records(w)),
+          do: Jason.encode!(%{"v" => 1, "identity" => hd(w.versions), "run_id" => "f-#{n}"})
+
+    for chunk <- Enum.chunk_every(filler, 500),
+        do:
+          :ok =
+            Elzoo.RecipeStore.TestHelper.append!(
+              w.store,
+              "recipe-store/" <> w.tenant,
+              kind,
+              chunk
+            )
+
+    assert records(w) == 10_000
+  end
+
   describe "case 8: pin results at step 3" do
     test "a deleted change version is {:pin, :deleted}; rollover/3 without a change then succeeds",
          %{role: role} do
@@ -647,24 +667,51 @@ defmodule Elzoo.RoomTest do
       assert pinned_rows(w, run2) == [run2]
     end
 
-    test "a full stream is {:pin, :stream_full}: the tip stays terminal with its mail pending", %{
-      role: role
-    } do
+    test "a full stream of settled records is carried: the rollover pins the successor in generation 2",
+         %{role: role} do
+      w = world(role)
+      run1 = open!(w, "c", start())
+      run2 = ids(w, "c", 2)
+      assert {:ok, :applied} = put(w, "c", "m-1")
+      end_by_deadline(w, "c", run1)
+      [v1 | _] = w.versions
+      fill!(w, "recipe_unpinned")
+
+      assert {:ok, %{seq: 2}} = rollover(w, "c")
+      assert records(w) == 10_000
+
+      rows = Elzoo.RecipeStore.TestHelper.rows(w.store, "recipe-store/" <> w.tenant <> "/2")
+
+      assert for({kind, %{"run_id" => r}} <- rows, r in [run1, run2], do: {kind, r}) == [
+               {"recipe_pinned", run1},
+               {"recipe_pinned", run2},
+               {"recipe_unpinned", run1}
+             ]
+
+      live =
+        Enum.reduce(rows, MapSet.new(), fn
+          {"recipe_pinned", %{"identity" => i, "run_id" => r}}, set -> MapSet.put(set, {i, r})
+          {"recipe_unpinned", %{"identity" => i, "run_id" => r}}, set -> MapSet.delete(set, {i, r})
+          _, set -> set
+        end)
+
+      assert live == MapSet.new([{v1, run2}])
+    end
+
+    test "a carry of more than 5,000 records is {:pin, :stream_full}: the tip stays terminal with its mail pending",
+         %{role: role} do
       w = world(role)
       run1 = open!(w, "c", start())
       assert {:ok, :applied} = put(w, "c", "m-1")
       end_by_deadline(w, "c", run1)
-      stream = "recipe-store/" <> w.tenant
+      fill!(w, "recipe_pinned")
 
-      filler =
-        for n <- 1..(10_000 - records(w)),
-            do: Jason.encode!(%{"v" => 1, "identity" => hd(w.versions), "run_id" => "f-#{n}"})
-
-      for chunk <- Enum.chunk_every(filler, 500),
-          do: :ok = Elzoo.RecipeStore.TestHelper.append!(w.store, stream, "recipe_unpinned", chunk)
-
-      assert records(w) == 10_000
       assert rollover(w, "c") == {:error, {:pin, :stream_full}}
+      assert records(w) == 10_000
+
+      assert Elzoo.RecipeStore.TestHelper.rows(w.store, "recipe-store/" <> w.tenant <> "/2") ==
+               []
+
       assert %{seq: 1, state: :live} = tip(w, "c")
       assert view(w, run1).phase == :terminal
       assert status(w, "c", "m-1").state == :pending
