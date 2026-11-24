@@ -10211,7 +10211,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/payment-lifecycle/piece.json",
-      "manifest_sha256": "73942a59adfa9299acdbb7346c82cbe6de3e0dc66d8a6cec312e2416c6dcdac8"
+      "manifest_sha256": "a2cef0374bc74191c2170624d298be664418762bf0d1b7a4342bd57864aa9e34"
     },
     {
       "id": "domain/policy-rules",
