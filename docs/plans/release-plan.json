@@ -9586,13 +9586,13 @@
         "tasks/ELZ-364-ai-text-image-input.md"
       ],
       "outputs": [],
-      "acceptance": "In-place integration/ai-text Contract amendment 2 (Wave 9 Q7 A, absorbs integration/ai-multimodal): a user message may hold parts (text, and image by state/artifact reference with media type png/jpeg/webp/gif, at most 8 images); the capability set gains :image_input (undeclared is unsupported_feature); a host artifacts Need resolves each reference before translation at admission and in the Adapter, checking record identity, media type, size and the hash_format-prefixed SHA-256 and per-image/total bounds; a failure is the local refusal input_unavailable at admission and the new attested no-send tag input_unavailable at dispatch (Cure decision, table and no_send updated); document stays refused; a request without parts is byte for byte today's (golden recorded on the base first); a conformance scenario :image_input. Negative controls on the capability check, the hash check and the no-send mark. Local small gate and full review. Output none.",
+      "acceptance": "In-place integration/ai-text Contract amendment 2 (Wave 9 Q7 A, absorbs integration/ai-multimodal): a user message may hold parts (text, and image by state/artifact reference with media type png/jpeg/webp/gif, at most 8 images); the capability set gains :image_input (undeclared is unsupported_feature); a host artifacts Need resolves each reference before translation at admission and in the Adapter, checking record identity, media type, size and the hash_format-prefixed SHA-256 and per-image/total bounds; a failure is the local refusal input_unavailable at admission and the new attested no-send tag input_unavailable at dispatch (Cure decision, table and no_send updated); document stays refused; a request without parts is byte for byte today's (golden recorded on the base first); a conformance scenario :image_input. Coordinator decision 2026-11-24: delivery/provider-stream prepare/2 and integration/ai-token-count estimate/1, which call Request.decode/1 without check/2, refuse a parts message as unsupported_feature (their README and piece.json follow; index rows updated). Negative controls on the capability check, the hash check, the no-send mark and each of the two parts refusals. Local small gate and full review. Output none.",
       "product_aims": [
         "P13"
       ],
       "issue": 871,
       "url": "https://github.com/balungpisah/elzoo/issues/871",
-      "issue_body_sha256": "2aaa2c0632bb0a709184b0e45ac67b960bd5fa123a6bae0cbcb296563c966264"
+      "issue_body_sha256": "42193df963f5c5286fc5c1af58e1abf359d86586282c4f2b1cc84093be5b25c1"
     },
     {
       "id": "ELZ-365",
@@ -10316,11 +10316,11 @@
     {
       "id": "integration/ai-text",
       "job": "ELZ-079",
-      "note": "Provider-neutral text-model interface: request (ordered text messages, tools, tool_choice, output schema, max output tokens, stop sequences, optional sampling, reasoning level, cache hint, declared provider options, dispatch identity, deadline) admitted from a core/effect declaration with local refusals before any intent; one provider call per dispatch through the delivery/effect-intent owner; outcomes completed{content, tool_proposals, structured, finish, usage, provenance} | refused{credentials_unavailable | invalid_request | unsupported_feature | too_large | authentication_failed | permission_denied | throttled | overloaded | not_found} | unknown{timeout | transport | malformed_response | provider_error}; throttled and overloaded are failed/dispatched/retryable and not redispatched by default (Contract amendment 1); only credentials_unavailable is attested no-send and retried under delivery/retry-timeout; tool proposals are inert data, malformed ones marked; structured output validated; volatile result sink; provider behaviour and conformance kit.",
+      "note": "Provider-neutral text-model interface: request (ordered text messages, user messages of text and image parts by state/artifact reference for a provider that declares image_input (Contract amendment 2), tools, tool_choice, output schema, max output tokens, stop sequences, optional sampling, reasoning level, cache hint, declared provider options, dispatch identity, deadline) admitted from a core/effect declaration with local refusals before any intent; one provider call per dispatch through the delivery/effect-intent owner; outcomes completed{content, tool_proposals, structured, finish, usage, provenance} | refused{credentials_unavailable | input_unavailable | invalid_request | unsupported_feature | too_large | authentication_failed | permission_denied | throttled | overloaded | not_found} | unknown{timeout | transport | malformed_response | provider_error}; throttled and overloaded are failed/dispatched/retryable and not redispatched by default (Contract amendment 1); image parts resolved through a host artifact read Need and checked against the record's size and content hash and declared bounds before translation, input_unavailable at admission as a local refusal and at dispatch as an attested no-send; only credentials_unavailable and input_unavailable are attested no-send and retried under delivery/retry-timeout; tool proposals are inert data, malformed ones marked; structured output validated; volatile result sink; provider behaviour and conformance kit.",
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-text/piece.json",
-      "manifest_sha256": "d62753f1fff866e7482761d94bd4624c30cf984d70034603d4efe36cfd9f856e",
+      "manifest_sha256": "6a5184cdc20a7324f1bd379d542bd825eeab7f2c58afe7e5bfceaa46074f638f",
       "baseline_status": "not in baseline (new row, ELZ-079)"
     },
     {
@@ -11063,11 +11063,11 @@
     {
       "id": "integration/ai-token-count",
       "job": "ELZ-138",
-      "note": "Pure upper bound, as far as recordings through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic, show under a named assumption (not proved), before the call, for the input tokens of one integration/ai-text request to Anthropic: Elzoo.AiTokenCount.Anthropic.estimate/1 decodes the request bytes with Elzoo.AiText.Request.decode/1 and returns size = 3 * canonical bytes, plus 1,024 when the request has a tool, with unit :tokens, direction :upper_bound, provider_id, model_id and estimator elzoo/ai-token-count/anthropic-bytes version 1 (the fields of a workflow/context-selection window); refuses the decoder's reasons unchanged, an output_schema as :unsupported_feature and a model that pinned llm_db does not know for Anthropic as :unknown_model. Not a token count and not a usage fact.",
+      "note": "Pure upper bound, as far as recordings through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic, show under a named assumption (not proved), before the call, for the input tokens of one integration/ai-text request to Anthropic: Elzoo.AiTokenCount.Anthropic.estimate/1 decodes the request bytes with Elzoo.AiText.Request.decode/1 and returns size = 3 * canonical bytes, plus 1,024 when the request has a tool, with unit :tokens, direction :upper_bound, provider_id, model_id and estimator elzoo/ai-token-count/anthropic-bytes version 1 (the fields of a workflow/context-selection window); refuses the decoder's reasons unchanged, an output_schema and a user message with parts (image input) as :unsupported_feature and a model that pinned llm_db does not know for Anthropic as :unknown_model. Not a token count and not a usage fact.",
       "baseline_status": "not in baseline (new row, RC-53)",
       "disposition": "ready-contract",
       "manifest": "pieces/integration/ai-token-count/piece.json",
-      "manifest_sha256": "aec2d679961550b445196a3df3cf1feb34eca4d88fc49a5a2e8dca694f69bd93",
+      "manifest_sha256": "403b2ce627c2391e343e381940cb30270c7b180954fddddacaa01693008cc2e5",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -11137,7 +11137,7 @@
       "baseline_status": "not in baseline (new row, RC-57)",
       "disposition": "ready-contract",
       "manifest": "pieces/delivery/provider-stream/piece.json",
-      "manifest_sha256": "3c5c1c90b2168969b5d1a33f1cc73a8771168cda1248081d98c153b946881433",
+      "manifest_sha256": "b1aba6620815b0e185cc7294c02f8fc0b4bffaf44ab1c511446a76c89c1e22f7",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

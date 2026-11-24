@@ -4,7 +4,7 @@ defmodule Elzoo.AiText.Binding do
   Compile-time `delivery/effect-intent` binding for one text-model provider
   account: `use Elzoo.AiText.Binding, id: ..., provider_account: ...,
   recovery_grace_ms: ...`. The failure table is `Elzoo.AiText.Outcome.failures/0`;
-  only `credentials_unavailable` is attested no-send. No replay, no revision.
+  only `credentials_unavailable` and `input_unavailable` are attested no-send. No replay, no revision.
   The provider account (for example `"anthropic:<workspace label>"`) enters the
   binding digest and the intent key.
   """
