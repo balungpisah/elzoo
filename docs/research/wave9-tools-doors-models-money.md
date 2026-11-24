@@ -86,7 +86,9 @@ for the construction that it copies, and it changes no Piece's test helper.
   | Store heads and outbox (intents, engine and recipe-store schemas) | `SELECT, INSERT, UPDATE` | ELZ-323 `grant_store!/2` |
   | Store records and checkpoints (the same schemas) | `SELECT, INSERT` | ELZ-323 `grant_store!/2` |
 
-  There is also `USAGE` on each schema. No table has `TRUNCATE`, and only `elzoo_dead_letters`
+  There is also `USAGE` on each schema. The Piece and intents schemas are read in the setup
+  test; the engine schemas (`_t1`, `_t2`) and the recipe-store schema (`_rs`), which the engines
+  create, are read in the group 3 test and hold exactly the Store grants. No table has `TRUNCATE`, and only `elzoo_dead_letters`
   has `DELETE`. The PUBLIC defaults that oauth-client's README names hold: `EXECUTE` on the
   tenant readers (`elzoo_tenant_id`, with no explicit ACL) and `TEMP` on the database for
   `verify/1`. No grant that the role needed was missing from a README, so there is no grant
@@ -142,8 +144,9 @@ Each test names its group of the task.
   `McpClient.list_tools/1`, and an agent-loop bot calls `echo` through the MCP tool binding.
   Every request carried the current token. Past the freshness edge, two more bot Runs, each with
   its own session of the admitted config, call the tool at once. The token endpoint holds the
-  first refresh until the second caller waits on the connection row (seen as `elzoo_app` in
-  `pg_locks`). Exactly one refresh reaches the token endpoint, both calls complete, and both
+  first refresh until the second caller waits on the connection row. As `elzoo_app`, the harness
+  sees in `pg_locks` a session of this database that holds a lock on `elzoo_oauth_connections`
+  and waits on a row or a transaction. Exactly one refresh reaches the token endpoint, both calls complete, and both
   `tools/call` requests carried the new token. A T1-scope read of the connection row while it holds both tokens finds none of their
   bytes in any column, and no MCP result holds one. Then `invalid_grant`: the triggering call is
   `{:refused, :credentials_unavailable}` with no `tools/call`, the token endpoint saw that one
@@ -172,7 +175,8 @@ Each test names its group of the task.
   fail the schema give the tool error `invalid_arguments` and no Run. An expired token gives
   HTTP 401 `{"error":"unauthorized"}` with no start. D's valid token lists only T2's bots, its
   raw call of a T1 bot is `-32602` with no start, and its request on P's legacy session is HTTP
-  404 `-32600`. `subscriptions/listen` is HTTP 200 `-32601` with no stream. A session connected
+  404 `-32600`. Neither the 401 nor the 404 calls the `authority` or `bots` Need, so no handler
+  ran. `subscriptions/listen` is HTTP 200 `-32601` with no stream. A session connected
   with a valid 30 s token, called after `exp + leeway`, gets `{:refused,
   :authentication_failed}`. This pair has no Piece test, and the result is what the task states.
 - **group 2, events out.** E1 (`dedup: true`) and E2 (`dedup: false`) give `{:ok, %{deliveries:
@@ -210,19 +214,26 @@ Each test names its group of the task.
     is the artifact's bytes. compat's credential and artifact Needs are not called.
   - Unknown: at `t0 + 30_000` compat times out, which gives `{:unknown, :timeout}` and `{:stop,
     :unknown_outcome}`. `r4:m:1` settles `unknown`, the loop's finish is `stopped`,
-    `model_call_not_completed`, there is exactly one intent, and gemini gets no request.
+    `model_call_not_completed`, there is exactly one intent, and gemini gets no request. The
+    intent count is read from the intents Store as the owner: of every candidate and Attempt
+    1..4 of `r4:m:1` and `r4:m:1:2`, only compat's first intent stream exists. Its key is
+    derived from ai-text's identity, not from the harness log.
   - Local rate: with `tenant_rate` capacity 1 per 5,000 ms, `r5:m:2`'s admission is
     `{:rate_limited, 5_000}`, which gives `{:retry_same, 5_000}` (backoff 100 below W, `jitter:
     :none`). The binding waits until the test moves the clock 5,000 ms, and no request is sent
     meanwhile. Then there is one intent to compat with `same_ref_attempts: 2`. The refused send
-    made no intent and no observation.
-  - The compatible stub parses the Chat Completions body of req_llm's LMStudio encoding, and no
-    request carries stop sequences.
+    made no intent and no observation. The intents Store holds compat's intent number 2 of
+    `r5:m:2` and no other.
+  - The compatible stub parses each Chat Completions body of req_llm's LMStudio encoding. Each
+    body validates against the documented request schema (ai-text-compatible's own test
+    fixture, read only) and names `compat-chat`, a non-empty `messages` list and the bot's
+    `host_lookup` function tool. No body has a `stop` key.
 - **group 4, money.**
   - Renewal: `create/3` with trial end `1_801_353_600_000` gives `:trialing` period 0, no fee
     line and grant `sub-1/0`. `renew/3` 1 ms before is `:not_due`. At the trial end it gives
     `:active` period 1 ending `1_803_772_800_000`, the fee line and `sub-1/1`. The repeat is
-    `duplicate: true` and writes nothing, and entitlement is resolved in period 1.
+    `duplicate: true` and writes nothing. The harness stores the returned grants in its own
+    state, and `resolve/3` over the stored grants is entitled in period 1.
   - Invoice: invoice 1 of the series first, then number 2 with `invoice/inv-2/issue` from the fee
     line and a complete pricing charge. The journal post is `:applied`, then `:duplicate`, then
     `mark_posted/3` once. A period with an unknown observation is `incomplete`, and `add_line/3`
@@ -318,8 +329,14 @@ One local run of the module (`mix test test/wave9_tools_doors_models_money_test.
 | group 4, refunds, unknown, drift, top-up | 395.4 |
 | group 5, isolation | 634.4 |
 
-Six consecutive whole-module runs (`--repeat-until-failure 5`) passed in 14.8 to 23.3 s each.
-Before the read-order change of #931, one whole-module run failed once in group 1 (below).
+Fifteen consecutive whole-module runs (`--repeat-until-failure 14`) passed in 13.8 to 14.9 s
+each, after the first-review repairs. Two failures came before those repairs. One whole-module
+run failed once in group 1, before the read-order change of #931 (below). The reviewer saw one
+failure in 14 runs in the code-mode test's teardown: `DROP SCHEMA … CASCADE` deadlocked
+(40P01) with an Effect-intent owner of the Run owner. That owner was linked to the Run owner
+and survived its `:normal` stop. When its held task was stopped, it wrote a `:Lost` event into
+the schema being dropped. The teardown now stops each Run owner with `:shutdown` and waits for
+it and its linked owners to exit before it stops the tasks and drops the schemas.
 
 The root suite's per-test limit is 120,000 ms (`test/test_helper.exs`), and no test sets a
 `@tag timeout:`.
@@ -336,6 +353,7 @@ Gemini endpoint is a plug through its test option, all with no socket. Elzoo's M
 the tenant MCP server are real loopback sockets, and the tenant session is the ready client's
 `:loopback` evidence mode. Identities are pinned test identities. The Lua sandbox is not OS
 isolation. A retried MCP call starts a second Run. The harness attaches no Req or Finch
-telemetry handler. The RunEngine, Effect-intent, recipe-store and artifact Stores are not under
+telemetry handler. Every engine port schema is built from `{}`, which accepts any payload; the
+cases assert the payloads that matter (the Attempt payload among them) directly. The RunEngine, Effect-intent, recipe-store and artifact Stores are not under
 row security. READ COMMITTED is a consumer Need. Races and failure paths inside one Piece are
 that Piece's tests. These are finite scenarios, not proofs, and no complete-Wave claim is made.

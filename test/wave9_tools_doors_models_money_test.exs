@@ -200,9 +200,25 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
       echo_bot(w, "bot3", s3)
       B.await!(fn -> H.env(w, :refresh_held) end)
 
-      # The second caller waits on the connection row (as elzoo_app, in pg_locks).
+      # The second caller waits on the connection row (as elzoo_app, in pg_locks): a session of
+      # this database that holds a lock on elzoo_oauth_connections and waits on a row or a
+      # transaction.
       B.await!(fn ->
-        [[n]] = H.q!(AppRepo, "SELECT count(*) FROM pg_locks WHERE NOT granted")
+        [[n]] =
+          H.q!(
+            AppRepo,
+            """
+            SELECT count(*) FROM pg_locks w
+            WHERE NOT w.granted AND w.locktype IN ('transactionid', 'tuple')
+              AND EXISTS (
+                SELECT 1 FROM pg_locks r
+                WHERE r.pid = w.pid AND r.granted AND r.locktype = 'relation'
+                  AND r.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+                  AND r.relation = $1::text::regclass)
+            """,
+            ["#{w.p.oauth}.elzoo_oauth_connections"]
+          )
+
         n > 0
       end)
 
@@ -481,9 +497,12 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
       assert {:ok, %{duplicate: true}} = renew.(trial_end + 1)
       assert subscription_row(w, "T1") == before
 
-      # The host stores the grants; resolve/3 over them is entitled in period 1.
+      # The host stores the grants (here in its harness state); resolve/3 over the stored
+      # grants is entitled in period 1.
+      H.env(w, {:grants, "T1"}, [g0, g1])
+
       assert {:entitled, %{grants: [%{grant_id: "sub-1/1"}]}} =
-               Entitlement.resolve(plan_facts([g0, g1]), "T1", trial_end + 1)
+               Entitlement.resolve(plan_facts(H.env(w, {:grants, "T1"})), "T1", trial_end + 1)
     end
 
     test "invoice numbering, the issue post, an incomplete charge; the checkout pays it",
@@ -861,6 +880,7 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
 
       # An expired token: 401 before any handler, no start.
       expired = Server.token(w, srv, "P", exp: -10, iat: -700)
+      needs = Server.need_calls(w)
 
       resp =
         Server.post(
@@ -871,6 +891,7 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
 
       assert resp.status == 401 and Jason.decode!(resp.body) == %{"error" => "unauthorized"}
       assert length(Server.starts(w)) == starts
+      assert Server.need_calls(w) == needs
 
       # Another tenant's valid token is not refused at the door: its caller lists only its own
       # bots, a T1 bot by name is -32602 with no start, and P's legacy session is 404 -32600.
@@ -885,8 +906,12 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
 
       assert length(Server.starts(w)) == starts
 
+      needs = Server.need_calls(w)
+
       assert {404, %{"error" => %{"code" => -32600}}} =
                Server.raw(srv, token_d, sid, "tools/list", %{})
+
+      assert Server.need_calls(w) == needs
 
       # subscriptions/listen with a valid token: -32601 and no stream.
       listen =
@@ -1018,6 +1043,12 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
          %{w: w0, lua: lua} do
       w = B.engines!(w0, lua: lua)
       m = Models.setup!(w)
+
+      # The engine and recipe-store Store schemas hold exactly the Store grants.
+      stores = [w.rs_prefix | for({_, t} <- w.tenants, do: t.prefix)]
+
+      assert H.grants(stores, w.role) ==
+               {Enum.reduce(stores, %{}, &Map.merge(&2, H.store_grants(&1))), false}
 
       start = fn label, text, opts ->
         spec =
@@ -1166,6 +1197,7 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
       assert {"r4:m:1", "unknown", _} = List.keyfind(B.settlements(w, "r4"), "r4:m:1", 0)
       assert {"r4:finish", "refused", _} = List.keyfind(B.settlements(w, "r4"), "r4:finish", 0)
       assert [%{ref: "compat", n: 1}] = intents_of.("r4")
+      assert Models.intent_streams(w, "r4", ["r4:m:1", "r4:m:1:2"]) == [{"r4:m:1", "compat", 1}]
       assert length(Models.requests(w, "compat")) == 2
       assert length(Models.requests(w, "gemini")) == gemini_seen
       refute Enum.any?(B.actions(w, "r4"), &(elem(&1, 0) == "r4:m:1:2"))
@@ -1204,6 +1236,7 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
              ]
 
       assert [%{ref: "compat", n: 2}] = for(i <- intents_of.("r5"), i.action_id == "r5:m:2", do: i)
+      assert Models.intent_streams(w, "r5", ["r5:m:2"]) == [{"r5:m:2", "compat", 2}]
       assert length(Models.requests(w, "compat")) == 4
 
       # The refused send made no intent and no observation: r5:m:2's observations are the
@@ -1217,8 +1250,10 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
       selects = Models.log(w, :select)
       assert length(selects) == 7
 
-      for %{result: {:ok, %{excluded: excluded}}} <- selects,
-          do: assert({"compat-eu", {:data_policy, :region}} in excluded)
+      for select <- selects do
+        assert {:ok, %{excluded: excluded}} = select.result
+        assert {"compat-eu", {:data_policy, :region}} in excluded
+      end
 
       assert Models.cred_calls(w, "compat-eu") == 0
       assert Models.art_calls(w, "compat-eu") == 0
@@ -1228,6 +1263,20 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
       # Credentials: each stub sees only its own key, in its own header; no Effect-intent Store
       # table holds either key.
       keys = m.keys
+
+      # The compatible stub parses each Chat Completions body that req_llm's LMStudio provider
+      # encoded: the documented request schema, the candidate's model, the messages and the
+      # bot's tools; no request carries stop sequences.
+      chat_schema = Models.chat_completions_schema()
+
+      for req <- Models.requests(w, "compat") do
+        body = req.json
+        assert Elzoo.AiText.Schema.validate(body, chat_schema) == :ok, req.body
+        assert body["model"] == "compat-chat"
+        assert [_ | _] = body["messages"]
+        assert [%{"type" => "function", "function" => %{"name" => "host_lookup"}}] = body["tools"]
+        refute Map.has_key?(body, "stop")
+      end
 
       for req <- Models.requests(w, "compat") do
         assert Models.header(req, "authorization") == ["Bearer " <> keys["compat"]]

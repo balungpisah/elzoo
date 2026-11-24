@@ -1336,8 +1336,13 @@ defmodule Elzoo.Wave9.Bots do
     ExUnit.Callbacks.on_exit(fn ->
       for {_, e} <- Agent.get(engines, & &1), pid <- [e.engine, e.async], do: stop(pid)
 
+      # The Run owner starts its Effect-intent owners linked to itself. They end with it, and
+      # are gone before a task they wait on is stopped, so none of them writes into a schema
+      # that is being dropped.
+      for {_, t} <- tenants, do: stop_linked(t.run)
+
       for {_, t} <- tenants,
-          pid <- [t.run, t.evidence, t.lock, t.directory, t.supervisor, t.tasks, t.context],
+          pid <- [t.evidence, t.lock, t.directory, t.supervisor, t.tasks, t.context],
           do: stop(pid)
 
       stop(host)
@@ -1355,6 +1360,29 @@ defmodule Elzoo.Wave9.Bots do
     if Process.alive?(pid), do: GenServer.stop(pid)
   catch
     :exit, _ -> :ok
+  end
+
+  # Stop a process with :shutdown and wait until it and every process linked to it are gone.
+  defp stop_linked(pid) do
+    {:links, links} = Process.info(pid, :links) || {:links, []}
+    linked = for l <- links, is_pid(l), l != self(), do: l
+    refs = for l <- [pid | linked], do: {l, Process.monitor(l)}
+    Process.exit(pid, :shutdown)
+
+    for {l, ref} <- refs do
+      receive do
+        {:DOWN, ^ref, :process, _, _} -> :ok
+      after
+        5_000 ->
+          Process.exit(l, :kill)
+
+          receive do
+            {:DOWN, ^ref, :process, _, _} -> :ok
+          end
+      end
+    end
+
+    :ok
   end
 
   defp tenant!(w, tenant) do
@@ -2637,8 +2665,14 @@ defmodule Elzoo.Wave9.Server do
         verifier: {:jwt, verifier},
         clock: fn -> div(H.now(w), 1_000) end,
         policy: policy(),
-        authority: fn p -> {:ok, own(p.id)} end,
-        bots: fn tenant -> {:ok, bots(tenant)} end,
+        authority: fn p ->
+          H.env_update(w, :need_calls, 1, &(&1 + 1))
+          {:ok, own(p.id)}
+        end,
+        bots: fn tenant ->
+          H.env_update(w, :need_calls, 1, &(&1 + 1))
+          {:ok, bots(tenant)}
+        end,
         start: &start_need(w, &1),
         result: &result_need(w, &1),
         call_timeout_ms: @call_timeout_ms,
@@ -2707,6 +2741,9 @@ defmodule Elzoo.Wave9.Server do
   end
 
   def starts(w), do: H.env(w, :starts)
+
+  @doc "The calls of the `authority` and `bots` Needs so far (the handlers' first reads)."
+  def need_calls(w), do: H.env(w, :need_calls) || 0
 
   defp b64(bin), do: Base.url_encode64(bin, padding: false)
 
@@ -2996,7 +3033,14 @@ defmodule Elzoo.Wave9.Models do
   defp stub(w, ref) do
     fn conn ->
       {:ok, body, conn} = Plug.Conn.read_body(conn, length: 8_000_000)
-      seen = %{path: conn.request_path, headers: conn.req_headers, body: body}
+
+      seen = %{
+        path: conn.request_path,
+        headers: conn.req_headers,
+        body: body,
+        json: Jason.decode!(body)
+      }
+
       H.env_update(w, {:stub_requests, ref}, [seen], &(&1 ++ [seen]))
 
       answer =
@@ -3407,4 +3451,46 @@ defmodule Elzoo.Wave9.Models do
   def holds?(values, bytes), do: Enum.any?(values, &(:binary.match(&1, bytes) != :nomatch))
 
   def header(req, name), do: for({^name, v} <- req.headers, do: v)
+
+  @doc "The documented Chat Completions request schema (ai-text-compatible's fixture, read only)."
+  def chat_completions_schema do
+    path =
+      Path.expand(
+        "../../pieces/integration/ai-text-compatible/test/fixtures/openai/chat_completions_request.schema.json",
+        __DIR__
+      )
+
+    {:ok, root} = Elzoo.AiText.Schema.build(Jason.decode!(File.read!(path)))
+    root
+  end
+
+  @doc """
+  The Effect-intent streams in the intents Store, as the owner reads them, of a Run's model-call
+  actions: each `{action_id, ref, n}` whose intent stream exists, for every candidate and
+  Attempt number 1..4. It derives each key from the identity ai-text builds, not from the
+  harness log.
+  """
+  def intent_streams(w, run_id, actions) do
+    streams =
+      MapSet.new(List.flatten(H.owner!("SELECT stream FROM #{w.intents_prefix}.elzoo_log_heads")))
+
+    m = H.env(w, :models)
+
+    for action <- actions,
+        c <- route().candidates,
+        n <- 1..4,
+        {:ok, b} = Elzoo.AiText.Binding.load(m.candidates[c.ref].binding),
+        identity = [
+          @tenant,
+          b.provider_account,
+          b.id,
+          b.operation,
+          "#{run_id}|#{action}|#{c.ref}|#{n}"
+        ],
+        MapSet.member?(
+          streams,
+          Elzoo.EffectIntent.Model.stream(Elzoo.EffectIntent.Model.key(identity))
+        ),
+        do: {action, c.ref, n}
+  end
 end
