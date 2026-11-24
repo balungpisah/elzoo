@@ -8,7 +8,7 @@ token estimate is a host Need: a function that the caller supplies.
 
 ## Input
 
-`input` is a map with exactly these atom keys:
+`input` is a map with exactly these atom keys, and optionally `image_input`:
 
 | Key | Value |
 | --- | --- |
@@ -21,6 +21,7 @@ token estimate is a host Need: a function that the caller supplies.
 | `window` | a window of `workflow/context-selection` with `unit: :tokens`; its `size` is the token limit |
 | `max_request_bytes` | 1 to 65,536, the host's ai-text Config |
 | `max_image_refs` | 0 to 256 |
+| `image_input` (optional) | a boolean, default `false`: `true` asks for the images of the newest `:user` entry as image parts |
 
 `estimate` has arity 1. It takes canonical request bytes and returns `:error`
 or `{:ok, %{size: n, unit: :tokens, direction: :upper_bound | :approximate,
@@ -32,12 +33,20 @@ History entries (exact keys; each `id` is 1 to 1,024 bytes and unique in
 `workflow/untrusted-content`):
 
     %{kind: :user, id: id, text: text}
+    %{kind: :user, id: id, text: text, images: [%{artifact_id: id, version: v, media_type: m}]}
     %{kind: :assistant, id: id, text: text, tool_calls: [%{"id" => _, "name" => _, "arguments" => %{}}]}
     %{kind: :tool_result, id: id, tool_use_id: text, content: marked_map, ref_media_type: nil | text}
     %{kind: :content, id: id, content: marked_map, ref_media_type: nil | text}
     %{kind: :record, id: id, keep: :goal | :open_action | :decision | :failed_approach, record: json_object}
 
 An entry whose `ref_media_type` starts with `image/` is an image reference.
+
+A `:user` entry may hold `images` only when `image_input` is `true`: 0 to 8
+maps with exactly these keys, by the rules of ai-text's request decoder.
+`artifact_id` is 1 to 64 bytes of letters, digits and `-_.`, never `.` or
+`..`; `version` is 1 to 2,147,483,647; `media_type` is `image/png`,
+`image/jpeg`, `image/webp` or `image/gif`. The host vouches that these images
+are the person's; the Piece checks only their shape.
 
 ## Declared order
 
@@ -48,7 +57,8 @@ the list is not empty, `tools`. Its messages:
    joined by one empty line.
 2. When `memory` is not empty, one `user` message: the rendered block of each
    item, joined by a line feed.
-3. One message per history entry: `:user` gives a `user` message with the text;
+3. One message per history entry: `:user` gives a `user` message with the text
+   (for the image case, see below);
    `:content` a `user` message with the rendered block; `:assistant` an
    `assistant` message with the text and, when not empty, `tool_calls`;
    `:tool_result` a `tool_result` message with `tool_use_id` and the rendered
@@ -57,6 +67,20 @@ the list is not empty, `tools`. Its messages:
 
 A rendered block is the text of `Elzoo.UntrustedContent.render/1`. Marked
 content appears in no other form.
+
+Image parts come only from the person's message. With `image_input: true`, the
+newest `:user` entry of the history as given, when its `images` list is not
+empty, gives `%{"role" => "user", "parts" => [%{"type" => "text", "text" =>
+text} | image_parts]}` with one image part `%{"type" => "image", "artifact" =>
+%{"id" => id, "version" => v}, "media_type" => m}` per image, in order. Every
+other `:user` entry gives the text message, and its `images` are left out with
+no reference kept. The source decides, not the media type: `:content` and
+`:tool_result` entries, the images of a tool or a notice, always stay marked
+reference blocks with their sources and trust. When the drop order removes the
+newest `:user` entry, its images go with it, and no older entry's images take
+their place. Image parts do not count against `max_image_refs`, which bounds
+only the reference blocks. Without `image_input`, or with `false`, the request
+and its canonical bytes are those of a build that has no such key.
 
 ## Rules
 
@@ -69,7 +93,9 @@ alone; a `:record` is in no unit.
    and the larger of the old bound and that text's size. The message stays.
 2. Build, encode with `Request.canonical/1` and check: at most 256 messages,
    `Request.decode/2` with `max_request_bytes` accepts the bytes, and the
-   estimate `size` is at most `window.size`.
+   estimate `size` is at most `window.size`. The estimate is given the request
+   with its image parts as references: image tokens are not in a text
+   estimate unless the caller's estimate counts them.
 3. On a size failure, drop one thing and go to rule 2: the oldest unit while
    more than one unit is left, then the last memory item. Role and skill
    instructions, tools, records and the newest unit are never dropped. With
@@ -84,7 +110,8 @@ alone; a `:record` is in no unit.
 
 `dropped` is in drop order; `estimate` is the value for the returned request
 with its direction unchanged. `:invalid_input` (wrong shape, unknown key such as
-`image`, `document` or `parts`, repeated ID), `:unmarked`,
+`image`, `document` or `parts`, `images` when `image_input` is not `true`, an
+image outside the rules above, repeated ID), `:unmarked`,
 `:orphan_tool_result` (a result that does not follow its call with only results
 between, or a second result for one call), `:too_many_tools` (over 64) and
 `:tool_description_too_large` (over 4,096 bytes) come before any drop.
@@ -96,11 +123,12 @@ error holds content.
 ## Grounding
 
 `mix test pieces/workflow/prompt-assembly/test` runs the named groups
-`drop_order`, `orphan_tool_result`, `hard_bounds`, `deterministic` and
-`image_refs` with literal inputs and an estimate of one token per byte. Every
-accepted request is checked with `Request.decode/2` and its bound. Negative
-control: a drop that removes an assistant entry without its results fails
-`drop_order`. These are finite scenarios, not a proof. ai-text's decoder decides
+`drop_order`, `orphan_tool_result`, `hard_bounds`, `deterministic`,
+`image_refs` and `image_parts` with literal inputs and an estimate of one token
+per byte. Every accepted request is checked with `Request.decode/2` and its
+bound. Negative controls: a drop that removes an assistant entry without its
+results fails `drop_order`; a `:tool_result` image reference rendered as an
+image part fails `image_parts`. These are finite scenarios, not a proof. ai-text's decoder decides
 what a valid request is; `workflow/untrusted-content` owns the mark and the
 block format. No Cure law is claimed.
 
@@ -112,11 +140,19 @@ no unmarked content of a tool, document or member in a record, and supplies a
 pure estimate that tells its direction truthfully.
 
 Limits: no claim that a provider accepts each order of messages the inputs
-allow; no claim about estimate accuracy; no other optional request member; no
-image part or image input; no claim that marking prevents prompt injection.
+allow; no claim about estimate accuracy; no other optional request member;
+image parts only from the newest user entry, by reference; no claim that
+marking prevents prompt injection. Images are references: their bytes, hashes
+and sizes are checked by ai-text at admission and dispatch, not here.
+`integration/ai-token-count` refuses a request with parts, so with that
+estimator an image build is `{:error, :estimate_unavailable}`. After a tool
+turn the drop order may remove the newest user entry and its images. No images
+in older turns or in `workflow/context-compaction` (a range holding a `:user`
+entry with `images` is `:invalid_input` there), no documents.
 
 Telemetry and Control are not applicable: a pure function with no observations
 and no process. Config is supported per call only: `max_request_bytes`,
-`max_image_refs` and the window with its estimate come in each input; there is
-no default, stored setting or hot change. Module `Elzoo.PromptAssembly` is
+`max_image_refs`, `image_input` and the window with its estimate come in each
+input; there is no default other than `image_input: false`, and no stored
+setting or hot change. Module `Elzoo.PromptAssembly` is
 application-owned after copying. Apache-2.0; no new dependency or pin.
