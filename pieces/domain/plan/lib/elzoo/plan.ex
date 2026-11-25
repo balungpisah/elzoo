@@ -45,6 +45,7 @@ defmodule Elzoo.Plan do
     :isolation,
     :conflict,
     :subscription_exists,
+    :grant_overlap,
     :unknown_subscription,
     :not_due,
     :stale_period,
@@ -179,7 +180,14 @@ defmodule Elzoo.Plan do
       )
 
     if inserted.num_rows == 1 do
-      {:ok, %{subscription: s, fee_line: fee_line(s), grants: [grant(tenant, s)], duplicate: false}}
+      # We own the open slot. This separate READ COMMITTED statement sees the cancel
+      # even if the unique-index check waited for it. A refusal rolls back the insert.
+      if overlap?(p, tenant, s.period) do
+        {:error, :grant_overlap}
+      else
+        {:ok,
+         %{subscription: s, fee_line: fee_line(s), grants: [grant(tenant, s)], duplicate: false}}
+      end
     else
       case select(p, tenant, c.id, "") do
         nil ->
@@ -197,6 +205,38 @@ defmodule Elzoo.Plan do
           end
       end
     end
+  end
+
+  defp overlap?(p, tenant, period) do
+    candidates =
+      rows(
+        p,
+        """
+        SELECT start_ms, period_start_ms, period_end_ms, last_cancel_revoked_at,
+               period_index, anchor_ms, interval
+        FROM #{table(p)} WHERE tenant = $1 AND state = 'canceled'
+          AND start_ms < $2 AND period_end_ms > $3
+        """,
+        [tenant, period.end_ms, period.start_ms]
+      )
+
+    Enum.any?(candidates, fn [start | tail] ->
+      effective_end(start, tail) > max(start, period.start_ms)
+    end)
+  end
+
+  # Successive grants touch. A cancel can only trim the tail of that range:
+  # no revocations, the current grant alone, or previous + current (in that order).
+  # Never trim a grant for which cancel did not actually return a revocation.
+  defp effective_end(_start, [_, last, [], _, _, _]), do: last
+  defp effective_end(_start, [current, last, [at], _, _, _]), do: max(current, min(last, at))
+
+  defp effective_end(start, [_, _, [at, _], i, anchor, interval]) do
+    # The previous grant is the trial for i = 1, otherwise paid period i - 1.
+    previous =
+      if i == 1, do: start, else: boundary_ms(anchor, String.to_existing_atom(interval), i - 2)
+
+    max(previous, at)
   end
 
   # ── renew ───────────────────────────────────────────────────────────────
@@ -346,7 +386,9 @@ defmodule Elzoo.Plan do
   defp cancel_row(p, tenant, row, s, :period_end, now) do
     {cancel_ms, revocations, withdrawn} =
       if now < s.period.start_ms,
-        do: {s.period.start_ms, [revocation(s, s.period.index, s.period.start_ms)], fee_line(s)},
+        do:
+          {s.period.start_ms, [revocation(tenant, s, s.period.index, s.period.start_ms)],
+           fee_line(s)},
         else: {s.period.end_ms, [], nil}
 
     last = %{revocations: revocations, withdrawn_fee_line: withdrawn}
@@ -370,13 +412,13 @@ defmodule Elzoo.Plan do
     i = s.period.index
     before? = now < s.period.start_ms and (i >= 2 or (i == 1 and s.trial_end_ms != nil))
     earlier = Map.new((row.last_cancel || %{revocations: []}).revocations, &{&1.grant_id, &1})
-    current = grant_id(s, i)
+    current = grant_id(tenant, s, i)
 
     revocations =
-      if(before?, do: [revocation(s, i - 1, now)], else: []) ++
+      if(before?, do: [revocation(tenant, s, i - 1, now)], else: []) ++
         case earlier do
           %{^current => r} -> [%{r | revoked_at_ms: min(r.revoked_at_ms, now)}]
-          _ -> if(now < s.period.end_ms, do: [revocation(s, i, now)], else: [])
+          _ -> if(now < s.period.end_ms, do: [revocation(tenant, s, i, now)], else: [])
         end
 
     withdrawn =
@@ -388,7 +430,8 @@ defmodule Elzoo.Plan do
     {:ok, Map.put(last, :subscription, s)}
   end
 
-  defp revocation(s, index, at), do: %{grant_id: grant_id(s, index), revoked_at_ms: at}
+  defp revocation(tenant, s, index, at),
+    do: %{grant_id: grant_id(tenant, s, index), revoked_at_ms: at}
 
   @doc "`%{subscription_id, expected_revision}`: from `:active` to `:past_due`."
   def mark_past_due(binding, tenant, request),
@@ -495,7 +538,7 @@ defmodule Elzoo.Plan do
 
   defp grant(tenant, s),
     do: %{
-      grant_id: grant_id(s, s.period.index),
+      grant_id: grant_id(tenant, s, s.period.index),
       tenant: tenant,
       plan_id: s.plan.plan_id,
       version: s.plan.version,
@@ -505,7 +548,13 @@ defmodule Elzoo.Plan do
       revoked_at_ms: nil
     }
 
-  defp grant_id(s, index), do: s.subscription_id <> "/" <> Integer.to_string(index)
+  defp grant_id(tenant, %{subscription_id: id}, index) do
+    input =
+      <<"elzoo-plan-grant/1:", byte_size(tenant)::32, tenant::binary, byte_size(id)::32, id::binary,
+        index::64>>
+
+    "plan1." <> Base.encode16(:crypto.hash(:sha256, input), case: :lower)
+  end
 
   # ── rows ────────────────────────────────────────────────────────────────
 
