@@ -458,6 +458,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-407](https://github.com/balungpisah/elzoo/issues/987) | V2 / release | ELZ-181, ELZ-183, ELZ-404 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-408](https://github.com/balungpisah/elzoo/issues/992) | V2 / release | ELZ-127, ELZ-387, ELZ-403 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-409](https://github.com/balungpisah/elzoo/issues/996) | V2 / release | ELZ-408 | published 2026-11-25 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
+| [ELZ-410](https://github.com/balungpisah/elzoo/issues/999) | V2 / release | ELZ-408, ELZ-409 | published 2026-11-26 | coordinator; one-PR path for documents-only work; independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -5521,3 +5522,13 @@ Publication copy: [tasks/ELZ-409-run-engine-cold-reader-consumer-launch.md](../.
 **Product aims:** P09.
 
 **Acceptance:** Red main on 71e5f2b9 (check-aggregate): the run-engine fresh-VM reader launched with mix run cannot load the copied consumer's dependencies. Relaunch it so it runs in both the Elzoo checkout and a copied consumer while staying a fresh VM; test files only. Consumer reproduction before and pass after, loading-step negative control still fails, repeated cold cases, small gate, green full check on main after merge.
+
+### ELZ-410
+
+ELZ-410 — Record the first-release refreeze after the run-engine repairs
+
+Publication copy: [tasks/ELZ-410-first-release-refreeze.md](../../tasks/ELZ-410-first-release-refreeze.md).
+
+**Product aims:** P09.
+
+**Acceptance:** Record 71e5f2b9 as the X1–X3 record-writing baseline, admit both run-engine repairs without changing F's job set, and synchronize all three fixture guards and live issue hashes. Documents-only gate and independent review.

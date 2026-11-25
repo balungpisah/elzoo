@@ -4,6 +4,13 @@ All 400 jobs have evidence; none is undecided. The selected set is the one in [t
 
 V1 is not an independent export boundary: `integration/search-data` copies V1B’s `state/tenant-isolation`. V1 Pieces also include later in-place changes. The three gates take the same integrated check without moving a job or changing its dependency order. V2 requires V1; V1B does not wait for V1.
 
+## Repairs admitted after the audit
+
+- **ELZ-408** ([#992](https://github.com/balungpisah/elzoo/issues/992), [PR #995](https://github.com/balungpisah/elzoo/pull/995), merge [`71e5f2b9`](https://github.com/balungpisah/elzoo/commit/71e5f2b9afda89eca952a7dafc9f501fcbd8f71c)) repaired the cold-VM recovery defect reported in [#990](https://github.com/balungpisah/elzoo/issues/990). The owner's option A decision, recorded in #992, makes this merge the X1–X3 record-writing baseline. The `assembly/run-engine` manifest SHA-256 after the repair is `6376b6f4317e7d9fad3a2f11968735d0a4b2a77e57072106acc276a539dd94c7`.
+- **ELZ-409** ([#996](https://github.com/balungpisah/elzoo/issues/996), [PR #997](https://github.com/balungpisah/elzoo/pull/997), merge [`5ed6b662`](https://github.com/balungpisah/elzoo/commit/5ed6b6624e13931ebe11c8474f4fa5b61152e2b8)) repaired the fresh-VM test launcher in the copied consumer after the ELZ-408 push run failed `check-aggregate`. It changed no record-writing path or manifest.
+
+Both repairs are in stage `release`, outside F's frozen job set. The audit rows below still record F's base.
+
 ## V1-ACCEPT — 106 frozen jobs
 
 | Job | Completed issue | Implementation PR and merge commit, or resolution | Frozen output (SHA-256) |
