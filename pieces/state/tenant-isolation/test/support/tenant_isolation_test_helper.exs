@@ -103,11 +103,6 @@ defmodule Elzoo.TenantIsolation.Harness do
       query!(repo, "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user").rows ==
         [[true]]
 
-  def role_capable?(repo),
-    do:
-      query!(repo, "SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user").rows ==
-        [[true]]
-
   @doc "A random schema with the consumer tables, the readers and three protected tables."
   def install!(repo) do
     prefix = "elz270_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)

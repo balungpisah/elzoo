@@ -10349,7 +10349,7 @@
       "product_aims": ["P13"],
       "issue": 952,
       "url": "https://github.com/balungpisah/elzoo/issues/952",
-      "issue_body_sha256": "020c8fff41b59c41e8c8b6ea7f62b121bd4025c57dfad4e6db8ad53b18413668"
+      "issue_body_sha256": "de18a847ac7258d904dbbc123eef1efaeb014e27d305876f06a66259945fe4be"
     },
     {
       "id": "ELZ-394",
@@ -11217,12 +11217,12 @@
     {
       "id": "state/tenant-isolation",
       "job": "ELZ-270",
-      "note": "PostgreSQL 16 row-level-security tenant floor over a consumer-owned Ecto Repo: a migration helper that installs two STABLE setting readers and protects a table with a forced restrictive tenant (and exact space-list) policy plus a replaceable permissive allow policy; transact/3 that refuses a bad scope, then an open transaction, and sets both transaction-local settings by bind parameter and clears them before the commit; verify/3 that reports unavailable, bypass role, not enabled, not forced, floor missing or floor changed, in that order, from a catalog read and a pure decision. Fail closed outside the helper.",
+      "note": "PostgreSQL 16 row-level-security tenant floor over a consumer-owned Ecto Repo: a migration helper installs two STABLE setting readers and a forced restrictive tenant (and exact space-list) policy plus a replaceable permissive allow policy. transact/3 and transact/4 with [] use Repo defaults; [timeout: ms] (integer 1..600000) bounds the outer transaction. Refuse bad scope or callback, bad timeout, an open transaction, then an existing checkout (explicit timeout only), before any query or callback. Set both transaction-local settings by bind parameter and clear them before commit. An opt-in deadline failure during begin, scope setup or clearing, or commit returns unavailable, not a commit outcome. Callback errors, exceptions and explicit rollbacks pass through unchanged even after expiry. verify/3 reports unavailable, bypass role, not enabled, not forced, floor missing or floor changed, in that order, from a catalog read and a pure decision. Fail closed outside the helper.",
       "baseline_status": "not in baseline (new row, ELZ-270)",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/tenant-isolation/piece.json",
-      "manifest_sha256": "e9919ae34f875cd5a0af6794dbca2f31146d5f31d60cae00c5d3fabf877d1589"
+      "manifest_sha256": "ff22e8b60ebf7e3fb4f9e287bd88895a006c38358d055fd7cf56414bd741ac9f"
     },
     {
       "id": "integration/egress-policy",
