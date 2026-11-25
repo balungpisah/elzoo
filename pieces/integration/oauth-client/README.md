@@ -87,6 +87,10 @@ and one request map with exactly the listed keys.
     `raw: true`, its body collector and `receive_timeout` after the host's options, so they
     cannot be turned back on. It never sets `connect_options`;
   - `exchange_timeout_ms` (1..30,000, default 10,000): the bound of every exchange;
+  - optional `refresh_deadline`: a map with exactly `lock_wait_ms`, `overhead_ms` and
+    `persistence_reserve_ms`, all positive integer milliseconds. The reserve must not exceed
+    the overhead, and `lock_wait_ms + exchange_timeout_ms + overhead_ms` must not exceed
+    600,000. Omit the key for the Repo default; `nil` is invalid;
   - `secrets`: a one-argument function from a Secrets request to its trusted context;
   - `sealing`: `%{key_id, key, keys}`: `key_id` 1..128 bytes, `key` a zero-argument Need
     returning `{:ok, %Elzoo.Secrets.Credential{}}` (the current 32-byte key), `keys` the
@@ -196,11 +200,17 @@ is shorter than `skew_ms`.
    (or `:malformed_response`) is returned; the next call may refresh with the same token. A
    client credentials connection changes nothing on any failure: the next call asks again.
 
-So two concurrent callers of one connection make at most one exchange. **The host's bound:**
-the row lock, and one database transaction, are held for at most `exchange_timeout_ms` plus the
-time of the Secrets, resolver, sealing key and transport Needs, which the host bounds; the
-Repo's `:timeout` must exceed that time (Consumer Needs). A
+Concurrent callers serialize on the row: the waiting caller returns the fresh token after a
+successful refresh. By default the host sets the Repo's `:timeout` (Consumer Needs). A
 `:reauthorization_required` connection takes a new consent through `begin_authorization/3`.
+
+With `refresh_deadline`, `access_token/3` gives the sum above to `TenantIsolation.transact/4`
+before taking the row lock, even for a fresh token. An existing checkout is `:unavailable`;
+an open transaction is still `:in_transaction`. The lock budget allocates transaction time,
+not a per-statement timeout. Immediately after preparing a refresh or client credentials
+request, the Piece checks elapsed monotonic time since before transaction entry. If less than
+`exchange_timeout_ms + persistence_reserve_ms` remains it returns `:unavailable` without a
+request or a row change. It never shortens or retries the exchange.
 
 ## Sealing
 
@@ -216,7 +226,7 @@ does not open. A failure to open is `:seal`. A per-tenant key is a host conventi
 
 Every function except `new/1` and `verify/1` checks shape and bounds (`:invalid`), then
 `repo.in_transaction?()` (`:in_transaction`), both before any query, then runs in
-`Elzoo.TenantIsolation.transact/3` with scope `%{tenant: t}`, reads
+`Elzoo.TenantIsolation.transact/3` (or `/4` with the explicit timeout) with scope `%{tenant: t}`, reads
 `current_setting('transaction_isolation')` first and refuses anything but `read committed` as
 `:isolation`. Every statement passes `log: false`. A refusal commits nothing. A database
 failure is `:unavailable` and says nothing about whether a write committed.
@@ -226,15 +236,20 @@ failure is `:unavailable` and says nothing about whether a write committed.
 - PostgreSQL 16 and READ COMMITTED, the server default; the Piece checks the level but cannot set
   it. The migration runs as the table owner; the application connects as a non-owner role
   without `BYPASSRLS` or superuser, with the grants above.
-- The Repo's `:timeout` (DBConnection's default is 15,000 ms) must exceed the time a call holds
+- Without `refresh_deadline`, and for operations other than `access_token/3`, the existing
+  Repo timeout Need applies. The Repo's `:timeout` (DBConnection's default is 15,000 ms)
+  must exceed the time a call holds
   its transaction: the pool queue wait, the row-lock wait, `exchange_timeout_ms` and the time of
-  the Secrets, resolver, sealing key and transport Needs. Every write runs in
+  the Secrets, resolver, sealing key and transport Needs. These transactions run in
   `Elzoo.TenantIsolation.transact/3`, which sets no transaction timeout of its own, so the Repo's
   value bounds the whole checkout, from the queue on. Otherwise DBConnection disconnects the
   connection at that deadline while the exchange is still in flight, and the server rolls the
   transaction back: the call returns `:unavailable`, the tokens that the provider just issued are
   lost, and under rotation the next call sends the spent refresh token again and ends in
   `:reauthorization_required`.
+- For opt-in `access_token/3`, the host must bound pool wait, its Needs and local work within
+  the overhead, including response processing, persistence and commit within the post-dispatch
+  reserve. A pre-dispatch check cannot enforce those bounds or recover a result lost after dispatch.
 - The trusted clock, the resolver, the Secrets context, the sealing key Needs and the transport
   Need are host Needs. The transport must connect only to one of the given addresses with SNI
   and `Host` set to `host`; the Piece cannot check that.

@@ -1695,6 +1695,14 @@ defmodule Elzoo.RunEngineTest do
         end
 
         GenServer.stop(engine)
+        # The indeterminate Unit shuts down independently of the engine. Wait
+        # until the directory sees its child gone before asking it to stop.
+        assert bounded(fn ->
+                 Enum.any?(Stream.interval(1), fn _ ->
+                   DynamicUnits.find(directory, c.prefix) == :not_found
+                 end)
+               end)
+
         assert :ok = DynamicUnits.stop(directory, c.prefix)
         Agent.update(c.host_mode, fn _ -> :recover end)
 
