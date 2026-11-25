@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 Code.require_file("../support/recipe_test_helper.exs", __DIR__)
+Code.require_file("../support/recipe_record_fixture_test_helper.exs", __DIR__)
 
 defmodule Elzoo.RecipeTestTest.OtherAdapter do
   # An Adapter that is not the scripted one: it must be refused unless the caller lists it.
@@ -528,8 +529,10 @@ defmodule Elzoo.RecipeTestTest do
   ## Group 3
 
   describe "agent_with_tools" do
+    @tag :golden_record
     test "four tool classes reach the model as notes; a malformed proposal is left out" do
       assert {:ok, record} = RecipeTest.run(agent_tools_spec())
+      RecipeTest.RecordFixture.assert_record(:scripted_agent, record)
       assert record.outcome == :completed
       assert record.unused == %{}
 
@@ -623,8 +626,10 @@ defmodule Elzoo.RecipeTestTest do
       "d#{depth}x" <> binary_part(hex, 0, 24)
     end
 
+    @tag :golden_record
     test "an agent child, a decision child and a tool node run in one graph" do
       assert {:ok, record} = RecipeTest.run(graph_spec())
+      RecipeTest.RecordFixture.assert_record(:decision_graph, record)
       assert %{outcome: :completed} = record
       assert record.unused == %{}
 

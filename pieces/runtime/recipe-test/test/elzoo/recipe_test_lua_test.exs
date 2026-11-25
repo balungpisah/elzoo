@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 Code.require_file("../support/recipe_test_helper.exs", __DIR__)
+Code.require_file("../support/recipe_record_fixture_test_helper.exs", __DIR__)
 
 defmodule Elzoo.RecipeTestLuaTest do
   use ExUnit.Case, async: false
@@ -430,6 +431,13 @@ defmodule Elzoo.RecipeTestLuaTest do
   ## Group 2
 
   describe "lua_tool_module_call" do
+    @tag :golden_record
+    test "the sandbox module call gives the frozen record", %{executable: executable} do
+      entry = put_in(lua_entry(), [:limits, "wall_ms"], 1_000)
+      assert {:ok, record} = RecipeTest.run(lua_agent_spec(executable, nil, entry))
+      RecipeTest.RecordFixture.assert_record(:lua_module_call, record)
+    end
+
     test "an agent calls the Lua tool, which makes one module call", %{executable: executable} do
       assert {:ok, record} = RecipeTest.run(lua_agent_spec(executable))
       assert record.asked == %{{:model, "scripted-model"} => 2, {:tool, "calc_add"} => 1}
@@ -590,6 +598,7 @@ defmodule Elzoo.RecipeTestLuaTest do
   ## Group 3
 
   describe "model_graph_after_restart" do
+    @tag :golden_record
     test "the second node runs from the recorded graph after one restart" do
       a = node("a", "tool", [], [], %{"tool" => "files_read"})
       b = node("b", "tool", [], [], %{"tool" => "files_read"})
@@ -615,6 +624,7 @@ defmodule Elzoo.RecipeTestLuaTest do
 
       assert {:ok, record} = RecipeTest.run(%{spec | restart_after: 1})
       assert record.restarted == true
+      RecipeTest.RecordFixture.assert_record(:model_graph_after_restart, record)
       assert record.outcome == :completed
       assert record.unused == %{}
       assert record.asked == %{{:model, "scripted-model"} => 2, {:tool, "files_read"} => 2}
