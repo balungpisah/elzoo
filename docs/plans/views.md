@@ -437,6 +437,16 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-386](https://github.com/balungpisah/elzoo/issues/936) | V1B / pieces | ELZ-163, ELZ-195 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-387](https://github.com/balungpisah/elzoo/issues/941) | V1B / pieces | ELZ-127, ELZ-142, ELZ-351, ELZ-385 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-388](https://github.com/balungpisah/elzoo/issues/943) | V2 / pieces | ELZ-379 | published 2026-11-25 | coordinator; one-PR path for a documents change; independent review; coordinator merge |
+| [ELZ-389](https://github.com/balungpisah/elzoo/issues/948) | V1B / pieces | ELZ-127, ELZ-385, ELZ-387 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-390](https://github.com/balungpisah/elzoo/issues/949) | V1B / pieces | ELZ-348 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-391](https://github.com/balungpisah/elzoo/issues/950) | V1B / pieces | ELZ-029, ELZ-305 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-392](https://github.com/balungpisah/elzoo/issues/951) | V2 / pieces | ELZ-378 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-393](https://github.com/balungpisah/elzoo/issues/952) | V1B / pieces | ELZ-270 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-394](https://github.com/balungpisah/elzoo/issues/953) | V1B / pieces | ELZ-369 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-395](https://github.com/balungpisah/elzoo/issues/954) | V2 / pieces | ELZ-366 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-396](https://github.com/balungpisah/elzoo/issues/955) | V1B / pieces | ELZ-127, ELZ-387, ELZ-389 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-397](https://github.com/balungpisah/elzoo/issues/956) | V1B / pieces | ELZ-301 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-398](https://github.com/balungpisah/elzoo/issues/957) | V1B / pieces | ELZ-301, ELZ-397 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -640,13 +650,13 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-291, ELZ-305, ELZ-306, ELZ-307, ELZ-308, ELZ-309, ELZ-315, ELZ-311, ELZ-312, ELZ-310, ELZ-318, ELZ-317, ELZ-322, ELZ-325, ELZ-328, ELZ-329, ELZ-330, ELZ-331, ELZ-332, ELZ-333, ELZ-334, ELZ-335, ELZ-337, ELZ-338, ELZ-339, ELZ-340, ELZ-341, ELZ-342, ELZ-343, ELZ-344, ELZ-345, ELZ-346, ELZ-347, ELZ-348, ELZ-349, ELZ-351, ELZ-352, ELZ-354, ELZ-355, ELZ-357, ELZ-358, ELZ-359, ELZ-360, ELZ-361, ELZ-362, ELZ-363, ELZ-364, ELZ-368, ELZ-369, ELZ-370, ELZ-371, ELZ-372, ELZ-373, ELZ-374, ELZ-375, ELZ-376, ELZ-377, ELZ-380, ELZ-381, ELZ-382, ELZ-383, ELZ-384, ELZ-385, ELZ-386, ELZ-387.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-291, ELZ-305, ELZ-306, ELZ-307, ELZ-308, ELZ-309, ELZ-315, ELZ-311, ELZ-312, ELZ-310, ELZ-318, ELZ-317, ELZ-322, ELZ-325, ELZ-328, ELZ-329, ELZ-330, ELZ-331, ELZ-332, ELZ-333, ELZ-334, ELZ-335, ELZ-337, ELZ-338, ELZ-339, ELZ-340, ELZ-341, ELZ-342, ELZ-343, ELZ-344, ELZ-345, ELZ-346, ELZ-347, ELZ-348, ELZ-349, ELZ-351, ELZ-352, ELZ-354, ELZ-355, ELZ-357, ELZ-358, ELZ-359, ELZ-360, ELZ-361, ELZ-362, ELZ-363, ELZ-364, ELZ-368, ELZ-369, ELZ-370, ELZ-371, ELZ-372, ELZ-373, ELZ-374, ELZ-375, ELZ-376, ELZ-377, ELZ-380, ELZ-381, ELZ-382, ELZ-383, ELZ-384, ELZ-385, ELZ-386, ELZ-387, ELZ-389, ELZ-390, ELZ-391, ELZ-393, ELZ-394, ELZ-396, ELZ-397, ELZ-398.
 
 ### V2-ACCEPT
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350, ELZ-353, ELZ-365, ELZ-366, ELZ-367, ELZ-378, ELZ-379, ELZ-388.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350, ELZ-353, ELZ-365, ELZ-366, ELZ-367, ELZ-378, ELZ-379, ELZ-388, ELZ-392, ELZ-395.
 
 Prior release gate: V1-ACCEPT.
 
@@ -5290,3 +5300,103 @@ Publication copy: [tasks/ELZ-388-first-release-plan.md](../../tasks/ELZ-388-firs
 **Product aims:** P09, P10.
 
 **Acceptance:** docs/plans/first-release.md gives the first release's source boundaries at a named main commit, the frozen selected set of V1-ACCEPT, V1B-ACCEPT and V2-ACCEPT from today's ready catalogue rows and job counts (recorded through a later and a release stage in exclude_stages, no new selector), a decision with its reason for each still-unpublished RC job and non-ready disposition the gates select (later, accepted as resolved or index resolution; none kept and built, none dropped), the release as a named green main commit in the consuming documents with no tag, version or changelog unless the owner asks, levels from ELZ-387 and the must-land repairs through one freeze, one acceptance of the three gates with V1B's end-to-end recipe, three record-fixture tasks and the release mark, the repair and observation decisions, and numbered owner questions with recommendations, among them the reading of the owner's 2026-11-25 order; the owner's 2026-11-25 decisions carried as settled; bot-platform-wave9.md points to the page; no Contract, task, Piece or catalogue change. Documents-only classification, roadmap (plain, write, live), claims, diff and Registry checks.
+
+### ELZ-389
+
+ELZ-389 — assembly/run-engine: stabilize unpaired input recovery after owner-tree fencing
+
+Publication copy: [tasks/ELZ-389-run-engine-fencing-recovery.md](../../tasks/ELZ-389-run-engine-fencing-recovery.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Attribute the named repeat failure, restore fencing evidence or behavior, and show the existing recovery assertions and repeat pass; restoring the fault fails the repeat.
+
+### ELZ-390
+
+ELZ-390 — delivery/room: state when the host stops repeating open/3
+
+Publication copy: [tasks/ELZ-390-room-open-stop-set.md](../../tasks/ELZ-390-room-open-stop-set.md).
+
+**Product aims:** P13.
+
+**Acceptance:** README and manifest name the same stop set, grounded in case 2; a stop-on-any-error rule would leave a pin that this case releases.
+
+### ELZ-391
+
+ELZ-391 — runtime/os-isolation: a restarted Adapter does not notify twice
+
+Publication copy: [tasks/ELZ-391-os-isolation-recovery-notification.md](../../tasks/ELZ-391-os-isolation-recovery-notification.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Force retirement between the snapshot and dead-Owner decision; get one result, or two under the old ordering; retain existing recovery behavior.
+
+### ELZ-392
+
+ELZ-392 — assembly/ledger-checkout: cover an existing payment with a different recipient
+
+Publication copy: [tasks/ELZ-392-ledger-checkout-recipient-evidence.md](../../tasks/ELZ-392-ledger-checkout-recipient-evidence.md).
+
+**Product aims:** P10.
+
+**Acceptance:** Recipient-only mismatch is a definite failure without effects; amount-only comparison fails the test; ground the existing allowance host duty and wrap the bullet.
+
+### ELZ-393
+
+ELZ-393 — state/tenant-isolation: allow an opt-in Repo transaction timeout
+
+Publication copy: [tasks/ELZ-393-tenant-isolation-transaction-timeout.md](../../tasks/ELZ-393-tenant-isolation-transaction-timeout.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Opt-in timeout prevents a held transaction from committing; a longer timeout commits; omitting the passed option fails the short case. Preserve the default path and reject malformed options before I/O.
+
+### ELZ-394
+
+ELZ-394 — delivery/model-routing: bound the tried candidate refs
+
+Publication copy: [tasks/ELZ-394-model-routing-tried-bound.md](../../tasks/ELZ-394-model-routing-tried-bound.md).
+
+**Product aims:** P09, P13.
+
+**Acceptance:** Bound tried to unique route refs at the candidate count; check the exact count, one over, and duplicate inside the bound; keep routing decisions unchanged.
+
+### ELZ-395
+
+ELZ-395 — domain/plan: refuse overlapping replacement grants and qualify grant IDs by tenant
+
+Publication copy: [tasks/ELZ-395-plan-grant-overlap-and-identity.md](../../tasks/ELZ-395-plan-grant-overlap-and-identity.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** Check effective grant overlap, exact boundaries and a concurrent cancellation; use tenant-qualified IDs that resolve in combined facts and match subsequent revocations; document cutover.
+
+### ELZ-396
+
+ELZ-396 — assembly/run-engine: keep the original wait when a reused action ID is refused
+
+Publication copy: [tasks/ELZ-396-run-engine-reused-action-wait.md](../../tasks/ELZ-396-run-engine-reused-action-wait.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Refuse the reuse without dispatch and then apply the original outcome, including after restart. Deletion by action ID alone makes the outcome late.
+
+### ELZ-397
+
+ELZ-397 — delivery/dead-letter-store: state what a purge retry can delete after an unknown commit
+
+Publication copy: [tasks/ELZ-397-dead-letter-store-purge-unknown.md](../../tasks/ELZ-397-dead-letter-store-purge-unknown.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Document the purge retry exception; discard the first reply and check two distinct eligible batches and surviving ineligible rows, without adding operation replay.
+
+### ELZ-398
+
+ELZ-398 — delivery/dead-letter-store: bind resolve to an optional record generation
+
+Publication copy: [tasks/ELZ-398-dead-letter-store-resolve-generation.md](../../tasks/ELZ-398-dead-letter-store-resolve-generation.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Guard both update and duplicate lookup against a replacement generation; keep unguarded behavior and test existing-row migration and tenant isolation.
