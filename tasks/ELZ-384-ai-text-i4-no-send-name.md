@@ -11,9 +11,9 @@
 
 Reported in #925. This publication does not settle #925; the build pull request does.
 
-On `main` (checked at `c6fe7a8f`), the test at line 249 of `pieces/integration/ai-text/test/elzoo/ai_text_test.exs` is named "I4 retries: only the attested no-send credential failure is redispatched; throttled and overloaded are not; unknown never (RetryTimeout policy + owner)". Since ELZ-364, `Elzoo.AiText.Outcome.no_send/0` (`lib/elzoo/ai_text/outcome.ex`, line 51) is `[:credentials_unavailable, :input_unavailable]`, and the test at line 937 of the same file shows `input_unavailable` at dispatch as an attested no-send that `Elzoo.AiText.Retry.next/3` retries. Read literally, the name of I4 says that the credential failure is the only attested no-send that is redispatched, which is not true of the Piece.
+On `main` (checked at `c6fe7a8f`), the test at line 249 of `pieces/integration/ai-text/test/elzoo/ai_text_test.exs` is named "I4 retries: only the attested no-send credential failure is redispatched; throttled and overloaded are not; unknown never (RetryTimeout policy + owner)". Since ELZ-364, `Elzoo.AiText.Outcome.no_send/0` (`lib/elzoo/ai_text/outcome.ex`, line 88, which returns the `@no_send` attribute of line 51) is `[:credentials_unavailable, :input_unavailable]`, and the test at line 937 of the same file shows `input_unavailable` at dispatch as an attested no-send that `Elzoo.AiText.Retry.next/3` retries. Read literally, the name of I4 says that the credential failure is the only attested no-send that is redispatched, which is not true of the Piece.
 
-The body of I4 exercises the credential failure, throttled, overloaded and the unknown and permanent tags, and its assertions are correct. Only its name is stale. The name is evidence wording (`docs/development/03-claims-and-evidence.md`). The Piece's other evidence text is already true: the name of test I6 (line 336) and the `grounding` claim of `piece.json` ("retries (credentials_unavailable retried, throttled and overloaded unresolved and not redispatched, unknown never …)") name no "only".
+The body of I4 exercises the credential failure, throttled, overloaded and the unknown and permanent tags, and its assertions are correct. Only its name is stale. The name is evidence wording (`docs/development/03-claims-and-evidence.md`). The Piece's other evidence text is already true: the name of test I6 (line 336) and the `contract` of `piece.json` say "only credentials_unavailable and input_unavailable are attested no-send", which names both, and the `grounding` claim of `piece.json` ("retries (credentials_unavailable retried, throttled and overloaded unresolved and not redispatched, unknown never …)") names no "only".
 
 `integration/ai-embedding` has a test with the same name (`test/elzoo/ai_embedding_test.exs`, line 426), and that one is true: its `Outcome.no_send/0` is `[:credentials_unavailable]`. It is not part of this task.
 
@@ -28,7 +28,7 @@ Nothing else changes: the body of I4, the `## I4 retries` comment, every other t
 ## Acceptance
 
 - The name of I4 is the line above. `rg -n "only the attested no-send" pieces/integration/ai-text` prints nothing; the command and its empty output are recorded in the pull request.
-- `git diff origin/main -- pieces/integration/ai-text` changes exactly one line, the name of I4.
+- `git diff "$(git merge-base origin/main HEAD)" -- pieces/integration/ai-text` changes exactly one line, the name of I4.
 - Every test of the Piece passes, with the same count of tests as on `main`.
 
 ## Gate, review and build

@@ -10165,7 +10165,7 @@
       ],
       "issue": 934,
       "url": "https://github.com/balungpisah/elzoo/issues/934",
-      "issue_body_sha256": "0fa582c2df417a38abfccaa0028b6361aa327bd121afd904296787c21b1f2893"
+      "issue_body_sha256": "19d9eabc972210b1f65e8a41c04231656b250bfb77e09d8df2db3b547bcdf410"
     },
     {
       "id": "ELZ-385",
@@ -10184,13 +10184,13 @@
         "tasks/ELZ-385-run-engine-reads-under-shared-owner.md"
       ],
       "outputs": [],
-      "acceptance": "Repair of assembly/run-engine for #931, same Piece ID: the owner recheck of result/3, event_waits/3 and transcript/3 compares the Run's own facts (id, outcome, operation, current Attempt, completion revision, evidence reference) and no longer the owner's stream revision, which other Runs of a shared owner move; form checks, stream-head rechecks and the engine's own expected_revision commands unchanged. Tests through a Store read hook: a create of another Run during result/3, event_waits/3 and transcript/3 gives the same ok result (on main completion_mismatch and unavailable); a begin_attempt of the same Run during event_waits/3 and transcript/3 stays unavailable; existing tests unchanged. Negative control: compare revision again. Durable state and concurrency: local small gate and full review. Output none.",
+      "acceptance": "Repair of assembly/run-engine for #931, same Piece ID: the owner recheck of result/3, event_waits/3 and transcript/3 compares the Run's own facts (id, outcome, operation, current Attempt, completion revision, evidence reference) and no longer the owner's stream revision, so no owner command that leaves those facts equal (another Run's, or this Run's such as attach_child) fails the read; form checks, stream-head rechecks and the engine's own expected_revision commands unchanged. Tests through a Store read hook: a create of another Run during result/3, event_waits/3 and transcript/3 gives the same ok result (on main completion_mismatch and unavailable); an attach_child of the same Run during event_waits/3 gives the same ok result (on main unavailable); a begin_attempt of the same Run during event_waits/3 and transcript/3 stays unavailable; existing tests unchanged. Negative control: compare revision again. Durable state and concurrency: local small gate and full review. Output none.",
       "product_aims": [
         "P13"
       ],
       "issue": 935,
       "url": "https://github.com/balungpisah/elzoo/issues/935",
-      "issue_body_sha256": "f922b8acfa6e265315dd69f9ea90cf49a778e630f9ec346dec1d29473f61c053"
+      "issue_body_sha256": "6c2d67b3c98644f2d53ee032c69988bf29ada57fcee86c9b0a5dadce0bc04454"
     },
     {
       "id": "ELZ-386",
@@ -10208,13 +10208,13 @@
         "tasks/ELZ-386-lua-sandbox-crashing-fakes-read-first.md"
       ],
       "outputs": [],
-      "acceptance": "Test repair of runtime/lua-sandbox for #932, same Piece ID, no lib change: the crashing fakes reply-then-fail and partial-then-fail read the four frame-header bytes before they write, so the request never meets a child that has ended and their expected process_exit holds; the fakes that write no byte stay; README group 25 (fakes_read_first) and the piece.json grounding name them. Acceptance: the two bodies only, the test at line 430 with --repeat-until-failure 500, every test passes. Negative control: a delayed request write with a closed-input fake gives protocol_error, the repaired body passes. Untrusted input and native code: local small gate and full review. Output none.",
+      "acceptance": "Test repair of runtime/lua-sandbox for #932, same Piece ID, no lib change: the crashing fakes reply-then-fail and partial-then-fail read the four frame-header bytes before they write, so the request never meets a child that has ended and their expected process_exit holds; the fakes that write no byte stay; the README's Port-exit sentence gains the moduledoc's rule (protocol_error when bytes that are not one reply frame were read), and README group 25 (fakes_read_first) and the piece.json grounding name the two fakes. Acceptance: the two bodies only, the test at line 430 with --repeat-until-failure 200, every test passes; the race is inferred, not reproduced. Negative control: a delayed request write with a closed-input fake gives protocol_error, the repaired body passes. Untrusted input and native code: local small gate and full review. Output none.",
       "product_aims": [
         "P13"
       ],
       "issue": 936,
       "url": "https://github.com/balungpisah/elzoo/issues/936",
-      "issue_body_sha256": "95cd16fc88c3d6dd530f5280856b6e376e27a1aefe4b41a07e2a755a9916e649"
+      "issue_body_sha256": "b8bfbaabc9f4e39151795cdfe851b9f6f4fa79e054e4a25e4d8795d6100c6433"
     }
   ],
   "entries": [
