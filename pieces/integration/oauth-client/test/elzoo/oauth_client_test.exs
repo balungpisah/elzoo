@@ -7,7 +7,7 @@ defmodule Elzoo.OauthClientTest do
   alias Elzoo.EgressPolicy
   alias Elzoo.Encryption
   alias Elzoo.OauthClient, as: OC
-  alias Elzoo.OauthClientTest.{AppRepo, Harness, OwnerRepo, RepeatableRepo, Server}
+  alias Elzoo.OauthClientTest.{AppRepo, Harness, OwnerRepo, RepeatableRepo, Server, ShortRepo}
   alias Elzoo.Secrets.Credential
   alias Elzoo.TenantIsolation, as: TI
 
@@ -459,8 +459,18 @@ defmodule Elzoo.OauthClientTest do
 
   # ------------------------------------------------------------ 5
 
+  @tag :refresh_deadline
   test "5 two concurrent callers make one refresh, also below skew_ms", ctx do
-    for {id, reply} <- [{"one", body()}, {"short", body(expires_in: 40)}] do
+    deadline =
+      binding!(ctx,
+        refresh_deadline: %{lock_wait_ms: 5_000, overhead_ms: 500, persistence_reserve_ms: 400}
+      )
+
+    for {id, reply, b} <- [
+          {"one", body(), ctx.b},
+          {"short", body(expires_in: 40), ctx.b},
+          {"deadline", body(), deadline}
+        ] do
       set_clock(ctx, @t0)
       authorize!(ctx, id)
       set_clock(ctx, @t0 + @hour)
@@ -470,7 +480,7 @@ defmodule Elzoo.OauthClientTest do
         if k == n + 1, do: {:hold, {200, reply}}, else: {200, reply}
       end)
 
-      callers = for _ <- 1..2, do: Task.async(fn -> token(ctx.b, id) end)
+      callers = for _ <- 1..2, do: Task.async(fn -> token(b, id) end)
       assert_receive {:holding, holder}, 5_000
       # The second caller is seen waiting on the connection row lock, or (without the lock)
       # reaches the server itself.
@@ -480,6 +490,204 @@ defmodule Elzoo.OauthClientTest do
       assert Task.await_many(callers, 10_000) == [{:ok, token}, {:ok, token}]
       assert Server.count(ctx.server) == n + 1
     end
+  end
+
+  @tag :refresh_deadline
+  test "slow rotation under short and suitable Repo timeouts", ctx do
+    start_supervised!(
+      {ShortRepo,
+       url: Harness.url!(),
+       log: false,
+       pool_size: 2,
+       timeout: 200,
+       after_connect: {Harness, :connect, [ctx.role, nil]}}
+    )
+
+    declaration = %{lock_wait_ms: 500, overhead_ms: 1_000, persistence_reserve_ms: 300}
+
+    for {id, repo, opts} <- [
+          {"explicit", ShortRepo, [refresh_deadline: declaration]},
+          {"too-short", ShortRepo, []},
+          {"suitable", AppRepo, []}
+        ] do
+      b = binding!(ctx, [repo: repo, exchange_timeout_ms: 2_000] ++ opts)
+      set_clock(ctx, @t0)
+      old = authorize!(ctx, id, provider: "rotating")
+      set_clock(ctx, @t0 + @hour)
+      n = Server.count(ctx.server)
+      rotated = body()
+
+      Server.respond(ctx.server, fn req, k ->
+        if req.form["refresh_token"] == old.body["refresh_token"] and k == n + 1 do
+          {:hold, {200, rotated}}
+        else
+          {400, %{"error" => "invalid_grant"}}
+        end
+      end)
+
+      caller = Task.async(fn -> token(b, id) end)
+      assert_receive {:holding, holder}, 2_000
+      Process.sleep(500)
+      send(holder, :go)
+      result = Task.await(caller)
+      assert Server.count(ctx.server) == n + 1
+
+      if id == "too-short" do
+        assert result == {:error, :unavailable}
+        assert get(ctx.b, id) == {:ok, old.connection}
+        assert token(ctx.b, id) == {:error, :reauthorization_required}
+        assert [%{form: %{"refresh_token" => spent}}] = since(ctx, n + 1)
+        assert spent == old.body["refresh_token"]
+      else
+        assert result == {:ok, rotated["access_token"]}
+        assert {:ok, %{revision: rev}} = get(ctx.b, id)
+        assert rev == old.connection.revision + 1
+        assert token(ctx.b, id) == result
+        assert Server.count(ctx.server) == n + 1
+        set_clock(ctx, @t0 + 2 * @hour)
+        next = body()
+        respond(ctx, {200, next})
+        assert token(ctx.b, id) == {:ok, next["access_token"]}
+        assert [%{form: %{"refresh_token" => saved}}] = since(ctx, n + 1)
+        assert saved == rotated["refresh_token"]
+      end
+    end
+  end
+
+  @tag :refresh_deadline
+  test "lock wait and transport preparation spend the same pre-dispatch budget", ctx do
+    for {id, reserve} <- [{"not-enough", 1_600}, {"enough", 600}] do
+      set_clock(ctx, @t0)
+      old = authorize!(ctx, id, provider: "rotating")
+      set_clock(ctx, @t0 + @hour)
+      before = Harness.truth(ctx.p)
+      n = Server.count(ctx.server)
+      rotated = body()
+      respond(ctx, {200, rotated})
+      transport = ctx.b.transport
+
+      b =
+        binding!(ctx,
+          exchange_timeout_ms: 1_000,
+          refresh_deadline: %{
+            lock_wait_ms: 400,
+            overhead_ms: 1_800,
+            persistence_reserve_ms: reserve
+          },
+          transport: fn target ->
+            send(ctx.me, {:preparing, self()})
+            receive do: (:prepared -> transport.(target))
+          end
+        )
+
+      # Observe the caller waiting on the row before starting the lock delay.
+      {:ok, caller} =
+        TI.transact(AppRepo, %{tenant: "T1"}, fn ->
+          Harness.q!(
+            AppRepo,
+            "SELECT 1 FROM #{Harness.table(ctx.p, :connections)} WHERE connection_id = $1 FOR UPDATE",
+            [id]
+          )
+
+          task = Task.async(fn -> token(b, id) end)
+          Harness.await_waiting!(1)
+          Process.sleep(400)
+          {:ok, task}
+        end)
+
+      assert_receive {:preparing, worker}, 1_000
+      Process.sleep(400)
+      send(worker, :prepared)
+      result = Task.await(caller)
+
+      if id == "not-enough" do
+        # 800 ms exceeds the 600 ms dispatch window, but the exchange alone fits.
+        assert since(ctx, n) == []
+        assert result == {:error, :unavailable}
+        assert Harness.truth(ctx.p) == before
+        set_clock(ctx, @t0)
+        assert token(ctx.b, id) == {:ok, old.body["access_token"]}
+      else
+        assert result == {:ok, rotated["access_token"]}
+        assert length(since(ctx, n)) == 1
+      end
+    end
+  end
+
+  @tag :refresh_deadline
+  test "an exchange task only spends a rotating token after admission", ctx do
+    id = "starved"
+    old = authorize!(ctx, id, provider: "rotating")
+    set_clock(ctx, @t0 + @hour)
+    n = Server.count(ctx.server)
+
+    opts = [
+      exchange_timeout_ms: 120,
+      refresh_deadline: %{lock_wait_ms: 150, overhead_ms: 1_000, persistence_reserve_ms: 1_000}
+    ]
+
+    # One normal scheduler: the high-priority caller can prepare the request, but the
+    # normal-priority worker cannot run until the 350 ms spinner yields.
+    starve = fn target ->
+      reply = ctx.b.transport.(target)
+      Process.flag(:priority, :high)
+
+      :erlang.spawn_opt(fn -> spin_until(System.monotonic_time(:millisecond) + 350) end, [
+        :link,
+        priority: :high
+      ])
+
+      reply
+    end
+
+    # 120 ms: killed before it runs. 1,000 ms: starts after the 150 ms cutoff,
+    # while still alive; the worker itself must refuse dispatch.
+    for timeout <- [120, 1_000] do
+      b = binding!(ctx, Keyword.merge(opts, transport: starve, exchange_timeout_ms: timeout))
+
+      caller =
+        Task.async(fn ->
+          :erlang.system_flag(:multi_scheduling, :block_normal)
+
+          try do
+            token(b, id)
+          after
+            :erlang.system_flag(:multi_scheduling, :unblock_normal)
+          end
+        end)
+
+      result = Task.await(caller)
+      assert since(ctx, n) == []
+      assert result == {:error, :unavailable}
+      assert get(ctx.b, id) == {:ok, old.connection}
+    end
+
+    respond(ctx, :never)
+    assert token(binding!(ctx, opts), id) == {:error, :reauthorization_required}
+    assert length(since(ctx, n)) == 1
+    assert {:ok, %{state: :reauthorization_required, revision: rev}} = get(ctx.b, id)
+    assert rev == old.connection.revision + 1
+  end
+
+  defp spin_until(deadline) do
+    if System.monotonic_time(:millisecond) < deadline, do: spin_until(deadline)
+  end
+
+  test "opt-in client credentials refuse a checkout, dispatch once, then read fresh", ctx do
+    b =
+      binding!(ctx,
+        refresh_deadline: %{lock_wait_ms: 1_000, overhead_ms: 200, persistence_reserve_ms: 200}
+      )
+
+    assert {:ok, :applied} = AppRepo.checkout(fn -> connect(b, "cc", "acme") end)
+    assert {:error, :unavailable} = AppRepo.checkout(fn -> token(b, "cc") end)
+    assert {:ok, {:error, :in_transaction}} = AppRepo.transaction(fn -> token(b, "cc") end)
+    assert Server.count(ctx.server) == 0
+    reply = body()
+    respond(ctx, {200, reply})
+    assert token(b, "cc") == {:ok, reply["access_token"]}
+    assert token(b, "cc") == {:ok, reply["access_token"]}
+    assert [%{form: %{"grant_type" => "client_credentials"}}] = Server.requests(ctx.server)
   end
 
   defp barrier!(ctx, n, tries \\ 500) do
@@ -1034,8 +1242,10 @@ defmodule Elzoo.OauthClientTest do
       many = for i <- 1..64, do: provider("p#{i}")
       scopes = for i <- 1..64, do: "s#{i}"
       wide = String.duplicate("x", 128)
+      max_budget = %{lock_wait_ms: 1, overhead_ms: 589_999, persistence_reserve_ms: 589_999}
 
       inner = [
+        [refresh_deadline: max_budget],
         [providers: many],
         [providers: [provider(String.duplicate("a.b-_9", 10) <> "abcd")]],
         [providers: [provider("acme", %{scopes_allowed: scopes})]],
@@ -1061,6 +1271,18 @@ defmodule Elzoo.OauthClientTest do
       p = &[providers: [provider("acme", &1)]]
 
       outer = [
+        [refresh_deadline: nil],
+        [refresh_deadline: Map.to_list(max_budget)],
+        [refresh_deadline: Map.put(max_budget, :extra, 1)],
+        [refresh_deadline: Map.delete(max_budget, :persistence_reserve_ms)],
+        [refresh_deadline: %{max_budget | lock_wait_ms: 2}],
+        [refresh_deadline: %{max_budget | lock_wait_ms: 0}],
+        [refresh_deadline: %{max_budget | overhead_ms: 0}],
+        [refresh_deadline: %{max_budget | persistence_reserve_ms: 0}],
+        [refresh_deadline: %{max_budget | persistence_reserve_ms: 590_000}],
+        [refresh_deadline: %{max_budget | lock_wait_ms: 1.0}],
+        [refresh_deadline: %{max_budget | overhead_ms: 589_999.0}],
+        [refresh_deadline: %{max_budget | persistence_reserve_ms: 1.5}],
         [providers: []],
         [providers: many ++ [provider("p65")]],
         [providers: [provider("acme"), provider("acme")]],

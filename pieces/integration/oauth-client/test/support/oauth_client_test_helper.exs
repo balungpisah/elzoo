@@ -9,6 +9,10 @@ defmodule Elzoo.OauthClientTest.AppRepo do
   use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
 end
 
+defmodule Elzoo.OauthClientTest.ShortRepo do
+  use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
+end
+
 # The application role on connections whose default_transaction_isolation is repeatable read.
 defmodule Elzoo.OauthClientTest.RepeatableRepo do
   use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
