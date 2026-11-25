@@ -112,14 +112,9 @@ defmodule Elzoo.RunEngineFrozenRowsTest do
                })
     end
 
-    opts = Keyword.put(c.opts, :result_reader, %{evidence_store: c.evidence_store, retention_count: 1_024})
-    {:ok, from_store, _} = Elzoo.DurableLog.read(c.store, opts[:identity], 1, 1_000)
+    {:ok, from_store, _} = Elzoo.DurableLog.read(c.store, c.opts[:identity], 1, 1_000)
     assert from_store == data.rows
-    assert {:ok, owner} = RunApprovalRelease.status(c.run, "run")
-    IO.inspect(Map.take(owner, [:revision, :operation_id, :current_attempt, :outcome, :evidence_ref]), label: "owner")
-    assert {:ok, engine} = RunEngine.start_link(opts)
-    GenServer.stop(engine)
-    opts
+    Keyword.put(c.opts, :result_reader, %{evidence_store: c.evidence_store, retention_count: 1_024})
   end
 
   defp recover(opts, data) do

@@ -52,6 +52,10 @@
     "test/elzoo/run_engine_expiry_report_test.exs",
     "test/elzoo/run_engine_messages_test.exs",
     "test/elzoo/run_engine_cold_recovery_test.exs",
+    "test/elzoo/run_engine_frozen_rows_test.exs",
+    "test/fixtures/run-engine/completed-v1.etf",
+    "test/fixtures/run-engine/open-v2-messages.etf",
+    "test/fixtures/run-engine/paused-v1-owner.etf",
     "test/support/run_engine_cold_reader_test_helper.exs",
     "test/support/run_engine_test_helper.exs"
   ],
