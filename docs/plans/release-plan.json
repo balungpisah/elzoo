@@ -10676,6 +10676,29 @@
       "issue": 992,
       "url": "https://github.com/balungpisah/elzoo/issues/992",
       "issue_body_sha256": "fd501b3bfb438f0d0c9130181d27733ed39779734b78d44d3e8e93cfff342b16"
+    },
+    {
+      "id": "ELZ-409",
+      "title": "ELZ-409 — assembly/run-engine: launch the fresh-VM reader so it also runs in a copied consumer",
+      "kind": "published",
+      "release": "V2",
+      "stage": "release",
+      "dependencies": [
+        "ELZ-408"
+      ],
+      "status": "published 2026-11-25",
+      "owner_role": "coordinator; one-PR path for a test-only Piece repair; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-409-run-engine-cold-reader-consumer-launch.md"
+      ],
+      "outputs": [],
+      "acceptance": "Red main on 71e5f2b9 (check-aggregate): the run-engine fresh-VM reader launched with mix run cannot load the copied consumer's dependencies. Relaunch it so it runs in both the Elzoo checkout and a copied consumer while staying a fresh VM; test files only. Consumer reproduction before and pass after, loading-step negative control still fails, repeated cold cases, small gate, green full check on main after merge.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 996,
+      "url": "https://github.com/balungpisah/elzoo/issues/996",
+      "issue_body_sha256": "dfce5f92be9805b1c6ffa2ee18c7989983f23fa9d941504224f1536e9fe303a0"
     }
   ],
   "entries": [

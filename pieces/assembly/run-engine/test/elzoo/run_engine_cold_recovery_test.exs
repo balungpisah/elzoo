@@ -105,14 +105,17 @@ defmodule Elzoo.RunEngineColdRecoveryTest do
     encode = fn term -> Base.encode64(:erlang.term_to_binary(term)) end
     script = Path.expand("../support/run_engine_cold_reader_test_helper.exs", __DIR__)
 
+    # The copied consumer gets its dependency paths from its launcher, not Mix.
+    # Each -pa prepends, so pass them last-to-first to keep the writer's lookup order.
+    paths = Enum.flat_map(Enum.reverse(:code.get_path()), &["-pa", List.to_string(&1)])
+
     args =
-      ~w(run --no-compile --no-deps-check --no-start) ++
-        [script, c.prefix, encode.(options), encode.({status, transcript, result})]
+      paths ++ [script, c.prefix, encode.(options), encode.({status, transcript, result})]
 
     {output, exit_code} =
-      System.cmd(System.find_executable("mix"), args,
+      System.cmd(System.find_executable("elixir"), args,
         stderr_to_stdout: true,
-        env: [{"MIX_ENV", "test"}, {"ERL_FLAGS", "+S 2:2"}]
+        env: [{"ERL_FLAGS", "+S 2:2"}]
       )
 
     assert exit_code == 0, output
