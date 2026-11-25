@@ -371,7 +371,7 @@ Everything else waits unless the coordinator explicitly admits it before the fre
 
 | Item | State at F's base | Decision | Reason |
 | --- | --- | --- | --- |
-| [#930](https://github.com/balungpisah/elzoo/issues/930) | ELZ-387 merged as #945 | Landed (Level 0) | Decision 2. It adds a control key to the run-engine record, so it precedes the format freeze. |
+| [#930](https://github.com/balungpisah/elzoo/issues/930) | ELZ-387, [#945](https://github.com/balungpisah/elzoo/pull/945), `3e72f6f9` | Landed (Level 0) | Decision 2. It adds a control key to the run-engine record, so it precedes the format freeze. |
 | [#821](https://github.com/balungpisah/elzoo/issues/821) | Merged as ELZ-358 (PR [#864](https://github.com/balungpisah/elzoo/pull/864), `10dfd080`); the issue is closed as completed | Landed | — |
 | [#843](https://github.com/balungpisah/elzoo/issues/843) | Merged as ELZ-359 (PR [#863](https://github.com/balungpisah/elzoo/pull/863), `9580f2b1`); the issue is closed as completed | Landed | — |
 | [#931](https://github.com/balungpisah/elzoo/issues/931), [#932](https://github.com/balungpisah/elzoo/issues/932) | Merged as ELZ-385 (PR #940) and ELZ-386 (PR #939); both issues are closed | Landed | — |
@@ -406,7 +406,7 @@ These rules hold from the merge of ELZ-403 (F) to the release commit. The frozen
 
 1. Only these merge: the release tasks; repairs that restore a ready Contract; and test-only Piece repairs (`AGENTS.md` section 1). A repair published during the freeze takes stage `release`, so the derived frozen set does not change after F, and A lists it with its commit. A change to a ready Contract, a new ready Piece or a new job in stage `pieces` of V1, V1B or V2 waits until after the release commit. New Piece tasks for deferred rows may be published and built meanwhile with stage `later`, but they merge after the release commit.
 2. The record-writing paths of `assembly/run-engine`, `workflow/pattern-step`, `runtime/durable-unit` and `runtime/recipe-test` do not change. If a repair needs them to change, the release stops, and the owner decides whether to freeze again.
-3. A defect that A finds is its own repair task. One that restores the Contract may merge during the freeze subject to rule 2, and A records it with its commit. One that needs a Contract change stops the release for the owner.
+3. A defect that A finds is its own repair task. One that restores the Contract merges during the freeze subject to rule 2, and A records it with its commit. One that needs a Contract change stops the release for the owner.
 4. The review, exact-head check, queue and red-`main` rules are unchanged.
 
 ## Dependency levels

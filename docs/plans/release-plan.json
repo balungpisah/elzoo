@@ -160,7 +160,7 @@
         "RC-29",
         "RC-30"
       ],
-      "limit": "The first release supplies no part of P11. RC-27 (broker/pubsub), RC-28 (resequencing), RC-29 (incremental build graph) and RC-30 (foreign consumer protocol) are later; a product claim waits for a next release."
+      "limit": "The first release supplies no part of P11. RC-27 (broker/pubsub), RC-28 (resequencing), RC-29 (incremental build graph) and RC-30 (foreign consumer protocol) are later; a product claim waits for a next release. For later P11 work: one broker/language; cache keys include actual build dependencies. Not a general build service."
     },
     {
       "id": "P12",
