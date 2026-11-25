@@ -10553,6 +10553,30 @@
       "issue": 980,
       "url": "https://github.com/balungpisah/elzoo/issues/980",
       "issue_body_sha256": "cd2f745fa17f135bd2b0d6a238a5e00cf67c903ab7e863caae9d18a353aefa96"
+    },
+    {
+      "id": "ELZ-404",
+      "title": "ELZ-404 — Accept the three frozen first-release gates",
+      "kind": "published",
+      "release": "V2",
+      "stage": "release",
+      "dependencies": [
+        "ELZ-403"
+      ],
+      "status": "published 2026-11-25",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-404-first-release-acceptance.md"
+      ],
+      "outputs": [],
+      "acceptance": "Account for every frozen job with its issue, landing and frozen outputs or resolution; check the graph-agent-Lua recipe on PostgreSQL, its two negative controls, the pinned full check and claim evidence. No acceptance with an undecided job; fixtures and release mark follow separately.",
+      "product_aims": [
+        "P10",
+        "P11"
+      ],
+      "issue": 982,
+      "url": "https://github.com/balungpisah/elzoo/issues/982",
+      "issue_body_sha256": "3f344c5197e48de8c4043cf00b0d118418f066d90cd29435a378a8539b0fe307"
     }
   ],
   "entries": [
@@ -12306,7 +12330,7 @@
         ]
       },
       "prior_release_gate": null,
-      "status": "frozen by F; acceptance A",
+      "status": "accepted by ELZ-404; the release mark follows the fixtures",
       "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012."
     },
     "V1B": {
@@ -12321,7 +12345,7 @@
         ]
       },
       "prior_release_gate": null,
-      "status": "frozen by F; acceptance A",
+      "status": "accepted by ELZ-404; the release mark follows the fixtures",
       "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release."
     },
     "V2": {
@@ -12336,7 +12360,7 @@
         ]
       },
       "prior_release_gate": "V1-ACCEPT",
-      "status": "frozen by F; acceptance A",
+      "status": "accepted by ELZ-404; the release mark follows the fixtures",
       "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012."
     },
     "V3": {
