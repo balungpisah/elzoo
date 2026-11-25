@@ -128,9 +128,10 @@ the caller dies, the owner kills the child by OS pid and reaps it before `run/2`
 returns. If the owner itself is killed from outside, `run/2` returns `process_exit`
 and the child is not killed by OS pid: the Port closes with the owner and the child
 ends by its own backstops. An exit of the Port, such as a write into a closed child
-input, is a host outcome and never an exit signal to the caller, whose links, monitors,
-flags and mailbox are unchanged (a host `setitimer` backstop and a stdin-hangup poll
-end the child if the owner cannot).
+input, is a host outcome (`process_exit`, or `protocol_error` when bytes that are not
+one reply frame were read) and never an exit signal to the caller, whose links,
+monitors, flags and mailbox are unchanged (a host `setitimer` backstop and a
+stdin-hangup poll end the child if the owner cannot).
 
 ## Policy version 3
 
@@ -390,7 +391,11 @@ repair of the test fakes adds two more (groups 25 and 26):
     `lua_sandbox_replay_test.exs`): each fake child that writes or exits without a read of its
     input, and whose test expects a result other than `process_exit`, reads the four bytes of
     the frame header from its input before it writes, so the request is never written to a child
-    that has already ended. The expected results are unchanged and the tests were run 200 times
+    that has already ended. The two fakes of the test "a crashing child" that write bytes
+    before they exit, `reply-then-fail` and `partial-then-fail`, also read the header first:
+    their test expects `process_exit`, but a Port exit after their bytes would be
+    `protocol_error`. The crashing fakes that write no byte (`exit3`, `killed`, `segv`) stay as
+    they are. The expected results are unchanged and the tests were run 200 times
     in one launch with `--repeat-until-failure 200`. Negative control: with the read removed from
     one fake the test still passes in most runs, so this control is not decisive and the review
     reads the fakes.
