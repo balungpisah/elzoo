@@ -327,4 +327,4 @@ Wave 9 is the last row of the wave table. This list is for the coordinator to pl
 - **Open repairs and observations** carried forward when this plan is written: #821, #834, #843, the flakes #852, #670, #669 and #547, #701, #710, #715, and the skip-list rechecks of the [coordinator guide](../development/13-coordinator.md).
 - **What "complete" means** for Elzoo is the owner's decision: whether the first release waits for any of the rows above.
 
-The owner answered the last point on 2026-11-25: the first release waits for none of the rows above. The first release is planned in [first-release.md](first-release.md) (ELZ-388).
+The owner answered the last point on 2026-11-25: the first release waits for none of the deferred, demand-led rows above. Which open repairs must land first is decided in the first-release plan. The first release is planned in [first-release.md](first-release.md) (ELZ-388).
