@@ -10142,6 +10142,79 @@
       "issue": 923,
       "url": "https://github.com/balungpisah/elzoo/issues/923",
       "issue_body_sha256": "3decb122784180a0701e6a37821c52ac1183bda55c327e9c67a0000b26e39765"
+    },
+    {
+      "id": "ELZ-384",
+      "title": "ELZ-384 — integration/ai-text test I4 no longer names the credential failure as the only redispatched attested no-send",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-079",
+        "ELZ-364"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-384-ai-text-i4-no-send-name.md"
+      ],
+      "outputs": [],
+      "acceptance": "Test-name repair of integration/ai-text for #925, same Piece ID, no behaviour, Contract, README or piece.json change: test I4 is renamed to 'I4 retries: the attested no-send credential failure is redispatched; throttled and overloaded are not; unknown never (RetryTimeout policy + owner)', since Outcome.no_send/0 is credentials_unavailable and input_unavailable; the diff is that one line, rg for 'only the attested no-send' prints nothing, every test passes with the same count; ai-embedding's I4, which is true, is unchanged. Credentials and external effect: local small gate and full review. Output none.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 934,
+      "url": "https://github.com/balungpisah/elzoo/issues/934",
+      "issue_body_sha256": "19d9eabc972210b1f65e8a41c04231656b250bfb77e09d8df2db3b547bcdf410"
+    },
+    {
+      "id": "ELZ-385",
+      "title": "ELZ-385 — assembly/run-engine: the read-only result, wait and transcript reads recheck the Run's own owner facts, so another Run of a shared owner does not fail them",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-127",
+        "ELZ-265",
+        "ELZ-298"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-385-run-engine-reads-under-shared-owner.md"
+      ],
+      "outputs": [],
+      "acceptance": "Repair of assembly/run-engine for #931, same Piece ID: the owner recheck of result/3, event_waits/3 and transcript/3 compares the Run's own facts (id, outcome, operation, current Attempt, completion revision, evidence reference) and no longer the owner's stream revision, so no owner command that leaves those facts equal (another Run's, or this Run's such as attach_child) fails the read; form checks, stream-head rechecks and the engine's own expected_revision commands unchanged. Tests through a Store read hook: a create of another Run during result/3, event_waits/3 and transcript/3 gives the same ok result (on main completion_mismatch and unavailable); an attach_child of the same Run during event_waits/3 gives the same ok result (on main unavailable); a begin_attempt of the same Run during event_waits/3 and transcript/3 stays unavailable; existing tests unchanged. Negative control: compare revision again. Durable state and concurrency: local small gate and full review. Output none.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 935,
+      "url": "https://github.com/balungpisah/elzoo/issues/935",
+      "issue_body_sha256": "6684123ae116cd1de0ffd403aa9796ed7130d8b4d31bc5e7c55a35f680efb409"
+    },
+    {
+      "id": "ELZ-386",
+      "title": "ELZ-386 — runtime/lua-sandbox: the crashing fakes that write bytes read the frame header first, so their test cannot lose the race to the request",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-163",
+        "ELZ-195"
+      ],
+      "status": "published 2026-11-24",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-386-lua-sandbox-crashing-fakes-read-first.md"
+      ],
+      "outputs": [],
+      "acceptance": "Test repair of runtime/lua-sandbox for #932, same Piece ID, no lib change: the crashing fakes reply-then-fail and partial-then-fail read the four frame-header bytes before they write, so the request never meets a child that has ended and their expected process_exit holds; the fakes that write no byte stay; the README's Port-exit sentence gains the moduledoc's rule (protocol_error when bytes that are not one reply frame were read), and README group 25 (fakes_read_first) and the piece.json grounding name the two fakes. Acceptance: the two bodies only, the test at line 430 with --repeat-until-failure 200, every test passes; the race is inferred, not reproduced. Negative control: a delayed request write with a closed-input fake gives protocol_error, the repaired body passes. Untrusted input and native code: local small gate and full review. Output none.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 936,
+      "url": "https://github.com/balungpisah/elzoo/issues/936",
+      "issue_body_sha256": "ffbecd9d624040111a207399d6ad3345deb95860b222dff911627dc3f706bbf4"
     }
   ],
   "entries": [

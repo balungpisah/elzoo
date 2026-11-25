@@ -432,6 +432,9 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-381](https://github.com/balungpisah/elzoo/issues/921) | V1B / pieces | ELZ-079, ELZ-364 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-382](https://github.com/balungpisah/elzoo/issues/922) | V1B / pieces | ELZ-083 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-383](https://github.com/balungpisah/elzoo/issues/923) | V1B / pieces | ELZ-085, ELZ-364 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-384](https://github.com/balungpisah/elzoo/issues/934) | V1B / pieces | ELZ-079, ELZ-364 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-385](https://github.com/balungpisah/elzoo/issues/935) | V1B / pieces | ELZ-127, ELZ-265, ELZ-298 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-386](https://github.com/balungpisah/elzoo/issues/936) | V1B / pieces | ELZ-163, ELZ-195 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -635,7 +638,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-291, ELZ-305, ELZ-306, ELZ-307, ELZ-308, ELZ-309, ELZ-315, ELZ-311, ELZ-312, ELZ-310, ELZ-318, ELZ-317, ELZ-322, ELZ-325, ELZ-328, ELZ-329, ELZ-330, ELZ-331, ELZ-332, ELZ-333, ELZ-334, ELZ-335, ELZ-337, ELZ-338, ELZ-339, ELZ-340, ELZ-341, ELZ-342, ELZ-343, ELZ-344, ELZ-345, ELZ-346, ELZ-347, ELZ-348, ELZ-349, ELZ-351, ELZ-352, ELZ-354, ELZ-355, ELZ-357, ELZ-358, ELZ-359, ELZ-360, ELZ-361, ELZ-362, ELZ-363, ELZ-364, ELZ-368, ELZ-369, ELZ-370, ELZ-371, ELZ-372, ELZ-373, ELZ-374, ELZ-375, ELZ-376, ELZ-377, ELZ-380, ELZ-381, ELZ-382, ELZ-383.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-291, ELZ-305, ELZ-306, ELZ-307, ELZ-308, ELZ-309, ELZ-315, ELZ-311, ELZ-312, ELZ-310, ELZ-318, ELZ-317, ELZ-322, ELZ-325, ELZ-328, ELZ-329, ELZ-330, ELZ-331, ELZ-332, ELZ-333, ELZ-334, ELZ-335, ELZ-337, ELZ-338, ELZ-339, ELZ-340, ELZ-341, ELZ-342, ELZ-343, ELZ-344, ELZ-345, ELZ-346, ELZ-347, ELZ-348, ELZ-349, ELZ-351, ELZ-352, ELZ-354, ELZ-355, ELZ-357, ELZ-358, ELZ-359, ELZ-360, ELZ-361, ELZ-362, ELZ-363, ELZ-364, ELZ-368, ELZ-369, ELZ-370, ELZ-371, ELZ-372, ELZ-373, ELZ-374, ELZ-375, ELZ-376, ELZ-377, ELZ-380, ELZ-381, ELZ-382, ELZ-383, ELZ-384, ELZ-385, ELZ-386.
 
 ### V2-ACCEPT
 
@@ -5235,3 +5238,33 @@ Publication copy: [tasks/ELZ-383-ai-batch-no-send-wording.md](../../tasks/ELZ-38
 **Product aims:** P13.
 
 **Acceptance:** Text repair of integration/ai-batch for #882, same Piece ID, no behaviour change: nine places (the Binding, SubmitAdapter and CancelAdapter moduledocs, one Adapter comment, two README passages, and the piece.json contract, staged-body limit and grounding claim) name the text interface's attested no-send set (Outcome.no_send/0: credentials_unavailable and input_unavailable), of which the batch path reaches only credentials_unavailable. Tests unchanged. Credentials and external effect: local small gate and full review. Output none.
+
+### ELZ-384
+
+ELZ-384 — integration/ai-text test I4 no longer names the credential failure as the only redispatched attested no-send
+
+Publication copy: [tasks/ELZ-384-ai-text-i4-no-send-name.md](../../tasks/ELZ-384-ai-text-i4-no-send-name.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Test-name repair of integration/ai-text for #925, same Piece ID, no behaviour, Contract, README or piece.json change: test I4 is renamed to 'I4 retries: the attested no-send credential failure is redispatched; throttled and overloaded are not; unknown never (RetryTimeout policy + owner)', since Outcome.no_send/0 is credentials_unavailable and input_unavailable; the diff is that one line, rg for 'only the attested no-send' prints nothing, every test passes with the same count; ai-embedding's I4, which is true, is unchanged. Credentials and external effect: local small gate and full review. Output none.
+
+### ELZ-385
+
+ELZ-385 — assembly/run-engine: the read-only result, wait and transcript reads recheck the Run's own owner facts, so another Run of a shared owner does not fail them
+
+Publication copy: [tasks/ELZ-385-run-engine-reads-under-shared-owner.md](../../tasks/ELZ-385-run-engine-reads-under-shared-owner.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair of assembly/run-engine for #931, same Piece ID: the owner recheck of result/3, event_waits/3 and transcript/3 compares the Run's own facts (id, outcome, operation, current Attempt, completion revision, evidence reference) and no longer the owner's stream revision, so no owner command that leaves those facts equal (another Run's, or this Run's such as attach_child) fails the read; form checks, stream-head rechecks and the engine's own expected_revision commands unchanged. Tests through a Store read hook: a create of another Run during result/3, event_waits/3 and transcript/3 gives the same ok result (on main completion_mismatch and unavailable); an attach_child of the same Run during event_waits/3 gives the same ok result (on main unavailable); a begin_attempt of the same Run during event_waits/3 and transcript/3 stays unavailable; existing tests unchanged. Negative control: compare revision again. Durable state and concurrency: local small gate and full review. Output none.
+
+### ELZ-386
+
+ELZ-386 — runtime/lua-sandbox: the crashing fakes that write bytes read the frame header first, so their test cannot lose the race to the request
+
+Publication copy: [tasks/ELZ-386-lua-sandbox-crashing-fakes-read-first.md](../../tasks/ELZ-386-lua-sandbox-crashing-fakes-read-first.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Test repair of runtime/lua-sandbox for #932, same Piece ID, no lib change: the crashing fakes reply-then-fail and partial-then-fail read the four frame-header bytes before they write, so the request never meets a child that has ended and their expected process_exit holds; the fakes that write no byte stay; the README's Port-exit sentence gains the moduledoc's rule (protocol_error when bytes that are not one reply frame were read), and README group 25 (fakes_read_first) and the piece.json grounding name the two fakes. Acceptance: the two bodies only, the test at line 430 with --repeat-until-failure 200, every test passes; the race is inferred, not reproduced. Negative control: a delayed request write with a closed-input fake gives protocol_error, the repaired body passes. Untrusted input and native code: local small gate and full review. Output none.
