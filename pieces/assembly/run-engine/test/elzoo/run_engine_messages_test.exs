@@ -121,6 +121,74 @@ defmodule Elzoo.RunEngineMessagesTest do
     end
   end
 
+  describe "reused action ID" do
+    test "the original tool outcome settles and its duplicate does not redeliver" do
+      Process.register(self(), :run_engine_observer)
+      t2 = action("t2", "tool_call")
+      script = [request([action("t1", "tool_call"), t2]), request([t2])]
+      c = fixture(pattern: {TestPattern, :scripted, %{name: "root", script: script}})
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, first, _}, 5_000
+      assert_receive {:effect_started, second, _}, 5_000
+
+      t1_context = verified(%{occurrence: {1, 0}, actual: 1, dispatch: "dispatched"})
+      assert {:ok, :applied} = RunEngine.input(engine, "first", result("t1"), t1_context)
+      assert %{phase: :settled, outcome: "refused"} = view(engine).slots[{2, 0}]
+
+      assert_receive {:pattern_input, "root",
+                      %{"action_id" => "t2", "payload" => %{"reason" => "reused_identity"}}}
+
+      t2_context = %{t1_context | occurrence: {1, 1}}
+      assert {:ok, :applied} = RunEngine.input(engine, "original", result("t2"), t2_context)
+      state = unit_state(c)
+
+      assert {state.control.classification, state.slots[{1, 1}].phase,
+              state.slots[{1, 1}][:outcome]} ==
+               {:applied, :settled, "completed"}
+
+      assert state.control.lifecycle.waits == %{}
+      assert {:ok, :duplicate} = RunEngine.input(engine, "original", result("t2"), t2_context)
+      assert_receive {:pattern_input, "root", %{"action_id" => "t2", "outcome" => "completed"}}
+      refute_received {:pattern_input, _, %{"action_id" => "t2"}}
+      refute_receive {:effect_started, _, _}
+      for provider <- [first, second], do: send(provider, {:result, %{}})
+    end
+
+    test "a person answer settles the original ask after recovery from the refusal" do
+      ask = request_v2([action("ask", "ask_person")])
+      {c, bindings} = messages_setup([ask, ask], %{}, protocol_version: 2)
+      opts = [bindings: bindings, messages: :while_active]
+      engine = start(c, opts)
+      assert {:ok, :applied} = RunEngine.input(engine, "start", start_input_v2(), verified())
+      assert %{phase: :waiting} = view(engine).slots[{1, 0}]
+      assert {:ok, :applied} = RunEngine.input(engine, "reuse", message(2), verified())
+      assert %{phase: :settled, outcome: "refused"} = view(engine).slots[{2, 0}]
+      engine = restart(c, engine, opts)
+
+      answer = %{
+        "type" => "input",
+        "version" => 2,
+        "kind" => "person_answer",
+        "action_id" => "ask",
+        "person_id" => "person",
+        "schema_id" => "result",
+        "schema_version" => 1,
+        "payload" => %{"value" => 7}
+      }
+
+      context = verified(%{occurrence: {1, 0}, verified_person: "person", actual: 0})
+      assert {:ok, :applied} = RunEngine.input(engine, "answer", answer, context)
+      assert_receive {:pattern_input, "root", %{"kind" => "person_answer", "action_id" => "ask"}}
+      refute_received {:pattern_input, _, %{"kind" => "person_answer"}}
+
+      assert {:ok, %{entries: entries}} = RunEngine.transcript(engine, scope(), limits())
+
+      assert [{{2, 0}, "refused", "reused_identity"}, {{1, 0}, "completed", nil}] ==
+               for(e <- entries, e.type == :settlement, do: {e.occurrence, e.outcome, e.reason})
+    end
+  end
+
   describe "message_reaches_root_while_active" do
     test "a message while a tool slot runs is given to the root and settles nothing" do
       %{c: c, engine: engine, provider: provider} = tool_running(messages: :while_active)

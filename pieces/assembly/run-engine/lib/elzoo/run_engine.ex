@@ -864,11 +864,11 @@ defmodule Elzoo.RunEngine do
             state = put_in(state.control.trackers[elem(key, 0)].tracker, tracker)
             state = settle_join(state, key, input, join_correlation)
             state = settle_budget(state, key, actual, at)
+            state = remove_slot_wait(state, slot)
 
             slot = settled_event_slot(slot, input, record, actual)
 
             state = put_in(state.slots[key], slot)
-            state = update_in(state.control.lifecycle.waits, &Map.delete(&1, input["action_id"]))
 
             state =
               if slot.kind == "nested_callable",
@@ -891,6 +891,12 @@ defmodule Elzoo.RunEngine do
         end
     end
   end
+
+  # A reused occurrence is refused at admission, before it can install a wait.
+  defp remove_slot_wait(state, %{refusal: "reused_identity"}), do: state
+
+  defp remove_slot_wait(state, slot),
+    do: update_in(state.control.lifecycle.waits, &Map.delete(&1, slot.action_id))
 
   defp settled_event_slot(slot, input, record, actual) do
     slot =
@@ -1068,7 +1074,7 @@ defmodule Elzoo.RunEngine do
 
         acc = put_in(acc.control.trackers[elem(key, 0)].tracker, tracker)
         acc = settle_join(acc, key, input, %{loss: :unavailable})
-        acc = update_in(acc.control.lifecycle.waits, &Map.delete(&1, slot.action_id))
+        acc = remove_slot_wait(acc, slot)
 
         put_in(
           acc.slots[key],
@@ -1182,7 +1188,7 @@ defmodule Elzoo.RunEngine do
             true -> {acc, nil}
           end
 
-        acc = update_in(acc.control.lifecycle.waits, &Map.delete(&1, slot.action_id))
+        acc = remove_slot_wait(acc, slot)
 
         kept =
           Map.take(slot, [
