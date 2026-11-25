@@ -11217,12 +11217,12 @@
     {
       "id": "state/tenant-isolation",
       "job": "ELZ-270",
-      "note": "PostgreSQL 16 row-level-security tenant floor over a consumer-owned Ecto Repo: a migration helper installs two STABLE setting readers and a forced restrictive tenant (and exact space-list) policy plus a replaceable permissive allow policy. transact/3 and transact/4 with [] use Repo defaults; [timeout: ms] (integer 1..600000) bounds the outer transaction. Refuse bad scope or callback, bad timeout, an open transaction, then an existing checkout (explicit timeout only), before any query or callback. Set both transaction-local settings by bind parameter and clear them before commit. Connection loss at the opt-in deadline returns unavailable, not a commit outcome. verify/3 reports unavailable, bypass role, not enabled, not forced, floor missing or floor changed, in that order, from a catalog read and a pure decision. Fail closed outside the helper.",
+      "note": "PostgreSQL 16 row-level-security tenant floor over a consumer-owned Ecto Repo: a migration helper installs two STABLE setting readers and a forced restrictive tenant (and exact space-list) policy plus a replaceable permissive allow policy. transact/3 and transact/4 with [] use Repo defaults; [timeout: ms] (integer 1..600000) bounds the outer transaction. Refuse bad scope or callback, bad timeout, an open transaction, then an existing checkout (explicit timeout only), before any query or callback. Set both transaction-local settings by bind parameter and clear them before commit. An opt-in deadline failure during begin, scope setup or clearing, or commit returns unavailable, not a commit outcome. Callback errors, exceptions and explicit rollbacks pass through unchanged even after expiry. verify/3 reports unavailable, bypass role, not enabled, not forced, floor missing or floor changed, in that order, from a catalog read and a pure decision. Fail closed outside the helper.",
       "baseline_status": "not in baseline (new row, ELZ-270)",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/tenant-isolation/piece.json",
-      "manifest_sha256": "fc7d92ce3c0736cb32686ad31026b0ff2c3cfaf5099ff45ce72e24577adcdff5"
+      "manifest_sha256": "ff22e8b60ebf7e3fb4f9e287bd88895a006c38358d055fd7cf56414bd741ac9f"
     },
     {
       "id": "integration/egress-policy",
