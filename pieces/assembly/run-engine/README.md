@@ -20,6 +20,12 @@ including ASK before Run dispatch; it does not attest Run's private mapping.
 The host serializes Run cancellation/Attempt changes and engine admission;
 status polling is not a concurrency fence.
 
+The engine opens its Unit on a fresh VM without a host warm-up. Its records
+include the Aggregation join and PatternStep tracker, lifecycle decisions,
+authorization decisions and Budget state. The Unit still decodes with `[:safe]`;
+the host remains responsible for the atoms in its own terms, including pattern
+state and binding facts.
+
 `start_link(opts)` takes these fixed required facts (no defaults or hot changes):
 
 - `identity`: UTF-8/no-NUL 1..160-byte Unit/stream identity; `run_id`: explicit

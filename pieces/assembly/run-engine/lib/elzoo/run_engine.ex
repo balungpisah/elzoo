@@ -1653,7 +1653,7 @@ defmodule Elzoo.RunEngine do
          {:ok, budget} <- Budget.initial(budget_id, incarnation, budget_cap, unit),
          rule when rule in [:pause, :finish] <- opts[:budget_rule],
          deadline when is_integer(deadline) and deadline > 0 <- opts[:run_deadline],
-         {:ok, pid} <- DynamicUnits.start(opts[:directory], opts[:identity]) do
+         {:ok, pid} <- start_unit(opts[:directory], opts[:identity]) do
       identity =
         {{module, function}, schema_identities(opts[:schemas]), binding_identities(opts[:bindings]),
          %{id: gate_id, version: version}, opts[:tenant], opts[:principal], cap, budget_cap, unit,
@@ -2882,10 +2882,21 @@ defmodule Elzoo.RunEngine do
   defp fenced_head_identity(head),
     do: Map.take(head, [:revision, :low_water, :capabilities, :staged_tail])
 
+  # The Unit safely decodes whole committed states, not just protocol inputs.
+  # Budget.initial/4 already loads the Budget representation before the first open.
+  defp start_unit(directory, identity) do
+    with {:module, Aggregation} <- Code.ensure_loaded(Aggregation),
+         {:module, Authorization} <- Code.ensure_loaded(Authorization),
+         {:module, BotRunLifecycle} <- Code.ensure_loaded(BotRunLifecycle),
+         {:module, PatternStep} <- Code.ensure_loaded(PatternStep) do
+      DynamicUnits.start(directory, identity)
+    end
+  end
+
   defp current(%{halted: reason} = s) when not is_nil(reason), do: {:error, reason, s}
 
   defp current(s) do
-    case DynamicUnits.start(s.opts.directory, s.opts.identity) do
+    case start_unit(s.opts.directory, s.opts.identity) do
       {:ok, pid} when pid == s.unit ->
         with {:ok, s} <- sync_run(s), do: consume_resources(s)
 

@@ -456,6 +456,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-405](https://github.com/balungpisah/elzoo/issues/985) | V2 / release | ELZ-114, ELZ-404 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-406](https://github.com/balungpisah/elzoo/issues/986) | V2 / release | ELZ-127, ELZ-387, ELZ-404 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-407](https://github.com/balungpisah/elzoo/issues/987) | V2 / release | ELZ-181, ELZ-183, ELZ-404 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-408](https://github.com/balungpisah/elzoo/issues/992) | V2 / release | ELZ-127, ELZ-387, ELZ-403 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-409](https://github.com/balungpisah/elzoo/issues/996) | V2 / release | ELZ-408 | published 2026-11-25 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -5499,3 +5501,23 @@ Publication copy: [tasks/ELZ-407-recipe-test-record-fixtures.md](../../tasks/ELZ
 **Product aims:** P09.
 
 **Acceptance:** Pin exact golden run/1 records for an agent, a graph with a decision, a real Lua tool and a model graph after one restart. No public reader or preloaded engine rows.
+
+### ELZ-408
+
+ELZ-408 — assembly/run-engine: recover committed Runs on a fresh VM
+
+Publication copy: [tasks/ELZ-408-run-engine-fresh-vm-recovery.md](../../tasks/ELZ-408-run-engine-fresh-vm-recovery.md).
+
+**Product aims:** P09.
+
+**Acceptance:** Recover completed, paused and open Runs in a fresh BEAM with audited engine-owned atoms and safe decoding. Preserve frozen record bytes, progress the open Run and refuse a changed start option. Removing the loading step reproduces the failure.
+
+### ELZ-409
+
+ELZ-409 — assembly/run-engine: launch the fresh-VM reader so it also runs in a copied consumer
+
+Publication copy: [tasks/ELZ-409-run-engine-cold-reader-consumer-launch.md](../../tasks/ELZ-409-run-engine-cold-reader-consumer-launch.md).
+
+**Product aims:** P09.
+
+**Acceptance:** Red main on 71e5f2b9 (check-aggregate): the run-engine fresh-VM reader launched with mix run cannot load the copied consumer's dependencies. Relaunch it so it runs in both the Elzoo checkout and a copied consumer while staying a fresh VM; test files only. Consumer reproduction before and pass after, loading-step negative control still fails, repeated cold cases, small gate, green full check on main after merge.
