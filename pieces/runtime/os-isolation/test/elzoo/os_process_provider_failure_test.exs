@@ -57,10 +57,12 @@ defmodule Elzoo.OsProcessProviderFailureTest do
       parent = self()
 
       hold = fn ->
+        monitor = Process.monitor(parent)
         send(parent, {:held, self()})
 
         receive do
-          :continue -> :ok
+          :continue -> Process.demonitor(monitor, [:flush])
+          {:DOWN, ^monitor, :process, ^parent, _} -> :ok
         end
       end
 
