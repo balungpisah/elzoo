@@ -418,3 +418,31 @@ V1 is not an independent export boundary: `integration/search-data` copies V1B�
 | ELZ-392 | [#951](https://github.com/balungpisah/elzoo/issues/951) | [#963](https://github.com/balungpisah/elzoo/pull/963) [`9cc78fac`](https://github.com/balungpisah/elzoo/commit/9cc78facc984849db03c33bb43852335a9741e5d) | — |
 | ELZ-395 | [#954](https://github.com/balungpisah/elzoo/issues/954) | [#973](https://github.com/balungpisah/elzoo/pull/973) [`9103cd79`](https://github.com/balungpisah/elzoo/commit/9103cd7943fca0434bc8a2d08d88cab0f1df7b37) | — |
 | ELZ-399 | [#959](https://github.com/balungpisah/elzoo/issues/959) | [#970](https://github.com/balungpisah/elzoo/pull/970) [`9f650d2c`](https://github.com/balungpisah/elzoo/commit/9f650d2cfae48f0a26f4c5e8b05c079a1ccd2e53) | — |
+
+## What the integrated check exercises
+
+The three job lists share one pinned `mix check` with no selection flag. The PR body records the local command and its code revision; the full hosted run on the final PR head supplies the merge evidence. A job's landing alone does not establish that its outputs still compose.
+
+- **Copy and namespace.** In `test/export_test.exs`, “every ready Piece plans into one destination” checks the combined source plan; “all selected sources compile and run outside Elzoo with only upstream code paths” exercises the aggregate copied consumer. `test/cure_record_tags_test.exs` checks record-name collisions across copies. `test/registry_test.exs` checks source declarations, dependency order, manifest evidence and provider drift. `test/install_configuration_test.exs` checks that only the selected closure supplies configuration and that conflicting values are refused.
+- **Provider pins.** `registry/providers.json` declares the upstream providers. The install-guidance cases in `test/export_test.exs` distinguish compiler lifecycle from tested library versions and retain runtime, compile and app flags. `test/source_only_provider_test.exs` checks the source checkout, exact copied bytes and native consumer build. This is pinned install/consumer evidence, not certification of every provider deployment.
+- **Claim grounding.** `scripts/check-claims.py` rejects tracked claim metadata. It does not prove a Piece's behavioral claims; their individual grounds remain in each `piece.json`, subject to the Registry checks and the named Piece tests.
+
+The full check includes these root consumers. The linked reports record their own temporary negative controls; ELZ-404 does not repeat those mutations:
+
+| Root test under `test/` | Sample fault the original control exposed |
+| --- | --- |
+| `wave4_command_conversation_test.exs` | [Faulty preparer](wave4-command-conversation.md#harness-negative-controls) proposed a write outside the fixture's exact authority. |
+| `wave4_channel_test.exs` | [Inferring absence from a bounded read](wave4-channel-acceptance.md) admitted the signed input and advanced the resource instead of returning 503. |
+| `wave5_tenancy_test.exs` | [Unconditionally allowing the command](wave5-tenancy.md#harness-negative-controls) let a suspended tenant write. |
+| `wave6_count_and_see_test.exs` | [Pricing unknown usage as zero](wave6-count-and-see.md#harness-negative-controls) lost the billing hold. |
+| `wave7_remember_and_know_test.exs` | [Omitting source deletion](wave7-remember-and-know.md#harness-negative-controls) left a forgotten source discoverable. |
+| `wave8_bots_talk_test.exs` | [Raising the bot turn bound](wave8-bots-talk.md#harness-negative-controls) extended both expected exchanges. |
+| `wave9_tools_doors_models_money_test.exs` | [Reversing compensation order](wave9-tools-doors-models-money.md#negative-controls) left the later invoice step uncompensated. |
+
+## V1B: one recipe, from graph input to graph result
+
+`test/first_release_recipe_test.exs` submits one package to `Elzoo.RecipeTest.run/1` on disposable PostgreSQL. The graph's `ask` node calls the agent. Its first model response requests `lua_total` with `n = 4`. The real Lua sandbox calls `bindings.lookup`; the scripted module returns 9, and Lua returns `{"total":13}`. The test checks that nested finish independently of the model's scripted answer. The record reports two model calls, one `calc_lookup` call, no unused responses and `:completed`. The graph finish identifies `d1:n:ask` and gives `text = "Total: 13"`, with no failure reason or node. The entry sets all five sandbox limits: 10,000 steps, call depth 8, 1,024 value bytes, 1,048,576 memory bytes and 1,000 ms wall time.
+
+Both temporary controls failed the same `{:ok, record}` assertion in `mix test test/first_release_recipe_test.exs` (exit 2). Removing only the `lua_total` entry returned `{:error, {:unbound_tool, "lua_total"}}`. After restoring the entry, pointing `ask` at an absent agent returned `{:error, {:recipe_refused, [%{code: :unknown_name, path: ["graph"]}]}}`. Each edit was restored before the next run; the unmodified recipe passes.
+
+These are finite scenarios, not proofs. PostgreSQL persistence and Lua execution are real; the model, module replies and provider behavior are scripted. Each Piece's Limits stand. The 14 proposals moved to `later` and the deferred parts of P01, P02, P04, P07, P08, P10 and P11 are not supplied. No part of P11, payment provider or complete product is claimed. The record fixtures and the release mark are later tasks.

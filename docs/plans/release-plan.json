@@ -12330,7 +12330,7 @@
         ]
       },
       "prior_release_gate": null,
-      "status": "frozen by F; acceptance A",
+      "status": "accepted by ELZ-404; the release mark follows the fixtures",
       "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012."
     },
     "V1B": {
@@ -12345,7 +12345,7 @@
         ]
       },
       "prior_release_gate": null,
-      "status": "frozen by F; acceptance A",
+      "status": "accepted by ELZ-404; the release mark follows the fixtures",
       "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release."
     },
     "V2": {
@@ -12360,7 +12360,7 @@
         ]
       },
       "prior_release_gate": "V1-ACCEPT",
-      "status": "frozen by F; acceptance A",
+      "status": "accepted by ELZ-404; the release mark follows the fixtures",
       "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012."
     },
     "V3": {
