@@ -182,23 +182,26 @@ from a `status/1` read after the start input.
 
 ## Host sequence and Needs
 
-The minimal host: `open/3`, repeated with the same request after an error; `deliver/3` after
+The minimal host: `open/3` with the retry rule below; `deliver/3` after
 each `put/3` of the mailbox and each time the tip becomes idle; `wake/3` from the timer, and
 after a `wake/3` at the Run deadline, `deliver/3` (a wake that ends the Run can still return
 `:busy` or `:rollover`; `deliver/3` then gives `{:ok, :terminal}`); on `{:ok, :terminal}`
-`rollover/3` with the tip's `seq` as `link_seq`; after a crash `resume/3` and, for a terminal
-tip, `rollover/3` with the same request (on `{:not_tip, seq}`, `rollover/3` of link `seq`).
+`rollover/3` with the tip's `seq` as `link_seq`; after a crash outside `open/3`, `resume/3`
+and, for a terminal tip, `rollover/3` with the same request (on `{:not_tip, seq}`, `rollover/3`
+of link `seq`).
 
 The room checks none of these Needs:
 
 - **One deliverer per chain.** The host runs no two calls of this Piece for one chain at a time,
   gives a tip no input except through them and the action outcomes of its own bindings, and
   gives no control (an Attempt change, a cancel) while a call for that chain runs.
-- **An `open/3` error is repeated.** After an error of `open/3` the host repeats `open/3` with
-  the same request until it returns `{:ok, _}` or a refusal that writes nothing; `resume/3` does
-  not take its place, because only a repeated `open/3` releases the pin of a conflicting open
-  whose release did not finish. An open that pinned and failed (`{:mailbox, :unavailable}` that
-  did not commit) leaves its pin record until it is repeated.
+- **Repeat `open/3` with the same request** after failure. Stop only on `{:ok, _}`,
+  `{:error, {:mailbox, :conflict}}` (returned only after the conflict release finishes), or a
+  definite refusal in step 1 (validation or reserve) or step 3 (pin, e.g. `{:error, {:pin, :not_found}}`).
+  An indeterminate pin or release, or any other later failure, requires another `open/3`, not
+  `resume/3`. In [room_test.exs, case 2 (`open/3`)](test/elzoo/room_test.exs), the refused and
+  successful opens illustrate the stops. After an interrupted step 4 release, repeating the
+  request removes the losing pin; a conflict with link 1's own pin leaves that pin in place.
 - **A halted engine** is the host's to reconcile, fence and start again under the same Unit
   identity and Run ID, as the run-engine README requires; the `engine` Need returns the
   restarted engine.
