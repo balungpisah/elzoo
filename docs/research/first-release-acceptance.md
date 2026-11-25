@@ -445,4 +445,6 @@ The full check includes these root consumers. The linked reports record their ow
 
 Both temporary controls failed the same `{:ok, record}` assertion in `mix test test/first_release_recipe_test.exs` (exit 2). Removing only the `lua_total` entry returned `{:error, {:unbound_tool, "lua_total"}}`. After restoring the entry, pointing `ask` at an absent agent returned `{:error, {:recipe_refused, [%{code: :unknown_name, path: ["graph"]}]}}`. Each edit was restored before the next run; the unmodified recipe passes.
 
+The second model request also carries exactly one `tool_result` message, for `call1`, with the marked text body `{"total":13}`. In a third temporary control the module returned 8 instead of 9, leaving the scripted agent answer unchanged. The new assertion failed on the delivered `{"total":12}` (exit 2), before the nested-finish or graph-answer check. Restoring 9 leaves the frozen Piece code untouched.
+
 These are finite scenarios, not proofs. PostgreSQL persistence and Lua execution are real; the model, module replies and provider behavior are scripted. Each Piece's Limits stand. The 14 proposals moved to `later` and the deferred parts of P01, P02, P04, P07, P08, P10 and P11 are not supplied. No part of P11, payment provider or complete product is claimed. The record fixtures and the release mark are later tasks.

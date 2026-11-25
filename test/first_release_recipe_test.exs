@@ -95,6 +95,18 @@ defmodule Elzoo.FirstReleaseRecipeTest do
     assert record.asked == %{{:model, "scripted-model"} => 2, {:tool, "calc_lookup"} => 1}
     assert record.unused == %{}
 
+    assert [_first, second] =
+             for(
+               %{step: :action, action: %{"kind" => "model_call", "payload" => request}} <-
+                 record.steps,
+               do: request["messages"]
+             )
+
+    assert [%{"tool_use_id" => "call1", "text" => delivered}] =
+             for(%{"role" => "tool_result"} = message <- second, do: message)
+
+    assert [_opening_mark, ~s({"total":13}), _closing_mark] = String.split(delivered, "\n")
+
     # The model's answer is scripted. Check the actual Lua result separately so
     # that a failed tool followed by the same scripted answer cannot pass.
     assert [%{"content" => %{"content" => ~s({"total":13})}}] =
