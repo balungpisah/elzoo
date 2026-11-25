@@ -79,6 +79,23 @@ option of its own start. The pure `step/2` reads it from the recorded control
 only. The start options may gain members in a later in-place version; a caller
 matches on the ones it uses.
 
+Optional `messages: :while_active` (with `protocol_version` 1 or 2, with or
+without `expiry_reports: :owner`) gives a `message` input to the root pattern also
+while slots are active, as an input that settles no slot ("Recorded cycle and
+obligations" below). `:while_active` is the only value. Absent, the engine is the
+engine without the option, byte for byte: the same `:configure` record, control
+and fingerprint, records, Unit state, pattern calls and charges. A second
+`messages` key or any other value (`:idle`, `true` and `nil` among them) is
+`{:stop, :invalid_options_or_recovery}` (`{:error, ...}` from `start_link/1`)
+before any Unit starts. The option holds for the whole Run. It is recorded as one
+more control key, `messages: :while_active`, and in the fingerprint, so a restart
+of the same Run with the option added or removed is `:incompatible_recovery`, and
+a new Run configured on the same Unit takes the option of its own start. The
+fingerprint is wrapped as for `expiry_reports`, after it: the fingerprint with
+`expiry_reports` applied (or without it) becomes the SHA-256 digest of the ETF of
+`{:messages, :while_active, fingerprint}`. The pure `step/2` reads the option from
+the recorded control only.
+
 The native protocol is selected explicitly: authentic v2 frames decode as
 `PatternStepV2` through `PatternStep.decode/2`; their
 `PatternStepTrackerV2` is restored and validated as v2 history. The only
@@ -366,6 +383,8 @@ A `:resume_input` record that gives a held expiry report (`expiry_reports:
 :owner`) gives no entry, as for a resumed paused input: the slot's `:settlement`
 entry stays in the expiring input's record with `by: :protocol` and `reason: nil`,
 and the actions that the report's request opens appear from their own records.
+A `message` given to the root under `messages: :while_active` adds no entry of its
+own beyond its `:input` entry.
 Entry types, fields and `by` kinds may gain members in a later in-place version;
 a caller matches on the ones it uses.
 
@@ -550,7 +569,34 @@ slot is active: a slot is active while it is not settled or while it holds a
 pending input (a settling input kept while paused, or a held expiry report). A
 `wake`, `start` or `message` also needs the lifecycle to permit new work, which a
 `:waiting` Run does not (`RemainWaiting`); the paragraph below says when a Run is
-`:active` again.
+`:active` again. With `messages: :while_active` there is one exception, for a
+`message` only. It is
+given to the root pattern when the lifecycle permits new work or decides
+`RemainWaiting`, also while a slot is active (unsettled, or holding a pending
+input). Everything else above still holds: generation open, no stop pending, the
+Run not paused, the root callable open and room for the invocation entry. It is
+given to the root only, never to a nested callable, whichever callable owns the
+active slots, as one ordinary pattern call with the input exactly as committed. It
+settles no slot: no slot, join, tracker, Budget entry or lifecycle wait changes, and
+the phase stays what the decision left (a `:waiting` Run stays `:waiting`). `:none`
+charges nothing; `{:some, request}` charges one count of the sealed request cap with
+a receipt whose `input_id` is the message's ID and runs the ordinary admission,
+including the 64-active bound over the slots still open and the first-excess rule.
+The root is given the message in the fold step of the message's own record, after
+its own expiry pass; an outcome, answer or event that commits later is given in its
+own later step, and nothing is held or reordered for the message. With the option
+the root is still not given a `message` when the Run is paused (`RemainPaused`; the
+message is not kept for `continue`, and the same ID again after `continue` is
+`{:ok, :duplicate}`, so the host sends it again under a new input ID), paused at or
+after its pause deadline, terminal, or the message is at or after the Run deadline;
+when the root Budget's committed amount is at its cap (`EnterPause` or
+`RequestBudget`); when the record is late or a duplicate; when generation is
+closed, a stop is pending or the root callable is closed; and when control has no
+room for its invocation entry (`record_size`). A `wake`, `start` or granted
+`resource_event` while a slot is active is not given to the root, with or without
+the option. `status/1` classifies the message by the lifecycle decision, as
+without the option, so neither `status/1` nor `transcript/3` says on its own
+whether the root was given it.
 
 Paused accepted results retain their pattern input until
 continue, without dispatch while paused; monetary exhaustion still takes
@@ -586,6 +632,13 @@ reservation released) and the close of an expired parent's child.
 A held report counts as active (one of 64 places and 4,096 reserved control
 bytes), so an input that settles no slot and whose own pass holds a report is not
 given to the root: the root learns of its own expired slots from their reports.
+With `messages: :while_active`, a `message` is the exception: it is given to the
+root before those reports. Its own pattern call is in its own fold step, and the
+drain gives the reports that its pass holds after that call, in their `order`,
+before `input/4` replies, unless that step drops them (the root's request for the
+message is the first excess, or the view is terminal), with no record, call or
+charge. So the root can be given a message before the report of a slot that the
+same message's pass expired.
 The drain gives the held reports, lowest `order` first, after a pending stop and
 before a finished child or any slot progress, only while the Run is neither paused
 nor terminal, generation is open, no stop is pending and the owning callable is
@@ -1292,6 +1345,66 @@ report is given is outside its Need. Per-callable choice, the expiring input giv
 the root as well, reports of other closers, a report for a closed owner given to an
 ancestor, more facts in the report, an engine timer, and a transcript entry or status
 key for reports stay addable in place. Finite listed scenarios, not a proof.
+
+`test/elzoo/run_engine_messages_test.exs` exercises `messages: :while_active` on
+disposable PostgreSQL and through pure `step/2`: `default_off_is_unchanged` (without the option a `message`
+while a tool slot runs is applied, has its `:input` entry and is not given, and the
+root's inputs are its `start`, then the tool outcome; the configure control differs
+only by the option key and the fingerprint, which is the wrap of the fingerprint
+without it, also over `expiry_reports`; a restart with the option added or removed
+is `:incompatible_recovery`; `:idle`, `true`, `nil` and a second key start no Unit;
+valid with `protocol_version` 1 and 2; a new Run on the Unit takes the option of its
+own start), `message_reaches_root_while_active` (the root is given the message
+exactly as committed while a tool slot runs, and slots, count, receipts, Budgets,
+trackers and lifecycle waits stay, the Run stays `:waiting`, the message's record
+has only its `:input` entry and the tool settlement is in the outcome's record; with
+only a running nested parent whose child opened nothing, `:permit_new_work`, the
+child is not given it; with running local work; a duplicate and a conflict; a v2
+message while a `wait_event` waits, and a v2 message whose root request is the first
+excess, after which `event_waits/3` and `transcript/3` return `{:ok, _}`),
+`message_opens_work` (a `local_work` request charged with the message's receipt and
+admitted beside the open tool slot; at `request_cap` 1 the first excess, `over_cap`,
+generation closed, `:out_of_budget`, the tool slot retained `:running`),
+`root_only_message_only` (a nested child with an open tool call is not given it; a
+`wake`, a later `start` and a granted `resource_event` while a slot is active are not
+given, and `step/2` with the option removed from control gives the same state; a
+message while paused is not given, after `continue` the same ID is a duplicate and a
+new ID is given; through `step/2`, each case that stays refused, from the Run
+deadline to a closed root, gives the same state as the step without the option and no
+invocation entry), `ordering_with_reports` (with `expiry_reports: :owner` a message at
+an ask's deadline is given before the ask's report, both before `input/4` replies,
+and its record holds the ask's settlement `by: :protocol`, `reason: nil`; its
+request as the first excess drops the held report, no `:resume_input` record; with
+`expiry_reports` alone the root is given only the report) and `room_and_replay` (a
+message without room for its invocation entry is `record_size` through `step/2`, a
+sweep from 64 to 266 bytes switches at one headroom; two restarts after a message
+and an outcome, and after a message and its report, give equal state, record count
+and transcripts, with no pattern call and no Effect). Nine temporary negative
+controls each made a named test fail and were reverted: the option ignored, the
+default flipped on, the rule applied to `wake`, `start` and `resource_event`, the
+accept rule in `transition/2` instead of `protocol/2` (`event_waits/3` returns
+`{:error, :history}`), the message given to the owner of the newest active slot, no
+room check for the message, the option left out of the fingerprint, the message
+refused while a slot holds a pending input and the message accepted at every
+lifecycle decision (the refused-cases case fails).
+
+Limits of `messages: :while_active`. Root only: a bot that runs as a nested callable
+is given no message while slots are active. A message while paused is not given and
+not kept; the host sends it again after `continue`, under a new input ID. A pattern
+whose Need is an engine that gives a message only while no action is open
+(`workflow/turn-policy`, a room included) is hosted on an engine started without the
+option. Neither `status/1` nor `transcript/3` says on its own whether the root was
+given a message, as for `wake`; the root's request, if any, appears from its own
+records. With `expiry_reports: :owner` the root can be given a message before the
+report of a slot that the message's own expiry pass expired. The control key adds 24
+ETF bytes to control, so at a `record_size` edge a Run with the option can be refused
+where the same Run without it fits. That an agent-loop root
+then takes its row "the text waits; no request" rests on agent-loop's own step
+tests: these tests run the engine with a test pattern and no agent-loop composition,
+and the Wave 9 acceptance harness does not turn the option on. A member for `wake`,
+`start` or `resource_event`, a named nested callable, a message kept while paused,
+and a transcript field or status member for it stay addable in place. Listed
+scenarios on disposable PostgreSQL and pure `step/2` calls, not a proof.
 
 `test/elzoo/run_engine_transcript_test.exs` exercises the read-only Run transcript
 on disposable PostgreSQL (the bounds group on the in-memory Store): `nested_tree`
