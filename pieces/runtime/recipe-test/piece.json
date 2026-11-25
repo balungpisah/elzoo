@@ -42,6 +42,11 @@
     "lib/elzoo/recipe_test/scripted_adapter.ex",
     "lib/elzoo/recipe_test/tool_binding.ex",
     "test/support/recipe_test_helper.exs",
+    "test/support/recipe_record_fixture.exs",
+    "test/fixtures/recipe-test/scripted_agent.etf",
+    "test/fixtures/recipe-test/decision_graph.etf",
+    "test/fixtures/recipe-test/lua_module_call.etf",
+    "test/fixtures/recipe-test/model_graph_after_restart.etf",
     "test/elzoo/recipe_test_test.exs",
     "test/elzoo/recipe_test_lua_test.exs",
     "test/elzoo/recipe_test/glue_test.exs"
