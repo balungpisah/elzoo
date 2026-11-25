@@ -203,7 +203,7 @@ The 152 ready rows are grouped by the release of their owning job. These hashes 
 | --- | --- |
 | `assembly/checked-command` | `6c8f5dd71f2c476134ed54c341d3499e33f2f9b912ee1d1129a689ac6cad4fb2` |
 | `assembly/knowledge-ingest` | `6d2ad553a51dffba4a54c2eca0cb0daeae241ea50a9368aa883413a06d442988` |
-| `assembly/run-engine` | `6376b6f4317e7d9fad3a2f11968735d0a4b2a77e57072106acc276a539dd94c7` (updated by ELZ-408) |
+| `assembly/run-engine` | `6376b6f4317e7d9fad3a2f11968735d0a4b2a77e57072106acc276a539dd94c7` (exception to F's base: updated by ELZ-408) |
 | `core/payload-schema` | `b7f5c1abbf1e90c7c3190127d715827731949fb1ccdf721117513fa4189b9935` |
 | `delivery/dead-letter-store` | `d7f2ddd3af34d072a607afd88c7c3d741f3bc1f82fde1c89091a3e30324a0e47` |
 | `delivery/debounce` | `7a63e94eda0d9c28ddbdcec2aebb06c5d5ffaa698a0a2b7d8e92997dd25a9ce6` |
