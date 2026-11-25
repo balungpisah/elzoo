@@ -415,8 +415,11 @@ defmodule Elzoo.OsProcess.Adapter do
 
   # Adapter restart: live owners are re-monitored and counted; dead owners are reported.
   defp recover(state) do
-    :ets.tab2list(state.tid)
-    |> Enum.reduce(state, fn {ref, owner, submitter, os_pid, status}, acc ->
+    rows = :ets.tab2list(state.tid)
+    hook = state.config.test_hooks[:after_snapshot]
+    if rows != [] && hook, do: hook.()
+
+    Enum.reduce(rows, state, fn {ref, owner, _submitter, _os_pid, status}, acc ->
       cond do
         status in [:finished, {:finished, :exit_unconfirmed}] ->
           :ets.delete(acc.tid, ref)
@@ -450,17 +453,21 @@ defmodule Elzoo.OsProcess.Adapter do
           }
 
         true ->
-          if os_pid == nil do
-            :ets.delete(acc.tid, ref)
-            notify(submitter, ref, Result.unknown(:owner_exit_before_registration, %{}))
-            acc
-          else
-            capacity =
-              case Backpressure.admit(acc.capacity) do
-                {:ok, c, _} -> c
-              end
+          # The owner could register or retire after the snapshot. Now it can no longer write.
+          case :ets.lookup(acc.tid, ref) do
+            [{^ref, ^owner, _, _, retired}]
+            when retired in [:finished, {:finished, :exit_unconfirmed}] ->
+              :ets.delete(acc.tid, ref)
+              acc
 
-            state_with_observer(%{acc | capacity: capacity}, ref, owner, submitter, os_pid)
+            [{^ref, ^owner, submitter, nil, _}] ->
+              :ets.delete(acc.tid, ref)
+              notify(submitter, ref, Result.unknown(:owner_exit_before_registration, %{}))
+              acc
+
+            [{^ref, ^owner, submitter, os_pid, _}] ->
+              {:ok, capacity, _} = Backpressure.admit(acc.capacity)
+              state_with_observer(%{acc | capacity: capacity}, ref, owner, submitter, os_pid)
           end
       end
     end)

@@ -52,7 +52,10 @@ with no C0, DEL or C1 control), `model_id` (1..256 bytes, the same text rule),
 `Elzoo.ProviderDataPolicy.decide/2` takes them), `data_policy` (the tenant's
 policy), `costs` (every candidate's ref to a non-negative cost estimate in the
 budget's unit) and `tried` (refs of earlier Attempts of this call whose
-`after_failure/3` result was `{:next, _}`).
+`after_failure/3` result was `{:next, _}`). `tried` must be a proper list of
+distinct route refs, from empty up to the route's actual candidate count.
+Validation stops at the first element past that count and returns
+`{:error, :invalid_input}` without walking the rest of the list.
 
 `health` has `now_ms` (the host's trusted Unix ms), `budget_remaining` (a
 non-negative integer) and `candidates`: a map from ref to

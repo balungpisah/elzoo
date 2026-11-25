@@ -22,7 +22,7 @@ defmodule Elzoo.DeadLetterStore do
 
   @opaque t :: %__MODULE__{repo: module(), prefix: String.t()}
 
-  @max_time 9_223_372_036_854_775_807
+  @max_bigint 9_223_372_036_854_775_807
   @max_message_id 256
   @max_record 16_384
   @max_work_ref 256
@@ -65,7 +65,8 @@ defmodule Elzoo.DeadLetterStore do
   @doc """
   Resolve an open record once as `:replayed` or `:discarded`. Returns `{:ok, :applied}`,
   `{:ok, :duplicate}` when it is already resolved with equal fields, `{:error, :already_resolved}`
-  when it is resolved with others, or `{:error, :unknown_record}`.
+  when it is resolved with others, or `{:error, :unknown_record}`. Include the `generation`
+  from `list/3` to match only that insertion, even if its key is reused after purge.
   """
   def resolve(
         store,
@@ -73,11 +74,14 @@ defmodule Elzoo.DeadLetterStore do
         %{source: source, message_id: id, resolution: resolution, actor_ref: actor, at_ms: at} =
           req
       )
-      when map_size(req) == 5 do
+      when map_size(req) == 5 or
+             (map_size(req) == 6 and is_map_key(req, :generation) and
+                req.generation in 1..@max_bigint) do
     if store?(store) and text?(tenant) and text?(source) and key?(id) and
          is_map_key(@resolutions, resolution) and text?(actor) and time?(at) do
       run(store, tenant, fn s ->
-        update(s, [tenant, source, id, Map.fetch!(@resolutions, resolution), actor, at], 2)
+        key = [tenant, source, id, Map.get(req, :generation)]
+        update(s, key, [Map.fetch!(@resolutions, resolution), actor, at], 2)
       end)
     else
       {:error, :invalid}
@@ -89,7 +93,7 @@ defmodule Elzoo.DeadLetterStore do
   @doc """
   Open records of one tenant and source, oldest first by `(put_at_ms, message_id)` bytes, at
   most `limit` (1..1000) after the cursor `after` (`nil` or a `next` value). Returns
-  `{:ok, %{entries: [%{message_id, record, work_ref, put_at_ms}], next: cursor | nil}}`.
+  `{:ok, %{entries: [%{message_id, record, work_ref, put_at_ms, generation}], next: cursor | nil}}`.
   """
   def list(store, tenant, %{source: source, after: cursor, limit: limit} = req)
       when map_size(req) == 3 do
@@ -216,12 +220,15 @@ defmodule Elzoo.DeadLetterStore do
 
   # Only an open row is updated. A concurrent resolve that holds the row lock and commits first
   # leaves this update with no row; the next statement reads its result.
-  defp update(s, [tenant, source, id, resolution, actor, at] = args, tries) do
+  defp update(s, key, [resolution, actor, at] = fields, tries) do
+    match_key =
+      "tenant = $1 AND source = $2 AND message_id = $3 AND ($4::bigint IS NULL OR generation = $4)"
+
     updated =
       q!(
         s,
-        "UPDATE #{s.prefix}.elzoo_dead_letters SET state = 'resolved', resolution = $4, actor_ref = $5, resolved_at_ms = $6 WHERE tenant = $1 AND source = $2 AND message_id = $3 AND state = 'open' RETURNING 1",
-        args
+        "UPDATE #{s.prefix}.elzoo_dead_letters SET state = 'resolved', resolution = $5, actor_ref = $6, resolved_at_ms = $7 WHERE #{match_key} AND state = 'open' RETURNING 1",
+        key ++ fields
       )
 
     if updated == [[1]] do
@@ -229,14 +236,14 @@ defmodule Elzoo.DeadLetterStore do
     else
       case q!(
              s,
-             "SELECT state, resolution, actor_ref, resolved_at_ms FROM #{s.prefix}.elzoo_dead_letters WHERE tenant = $1 AND source = $2 AND message_id = $3",
-             [tenant, source, id]
+             "SELECT state, resolution, actor_ref, resolved_at_ms FROM #{s.prefix}.elzoo_dead_letters WHERE #{match_key}",
+             key
            ) do
         [] -> {:error, :unknown_record}
         [["resolved", ^resolution, ^actor, ^at]] -> {:ok, :duplicate}
         [["resolved" | _]] -> {:error, :already_resolved}
         # Purged and put again between the two statements.
-        [["open" | _]] when tries > 1 -> update(s, args, tries - 1)
+        [["open" | _]] when tries > 1 -> update(s, key, fields, tries - 1)
         [_] -> {:error, :unavailable}
       end
     end
@@ -256,7 +263,7 @@ defmodule Elzoo.DeadLetterStore do
     rows =
       q!(
         s,
-        ~s|SELECT message_id, record, work_ref, put_at_ms FROM #{s.prefix}.elzoo_dead_letters WHERE tenant = $1 AND source = $2 AND state = 'open'#{after_sql} ORDER BY put_at_ms, message_id COLLATE "C" LIMIT $3|,
+        ~s|SELECT message_id, record, work_ref, put_at_ms, generation FROM #{s.prefix}.elzoo_dead_letters WHERE tenant = $1 AND source = $2 AND state = 'open'#{after_sql} ORDER BY put_at_ms, message_id COLLATE "C" LIMIT $3|,
         params
       )
 
@@ -265,8 +272,14 @@ defmodule Elzoo.DeadLetterStore do
       |> Enum.take(limit)
       # OTP's :json decoder keeps integers of any length; Jason 1.4.5 refuses integers of more
       # than 1,024 digits, which a valid record may hold within 16,384 bytes.
-      |> Enum.map(fn [id, record, work_ref, at] ->
-        %{message_id: id, record: :json.decode(record), work_ref: work_ref, put_at_ms: at}
+      |> Enum.map(fn [id, record, work_ref, at, generation] ->
+        %{
+          message_id: id,
+          record: :json.decode(record),
+          work_ref: work_ref,
+          put_at_ms: at,
+          generation: generation
+        }
       end)
 
     next =
@@ -325,7 +338,7 @@ defmodule Elzoo.DeadLetterStore do
   defp work_ref?(nil), do: true
   defp work_ref?(ref), do: is_binary(ref) and byte_size(ref) in 1..@max_work_ref
 
-  defp time?(t), do: is_integer(t) and t >= 0 and t <= @max_time
+  defp time?(t), do: is_integer(t) and t >= 0 and t <= @max_bigint
   defp limit?(n), do: is_integer(n) and n >= 1 and n <= @max_limit
 
   # The domain/principal text rule: 1..128 bytes of valid UTF-8 with no C0 (U+0000..U+001F) or

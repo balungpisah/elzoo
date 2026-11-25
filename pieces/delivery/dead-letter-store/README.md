@@ -37,6 +37,21 @@ not `jsonb`, with `work_ref` (`bytea`), `put_at_ms`, `state` and the resolution 
 `^[a-z_][a-z0-9_]{0,62}$`. Anything else raises `ArgumentError` with the fixed message
 `"invalid dead letter store prefix or options"` before any DDL. A `down/0` is the consumer's.
 
+The table owns a noncycling `bigint` identity sequence that assigns a positive `generation`
+on insert. For an existing installation, run this in a consumer-owned migration as the
+table owner **before serving the revised Piece** (substitute the installed schema):
+
+```sql
+ALTER TABLE "<prefix>".elzoo_dead_letters
+  ADD COLUMN generation bigint GENERATED ALWAYS AS IDENTITY (NO CYCLE);
+```
+
+The statement locks the table and populates every existing row, open or resolved, without
+changing its other fields. Do not reinstall the table. Never reset the sequence or reuse
+generation values while outstanding resolves can still reach the table, including after a
+restore. Treat generation as an equality token, not a secret or count: gaps can reflect
+table-wide allocations across tenants, not just committed rows.
+
 Minimum grants for the application role, which must not own the table or bypass row
 security:
 
@@ -57,7 +72,7 @@ and `prefix:`. Anything else raises the same `ArgumentError`.
 | --- | --- |
 | `put(store, tenant, %{source, record, work_ref, at_ms})` | `{:ok, :applied}`; `{:ok, :duplicate}` for the same key with equal canonical record bytes and `work_ref`, whether open or resolved (a duplicate never reopens a record); `{:error, :conflict}` for the same key with others |
 | `resolve(store, tenant, %{source, message_id, resolution, actor_ref, at_ms})` | `{:ok, :applied}` once; `{:ok, :duplicate}` when already resolved with equal resolution, actor and time; `{:error, :already_resolved}` with others; `{:error, :unknown_record}` |
-| `list(store, tenant, %{source, after, limit})` | `{:ok, %{entries, next}}`: open records of one source, oldest first by `(put_at_ms, message_id bytes)`, at most `limit` (1..1000) after the opaque cursor `after` (`nil` or a `next`); `next` is `nil` when no entry follows. Each entry is `%{message_id, record, work_ref, put_at_ms}` |
+| `list(store, tenant, %{source, after, limit})` | `{:ok, %{entries, next}}`: open records of one source, oldest first by `(put_at_ms, message_id bytes)`, at most `limit` (1..1000) after the opaque cursor `after` (`nil` or a `next`); `next` is `nil` when no entry follows. Each entry is `%{message_id, record, work_ref, put_at_ms, generation}` |
 | `count(store, tenant)` | `{:ok, [%{source, open}]}` for sources with at least one open record, sorted by source bytes; `{:error, :read_limit}` over 1,000 sources |
 | `purge(store, tenant, %{before_ms, limit})` | `{:ok, deleted_count}`: up to `limit` (1..1000) resolved records with `resolved_at_ms < before_ms`, oldest `resolved_at_ms` first; open records are never purged |
 
@@ -67,6 +82,10 @@ and `prefix:`. Anything else raises the same `ArgumentError`.
   (PostgreSQL text cannot hold it). The canonical bytes are `Elzoo.DeadLetter.encode/1` of
   the decoded record as JSON, keys in byte order, no white space.
 - `work_ref` is `nil` or an opaque binary of 1..256 bytes.
+- `resolve/3` accepts an optional `generation` key: supply the integer from `list/3`
+  to bind both the update and the duplicate/already-resolved lookup to that insertion.
+  A missing row or a generation mismatch gives `:unknown_record`. A supplied value other
+  than an integer in 1..2^63−1 (including `nil`) is `:invalid` before any query.
 - Texts (`tenant`, `source`, `actor_ref`) are 1..128 bytes of valid UTF-8 without a C0 or C1
   control character, compared by exact bytes. Times are integers 0..2^63−1 supplied by the
   host. The Piece reads no clock.
@@ -85,16 +104,21 @@ than `read committed` as `:isolation`. Read committed is a consumer Need that th
 but does not set.
 
 - `put/3` inserts with `ON CONFLICT DO NOTHING`. On a conflict it reads the row and compares
-  bytes. A concurrent insert of the same key waits for that insert's commit.
+  bytes. A duplicate leaves the row's generation unchanged. A concurrent insert of the same
+  key waits for that insert's commit.
 - `resolve/3` updates only an open row (`UPDATE ... WHERE state = 'open'`). Of two concurrent
   resolves one commits. The other re-reads the result and is `:duplicate` or
   `:already_resolved`.
 - A database or Repo failure is `{:error, :unavailable}`. It says nothing about whether the
-  write committed. A retry with the same request is safe until that record is purged: a
-  committed put is then `:duplicate`, a committed resolve `:duplicate`. After a purge a
-  retried put stores the record again as open, and a retried resolve is `:unknown_record`, or
-  resolves a new record put under the same key (see Limits). Retry an unconfirmed write before
-  purging that record.
+  write committed. Until that record is purged, retrying the same `put/3` or `resolve/3`
+  request is safe: a committed put or resolve returns `:duplicate` on retry. After a purge,
+  a retried put stores the record again as open. A resolve retried with its original generation
+  returns `:unknown_record`, even when another record now has its key. Retry an unconfirmed
+  put or a resolve **without** a generation before purging that record.
+- `purge/3` has no write-retry guarantee. After an unknown outcome, the same request can
+  delete up to another `limit` records for that tenant resolved strictly before `before_ms`.
+  It never deletes open records. The retry reports only its own deletion count; it cannot
+  recover the first call's result.
 - Queries run with `log: false`.
 
 ## Limits
@@ -105,10 +129,9 @@ but does not set.
   host chooses when to purge and supplies every time.
 - `list/3` pages by position. A record put later with an earlier `put_at_ms` than the cursor
   is not returned by the remaining pages of that walk.
-- A key purged and put again is a new open record. A resolve identifies its record only by
+- A key purged and put again is a new open record. An unguarded resolve identifies it only by
   `(tenant, source, message_id)`: a retried unconfirmed resolve after that record was purged
-  and its key put again resolves the new record. Retry an unconfirmed resolve before purging
-  that record.
+  and its key put again can resolve the new record.
 
 ## Evidence
 
