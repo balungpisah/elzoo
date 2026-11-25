@@ -6,7 +6,7 @@
 
 Write the planning input for Elzoo's first release in the form that `docs/plans/bot-platform-wave9.md` used for Wave 9 (ELZ-355), so that its levels can be published as tasks after the owner answers its questions. Wave 9 is the last row of the wave table of `docs/plans/bot-platform.md`, and its root consumer acceptance ELZ-379 is merged on `main` (`c6fe7a8f`). The plan starts from "What remains after Wave 9" in `docs/plans/bot-platform-wave9.md` and from the `release_gates`, `products` and `jobs` of `docs/plans/release-plan.json`. It publishes no implementation task, promotes nothing to ready and builds nothing.
 
-This is a coordinator documents change. Publication and the plan share one pull request on the branch `publish/ELZ-388`, and it takes the documents check.
+This is a coordinator documents change. Publication and the plan share one pull request on the branch `publish/ELZ-388` (coordinator instruction), and it takes the documents check. The merge queue takes only `task/ELZ-###` branches, so the coordinator merges this pull request on the publication path of `docs/development/13-coordinator.md` (step 3). The pull request names the issue without a closing keyword, so after the merge the coordinator closes the issue as completed by hand.
 
 Owned paths:
 
