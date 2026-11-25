@@ -76,7 +76,10 @@ The order of the checks:
    `fun` returns `{:ok, value}` sets both settings to `''` before the commit (`log: false`).
 
 `transact(repo, scope, fun, timeout: ms)` passes the timeout to the outer transaction only.
-If its connection is lost at the deadline, the call returns `{:error, :unavailable}`. This is
+If the deadline prevents begin, scope setup or clearing, or commit, the call returns
+`{:error, :unavailable}`, including expiry after clearing and before commit. The callback's
+errors, raised exceptions and explicit rollbacks pass through unchanged even after expiry;
+this includes driver errors from its own queries. An unavailable result is
 not a guarantee of rollback or permission to retry a write. The timeout does not stop Elixir
 callback code or configure PostgreSQL `statement_timeout` or `lock_timeout`. Omitting options
 or passing `[]` keeps the Repo default and does not translate connection exceptions.

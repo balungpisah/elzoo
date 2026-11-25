@@ -671,6 +671,18 @@ defmodule Elzoo.TenantIsolationTest do
 
   def forward_query(_event, _measurements, meta, parent), do: send(parent, {:query, meta.params})
 
+  def hold_after_clear(
+        _event,
+        _measurements,
+        %{query: "SELECT set_config('elzoo.tenant_id', ''," <> _},
+        parent
+      ) do
+    send(parent, :cleared)
+    Process.sleep(500)
+  end
+
+  def hold_after_clear(_, _, _, _), do: :ok
+
   describe "transaction timeout" do
     test "the held write commits only under the longer deadline", %{p: p} do
       write = fn body ->
@@ -690,7 +702,77 @@ defmodule Elzoo.TenantIsolationTest do
       assert truth(p, "flat") == [["T1", "long"]]
     end
 
-    test "a deadline while a query is running is unavailable only on opt-in" do
+    test "expiry after clearing refuses the commit without changing an explicit :rollback", %{p: p} do
+      id = make_ref()
+
+      :ok =
+        :telemetry.attach(
+          id,
+          [:elzoo, :tenant_isolation, :test_repo, :query],
+          &__MODULE__.hold_after_clear/4,
+          self()
+        )
+
+      on_exit(fn -> :telemetry.detach(id) end)
+
+      capture_log(fn ->
+        result =
+          TI.transact(
+            TestRepo,
+            t1(),
+            fn ->
+              q!("INSERT INTO #{p}.flat (tenant, body) VALUES ('T1', 'before clear')")
+              {:ok, :written}
+            end, timeout: 200)
+
+        assert_received :cleared
+        assert {result, truth(p, "flat")} == {{:error, :unavailable}, []}
+
+        assert TI.transact(
+                 TestRepo,
+                 t1(),
+                 fn ->
+                   Process.sleep(500)
+                   TestRepo.rollback(:rollback)
+                 end, timeout: 200) == {:error, :rollback}
+      end)
+    end
+
+    test "another Repo's error is opaque even when returned or raised after expiry" do
+      {:error, %Postgrex.Error{postgres: %{code: :query_canceled}} = saved} =
+        AdminRepo.transact(fn ->
+          qr!(AdminRepo, "SET LOCAL statement_timeout = '30ms'")
+          qr(AdminRepo, "SELECT pg_sleep(1)")
+        end)
+
+      capture_log(fn ->
+        opts = [timeout: 200]
+
+        assert TI.transact(
+                 TestRepo,
+                 t1(),
+                 fn ->
+                   Process.sleep(500)
+                   {:error, saved}
+                 end,
+                 opts
+               ) == {:error, saved}
+
+        assert assert_raise(Postgrex.Error, fn ->
+                 TI.transact(
+                   TestRepo,
+                   t1(),
+                   fn ->
+                     Process.sleep(500)
+                     raise saved
+                   end,
+                   opts
+                 )
+               end) == saved
+      end)
+    end
+
+    test "defaults keep the Repo deadline; callback queries return their own driver errors" do
       Harness.start!(LogRepo, pool_size: 1, timeout: 200)
 
       hold = fn ->
@@ -702,12 +784,17 @@ defmodule Elzoo.TenantIsolationTest do
         assert_raise DBConnection.ConnectionError, fn -> TI.transact(LogRepo, t1(), hold) end
         assert_raise DBConnection.ConnectionError, fn -> TI.transact(LogRepo, t1(), hold, []) end
 
-        assert TI.transact(LogRepo, t1(), fn -> {:ok, qr!(LogRepo, "SELECT pg_sleep(1)")} end,
-                 timeout: 200
-               ) == {:error, :unavailable}
+        assert {:error, error} =
+                 TI.transact(
+                   LogRepo,
+                   t1(),
+                   fn ->
+                     {:error, e} = qr(LogRepo, "SELECT pg_sleep(1)")
+                     send(self(), {:driver_error, e})
+                     {:error, e}
+                   end, timeout: 200)
 
-        assert TI.transact(LogRepo, t1(), fn -> qr(LogRepo, "SELECT pg_sleep(1)") end, timeout: 200) ==
-                 {:error, :unavailable}
+        assert_received {:driver_error, ^error}
       end)
     end
 

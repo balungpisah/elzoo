@@ -27,8 +27,9 @@ defmodule Elzoo.TenantIsolation do
   or function. With `[]` (the default), use the Repo's transaction timeout. Otherwise pass
   exactly `[timeout: ms]`, with `ms` in 1..600_000, or get `{:error, {:tenant_isolation, :timeout}}`.
   Refuses an open transaction (`:in_transaction`), then an existing checkout (`:in_checkout`,
-  explicit timeout only), both tagged `:tenant_isolation`. A lost connection at the explicit
-  deadline returns `{:error, :unavailable}` without attesting whether a commit happened.
+  explicit timeout only), both tagged `:tenant_isolation`. A deadline failure during begin,
+  scope setup or clearing, or commit returns `{:error, :unavailable}` without attesting whether
+  a commit happened. Callback errors, exceptions and explicit rollbacks are not translated.
   """
   def transact(repo, scope, fun, opts \\ []) do
     case scope(scope) do
@@ -44,12 +45,15 @@ defmodule Elzoo.TenantIsolation do
             {:error, {:tenant_isolation, :in_checkout}}
 
           true ->
-            transaction(repo, opts, fn ->
+            transaction(repo, opts, fn phase ->
               SQL.query!(repo, @set, [tenant, spaces], log: false)
+              phase.(:callback)
 
               case fun.() do
                 {:ok, _} = ok ->
+                  phase.(:clear)
                   clear!(repo)
+                  phase.(:commit)
                   ok
 
                 other ->
@@ -63,34 +67,34 @@ defmodule Elzoo.TenantIsolation do
     end
   end
 
-  defp transaction(repo, [], fun), do: repo.transact(fun)
+  defp transaction(repo, [], run), do: repo.transact(fn -> run.(fn _ -> :ok end) end)
 
-  defp transaction(repo, [timeout: ms] = opts, fun) do
+  defp transaction(repo, [timeout: ms] = opts, run) do
     deadline = System.monotonic_time(:millisecond) + ms
+    # Repo.transact unwinds before it reports failure. Remember who was running: the same
+    # error (even :rollback) from the callback must pass through untouched.
+    ref = make_ref()
 
     try do
-      repo.transact(
-        fn ->
-          case fun.() do
-            {:error, e} = error ->
-              if deadline_failure?(e, deadline), do: {:error, :unavailable}, else: error
+      case repo.transact(fn -> run.(fn phase -> Process.put(ref, phase) end) end, opts) do
+        {:error, :rollback} = error ->
+          if Process.get(ref) == :commit and System.monotonic_time(:millisecond) >= deadline,
+            do: {:error, :unavailable},
+            else: error
 
-            other ->
-              other
-          end
-        end,
-        opts
-      )
+        result ->
+          result
+      end
     rescue
       e in [DBConnection.ConnectionError, Postgrex.Error] ->
-        if deadline_failure?(e, deadline),
-          do: {:error, :unavailable},
-          else: reraise(e, __STACKTRACE__)
+        if Process.get(ref) != :callback and System.monotonic_time(:millisecond) >= deadline and
+             deadline_disconnect?(e),
+           do: {:error, :unavailable},
+           else: reraise(e, __STACKTRACE__)
+    after
+      Process.delete(ref)
     end
   end
-
-  defp deadline_failure?(error, deadline),
-    do: System.monotonic_time(:millisecond) >= deadline and deadline_disconnect?(error)
 
   # Postgrex cancels an active statement before disconnecting. When idle, DBConnection
   # 2.10.2 reports a lost holder, without a distinct timeout reason.
