@@ -723,7 +723,9 @@ defmodule Elzoo.TenantIsolationTest do
             fn ->
               q!("INSERT INTO #{p}.flat (tenant, body) VALUES ('T1', 'before clear')")
               {:ok, :written}
-            end, timeout: 200)
+            end,
+            timeout: 200
+          )
 
         assert_received :cleared
         assert {result, truth(p, "flat")} == {{:error, :unavailable}, []}
@@ -734,7 +736,9 @@ defmodule Elzoo.TenantIsolationTest do
                  fn ->
                    Process.sleep(500)
                    TestRepo.rollback(:rollback)
-                 end, timeout: 200) == {:error, :rollback}
+                 end,
+                 timeout: 200
+               ) == {:error, :rollback}
       end)
     end
 
@@ -792,7 +796,9 @@ defmodule Elzoo.TenantIsolationTest do
                      {:error, e} = qr(LogRepo, "SELECT pg_sleep(1)")
                      send(self(), {:driver_error, e})
                      {:error, e}
-                   end, timeout: 200)
+                   end,
+                   timeout: 200
+                 )
 
         assert_received {:driver_error, ^error}
       end)
