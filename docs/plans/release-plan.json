@@ -12283,7 +12283,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/runtime/recipe-test/piece.json",
-      "manifest_sha256": "e6881c6a7303e3ad05c8a581b8d1d637a54a7bb759aca9fe33a89866d5e31ac9"
+      "manifest_sha256": "fc0ce403b3032e9a4ca3f19a45b1e78ce625344d871169fbafec57b673c68819"
     },
     {
       "id": "workflow/skill",
