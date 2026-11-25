@@ -10469,6 +10469,31 @@
       "issue": 960,
       "url": "https://github.com/balungpisah/elzoo/issues/960",
       "issue_body_sha256": "62f73374341254d8e1dd6ceeed08a018cba2fbe104ddbd657f3da8c4a3eddb56"
+    },
+    {
+      "id": "ELZ-402",
+      "title": "ELZ-402 — assembly/run-engine: stabilize the busy stop in the Intent recovery windows test",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-127",
+        "ELZ-389",
+        "ELZ-396"
+      ],
+      "status": "published 2026-11-25",
+      "owner_role": "coordinator; one-PR path; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-402-run-engine-recovery-windows-busy-stop.md"
+      ],
+      "outputs": [],
+      "acceptance": "Defect #967: attribute the intermittent {:error, :busy} Unit stop in the run-engine Intent recovery windows test to its interleaving and repair only the test's ordering with a total wait, keeping its assertions; stop and report if the engine or DynamicUnits is at fault. 200-iteration repeat before and after, faulty-ordering negative control, Piece tests, small gate.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 976,
+      "url": "https://github.com/balungpisah/elzoo/issues/976",
+      "issue_body_sha256": "e35d21a84c45ff94d1982c05157b37102cd349474cbc9626da110b6a7d5975b0"
     }
   ],
   "entries": [
