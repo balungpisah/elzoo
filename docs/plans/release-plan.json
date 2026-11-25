@@ -10612,7 +10612,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/assembly/ledger-checkout/piece.json",
-      "manifest_sha256": "6a254f84ed596b0424ae648b7e543e2d8515304d2bd911dcf329b421d7183b01"
+      "manifest_sha256": "cf0cada0446639db2a835bb3c9f2a5a32bed8abe3a51fad38e79c9af1cf64b4e"
     },
     {
       "id": "assembly/request-route-retry",
