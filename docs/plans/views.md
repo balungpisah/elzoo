@@ -436,6 +436,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-385](https://github.com/balungpisah/elzoo/issues/935) | V1B / pieces | ELZ-127, ELZ-265, ELZ-298 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-386](https://github.com/balungpisah/elzoo/issues/936) | V1B / pieces | ELZ-163, ELZ-195 | published 2026-11-24 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-387](https://github.com/balungpisah/elzoo/issues/941) | V1B / pieces | ELZ-127, ELZ-142, ELZ-351, ELZ-385 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-388](https://github.com/balungpisah/elzoo/issues/943) | V2 / pieces | ELZ-379 | published 2026-11-25 | coordinator; one-PR path for a documents change; independent review; coordinator merge |
 
 ## Catalogue accounting
 
@@ -645,7 +646,7 @@ Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350, ELZ-353, ELZ-365, ELZ-366, ELZ-367, ELZ-378, ELZ-379.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350, ELZ-353, ELZ-365, ELZ-366, ELZ-367, ELZ-378, ELZ-379, ELZ-388.
 
 Prior release gate: V1-ACCEPT.
 
@@ -5279,3 +5280,13 @@ Publication copy: [tasks/ELZ-387-run-engine-messages-while-active.md](../../task
 **Product aims:** P13.
 
 **Acceptance:** In-place assembly/run-engine for #930 (owner decision 25 Nov, option A), same Piece ID: optional start option messages: :while_active (only value; recorded in configure control and fingerprint; absent = today's engine byte for byte; added or removed on restart is incompatible_recovery); with it, a message is given to the root when the lifecycle permits new work or decides RemainWaiting, also while slots are active (unsettled or holding a pending input), as an input that settles no slot (no slot, join, Budget or wait change; :none charges nothing; a request charges one count and is admitted as usual); root only, message only (wake, start and resource_event unchanged); in its own fold step after its expiry pass, before the reports that pass holds (dropped if that step closes generation); paused, past the pause deadline, terminal, Run deadline, root Budget at its cap, late, duplicate, closed generation, pending stop, closed root and no invocation room stay refused; transcript adds only its :input entry (expiry settlements of its pass as for any input), status keeps its keys. agent-loop's 'No engine claim' sentence names the option; its step, Contract and piece.json unchanged. Tests: default off with the #930 shape, delivery while a tool, local or idle nested slot is open, v2 with a first excess that the readers fold, a request from a message and its first excess, root only, wake, start, resource_event and pause refused (re-send under a new ID), order with expiry reports (and their drop at a first excess), room and replay; eight negative controls. Durable state and unknown outcomes: local small gate and full review. Output none.
+
+### ELZ-388
+
+ELZ-388 — Plan the first release: the frozen selected set, the acceptance of V1, V1B and V2, the record fixtures and the release mark
+
+Publication copy: [tasks/ELZ-388-first-release-plan.md](../../tasks/ELZ-388-first-release-plan.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** docs/plans/first-release.md gives the first release's source boundaries at a named main commit, the frozen selected set of V1-ACCEPT, V1B-ACCEPT and V2-ACCEPT from today's ready catalogue rows and job counts (recorded through a later and a release stage in exclude_stages, no new selector), a decision with its reason for each still-unpublished RC job and non-ready disposition the gates select (later, accepted as resolved or index resolution; none kept and built, none dropped), the release as a named green main commit in the consuming documents with no tag, version or changelog unless the owner asks, levels from ELZ-387 and the must-land repairs through one freeze, one acceptance of the three gates with V1B's end-to-end recipe, three record-fixture tasks and the release mark, the repair and observation decisions, and numbered owner questions with recommendations, among them the reading of the owner's 2026-11-25 order; the owner's 2026-11-25 decisions carried as settled; bot-platform-wave9.md points to the page; no Contract, task, Piece or catalogue change. Documents-only classification, roadmap (plain, write, live), claims, diff and Registry checks.
