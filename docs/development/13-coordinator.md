@@ -174,7 +174,6 @@
 
   | Pull request | Skipped range | Why |
   | --- | --- | --- |
-  | #798 | `06e50161..fa99ba68` | nothing posted for the head 30 minutes after its push; the other-family fallback review was the gate |
 
 - **Repair of a red `main`.** The full check on `main` is the evidence of the
   small-gate merges. When it is red:

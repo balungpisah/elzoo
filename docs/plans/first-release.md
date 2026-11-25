@@ -2,9 +2,9 @@
 
 ## Status and scope
 
-This document is the planning input for Elzoo's first release. It promotes nothing to ready and publishes no implementation task. [release-plan.json](release-plan.json) stays the one canonical planning source. The handles below (F, A, X1–X3, M and the Level 1 repairs) are provisional, and the coordinator assigns the ELZ IDs at publication. ELZ-388 is this plan. ELZ-387 and the IDs from ELZ-389 on belong to the #930 publication thread. Each published task is the Contract of its work. Where a task differs from a sketch below, the task wins.
+This document is the planning input for Elzoo's first release. The Level 1 publication adds task Contracts, not implementation, and promotes nothing to ready. [release-plan.json](release-plan.json) stays the one canonical planning source. ELZ-388 is this plan. The coordinator assigns ELZ IDs at publication; F, A, X1–X3 and M do not yet have IDs. Each published task is the Contract of its work. Where a task differs from a sketch below, the task wins.
 
-Wave 9 is the last row of the wave table of [bot-platform.md](bot-platform.md). Its root consumer acceptance [ELZ-379](../../tasks/ELZ-379-wave9-tools-doors-models-money-acceptance.md) merged on `main` as [#933](https://github.com/balungpisah/elzoo/pull/933) at `c6fe7a8f`. Its follow-ups ELZ-380 to ELZ-386 have merged too, the last at `77569285`. The publication of ELZ-387 (#941, [#942](https://github.com/balungpisah/elzoo/pull/942)) merged at `a290e338`, whose push run 45531086555 is green. Its build is claimed on `task/ELZ-387`. This plan starts from "What remains after Wave 9" in [bot-platform-wave9.md](bot-platform-wave9.md#what-remains-after-wave-9) and from the `release_gates`, `products` and `jobs` of [release-plan.json](release-plan.json), read at `a290e338`.
+Wave 9 is the last row of the wave table of [bot-platform.md](bot-platform.md). Its root consumer acceptance [ELZ-379](../../tasks/ELZ-379-wave9-tools-doors-models-money-acceptance.md) merged on `main` as [#933](https://github.com/balungpisah/elzoo/pull/933) at `c6fe7a8f`. Its follow-ups ELZ-380 to ELZ-386 have merged too, the last at `77569285`. The publication of ELZ-387 (#941, [#942](https://github.com/balungpisah/elzoo/pull/942)) merged at `a290e338`. Its build has since merged (Level 0 below). The plan's baseline comes from "What remains after Wave 9" in [bot-platform-wave9.md](bot-platform-wave9.md#what-remains-after-wave-9) and from the `release_gates`, `products` and `jobs` of [release-plan.json](release-plan.json), read at `a290e338`.
 
 The first release is one event that passes three gates together: `V1-ACCEPT`, `V1B-ACCEPT` and `V2-ACCEPT`. `V3-ADMIT` is research only and is not part of it. The plan has five steps, in this order:
 
@@ -14,7 +14,7 @@ The first release is one event that passes three gates together: `V1-ACCEPT`, `V
 4. Three Piece tasks commit the record fixtures written by the frozen code (Level 4).
 5. One task (Level 5) names the release in the consuming documents and in `AGENTS.md` section 4. Its merge commit on `main`, with a green push run, is the **release commit**. It changes no Piece, so its code is the code of the last fixture task's merge. From the release commit on, the new-ID rule of `AGENTS.md` section 4 applies to every ready Contract.
 
-The plan adds no Piece, no script, no CI job and no release mechanism that the repository's documents do not already support. Q2 asks the owner whether to add a tag.
+The plan adds no Piece, no script, no CI job and no release mechanism that the repository's documents do not already support.
 
 ### Settled owner decisions
 
@@ -25,15 +25,14 @@ These decisions are inputs of the plan, not questions:
 3. **Freeze, accept, then fixtures (owner, 2026-11-25, with the decision of 2026-11-21).** "After the release, freeze the selected set and the record formats. Then run V1-ACCEPT, V1B-ACCEPT and V2-ACCEPT. Then commit the record fixtures written by the released code to the tests of `assembly/run-engine`, `workflow/pattern-step` and `runtime/recipe-test`. From then on, the new-ID rule of AGENTS.md section 4 applies." The 2026-11-21 note in [bot-platform.md](bot-platform.md#owner-decisions-that-are-still-open) adds that the fixtures come only then: "Not before: no older format exists yet."
 4. **In place before the first release (owner, 2026-11-14), and no corner (owner, 2026-11-21, standing).** Until the release commit, a ready Piece that lacks something that clearly belongs to it is extended in place under its ID. After the release commit, a change to accepted inputs, outputs, state, delivery, failure guarantees or Needs gets a new ID. A bug fix that restores the Contract keeps the ID ([AGENTS.md section 4](../../AGENTS.md#4-build)).
 
-### A reading of decision 3, recorded for the owner to correct
+### Owner answers (2026-11-25)
 
-Decision 3 begins "After the release" and ends with the new-ID rule applying "from then on", after the fixtures. The coordinator reads "after the release" as "for the release, once ELZ-387 and the repairs that must land first have merged". On this reading the release commit comes last: it is the merge of the release mark M, which follows the last fixture task and changes no Piece. Three things follow:
+The owner answered on 2026-11-25: "All A".
 
-- The fixtures are "written by the released code", because the record-writing code does not change between the freeze and the release commit (see "Rules of the freeze").
-- A defect that the acceptance finds is repaired before the release commit, so it does not ship.
-- The new-ID rule starts at the same commit that the consuming documents name.
-
-The literal reading puts the release commit at the freeze, with the acceptance and the fixtures after it. Q1 asks which reading the owner means.
+- **Q1 A:** The release commit is the merge of the release mark M, after the freeze, acceptance and fixtures. The new-ID rule starts at that commit.
+- **Q2 A:** The release is marked in the documents only: no tag, GitHub release, version change or changelog. This is the owner's ask for M's `AGENTS.md` edit.
+- **Q3 A:** #886, #915, #885 with #884, and #701 must land before the freeze as Levels 1e–1i, with their task prerequisites.
+- **Q4 A:** X3 pins golden `run/1` records. It does not add a public reader or an extra Level 1 task for one.
 
 ## Source boundaries checked (at `main` `a290e338`)
 
@@ -62,7 +61,7 @@ The freeze adds both values to the `exclude_stages` of `V1`, `V1B` and `V2`, so 
 
 ### Frozen set, as of `a290e338`
 
-The freeze task (F) rewrites this section at its own base. It counts the Level 1 tasks (stage `pieces`; their releases are named in each sketch), ELZ-388 (this plan, V2) and any ELZ-389 or later that the coordinator ties to #930.
+The freeze task (F) rewrites this section at its own base. It counts the Level 1 tasks (stage `pieces`; their releases are named below), ELZ-388 (this plan, V2) and any further task that the coordinator ties to #930.
 
 | Gate | Selected jobs now | Moved to `later` | Frozen jobs before Level 1 | Ready rows |
 | --- | --- | --- | --- | --- |
@@ -132,18 +131,18 @@ A job for which A finds none of this is listed in the report as undecided eviden
 
 The plan uses only what [consuming.md](../consuming.md), the [coordinator guide](../development/13-coordinator.md) and the export code already support:
 
-- **The release commit.** The merge commit of the release-mark task M, with a green push run of `symbolic-check.yml` (Q1 A). M changes no Piece, so its Pieces are byte for byte those of the last fixture task's merge, which the acceptance and the fixtures checked. consuming.md lines 34–35 tell a consumer to take Pieces from "the latest commit of `main` whose push run … is green". When M's push run is green, that latest commit is the release commit, so the existing rule and the release agree on that day, with no new mechanism. A receipt's `revision` then names it. No marker branch is made.
-- **Taking it later.** Once `main` moves on, the latest green commit is no longer the release commit. M's consuming.md section therefore says that the first release is the merge commit of M's pull request (a commit cannot name its own SHA, so the section names the pull request, and GitHub shows its merge commit). It also says that a consumer who wants the first release runs `mix elzoo.take` from a checkout of that commit, and that the latest-green rule gives the newest code instead. An export from a checkout of the release commit copies a consuming.md that holds this section, because M wrote it in that commit.
+- **The release commit.** The merge commit of the release-mark task M, accepted only when the `symbolic-check.yml` push run for that exact SHA on `main` is green (Q1 A). M changes no Piece, so its Pieces are byte for byte those of the last fixture task's merge, which the acceptance and the fixtures checked. A receipt's `revision` names the commit taken. No marker branch is made.
+- **Taking it later.** M's consuming.md section names M's pull request, because a commit cannot name its own SHA. It tells consumers to find that pull request's merge SHA on GitHub and confirm that its own `symbolic-check.yml` push run on `main` succeeded before using it as the first release. If that push run is not green, the release mark is not accepted: a later green repair commit does not qualify, even if it carries the same mark. To take the accepted first release, run `mix elzoo.take` from a checkout of M's merge SHA. The usual latest-green rule in consuming.md lines 34–35 gives the newest code instead; it does not attest release acceptance. An export from the accepted release commit copies the consuming.md section that M wrote.
 - **Its record.** The release-mark task M names the release, which is M's own merge commit. The documents name it by M's pull request; release-plan.json names it by M's task ID, because `AGENTS.md` section 3 keeps pull request numbers out of that file. Level 5 lists every place; the main ones are:
-  - in consuming.md, a short section "The first release" (the pull request, and that from its merge commit a changed ready Contract has a new Piece ID with migration notes, lines 162–169);
+  - in consuming.md, a short section "The first release" (the pull request, the exact merge SHA's green push requirement, and the new Piece ID and migration-note rule from the accepted release commit, lines 162–169);
   - in the two bullets of `AGENTS.md` section 4 ("Elzoo is not released yet …" and "From the first release …");
   - in docs/choices.md, "In-place change before the first release";
   - in the `status` of the three gates in release-plan.json (by M's task ID, not a pull request number).
 
   The coordinator guide lets `AGENTS.md` change "only when the owner asks". The owner's answer to Q2 is that ask.
 - **No version change.** `version: "0.1.0"` in `mix.exs` is the harness project's version. No receipt or consumer reads it. Changing it would touch a shared path, run the full check and give a consumer nothing. The release is named "the first release", and its commit identifies it.
-- **No changelog file.** Everything in the first release is new. LEDGER.md at the release commit lists its Pieces, with each README's Contract, limits and grounding. After the release commit, each changed Contract is a new ID with migration notes, which the LEDGER and release-plan.json record. Q2 C would add a file.
-- **No tag and no GitHub release by default.** Neither exists, and no document supports one. A tag can be added on the release commit at any later time without changing anything else (Q2 B).
+- **No changelog file.** Everything in the first release is new. LEDGER.md at the release commit lists its Pieces, with each README's Contract, limits and grounding. After the release commit, each changed Contract is a new ID with migration notes, which the LEDGER and release-plan.json record.
+- **No tag and no GitHub release.** The owner chose the documents-only mark (Q2 A).
 
 ## Open repairs and observations
 
@@ -154,11 +153,11 @@ The plan uses only what [consuming.md](../consuming.md), the [coordinator guide]
 - leaves a Contract claim of the frozen set without evidence;
 - or comes from an owed review whose findings may change a Contract.
 
-Everything else waits. That covers timing flakes, which fall under the rerun rule of `AGENTS.md` section 5, repairs that only restore a Contract (they keep the ID after the release too), and process or CI text that no Piece reads.
+Everything else waits unless the coordinator explicitly admits it before the freeze, as with #946. That covers unrelated timing flakes, which fall under the rerun rule of `AGENTS.md` section 5, other repairs that only restore a Contract (they keep the ID after the release too), and process or CI text that no Piece reads.
 
-| Item | State at `a290e338` | Decision | Reason |
+| Item | State at Level 1 publication | Decision | Reason |
 | --- | --- | --- | --- |
-| [#930](https://github.com/balungpisah/elzoo/issues/930) | ELZ-387 is published (#941) and claimed | **Must land** (Level 0) | Decision 2. It adds a control key to the run-engine record, so it precedes the format freeze. |
+| [#930](https://github.com/balungpisah/elzoo/issues/930) | ELZ-387 merged as #945 | Landed (Level 0) | Decision 2. It adds a control key to the run-engine record, so it precedes the format freeze. |
 | [#821](https://github.com/balungpisah/elzoo/issues/821) | Merged as ELZ-358 (PR [#864](https://github.com/balungpisah/elzoo/pull/864), `10dfd080`); the issue is closed as completed | Landed | — |
 | [#843](https://github.com/balungpisah/elzoo/issues/843) | Merged as ELZ-359 (PR [#863](https://github.com/balungpisah/elzoo/pull/863), `9580f2b1`); the issue is closed as completed | Landed | — |
 | [#931](https://github.com/balungpisah/elzoo/issues/931), [#932](https://github.com/balungpisah/elzoo/issues/932) | Merged as ELZ-385 (PR #940) and ELZ-386 (PR #939); both issues are closed | Landed | — |
@@ -166,14 +165,21 @@ Everything else waits. That covers timing flakes, which fall under the rerun rul
 | [#834](https://github.com/balungpisah/elzoo/issues/834) | Open. Text only: the stop set of `delivery/room`'s repeated `open/3` Need. | **Must land** (Level 1b) | It is the exact Contract text of a frozen Piece, and it changes `piece.json`, so its hash must be settled before the freeze. |
 | [#710](https://github.com/balungpisah/elzoo/issues/710) | Open. `runtime/os-isolation` `recover/1` can give a second result, against its README's "does not notify twice". | **Must land** (Level 1c) | The acceptance cannot accept a claim that a known defect contradicts. The fix restores the Contract. |
 | [#918](https://github.com/balungpisah/elzoo/issues/918) | Open. `assembly/ledger-checkout`: the recipient half of "another amount or recipient" has no test, a host duty is missing from the `piece.json` grounding, and a README wrap. | **Must land** (Level 1d) | A Contract clause has no evidence. Test, grounding and wrap only. |
-| [#886](https://github.com/balungpisah/elzoo/issues/886), [#915](https://github.com/balungpisah/elzoo/issues/915), [#885](https://github.com/balungpisah/elzoo/issues/885) with [#884](https://github.com/balungpisah/elzoo/issues/884), [#701](https://github.com/balungpisah/elzoo/issues/701) | Open. #886 is stated today as a host Need of `integration/oauth-client`; #885 and #884 are stated host limits of `domain/plan`; #701 is a stated limit of `delivery/dead-letter-store`. #915 is not stated: the `delivery/model-routing` README sets no bound and no Limit on `tried`, and the coordinator comment of 2026-11-24 calls it an unbounded host input. | **Q3** (recommended: must land, Levels 1e–1i) | Each changes a ready Contract, so after the release each would need a new ID. For `state/tenant-isolation` (#886), every durable Piece would then have to opt in. |
-| AGENTS.md section 6 rechecks of `domain/journal`, `domain/metering`, `delivery/dead-letter-store` | Owed (no recheck record on #698, #696, #699) | **Must be done before the freeze** (a review, not a task) | A finding may change a Contract, and each finding becomes its own task. The `delivery/dead-letter-store` recheck comes before 1i. Each finding is its own task (`AGENTS.md` section 6), and 1i is published after the recheck with those finding tasks on its `- Dependencies:` line, so 1i is not ready until they merge. |
-| Skip-list row #798 (`06e50161..fa99ba68`) | Open row | **Recheck before the freeze** (a review, not a task) | The range's own commits change `tasks/ELZ-334-knowledge-ingest.md`, the Contract text of the frozen `assembly/knowledge-ingest`, so a finding may change a Contract. That is the cut rule above. |
-| [#912](https://github.com/balungpisah/elzoo/issues/912) | Open. ELZ-382 ([#928](https://github.com/balungpisah/elzoo/pull/928)) states and tests the bound of 64 distinct tokens per session. | **Can wait** | The shipped claim is exact and tested. The open part, a signal before the bound or an eviction that keeps redaction, is new behaviour. After the release it takes a new ID of `integration/mcp-client`, to which `integration/mcp-multi` and `integration/mcp-runtime` would opt in. That is Q3's argument too, so Q3 lists it as an option (D). |
+| [#886](https://github.com/balungpisah/elzoo/issues/886), [#915](https://github.com/balungpisah/elzoo/issues/915), [#885](https://github.com/balungpisah/elzoo/issues/885) with [#884](https://github.com/balungpisah/elzoo/issues/884), [#701](https://github.com/balungpisah/elzoo/issues/701) | #886 is a host Need of `integration/oauth-client`; #885 and #884 are host limits of `domain/plan`; #701 is a stated limit of `delivery/dead-letter-store`; `delivery/model-routing` states no bound on `tried` (#915). | **Must land** (Q3 A, Levels 1e–1i) | Each changes a ready Contract, so after the release each would need a new ID. For `state/tenant-isolation` (#886), every durable dependent would then have to opt in. |
+| [#946](https://github.com/balungpisah/elzoo/issues/946) | Reported on #945 and reproduced without the start option. | **Must land** (Level 1j) | A refused reused action ID removes the live occurrence's lifecycle wait and lets a valid outcome be classified late. Repair the ready Piece before freezing its formats. |
+| [#947](https://github.com/balungpisah/elzoo/issues/947) | One BLOCKER from the `delivery/dead-letter-store` recheck. | **Must land** (Level 1k, before 1i) | The retry wording covers a purge that can delete another batch after an unknown outcome. State the exception and test it without adding operation replay. |
+| [#912](https://github.com/balungpisah/elzoo/issues/912) | Open. ELZ-382 ([#928](https://github.com/balungpisah/elzoo/pull/928)) states and tests the bound of 64 distinct tokens per session. | **Can wait** | The shipped claim is exact and tested. A signal before the bound or an eviction that keeps redaction is new behaviour. Q3 A did not select it. |
 | [#670](https://github.com/balungpisah/elzoo/issues/670), [#669](https://github.com/balungpisah/elzoo/issues/669), [#547](https://github.com/balungpisah/elzoo/issues/547) | Open timing flakes under host load | **Can wait** | The rerun rule applies, and #670 stays unchanged by the owner's decision ([choices](../choices.md#a-flaky-elz-176-bounded_time-test-stays-unchanged-2026-11-21)). The sandbox has no default limits (`runtime/lua-sandbox` README line 79, `wall_ms` at most 1,000), and `workflow/lua-tool` requires all five (its README line 29). So A's Lua entry states `wall_ms` 1,000, twice #547's 500 ms, and X3's Lua spec does the same. |
 | [#715](https://github.com/balungpisah/elzoo/issues/715) | Open. Notes on the recheck steps of the coordinator guide. | **Can wait** | Process text. No Piece or gate reads it. |
 | [#890](https://github.com/balungpisah/elzoo/issues/890) | Open. Hosted-runner apt source. The full rerun passed. | **Can wait** | CI provisioning, not the frozen code. A failure gets the rerun rule. |
 | [#98](https://github.com/balungpisah/elzoo/issues/98), [#76](https://github.com/balungpisah/elzoo/issues/76), [#70](https://github.com/balungpisah/elzoo/issues/70) | Open: the CI tracking issue, the deprioritized CI guard, and the ARM64 lane that `AGENTS.md` section 3 now forbids | **Can wait** | Not part of the release. #70 is still the owner's decision: close it, or rescope it to a GitHub-hosted runner. |
+
+### Pre-freeze rechecks (2026-11-25)
+
+- [`domain/journal`, #698](https://github.com/balungpisah/elzoo/pull/698#issuecomment-7153390498): no findings.
+- [`domain/metering`, #696](https://github.com/balungpisah/elzoo/pull/696#issuecomment-7153375303): no findings.
+- [`delivery/dead-letter-store`, #699](https://github.com/balungpisah/elzoo/pull/699#issuecomment-7153399794): one BLOCKER, tracked as #947 and published as ELZ-397. #701 was confirmed, not a new finding.
+- [Skipped automated review, #798](https://github.com/balungpisah/elzoo/pull/798#issuecomment-7153393924): no findings in the other-family recheck of `06e50161..fa99ba68` and its non-empty remerge diff. The automated replay stopped before any push because the remerge patch did not apply at `docs/plans/views.md:579`. The posted fallback record permits removing the skip-list row.
 
 ## Rules of the freeze
 
@@ -188,72 +194,89 @@ These rules hold from the merge of F to the release commit. F writes them into t
 
 Each task names its new external dependency, which is "none" throughout. No provider task, pin change, PostgreSQL extension or CI service is added.
 
-### Level 0 — in flight
+### Level 0 — landed
 
-- **ELZ-387** (`assembly/run-engine`, `messages: :while_active`). Published, claimed, V1B. Each task that the #930 thread publishes for #930 (ELZ-389 or later) belongs here too, if the coordinator ties it to #930.
+- **ELZ-387** (`assembly/run-engine`, `messages: :while_active`, V1B). Merged as [#945](https://github.com/balungpisah/elzoo/pull/945) at `3e72f6f9`.
 
-### Level 1 — repairs that must land first (one Piece each, disjoint, parallel)
+### Level 1 publication — work that must land before the freeze
 
-**1a. `assembly/run-engine`, #852: diagnose and repair the recovery flake.**
+One publication records both pre-freeze build tiers. The labels 1a–1l identify items in this publication, not build levels. Run disjoint lanes in parallel; a Tier 2 task can start as soon as its own dependencies are merged, without waiting for the rest of Tier 1.
+
+| Pre-freeze build tier | Tasks in this publication |
+| --- | --- |
+| Tier 1 — no dependency on another task in this publication | 1a (ELZ-389), 1b (ELZ-390), 1c (ELZ-391), 1d (ELZ-392), 1e (ELZ-393), 1g (ELZ-394), 1k (ELZ-397), 1l (ELZ-399) |
+| Tier 2 — depends on a Tier 1 task | 1f (ELZ-400) after 1e; 1h (ELZ-395) after 1l; 1i (ELZ-398) after 1k; 1j (ELZ-396) after 1a |
+
+**1a. [ELZ-389](../../tasks/ELZ-389-run-engine-fencing-recovery.md), `assembly/run-engine`, #852: diagnose and repair the recovery flake.**
 - *Dependencies:* ELZ-127, ELZ-385, ELZ-387 (same directory, so it starts after ELZ-387 merges). *Release:* V1B. *New external dependency:* none.
 - *Contract sketch:* unchanged. The task names the cause. If the test itself races, it makes a test-only repair. If the engine's fencing recovery is at fault, the fix restores the README's recovery Contract. If the fix would change a record or a control key, the task stops and says so on the issue, because that is a Contract decision before the freeze.
-- *Acceptance:* the test "unpaired original input resumes from stored time and facts after owner-tree fencing", named by its line on the task's base (its line moves when ELZ-387 merges), run with `mix test <file>:<line> --repeat-until-failure 200`, fails on the base (record the count) and passes after the fix. Every run-engine test passes. Negative control: revert the fix in the worktree, and the repeat fails again. Durable state and unknown outcomes: local small gate and full review.
+- *Acceptance:* the test "unpaired original input resumes from stored time and facts after owner-tree fencing", located by its current line on the build base, fails under `mix test <file>:<line> --repeat-until-failure 200` on the base (record the count) and passes after the repair. Every run-engine test passes. Negative control: restore the fault in the worktree, and the repeat fails again. Durable state and unknown outcomes: local small gate and full review.
 - *Kept open:* nothing new.
 
-**1b. `delivery/room`, #834: name the stop set of the repeated `open/3` Need.**
+**1b. [ELZ-390](../../tasks/ELZ-390-room-open-stop-set.md), `delivery/room`, #834: name the stop set of the repeated `open/3` Need.**
 - *Dependencies:* ELZ-348. *Release:* V1B. *New external dependency:* none.
-- *Contract sketch:* text only. The README and the matching `piece.json` Need line say that the host repeats `open/3` until `{:ok, _}`, until `{:mailbox, :conflict}` (returned only once the conflict release has finished), or until a step 1 or step 3 refusal. No code change.
+- *Contract:* text only. The README and matching `piece.json` Need say that the host repeats `open/3` until `{:ok, _}`, until `{:error, {:mailbox, :conflict}}` (returned only once the conflict release has finished), or until a definite step 1 or step 3 refusal. No code change.
 - *Acceptance:* the existing case 2 of the room tests is named as the grounding. Every room test passes. `delivery/room` is a durable Assembly (tasks/ELZ-348-room.md), so even a text change keeps the local small gate and the full review.
 - *Kept open:* nothing new.
 
-**1c. `runtime/os-isolation`, #710: one result per run across an Adapter restart.**
+**1c. [ELZ-391](../../tasks/ELZ-391-os-isolation-recovery-notification.md), `runtime/os-isolation`, #710: one result per run across an Adapter restart.**
 - *Dependencies:* ELZ-029, ELZ-305. *Release:* V1B, because ELZ-305 is V1B. *New external dependency:* none.
 - *Contract sketch:* this restores "does not notify twice". The fix makes the decision between a dead Owner and a retired row in `recover/1` on one consistent read, so an Owner that retired its row as finished after the snapshot gets no observer. No new option and no new result.
-- *Acceptance:* a deterministic interleaving case in which an Owner retires between the snapshot and the liveness check: one result only. The case uses a test-only hook or forced order, not a sleep. The existing recovery cases still pass. Negative control: restore the old order, and the case gets `completed` and then `unknown{owner_exit}`. Native code and concurrency: local small gate and full review.
+- *Acceptance:* a deterministic interleaving case in which an Owner retires between the snapshot and the liveness check: one original result only (`completed` or `unknown/port_closed`, according to the fixture). The case uses a test-only hook or forced order, not a sleep. Negative control: restore the old order, and the original result is followed by a spurious `unknown/owner_exit`. Native code and concurrency: local small gate and full review.
 - *Kept open:* nothing new.
 
-**1d. `assembly/ledger-checkout`, #918: the recipient case, the grounding line and the wrap.**
+**1d. [ELZ-392](../../tasks/ELZ-392-ledger-checkout-recipient-evidence.md), `assembly/ledger-checkout`, #918: the recipient case, the grounding line and the wrap.**
 - *Dependencies:* ELZ-378. *Release:* V2. *New external dependency:* none.
 - *Contract sketch:* unchanged. One scenario: an existing payment of the approved terms with another recipient is refused like another amount. The `piece.json` assumption gains the README's host duty for the allowance Needs. A README wrap.
 - *Acceptance:* the new scenario passes. Negative control: compare the amount only in `same_terms?/2`, and the recipient case fails. Durable state and money: local small gate and the full review, as ELZ-378 had.
 - *Kept open:* nothing new.
 
-Under Q3 A:
-
-**1e. `state/tenant-isolation`, #886: an optional transaction timeout on `transact/3`.**
+**1e. [ELZ-393](../../tasks/ELZ-393-tenant-isolation-transaction-timeout.md), `state/tenant-isolation`, #886: an optional Repo transaction timeout.**
 - *Dependencies:* ELZ-270. *Release:* V1B. *New external dependency:* none.
-- *Contract sketch:* an optional timeout, 1..600,000 ms, passed to the Repo transaction. The task checks the current argument shape on `main` and adds the option without breaking a caller. Without it, the behaviour is today's, byte for byte. Out-of-range or malformed values are refused before any query.
-- *Acceptance:* a transaction that outlives a short timeout is ended at it and returns the Piece's existing unavailable result; the same transaction within the timeout commits; the default is unchanged. Negative control: drop the option on the way to the Repo, and the short-timeout case commits. Durable state: local small gate and full review.
+- *Contract:* the new `transact/4` accepts an explicit Repo transaction timeout of 1..600,000 ms. It refuses invalid options and, on the explicit path only, an existing Repo checkout before I/O. A deadline failure returns `:unavailable`. `transact/3` and `[]` keep existing behavior; there is no per-statement timeout.
+- *Acceptance:* a short timeout prevents the held test transaction from committing; a longer one allows it. Omitting the option makes the short case commit under the Repo default. A pre-existing checkout cannot bypass the explicit deadline. Run the local small and affected gates and full review; the hosted change class is Piece-only.
 - *Kept open:* a per-statement timeout.
 
-**1f. `integration/oauth-client`, #886, after 1e: set its own transaction bound.**
-- *Dependencies:* ELZ-361 and 1e. *Release:* V1B. *New external dependency:* none.
-- *Contract sketch:* the refresh transaction takes the 1e timeout. It is computed from the declared lock wait, `exchange_timeout_ms` and the Needs' time. The host Need "Repo `:timeout` must exceed …" goes away.
-- *Acceptance:* a rotating refresh whose exchange takes nearly `exchange_timeout_ms` keeps its new tokens under a Repo `:timeout` shorter than that exchange. Negative control: leave the option out, and that case loses the tokens (`unavailable`). Secrets, durable state and an unknown outcome: local small gate and full review.
+**1f. [ELZ-400](../../tasks/ELZ-400-oauth-client-refresh-deadline.md), `integration/oauth-client`, #886: set an opt-in transaction bound.**
+- *Dependencies:* ELZ-361, ELZ-393 (after 1e). *Release:* V1B. *New external dependency:* none.
+- *Contract:* the refresh transaction timeout is the declared lock wait plus `exchange_timeout_ms` plus the checked overhead budget. Check just before dispatch that the full exchange and declared persistence reserve still fit. Without the new binding key, preserve both behavior and the Repo `:timeout` Need. 1e supplies only the prerequisite; 1f completes #886.
+- *Acceptance:* a rotating refresh keeps its new tokens under a Repo `:timeout` shorter than the exchange. Insufficient headroom sends no request and writes nothing. Negative controls omit the explicit option or the headroom check. Secrets, durable state and unknown outcomes: local small gate and full review.
 - *Kept open:* nothing new.
 
-**1g. `delivery/model-routing`, #915: bound `request.tried`.**
+**1g. [ELZ-394](../../tasks/ELZ-394-model-routing-tried-bound.md), `delivery/model-routing`, #915: bound `request.tried`.**
 - *Dependencies:* ELZ-369. *Release:* V1B. *New external dependency:* none.
 - *Contract sketch:* `select/3` refuses a `tried` that repeats a ref or holds more refs than the route has candidates, with `{:error, :invalid_input}`. That is the refusal the issue proposes; the task checks it against `main`. Pure.
 - *Acceptance:* a duplicate ref, more refs than candidates, and exactly the candidate count. Negative control: drop the uniqueness check, and the duplicate case is accepted. `delivery/model-routing` decides after an unknown outcome (tasks/ELZ-369-model-routing.md), so it keeps the local small gate and the full review.
 - *Kept open:* nothing new.
 
-**1h. `domain/plan`, #885 and #884.**
-- *Dependencies:* ELZ-366. *Release:* V2. *New external dependency:* none.
-- *Contract sketch:* `create/3` refuses a subscription whose first period overlaps a live or still-granting subscription of the same tenant, with a fixed named refusal (the overlap that #885 reports). For #884 the task first checks whether `domain/entitlement` and every ready store that keeps its facts key grants by tenant. If they do, the README's limit becomes that fact (text only). If not, it qualifies the grant IDs with the tenant, and the task names the format.
+**1h. [ELZ-395](../../tasks/ELZ-395-plan-grant-overlap-and-identity.md), `domain/plan`, #885 and #884.**
+- *Dependencies:* ELZ-366, ELZ-399 (after 1l). *Release:* V2. *New external dependency:* none.
+- *Contract:* `create/3` preserves `:subscription_exists` for an open subscription and refuses an overlap between the first grant and an effective grant of a canceled subscription as `:grant_overlap`. The host still avoids later renewal into an older grant. `domain/entitlement` checks grant IDs across all supplied facts before filtering by tenant, so Plan qualifies the ID with the tenant, using the bounded digest format and cutover described in the task.
 - *Acceptance:* a backdated replacement that overlaps, one that starts at the earlier grant's end, and one after a cancel whose grants have ended. Negative control: skip the overlap read, and the overlap case is created. Durable state and money: local small gate and full review.
 - *Kept open:* several active subscriptions per tenant (Wave 9 kept open).
 
-**1i. `delivery/dead-letter-store`, #701, after its recheck: bind `resolve/3` to a record generation.**
-- *Dependencies:* ELZ-301, and each finding task of the `delivery/dead-letter-store` recheck (1i is published after that recheck). *Release:* V1B. *New external dependency:* none.
+**1i. [ELZ-398](../../tasks/ELZ-398-dead-letter-store-resolve-generation.md), `delivery/dead-letter-store`, #701: bind `resolve/3` to a record generation.**
+- *Dependencies:* ELZ-301, ELZ-397 (the finding task from the completed recheck). *Release:* V1B. *New external dependency:* none.
 - *Contract sketch:* each inserted record gets a generation, which `list/3` entries return. `resolve/3` takes an optional `generation`, and both its update and its duplicate lookup match it. Without it, the behaviour is today's. The table gains a column through the Piece's migration.
 - *Acceptance:* a resolve retried after purge and key reuse, with the generation, leaves the new record listed. Today's stated-limit test still holds without the generation. Isolation as `elzoo_app`. Negative control: match only `(tenant, source, message_id)`, and the reuse case resolves the new record. Durable state: local small gate and full review.
 - *Kept open:* nothing new.
 
+**1j. [ELZ-396](../../tasks/ELZ-396-run-engine-reused-action-wait.md), `assembly/run-engine`, #946: preserve the earlier occurrence's wait.**
+- *Dependencies:* ELZ-127, ELZ-387, ELZ-389 (after 1a, same lane). *Release:* V1B. *New external dependency:* none.
+- *Contract:* refusing a reused action ID does not erase an earlier live occurrence's lifecycle wait. The earlier occurrence can still settle normally. No format or option change. Test a dispatched tool without restart and a person wait across restart on the opt-in path; deleting the wait by action ID alone makes the original outcome late. Local small gate and full review.
+
+**1k. [ELZ-397](../../tasks/ELZ-397-dead-letter-store-purge-unknown.md), `delivery/dead-letter-store`, #947: state the purge retry exception.**
+- *Dependencies:* ELZ-301. *Release:* V1B. *New external dependency:* none.
+- *Contract:* after an unknown commitment of `purge/3`, retry can delete up to another `limit` eligible records; the first result cannot be recovered. Test two successive batches with the first reply discarded, and retain the tenant, state and cutoff controls. No operation replay or library change. Local small gate and full review.
+
+**1l. [ELZ-399](../../tasks/ELZ-399-wave9-grant-id-composition.md), Wave 9 root acceptance, prerequisite for #884.**
+- *Dependencies:* ELZ-379. *Release:* V2. *New external dependency:* none.
+- *Contract:* exercise nonempty, distinct, stable IDs across Plan and Entitlement on the current implementation without pinning their encoding in the root scenario. Plan's own tests own the format. This changes the root test only; local full/affected and full hosted checks.
+
 ### Level 2 — the freeze (F)
 
 - *Dependencies:* ELZ-387, every Level 1 task, and every finding task of the rechecks that changes a Contract. *Release and stage:* V2, `release`. *New external dependency:* none.
-- *Precondition of publication:* the three `AGENTS.md` section 6 rechecks and the #798 recheck are reviews, not jobs, so they cannot stand on F's `- Dependencies:` line. The coordinator publishes F only after each recheck's five-line record is posted, and F's task text names those records.
+- *Precondition of publication:* F's task text names the four records listed in [Pre-freeze rechecks](#pre-freeze-rechecks-2026-11-25). The rechecks themselves are complete; they are reviews, not jobs. ELZ-397, the one finding task, is a dependency of F.
 - *Change:* documents only, on the coordinator one-PR path. In release-plan.json:
   - the stage `later` on the 14 proposals listed above;
   - `later` and `release` in the `exclude_stages` of `V1`, `V1B` and `V2`;
@@ -306,25 +329,25 @@ Each task writes its fixtures with the code at its base, and first checks that t
 - *Test:* `run/1` of each named spec gives exactly the committed record. A later version that changes the record form fails this test, so the change is made deliberately, under a new ID after the release. `run/1` starts its own engine and reads only that run's stream, so it reads no stored rows; the engine's stored rows are pinned by X2's fixtures.
 - *Negative control:* in the worktree, rename one step kind in the private `step/1`, and the record case fails.
 - *Rerun:* the same spec gives the same record by observation, not proof (the Piece's README, "No record id …": "observed in the tests, not proven"), and the Lua spec runs in a real sandbox under load, as in #547. A mismatch on a hosted run therefore takes the rerun rule of `AGENTS.md` section 5; a second mismatch of the same case is a real failure.
-- *Under Q4 B:* Level 1j adds a public reader in place before F, and X3's test reads a committed engine stream through it.
 - *Review:* the full review: the Piece runs Runs on PostgreSQL, and its record is the format a recipe author asserts on.
 
 ### Level 5 — the release mark (M)
 
 - *Dependencies:* X1, X2, X3. *Release and stage:* V2, `release`. *New external dependency:* none.
-- *Change:* M's own merge commit is the release commit. M names the release (as M's pull request, whose merge commit it is) in:
-  - `docs/consuming.md` (a section "The first release");
+- *Change:* M names its own merge commit as the release commit, subject to a green push run on that exact SHA. M names the release (as M's pull request, whose merge commit it is) in:
+  - `docs/consuming.md` (a section "The first release" with the exact-SHA green-push check and checkout instructions above);
   - the two bullets of `AGENTS.md` section 4 (the owner's answer to Q2 is the ask that the coordinator guide requires);
   - docs/choices.md, "In-place change before the first release";
   - [bot-platform.md](bot-platform.md), the 2026-11-14 decision line;
   - the `status` of the three gates, by M's task ID (no pull request number, `AGENTS.md` section 3), with the `manifest_sha256` of `assembly/run-engine`, `workflow/pattern-step` and `runtime/recipe-test` after X1–X3, since those three differ from the hashes that A recorded;
   - this page's "Status and scope".
 
-  Under Q2 B, the coordinator also pushes the tag after the merge. Pushing a tag changes shared state, so the owner approves it.
-- *Acceptance:* consuming.md is read by code, so M takes the full check. `check-roadmap.py --live`, `check-claims.py` and `git diff --check` pass. One review checks that M's base holds the merges of X1–X3, that nothing after A's head changed a Piece except X1–X3, and that M changes no Piece. After the merge, the coordinator confirms that M's push run is green. If it is red, the release commit is the first later green repair of the documents. That repair also corrects M's consuming.md section, which named M's pull request, so the section names the repair's pull request instead, and the coordinator records it on the gate statuses by the repair's task ID.
+- *Acceptance:* consuming.md is read by code, so M takes the full check. `check-roadmap.py --live`, `check-claims.py` and `git diff --check` pass. One review checks that M's base holds the merges of X1–X3, that nothing after A's head changed a Piece except X1–X3, that M changes no Piece, and that the consuming instructions distinguish M's successful exact-SHA push from a later green repair. After the merge, the coordinator confirms that the push run for M's exact merge SHA is green. If it stays red after any rerun allowed by `AGENTS.md` section 5, stop: the release is not accepted, and no later commit becomes the release commit without a new owner decision.
 - *From the release commit on:* the new-ID rule applies. A job published after it takes stage `later` until the owner plans a next release.
 
 ## Owner questions
+
+Answered on 2026-11-25: all take option A (see [Owner answers](#owner-answers-2026-11-25)). The original choices are retained for context.
 
 1. **Q1 — Where the release commit falls** (decision 3).
    - A: at the merge of the release mark M, after the freeze, the acceptance and the fixtures. Its code is the fixtures' code. The new-ID rule starts there.
@@ -347,7 +370,7 @@ Each task writes its fixtures with the code at its base, and first checks that t
 
 4. **Q4 — The record fixtures of `runtime/recipe-test`** (X3).
    - A: golden records. `run/1` of named specs must give exactly the committed records. No new function, so nothing changes before F.
-   - B: a public reader (Level 1j, in place before F) that turns a committed engine stream into the record, so X3's test reads a stored stream, as X2's does.
+   - B: a public reader (an extra task, in place before F) that turns a committed engine stream into the record, so X3's test reads a stored stream, as X2's does.
 
    *Recommendation: A.* The engine's stored rows are already pinned by X2. recipe-test's own format is its record, which A pins without a new API in a Piece that the acceptance will have accepted. B stays addable as a new function under a new ID after the release, because it adds a capability and changes no existing Contract.
 
