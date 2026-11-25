@@ -714,6 +714,7 @@ defmodule Elzoo.TenantIsolationTest do
               q!("INSERT INTO #{p}.flat (tenant, body) VALUES ('T1', 'late')")
               :ok = :sys.suspend(pool)
               Process.sleep(500)
+              send(self(), :returning_after_suspension)
               {:ok, :written}
             end,
             timeout: 200
@@ -722,6 +723,7 @@ defmodule Elzoo.TenantIsolationTest do
           :sys.resume(pool)
         end
 
+      assert_received :returning_after_suspension
       assert {result, truth(p, "flat")} == {{:error, :unavailable}, []}
     end
 
