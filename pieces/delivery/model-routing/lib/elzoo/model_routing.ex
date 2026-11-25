@@ -221,7 +221,7 @@ defmodule Elzoo.ModelRouting do
     keys?(r, @request_keys) and features?(r.features) and
       is_map(r.costs) and not is_struct(r.costs) and Enum.sort(Map.keys(r.costs)) == Enum.sort(refs) and
       Enum.all?(Map.values(r.costs), &non_neg?/1) and
-      proper_list?(r.tried) and Enum.all?(r.tried, &(&1 in refs))
+      bounded?(r.tried, 0, length(refs)) and Enum.all?(r.tried, &(&1 in refs)) and unique?(r.tried)
   end
 
   defp health?(h, refs) do
@@ -267,10 +267,6 @@ defmodule Elzoo.ModelRouting do
   defp bounded?(list, min, max), do: count(list, 0, max) in min..max//1
 
   defp count([], n, _max), do: n
-  defp count([_ | tail], n, max) when n <= max, do: count(tail, n + 1, max)
+  defp count([_ | tail], n, max) when n < max, do: count(tail, n + 1, max)
   defp count(_, _n, _max), do: :invalid
-
-  defp proper_list?([]), do: true
-  defp proper_list?([_ | tail]), do: proper_list?(tail)
-  defp proper_list?(_), do: false
 end
