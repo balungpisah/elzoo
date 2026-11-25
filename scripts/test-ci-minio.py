@@ -267,36 +267,63 @@ class SigV4Test(unittest.TestCase):
         self.assertIn("SignedHeaders=host;range;x-amz-content-sha256;x-amz-date", headers["Authorization"])
         self.assertIn("Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41", headers["Authorization"])
 
-    def test_check_bucket_accepts_only_200(self):
-        class Response:
-            def __init__(self, status):
-                self.status = status
 
-            def __enter__(self):
-                return self
+class BucketTest(unittest.TestCase):
+    def setUp(self):
+        self.requests = []
+        requests = self.requests
+        self.answers = []
+        answers = self.answers
 
-            def __exit__(self, *args):
-                return False
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_HEAD(self):
+                requests.append((self.path, self.headers.get("Authorization", "")))
+                status = answers.pop(0)
+                if status is None:  # close the connection without an HTTP response
+                    return
+                self.send_response(status)
+                if status == 302:
+                    self.send_header("Location", "/other")
+                self.end_headers()
 
-        def opener(status):
-            def call(request, timeout):
-                self.assertEqual("HEAD", request.get_method())
-                self.assertEqual("/elzoo-test", request.selector)
-                self.assertIn("AWS4-HMAC-SHA256", request.headers["Authorization"])
-                if status == 200:
-                    return Response(200)
-                raise urllib.error.HTTPError(request.full_url, status, "x", {}, None)
-            return call
-        minio.check_bucket("http://127.0.0.1:9000", "a", "s", urlopen=opener(200))
-        for status in (403, 404, 500):
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.base = f"http://127.0.0.1:{server.server_port}"
+
+    def check(self, answers, error=None):
+        self.answers[:] = answers
+        self.requests.clear()
+        if error is None:
+            minio.check_bucket(self.base, "a", "s")
+        else:
+            with self.assertRaisesRegex(minio.Stop, error):
+                minio.check_bucket(self.base, "a", "s")
+        for path, authorization in self.requests:
+            self.assertEqual("/elzoo-test", path)
+            self.assertIn("AWS4-HMAC-SHA256", authorization)
+        return len(self.requests)
+
+    def test_transient_then_ready(self):
+        for status in (503, 500, 502, 504, None):
             with self.subTest(status=status):
-                with self.assertRaisesRegex(minio.Stop, f"HTTP {status}"):
-                    minio.check_bucket("http://127.0.0.1:9000", "a", "s", urlopen=opener(status))
+                self.assertEqual(2, self.check([status, 200]))
 
-        def broken(request, timeout):
-            raise urllib.error.URLError("refused")
-        with self.assertRaisesRegex(minio.Stop, "failed"):
-            minio.check_bucket("http://127.0.0.1:9000", "a", "s", urlopen=broken)
+    def test_exhaustion_names_the_last_status_or_connection_error(self):
+        for last, error in ((503, "HTTP 503"), (None, "RemoteDisconnected")):
+            with self.subTest(last=last):
+                answers = [503] * (minio.ATTEMPTS - 1) + [last, 200]
+                self.assertEqual(minio.ATTEMPTS, self.check(answers, error))
+
+    def test_terminal_responses_take_one_request(self):
+        self.assertEqual(1, self.check([200]))
+        for status in (403, 404, 302, 501):
+            with self.subTest(status=status):
+                self.assertEqual(1, self.check([status, 200], f"HTTP {status}"))
 
 
 class HealthTest(unittest.TestCase):

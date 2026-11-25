@@ -199,22 +199,31 @@ def wait_health(base, sleep, clock, alive=lambda: True, seconds=HEALTH_SECONDS, 
         sleep(0.5)
 
 
-def check_bucket(base, access, secret, now=None, urlopen=urllib.request.urlopen):
+def check_bucket(base, access, secret, now=None, urlopen=_OPENER.open):
     """Signed HEAD of the bucket: 200 proves the credentials and the bucket (403 or 404 do not)."""
     now = now or datetime.datetime.now(datetime.timezone.utc)
     host = urllib.parse.urlsplit(base).netloc
     headers = sigv4_headers("HEAD", host, f"/{BUCKET}", access, secret, now)
     request = urllib.request.Request(f"{base}/{BUCKET}", headers=headers, method="HEAD")
-    try:
-        with urlopen(request, timeout=10) as response:
-            status = response.status
-    except urllib.error.HTTPError as error:
-        status = error.code
-        error.close()
-    except (urllib.error.URLError, OSError) as error:
-        raise Stop(f"signed HEAD of the bucket failed ({type(error).__name__})") from error
-    if status != 200:
-        raise Stop(f"signed HEAD of the bucket answered HTTP {status}")
+    for attempt in range(ATTEMPTS):
+        try:
+            with urlopen(request, timeout=10) as response:
+                status = response.status
+        except urllib.error.HTTPError as error:
+            status = error.code
+            error.close()
+        except (urllib.error.URLError, OSError) as error:
+            status = None
+            last = f"failed ({type(error).__name__})"
+        if status == 200:
+            return
+        if status is not None:
+            last = f"answered HTTP {status}"
+            if status not in RETRY_STATUS:
+                break
+        if attempt + 1 < ATTEMPTS:
+            time.sleep(0.5)
+    raise Stop(f"signed HEAD of the bucket {last}")
 
 
 def export(variables, env):
