@@ -451,6 +451,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-400](https://github.com/balungpisah/elzoo/issues/960) | V1B / pieces | ELZ-361, ELZ-393 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-401](https://github.com/balungpisah/elzoo/issues/975) | V1B / pieces | none | published 2026-11-25 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 | [ELZ-402](https://github.com/balungpisah/elzoo/issues/976) | V1B / pieces | ELZ-127, ELZ-389, ELZ-396 | published 2026-11-25 | coordinator; one-PR path; independent review and merge queue |
+| [ELZ-403](https://github.com/balungpisah/elzoo/issues/980) | V2 / release | ELZ-387, ELZ-389, ELZ-390, ELZ-391, ELZ-392, ELZ-393, ELZ-394, ELZ-395, ELZ-396, ELZ-397, ELZ-398, ELZ-399, ELZ-400, ELZ-401, ELZ-402 | published 2026-11-25 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -660,7 +661,7 @@ Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350, ELZ-353, ELZ-365, ELZ-366, ELZ-367, ELZ-378, ELZ-379, ELZ-388, ELZ-392, ELZ-395, ELZ-399.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350, ELZ-353, ELZ-365, ELZ-366, ELZ-367, ELZ-378, ELZ-379, ELZ-388, ELZ-392, ELZ-395, ELZ-399, ELZ-403.
 
 Prior release gate: V1-ACCEPT.
 
@@ -5444,3 +5445,13 @@ Publication copy: [tasks/ELZ-402-run-engine-recovery-windows-busy-stop.md](../..
 **Product aims:** P13.
 
 **Acceptance:** Defect #967: attribute the intermittent {:error, :busy} Unit stop in the run-engine Intent recovery windows test to its interleaving and repair only the test's ordering with a total wait, keeping its assertions; stop and report if the engine or DynamicUnits is at fault. 200-iteration repeat before and after, faulty-ordering negative control, Piece tests, small gate.
+
+### ELZ-403
+
+ELZ-403 — Freeze the first-release selected set and record formats
+
+Publication copy: [tasks/ELZ-403-first-release-freeze.md](../../tasks/ELZ-403-first-release-freeze.md).
+
+**Product aims:** P10, P11.
+
+**Acceptance:** Freeze exactly the documented V1, V1B and V2 job lists and ready manifest hashes; defer only the named proposals, record product limits and keep release-stage tasks out. Roadmap, live Contracts, claims, docs-only classification and independent review; acceptance follows separately.

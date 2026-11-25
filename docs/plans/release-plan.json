@@ -10515,6 +10515,44 @@
       "issue": 976,
       "url": "https://github.com/balungpisah/elzoo/issues/976",
       "issue_body_sha256": "e35d21a84c45ff94d1982c05157b37102cd349474cbc9626da110b6a7d5975b0"
+    },
+    {
+      "id": "ELZ-403",
+      "title": "ELZ-403 — Freeze the first-release selected set and record formats",
+      "kind": "published",
+      "release": "V2",
+      "stage": "release",
+      "dependencies": [
+        "ELZ-387",
+        "ELZ-389",
+        "ELZ-390",
+        "ELZ-391",
+        "ELZ-392",
+        "ELZ-393",
+        "ELZ-394",
+        "ELZ-395",
+        "ELZ-396",
+        "ELZ-397",
+        "ELZ-398",
+        "ELZ-399",
+        "ELZ-400",
+        "ELZ-401",
+        "ELZ-402"
+      ],
+      "status": "published 2026-11-25",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-403-first-release-freeze.md"
+      ],
+      "outputs": [],
+      "acceptance": "Freeze exactly the documented V1, V1B and V2 job lists and ready manifest hashes; defer only the named proposals, record product limits and keep release-stage tasks out. Roadmap, live Contracts, claims, docs-only classification and independent review; acceptance follows separately.",
+      "product_aims": [
+        "P10",
+        "P11"
+      ],
+      "issue": 980,
+      "url": "https://github.com/balungpisah/elzoo/issues/980",
+      "issue_body_sha256": "cd2f745fa17f135bd2b0d6a238a5e00cf67c903ab7e863caae9d18a353aefa96"
     }
   ],
   "entries": [
