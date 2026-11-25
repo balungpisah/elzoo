@@ -10781,12 +10781,12 @@
     {
       "id": "delivery/dead-letter-store",
       "job": "ELZ-301",
-      "note": "Retained delivery/dead-letter records in one table under the state/tenant-isolation floor over a consumer-owned Ecto Repo on PostgreSQL 16: Migration.install/1 installs the readers, a table keyed (tenant, source, message_id) holding the canonical record JSON as text, work_ref, put_at_ms and resolution fields, an open-list index and the forced tenant floor; put/3 stores a validated record once (ON CONFLICT DO NOTHING, equal canonical bytes and work_ref are duplicate, else conflict, a resolved key is not reopened); resolve/3 sets replayed or discarded once (UPDATE only an open row; duplicate, already_resolved, unknown_record); list/3 pages open records of one source by (put_at_ms, message_id) with an opaque cursor, 1..1000; count/2 per source up to 1,000 sources; purge/3 deletes up to 1..1000 resolved records before a cutoff, oldest first. Shape, then the caller's open transaction, are refused before any query; one transact/3 transaction refuses any isolation level but read committed; fixed error atoms; no payload or dispatch.",
+      "note": "Retained delivery/dead-letter records in one table under the state/tenant-isolation floor over a consumer-owned Ecto Repo on PostgreSQL 16: Migration.install/1 installs the readers, a table keyed (tenant, source, message_id) holding the canonical record JSON as text, work_ref, put_at_ms and resolution fields, an open-list index and the forced tenant floor; put/3 stores a validated record once (ON CONFLICT DO NOTHING, equal canonical bytes and work_ref are duplicate, else conflict, a resolved key is not reopened); resolve/3 sets replayed or discarded once (UPDATE only an open row; duplicate, already_resolved, unknown_record); list/3 pages open records of one source by (put_at_ms, message_id) with an opaque cursor, 1..1000; count/2 per source up to 1,000 sources; purge/3 deletes up to limit (1..1000) records for that tenant resolved strictly before the cutoff, oldest first, never open records. After an unknown purge outcome the same request can delete up to another limit eligible records and reports only its own deletion count; it cannot recover the first result. Shape, then the caller's open transaction, are refused before any query; one transact/3 transaction refuses any isolation level but read committed; fixed error atoms; no payload or dispatch.",
       "baseline_status": "planned",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/dead-letter-store/piece.json",
-      "manifest_sha256": "fd7e87b40abfaa85077f2327765ed13cb8fe924e9a04afa71db6e6fbe2b49d2b"
+      "manifest_sha256": "b4b80f0c4500de1d69b217ae4b04dfb73fefe5c1dffb5eda30c77ef72a52b1c7"
     },
     {
       "id": "workflow/eval",

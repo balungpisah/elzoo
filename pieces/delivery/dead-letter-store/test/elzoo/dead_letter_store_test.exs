@@ -446,7 +446,8 @@ defmodule Elzoo.DeadLetterStoreTest do
   end
 
   describe "8: purge" do
-    test "deletes only resolved records older than the cutoff, at most limit", ctx do
+    test "retry after a lost reply deletes the next eligible batch, not the first batch again",
+         ctx do
       %{store: s, prefix: p} = ctx
       for id <- ~w(a b c d e open), do: {:ok, :applied} = put(s, "T1", "src", record(id), nil, 0)
       {:ok, :applied} = put(s, "T2", "src", record("t2"), nil, 0)
@@ -457,13 +458,16 @@ defmodule Elzoo.DeadLetterStoreTest do
       {:ok, :applied} = resolve(s, "T2", "src", "t2", :discarded, "op", 1)
 
       ids = fn -> for [t, _, id | _] <- Harness.truth(p), do: {t, id} end
+      request = %{before_ms: 50, limit: 2}
 
-      assert {:ok, 2} = DLS.purge(s, "T1", %{before_ms: 50, limit: 2})
+      # The purge commits, but the caller loses its reply.
+      _ = DLS.purge(s, "T1", request)
       # The oldest resolved_at_ms first: b (10) and c (20).
       assert ids.() == [{"T1", "a"}, {"T1", "d"}, {"T1", "e"}, {"T1", "open"}, {"T2", "t2"}]
-      assert {:ok, 2} = DLS.purge(s, "T1", %{before_ms: 50, limit: 1000})
+      assert {:ok, 2} = DLS.purge(s, "T1", request)
       # d was resolved at 50, not before 50.
       assert ids.() == [{"T1", "d"}, {"T1", "open"}, {"T2", "t2"}]
+      assert {:ok, 0} = DLS.purge(s, "T1", request)
       assert {:ok, 1} = DLS.purge(s, "T1", %{before_ms: 51, limit: 1000})
       assert {:ok, 0} = DLS.purge(s, "T1", %{before_ms: 9_223_372_036_854_775_807, limit: 1000})
       assert ids.() == [{"T1", "open"}, {"T2", "t2"}]
