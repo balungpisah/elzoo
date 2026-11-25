@@ -768,7 +768,15 @@ defmodule Elzoo.RunEngine do
           )
 
         next = install_lifecycle(state, life, decision)
-        {classify(next, decision), decision == :permit_new_work and active_count(next) == 0, "root"}
+
+        # With `messages: :while_active` in control, a message reaches the root also
+        # while slots are active (or a slot holds a pending input); it settles no slot.
+        accepted =
+          if kind == "message" and c[:messages] == :while_active,
+            do: decision in [:permit_new_work, :remain_waiting],
+            else: decision == :permit_new_work and active_count(next) == 0
+
+        {classify(next, decision), accepted, "root"}
     end
   end
 
@@ -1614,6 +1622,7 @@ defmodule Elzoo.RunEngine do
          true <- length(Keyword.get_values(opts, :protocol_version)) <= 1,
          true <- length(Keyword.get_values(opts, :event_source)) <= 1,
          reports when reports in [[], [:owner]] <- Keyword.get_values(opts, :expiry_reports),
+         messages when messages in [[], [:while_active]] <- Keyword.get_values(opts, :messages),
          protocol_version when protocol_version in [1, 2] <- Keyword.get(opts, :protocol_version, 1),
          event_source = Keyword.get(opts, :event_source),
          true <-
@@ -1654,6 +1663,12 @@ defmodule Elzoo.RunEngine do
       fingerprint =
         if reports == [:owner],
           do: digest({:expiry_reports, :owner, fingerprint}),
+          else: fingerprint
+
+      # `messages` wraps after `expiry_reports`, in the same way.
+      fingerprint =
+        if messages == [:while_active],
+          do: digest({:messages, :while_active, fingerprint}),
           else: fingerprint
 
       control = %{
@@ -1713,6 +1728,11 @@ defmodule Elzoo.RunEngine do
 
       control =
         if reports == [:owner], do: Map.put(control, :expiry_reports, :owner), else: control
+
+      control =
+        if messages == [:while_active],
+          do: Map.put(control, :messages, :while_active),
+          else: control
 
       s = %{
         opts: Map.new(opts),

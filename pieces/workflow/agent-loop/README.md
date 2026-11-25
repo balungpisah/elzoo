@@ -378,8 +378,11 @@ removes that entry; no images in older turns. With
 `request_not_built`. `answered` is not evidence that the work is
 done. No engine claim: the ready `assembly/run-engine` completes a Run with a root
 `finish` only when it names a completed action (a `stopped` finish comes back
-refused), gives a pattern no `cancel`, late outcome or `message` while an action is
-open, and gives the first admitted finish of a nested callable to the parent action
+refused), gives a pattern no `cancel` or late outcome while an action is open, gives
+it no `message` while an action is open unless the host starts the engine with
+`messages: :while_active` (then a `message` reaches the root pattern only, never a
+nested callable, and an agent-loop root takes the row "the text waits; no
+request"), and gives the first admitted finish of a nested callable to the parent action
 only when its schema key equals the `result` of the parent's `nested_callable`
 binding (a completed outcome under another schema than
 `elzoo.agent-loop.tool-result` version 1 gets `[tool result not readable]`). A
