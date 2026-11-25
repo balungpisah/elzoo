@@ -10612,7 +10612,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/assembly/ledger-checkout/piece.json",
-      "manifest_sha256": "6a254f84ed596b0424ae648b7e543e2d8515304d2bd911dcf329b421d7183b01"
+      "manifest_sha256": "cf0cada0446639db2a835bb3c9f2a5a32bed8abe3a51fad38e79c9af1cf64b4e"
     },
     {
       "id": "assembly/request-route-retry",
@@ -10831,12 +10831,12 @@
     {
       "id": "delivery/model-routing",
       "job": "ELZ-369",
-      "note": "Pure model routing for a host's model-call binding. new/1 checks a route of 1..16 ranked candidate references (ref, provider, region, retention, model_id, features of Elzoo.AiText.Provider.features/0, rank 1..1,000; unique refs and ranks), on_unknown :stop, max_health_age_ms, cool_down_ms and a retry-timeout retry list run under redispatch_forbidden. select/3 checks the whole input first (else invalid_input), then gives the eligible refs in ascending rank and each other ref with the first reason in the fixed order tried, capability, data_policy (provider-data-policy decide/2), stale_health, circuit_open, cooling_down, budget; no eligible ref is no_candidate. after_failure/3 gives done after completed; retry_same with retry-timeout delay/4 after a not-sent refusal (credentials_unavailable, input_unavailable, a local rate refusal with its wait), stop retries_exhausted at max_attempts; next with a cool-down after throttled or overloaded (retry_after seconds, or cool_down_ms); next with none after authentication_failed, permission_denied, not_found or unsupported_feature at admission; stop request_fault after invalid_request or too_large; stop unknown_outcome after an unknown outcome (no fallback after unknown). Fixed error atoms; no I/O, clock or state.",
+      "note": "Pure model routing for a host's model-call binding. new/1 checks a route of 1..16 ranked candidate references (ref, provider, region, retention, model_id, features of Elzoo.AiText.Provider.features/0, rank 1..1,000; unique refs and ranks), on_unknown :stop, max_health_age_ms, cool_down_ms and a retry-timeout retry list run under redispatch_forbidden. select/3 checks the whole input first (else invalid_input): tried must be a proper list of distinct route refs, checked no further than the first element past the route's candidate count. It then gives the eligible refs in ascending rank and each other ref with the first reason in the fixed order tried, capability, data_policy (provider-data-policy decide/2), stale_health, circuit_open, cooling_down, budget; no eligible ref is no_candidate. after_failure/3 gives done after completed; retry_same with retry-timeout delay/4 after a not-sent refusal (credentials_unavailable, input_unavailable, a local rate refusal with its wait), stop retries_exhausted at max_attempts; next with a cool-down after throttled or overloaded (retry_after seconds, or cool_down_ms); next with none after authentication_failed, permission_denied, not_found or unsupported_feature at admission; stop request_fault after invalid_request or too_large; stop unknown_outcome after an unknown outcome (no fallback after unknown). Fixed error atoms; no I/O, clock or state.",
       "baseline_status": "deferred",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/model-routing/piece.json",
-      "manifest_sha256": "eb760f0a441ffe7f0b687cd571fbe2ed952f3f492713cad3a6ec4077e30abb4f"
+      "manifest_sha256": "6f71175ad481d87de360f6f59cc65f940b14f793eeacadee73b388885069165d"
     },
     {
       "id": "delivery/pubsub",

@@ -456,7 +456,7 @@ defmodule Elzoo.ModelRoutingTest do
       assert Routing.select(r, request(r, %{tried: ["a"]}), health(r)) ==
                {:ok, %{eligible: ["b"], excluded: [{"a", :tried}]}}
 
-      assert Routing.select(r, request(r, %{tried: ["a", "b"]}), health(r)) ==
+      assert Routing.select(r, request(r, %{tried: ["b", "a"]}), health(r)) ==
                {:error, {:no_candidate, [{"a", :tried}, {"b", :tried}]}}
     end
 
@@ -613,6 +613,15 @@ defmodule Elzoo.ModelRoutingTest do
 
     test "a tried ref not on the route", %{r: r, req: req} do
       assert Routing.select(r, %{req | tried: ["a", "q"]}, health(r)) == {:error, :invalid_input}
+    end
+
+    test "more tried refs than candidates", %{r: r, req: req} do
+      assert Routing.select(r, %{req | tried: ["a", "b", "a"]}, health(r)) ==
+               {:error, :invalid_input}
+    end
+
+    test "duplicate tried ref within the route's candidate count", %{r: r, req: req} do
+      assert Routing.select(r, %{req | tried: ["a", "a"]}, health(r)) == {:error, :invalid_input}
     end
 
     test "a malformed data_policy", %{r: r, req: req} do
