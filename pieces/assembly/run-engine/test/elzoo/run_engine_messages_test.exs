@@ -401,6 +401,47 @@ defmodule Elzoo.RunEngineMessagesTest do
     end
   end
 
+  describe "root_only_message_only (refused cases)" do
+    test "with the option each case that stays refused keeps today's step and gives nothing" do
+      %{c: c} = ask_waiting(messages: :while_active)
+      state = unit_state(c)
+      assert state.control.messages == :while_active
+      at = fn ms -> Map.put(message(), "at_ms", ms) end
+      root = state.control.budgets["root"].state
+      at_cap = put_elem(root, 5, elem(root, 2))
+
+      paused =
+        update_in(state.control.lifecycle, &%{&1 | phase: :paused, pause_deadline: 30_000})
+
+      cases = [
+        {"run deadline", state, protocol_record("m", at.(60_000)),
+         {:request_outcome, :out_of_time}},
+        {"pause deadline", paused, protocol_record("m", at.(30_000)),
+         {:request_outcome, :out_of_time}},
+        {"paused", paused, protocol_record("m", at.(20_000)), :remain_paused},
+        {"terminal",
+         update_in(state.control.lifecycle, &%{&1 | phase: :terminal, outcome: :cancelled}),
+         protocol_record("m", at.(2_000)), :unchanged},
+        {"budget at cap", put_in(state.control.budgets["root"].state, at_cap),
+         protocol_record("m", at.(2_000)), {:request_outcome, :out_of_budget}},
+        {"another Run", state, protocol_record("m", at.(2_000), run_id: "other"), :late},
+        {"stale Attempt", state, protocol_record("m", at.(2_000), attempt_id: "older"), :late},
+        {"generation closed", put_in(state.control.generation_closed, true),
+         protocol_record("m", at.(2_000)), :remain_waiting},
+        {"stop pending", put_in(state.control.stop_pending, :cancelled),
+         protocol_record("m", at.(2_000)), :remain_waiting},
+        {"root closed", put_in(state.control.callables["root"].closed, true),
+         protocol_record("m", at.(2_000)), :remain_waiting}
+      ]
+
+      for {label, from, record, classification} <- cases do
+        {:Transition, next, :none} = RunEngine.step(from, record)
+        assert next.control.classification == classification, label
+        assert_same_step_without_option(from, record, classification)
+      end
+    end
+  end
+
   describe "ordering_with_reports" do
     test "a message at an ask's deadline is given before the ask's report" do
       %{c: c, engine: engine} = ask_waiting(expiry_reports: :owner, messages: :while_active)

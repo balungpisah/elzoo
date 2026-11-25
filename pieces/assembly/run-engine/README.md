@@ -1347,7 +1347,7 @@ ancestor, more facts in the report, an engine timer, and a transcript entry or s
 key for reports stay addable in place. Finite listed scenarios, not a proof.
 
 `test/elzoo/run_engine_messages_test.exs` exercises `messages: :while_active` on
-disposable PostgreSQL: `default_off_is_unchanged` (without the option a `message`
+disposable PostgreSQL and through pure `step/2`: `default_off_is_unchanged` (without the option a `message`
 while a tool slot runs is applied, has its `:input` entry and is not given, and the
 root's inputs are its `start`, then the tool outcome; the configure control differs
 only by the option key and the fingerprint, which is the wrap of the fingerprint
@@ -1369,7 +1369,9 @@ generation closed, `:out_of_budget`, the tool slot retained `:running`),
 `wake`, a later `start` and a granted `resource_event` while a slot is active are not
 given, and `step/2` with the option removed from control gives the same state; a
 message while paused is not given, after `continue` the same ID is a duplicate and a
-new ID is given), `ordering_with_reports` (with `expiry_reports: :owner` a message at
+new ID is given; through `step/2`, each case that stays refused, from the Run
+deadline to a closed root, gives the same state as the step without the option and no
+invocation entry), `ordering_with_reports` (with `expiry_reports: :owner` a message at
 an ask's deadline is given before the ask's report, both before `input/4` replies,
 and its record holds the ask's settlement `by: :protocol`, `reason: nil`; its
 request as the first excess drops the held report, no `:resume_input` record; with
@@ -1377,13 +1379,14 @@ request as the first excess drops the held report, no `:resume_input` record; wi
 message without room for its invocation entry is `record_size` through `step/2`, a
 sweep from 64 to 266 bytes switches at one headroom; two restarts after a message
 and an outcome, and after a message and its report, give equal state, record count
-and transcripts, with no pattern call and no Effect). Eight temporary negative
+and transcripts, with no pattern call and no Effect). Nine temporary negative
 controls each made a named test fail and were reverted: the option ignored, the
 default flipped on, the rule applied to `wake`, `start` and `resource_event`, the
 accept rule in `transition/2` instead of `protocol/2` (`event_waits/3` returns
 `{:error, :history}`), the message given to the owner of the newest active slot, no
-room check for the message, the option left out of the fingerprint and the message
-refused while a slot holds a pending input.
+room check for the message, the option left out of the fingerprint, the message
+refused while a slot holds a pending input and the message accepted at every
+lifecycle decision (the refused-cases case fails).
 
 Limits of `messages: :while_active`. Root only: a bot that runs as a nested callable
 is given no message while slots are active. A message while paused is not given and
@@ -1393,7 +1396,9 @@ whose Need is an engine that gives a message only while no action is open
 option. Neither `status/1` nor `transcript/3` says on its own whether the root was
 given a message, as for `wake`; the root's request, if any, appears from its own
 records. With `expiry_reports: :owner` the root can be given a message before the
-report of a slot that the message's own expiry pass expired. That an agent-loop root
+report of a slot that the message's own expiry pass expired. The control key adds 24
+ETF bytes to control, so at a `record_size` edge a Run with the option can be refused
+where the same Run without it fits. That an agent-loop root
 then takes its row "the text waits; no request" rests on agent-loop's own step
 tests: these tests run the engine with a test pattern and no agent-loop composition,
 and the Wave 9 acceptance harness does not turn the option on. A member for `wake`,
