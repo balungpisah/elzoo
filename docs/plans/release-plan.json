@@ -11923,7 +11923,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/pattern-step/piece.json",
-      "manifest_sha256": "8e0f5d8ffc864a696f8e31e20f18be45f6ef403e090d60672c9d6c4a9605554b"
+      "manifest_sha256": "9bb617b53d1fad2ce0e01e6785c345c5affd0059bc659778006eaf00aa7fab99"
     },
     {
       "id": "core/payload-schema",
