@@ -10241,6 +10241,30 @@
       "issue": 941,
       "url": "https://github.com/balungpisah/elzoo/issues/941",
       "issue_body_sha256": "c28e409c14e4fd8b96935bcf47654dcb3cf9f8989041191d1457028a14e1091d"
+    },
+    {
+      "id": "ELZ-388",
+      "title": "ELZ-388 — Plan the first release: the frozen selected set, the acceptance of V1, V1B and V2, the record fixtures and the release mark",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-379"
+      ],
+      "status": "published 2026-11-25",
+      "owner_role": "coordinator; one-PR path for a documents change; independent review; coordinator merge",
+      "paths": [
+        "tasks/ELZ-388-first-release-plan.md"
+      ],
+      "outputs": [],
+      "acceptance": "docs/plans/first-release.md gives the first release's source boundaries at a named main commit, the frozen selected set of V1-ACCEPT, V1B-ACCEPT and V2-ACCEPT from today's ready catalogue rows and job counts (recorded through a later and a release stage in exclude_stages, no new selector), a decision with its reason for each still-unpublished RC job and non-ready disposition the gates select (later, accepted as resolved or index resolution; none kept and built, none dropped), the release as a named green main commit in the consuming documents with no tag, version or changelog unless the owner asks, levels from ELZ-387 and the must-land repairs through one freeze, one acceptance of the three gates with V1B's end-to-end recipe, three record-fixture tasks and the release mark, the repair and observation decisions, and numbered owner questions with recommendations, among them the reading of the owner's 2026-11-25 order; the owner's 2026-11-25 decisions carried as settled; bot-platform-wave9.md points to the page; no Contract, task, Piece or catalogue change. Documents-only classification, roadmap (plain, write, live), claims, diff and Registry checks.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 943,
+      "url": "https://github.com/balungpisah/elzoo/issues/943",
+      "issue_body_sha256": "3ae48ff1d2b06235c38cc4f25d4632321cda556f987eb0234c9ecbbb6594d2a2"
     }
   ],
   "entries": [
