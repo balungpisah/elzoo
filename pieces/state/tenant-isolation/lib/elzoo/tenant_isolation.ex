@@ -24,33 +24,91 @@ defmodule Elzoo.TenantIsolation do
   @doc """
   Run `fun` (arity 0) in `repo.transact/2` under `scope`, `%{tenant: t}` or
   `%{tenant: t, spaces: list}`. Returns `{:error, {:tenant_isolation, :scope}}` for a bad scope
-  or function and `{:error, {:tenant_isolation, :in_transaction}}` inside an open transaction;
-  otherwise exactly what `repo.transact/2` returns for `fun`.
+  or function. With `[]` (the default), use the Repo's transaction timeout. Otherwise pass
+  exactly `[timeout: ms]`, with `ms` in 1..600_000, or get `{:error, {:tenant_isolation, :timeout}}`.
+  Refuses an open transaction (`:in_transaction`), then an existing checkout (`:in_checkout`,
+  explicit timeout only), both tagged `:tenant_isolation`. A lost connection at the explicit
+  deadline returns `{:error, :unavailable}` without attesting whether a commit happened.
   """
-  def transact(repo, scope, fun) do
+  def transact(repo, scope, fun, opts \\ []) do
     case scope(scope) do
       {:ok, tenant, spaces} when is_function(fun, 0) ->
-        if repo.in_transaction?() do
-          {:error, {:tenant_isolation, :in_transaction}}
-        else
-          repo.transact(fn ->
-            SQL.query!(repo, @set, [tenant, spaces], log: false)
+        cond do
+          opts != [] and not match?([{:timeout, ms}] when ms in 1..600_000, opts) ->
+            {:error, {:tenant_isolation, :timeout}}
 
-            case fun.() do
-              {:ok, _} = ok ->
-                clear!(repo)
-                ok
+          repo.in_transaction?() ->
+            {:error, {:tenant_isolation, :in_transaction}}
 
-              other ->
-                other
-            end
-          end)
+          opts != [] and repo.checked_out?() ->
+            {:error, {:tenant_isolation, :in_checkout}}
+
+          true ->
+            transaction(repo, opts, fn ->
+              SQL.query!(repo, @set, [tenant, spaces], log: false)
+
+              case fun.() do
+                {:ok, _} = ok ->
+                  clear!(repo)
+                  ok
+
+                other ->
+                  other
+              end
+            end)
         end
 
       _ ->
         {:error, {:tenant_isolation, :scope}}
     end
   end
+
+  defp transaction(repo, [], fun), do: repo.transact(fun)
+
+  defp transaction(repo, [timeout: ms] = opts, fun) do
+    deadline = System.monotonic_time(:millisecond) + ms
+
+    try do
+      repo.transact(
+        fn ->
+          case fun.() do
+            {:error, e} = error ->
+              if deadline_failure?(e, deadline), do: {:error, :unavailable}, else: error
+
+            other ->
+              other
+          end
+        end,
+        opts
+      )
+    rescue
+      e in [DBConnection.ConnectionError, Postgrex.Error] ->
+        if deadline_failure?(e, deadline),
+          do: {:error, :unavailable},
+          else: reraise(e, __STACKTRACE__)
+    end
+  end
+
+  defp deadline_failure?(error, deadline),
+    do: System.monotonic_time(:millisecond) >= deadline and deadline_disconnect?(error)
+
+  # Postgrex cancels an active statement before disconnecting. When idle, DBConnection
+  # 2.10.2 reports a lost holder, without a distinct timeout reason.
+  defp deadline_disconnect?(%Postgrex.Error{postgres: %{code: :query_canceled}}), do: true
+
+  defp deadline_disconnect?(%DBConnection.ConnectionError{message: message})
+       when is_binary(message) do
+    message in [
+      "connection is closed because of an error, disconnect or timeout",
+      "connection not available because deadline reached while in queue"
+    ] or
+      String.ends_with?(
+        message,
+        "possibly due to a timeout or because the pool has been terminated)"
+      )
+  end
+
+  defp deadline_disconnect?(_), do: false
 
   # After a nested repo.transact inside fun failed, DBConnection 2.10.2 has marked the transaction
   # aborted and refuses every statement with this error; transact/2 would return

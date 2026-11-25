@@ -64,13 +64,24 @@ match by exact bytes, including IDs such as `NULL`, `{a}`, `"q"`, `b\s` and `,`.
 The order of the checks:
 
 1. scope shape and `fun` of arity 0, else `{:error, {:tenant_isolation, :scope}}`;
-2. `repo.in_transaction?()`, else `{:error, {:tenant_isolation, :in_transaction}}`: a
+2. options: omit them, pass `[]`, or pass exactly `[timeout: ms]` with an integer from 1 to
+   600,000 inclusive; otherwise `{:error, {:tenant_isolation, :timeout}}`;
+3. an open transaction returns `{:error, {:tenant_isolation, :in_transaction}}`: a
    transaction-local setting would outlive the call inside an outer transaction;
-3. inside `repo.transact/2` the helper sets both settings with `set_config(..., true)` and
+4. only with an explicit timeout, an existing `Repo.checkout/2` returns
+   `{:error, {:tenant_isolation, :in_checkout}}` before SQL or the callback, because the
+   transaction would inherit the checkout's deadline;
+5. inside `repo.transact/2` the helper sets both settings with `set_config(..., true)` and
    bind parameters (the space list as a `text[]` parameter, `log: false`), runs `fun`, and when
    `fun` returns `{:ok, value}` sets both settings to `''` before the commit (`log: false`).
 
-The result is exactly `repo.transact/2`'s: `{:ok, value}`, `{:error, reason}`, a
+`transact(repo, scope, fun, timeout: ms)` passes the timeout to the outer transaction only.
+If its connection is lost at the deadline, the call returns `{:error, :unavailable}`. This is
+not a guarantee of rollback or permission to retry a write. The timeout does not stop Elixir
+callback code or configure PostgreSQL `statement_timeout` or `lock_timeout`. Omitting options
+or passing `[]` keeps the Repo default and does not translate connection exceptions.
+
+Otherwise the result is `repo.transact/2`'s: `{:ok, value}`, `{:error, reason}`, a
 `repo.rollback/1` value, or a raise. One exception: when `fun` caught a failed statement and
 still returns `{:ok, value}`, the clearing query fails in the aborted transaction and the call
 raises; the transaction is rolled back either way.
@@ -126,8 +137,7 @@ for PUBLIC); without it every query of a protected table fails with 42501 and `v
   the connection can call `set_config` and pick a tenant.
 - The table owner can `NO FORCE`, `DISABLE` or drop policies, and a superuser or `BYPASSRLS`
   role ignores them. Production should connect as a non-owner, non-bypass application role.
-  That boundary is tested only where the test role may create roles; elsewhere, including the
-  hosted check, the test prints `NOT EXERCISED`.
+  The tests exercise that boundary with the ELZ-285 application role (`ELZOO_TEST_APP_ROLE`).
 - `verify/3` checks the table and its floor, not the bodies of the two readers: the owner of
   the `prefix` schema can replace them.
 - Policies of a partitioned table do not apply when a partition is queried directly: protect

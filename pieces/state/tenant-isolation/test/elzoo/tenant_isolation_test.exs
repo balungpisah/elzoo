@@ -671,6 +671,109 @@ defmodule Elzoo.TenantIsolationTest do
 
   def forward_query(_event, _measurements, meta, parent), do: send(parent, {:query, meta.params})
 
+  describe "transaction timeout" do
+    test "the held write commits only under the longer deadline", %{p: p} do
+      write = fn body ->
+        q!("INSERT INTO #{p}.flat (tenant, body) VALUES ('T1', $1)", [body])
+        Process.sleep(500)
+        send(self(), {:returning, body})
+        {:ok, body}
+      end
+
+      capture_log(fn ->
+        short = TI.transact(TestRepo, t1(), fn -> write.("short") end, timeout: 200)
+        assert_received {:returning, "short"}
+        assert {short, truth(p, "flat")} == {{:error, :unavailable}, []}
+      end)
+
+      assert {:ok, "long"} = TI.transact(TestRepo, t1(), fn -> write.("long") end, timeout: 5_000)
+      assert truth(p, "flat") == [["T1", "long"]]
+    end
+
+    test "a deadline while a query is running is unavailable only on opt-in" do
+      Harness.start!(LogRepo, pool_size: 1, timeout: 200)
+
+      hold = fn ->
+        Process.sleep(500)
+        {:ok, :held}
+      end
+
+      capture_log(fn ->
+        assert_raise DBConnection.ConnectionError, fn -> TI.transact(LogRepo, t1(), hold) end
+        assert_raise DBConnection.ConnectionError, fn -> TI.transact(LogRepo, t1(), hold, []) end
+
+        assert TI.transact(LogRepo, t1(), fn -> {:ok, qr!(LogRepo, "SELECT pg_sleep(1)")} end,
+                 timeout: 200
+               ) == {:error, :unavailable}
+
+        assert TI.transact(LogRepo, t1(), fn -> qr(LogRepo, "SELECT pg_sleep(1)") end, timeout: 200) ==
+                 {:error, :unavailable}
+      end)
+    end
+
+    test "option and checkout refusals run no SQL or callback" do
+      id = make_ref()
+      event = [:elzoo, :tenant_isolation, :test_repo, :query]
+      :ok = :telemetry.attach(id, event, &__MODULE__.forward_query/4, self())
+      on_exit(fn -> :telemetry.detach(id) end)
+
+      fun = fn ->
+        send(self(), :ran)
+        {:ok, :ran}
+      end
+
+      TestRepo.checkout(
+        fn ->
+          assert TI.transact(TestRepo, %{}, fun, timeout: 0) ==
+                   {:error, {:tenant_isolation, :scope}}
+
+          assert TI.transact(TestRepo, t1(), nil, timeout: 0) ==
+                   {:error, {:tenant_isolation, :scope}}
+
+          for opts <- [
+                [timeout: 0],
+                [timeout: 600_001],
+                [timeout: 1.0],
+                [timeout: 2, timeout: 3],
+                [other: 1],
+                nil
+              ] do
+            assert TI.transact(TestRepo, t1(), fun, opts) == {:error, {:tenant_isolation, :timeout}}
+          end
+
+          for ms <- [200, 1, 600_000] do
+            assert TI.transact(TestRepo, t1(), fun, timeout: ms) ==
+                     {:error, {:tenant_isolation, :in_checkout}}
+          end
+
+          refute_received {:query, _}
+          refute_received :ran
+          assert TI.transact(TestRepo, t1(), fun) == {:ok, :ran}
+          assert TI.transact(TestRepo, t1(), fun, []) == {:ok, :ran}
+          assert_received {:query, ["T1", []]}
+        end,
+        timeout: 610_000
+      )
+
+      assert {:ok, {:error, {:tenant_isolation, :in_transaction}}} =
+               TestRepo.transact(fn ->
+                 {:ok, TI.transact(TestRepo, t1(), fn -> flunk("ran") end, timeout: 1)}
+               end)
+    end
+
+    test "explicit timeout preserves callback errors, rollback values and unrelated exceptions" do
+      opts = [timeout: 600_000]
+      assert TI.transact(TestRepo, t1(), fn -> {:error, :domain} end, opts) == {:error, :domain}
+
+      assert TI.transact(TestRepo, t1(), fn -> TestRepo.rollback(:value) end, opts) ==
+               {:error, :value}
+
+      assert_raise DBConnection.ConnectionError, "unrelated", fn ->
+        TI.transact(TestRepo, t1(), fn -> raise DBConnection.ConnectionError, "unrelated" end, opts)
+      end
+    end
+  end
+
   describe "limits" do
     test "the Repo's query telemetry still receives the scope parameters (log: false)" do
       event = [:elzoo, :tenant_isolation, :test_repo, :query]
@@ -709,57 +812,49 @@ defmodule Elzoo.TenantIsolationTest do
     end
 
     test "non-owner, non-bypass application role", %{p: p} do
-      if Harness.role_capable?(AdminRepo) do
-        role = "elz270_app_" <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
-        admin!("CREATE ROLE #{role} NOLOGIN NOSUPERUSER NOBYPASSRLS")
+      role = System.fetch_env!("ELZOO_TEST_APP_ROLE")
+      assert role =~ ~r/\A[a-z_][a-z0-9_]{0,62}\z/
+      admin!("GRANT USAGE ON SCHEMA #{p} TO #{role}")
+      admin!("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA #{p} TO #{role}")
+      admin!("GRANT USAGE ON ALL SEQUENCES IN SCHEMA #{p} TO #{role}")
+      seed_flat(p)
 
-        on_exit(fn ->
-          Harness.query!(AdminRepo, "DROP OWNED BY #{role}")
-          Harness.query!(AdminRepo, "DROP ROLE #{role}")
-        end)
+      Harness.start!(AppRepo,
+        pool_size: 1,
+        after_connect: {Postgrex, :query!, ["SET ROLE #{role}", []]}
+      )
 
-        admin!("GRANT #{role} TO CURRENT_USER WITH SET TRUE")
-        admin!("GRANT USAGE ON SCHEMA #{p} TO #{role}")
-        admin!("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA #{p} TO #{role}")
-        admin!("GRANT USAGE ON ALL SEQUENCES IN SCHEMA #{p} TO #{role}")
-        seed_flat(p)
+      assert qr!(AppRepo, "SELECT current_user") == [[role]]
+      assert [nil, [], 0, 0, _] = outside(AppRepo, p)
+      assert bodies(AppRepo, p, "flat", t1()) == ["a", "b"]
 
-        Harness.start!(AppRepo,
-          pool_size: 1,
-          after_connect: {Postgrex, :query!, ["SET ROLE #{role}", []]}
-        )
+      assert {:ok, ["T1", [], 2, 0, _]} =
+               TI.transact(AppRepo, t1(), fn -> {:ok, outside(AppRepo, p)} end, timeout: 5_000)
 
-        assert qr!(AppRepo, "SELECT current_user") == [[role]]
-        assert [nil, [], 0, 0, _] = outside(AppRepo, p)
-        assert bodies(AppRepo, p, "flat", t1()) == ["a", "b"]
+      assert [nil, [], 0, 0, _] = outside(AppRepo, p)
 
-        for sql <- [
-              "INSERT INTO #{p}.flat (tenant, body) VALUES ('T2', 'z')",
-              "ALTER TABLE #{p}.flat NO FORCE ROW LEVEL SECURITY",
-              "ALTER TABLE #{p}.flat DISABLE ROW LEVEL SECURITY",
-              "DROP POLICY elzoo_tenant_floor ON #{p}.flat"
-            ] do
-          assert {:error, %Postgrex.Error{postgres: %{code: code}}} =
-                   TI.transact(AppRepo, t1(), fn -> qr(AppRepo, sql) end)
+      for sql <- [
+            "INSERT INTO #{p}.flat (tenant, body) VALUES ('T2', 'z')",
+            "ALTER TABLE #{p}.flat NO FORCE ROW LEVEL SECURITY",
+            "ALTER TABLE #{p}.flat DISABLE ROW LEVEL SECURITY",
+            "DROP POLICY elzoo_tenant_floor ON #{p}.flat"
+          ] do
+        assert {:error, %Postgrex.Error{postgres: %{code: code}}} =
+                 TI.transact(AppRepo, t1(), fn -> qr(AppRepo, sql) end)
 
-          assert code == @denied, sql
-        end
-
-        assert denied?(
-                 TI.transact(AppRepo, t1(), fn ->
-                   {:ok, _} = qr(AppRepo, "SET LOCAL row_security = off")
-                   qr(AppRepo, "SELECT count(*) FROM #{p}.flat")
-                 end)
-               )
-
-        assert TI.verify(AppRepo, {p, "flat"}, flat(p)) == :ok
-        Supervisor.stop(AppRepo)
-        IO.puts("TenantIsolation non-owner boundary: EXERCISED")
-      else
-        IO.puts(
-          "TenantIsolation non-owner boundary: NOT EXERCISED (the test role may not create roles)"
-        )
+        assert code == @denied, sql
       end
+
+      assert denied?(
+               TI.transact(AppRepo, t1(), fn ->
+                 {:ok, _} = qr(AppRepo, "SET LOCAL row_security = off")
+                 qr(AppRepo, "SELECT count(*) FROM #{p}.flat")
+               end)
+             )
+
+      assert TI.verify(AppRepo, {p, "flat"}, flat(p)) == :ok
+      Supervisor.stop(AppRepo)
+      IO.puts("TenantIsolation non-owner boundary: EXERCISED")
     end
   end
 end
