@@ -10215,6 +10215,32 @@
       "issue": 936,
       "url": "https://github.com/balungpisah/elzoo/issues/936",
       "issue_body_sha256": "ffbecd9d624040111a207399d6ad3345deb95860b222dff911627dc3f706bbf4"
+    },
+    {
+      "id": "ELZ-387",
+      "title": "ELZ-387 — assembly/run-engine: an opt-in start option gives a message to the root while slots are active",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-127",
+        "ELZ-142",
+        "ELZ-351",
+        "ELZ-385"
+      ],
+      "status": "published 2026-11-25",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-387-run-engine-messages-while-active.md"
+      ],
+      "outputs": [],
+      "acceptance": "In-place assembly/run-engine for #930 (owner decision 25 Nov, option A), same Piece ID: optional start option messages: :while_active (only value; recorded in configure control and fingerprint; absent = today's engine byte for byte; added or removed on restart is incompatible_recovery); with it, a message is given to the root when the lifecycle permits new work or decides RemainWaiting, also while slots are active (unsettled or holding a pending input), as an input that settles no slot (no slot, join, Budget or wait change; :none charges nothing; a request charges one count and is admitted as usual); root only, message only (wake, start and resource_event unchanged); in its own fold step after its expiry pass, before the reports that pass holds; paused, terminal, Run deadline, late, duplicate, closed generation, pending stop, closed root and no invocation room stay refused; transcript gives only its :input entry, status keeps its keys. agent-loop's 'No engine claim' sentence names the option; its step, Contract and piece.json unchanged. Tests: default off with the #930 shape, delivery while a tool or local slot is open, v2, a request from a message and its first excess, root only, other kinds and pause refused, order with expiry reports, room and replay; seven negative controls. Durable state and unknown outcomes: local small gate and full review. Output none.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 941,
+      "url": "https://github.com/balungpisah/elzoo/issues/941",
+      "issue_body_sha256": "abfd2d21c5c9bb18ca14084ccba3dc08fe1d3a1ab5bdf83bdc2c57907859fb9d"
     }
   ],
   "entries": [
