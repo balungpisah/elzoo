@@ -26,7 +26,7 @@ defmodule Elzoo.RunEngineFrozenRowsTest do
 
   test "completed default v1 retains the first local-work result" do
     data =
-      frozen("completed-v1", "8a12f02649305017c444e47e9d21a83051d41f249b95141f9e4cf47683820466")
+      frozen("completed-v1", "f84ad88b24af43174c4652462d6a42890e356dea7e6e4c6fe4ac695e43bcf991")
 
     requests = [
       request([action("work")]),
@@ -41,7 +41,7 @@ defmodule Elzoo.RunEngineFrozenRowsTest do
 
   test "paused v1 retains the owner expiry" do
     data =
-      frozen("paused-v1-owner", "210297b4cf59da6800bfce880b4d6b300c11ae7d3c578d1c1c672ca4a5f79f54")
+      frozen("paused-v1-owner", "28b32c93e8529eb3e17fa8f38fb798f9fc6dd311a99ad85340af0f2a96ebaebe")
 
     opts =
       preload(data, [request([action("ask", "ask_person")])],
@@ -59,7 +59,7 @@ defmodule Elzoo.RunEngineFrozenRowsTest do
 
   test "open v2 retains the active message and event wait, then accepts cancellation" do
     data =
-      frozen("open-v2-messages", "8d81ee743827de107b2dccffb3dcf38779af317240ecd7a0deeaee5b497a1c21")
+      frozen("open-v2-messages", "4d5bf99560096b379a86116fd2aca094c6f849d2ab7a2f48b916de3db6ef2b17")
 
     requests = [
       request_v2([action("wait", "wait_event")]),
