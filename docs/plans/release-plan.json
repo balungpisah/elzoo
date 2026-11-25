@@ -10509,7 +10509,7 @@
       "baseline_status": "planned",
       "disposition": "ready-contract",
       "manifest": "pieces/delivery/room/piece.json",
-      "manifest_sha256": "ca1fdcc502b35c6b03dce5e8f3c8af47e20bb471c1854d878f2183ff151c68a8",
+      "manifest_sha256": "9f0efec5f465b4ff0e1f00bcd198dcf55976570c84f90582f46d0b124fb0d712",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
