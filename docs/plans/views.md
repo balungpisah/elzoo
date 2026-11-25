@@ -453,6 +453,9 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-402](https://github.com/balungpisah/elzoo/issues/976) | V1B / pieces | ELZ-127, ELZ-389, ELZ-396 | published 2026-11-25 | coordinator; one-PR path; independent review and merge queue |
 | [ELZ-403](https://github.com/balungpisah/elzoo/issues/980) | V2 / release | ELZ-387, ELZ-389, ELZ-390, ELZ-391, ELZ-392, ELZ-393, ELZ-394, ELZ-395, ELZ-396, ELZ-397, ELZ-398, ELZ-399, ELZ-400, ELZ-401, ELZ-402 | published 2026-11-25 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 | [ELZ-404](https://github.com/balungpisah/elzoo/issues/982) | V2 / release | ELZ-403 | published 2026-11-25 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
+| [ELZ-405](https://github.com/balungpisah/elzoo/issues/985) | V2 / release | ELZ-114, ELZ-404 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-406](https://github.com/balungpisah/elzoo/issues/986) | V2 / release | ELZ-127, ELZ-387, ELZ-404 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-407](https://github.com/balungpisah/elzoo/issues/987) | V2 / release | ELZ-181, ELZ-183, ELZ-404 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -5466,3 +5469,33 @@ Publication copy: [tasks/ELZ-404-first-release-acceptance.md](../../tasks/ELZ-40
 **Product aims:** P10, P11.
 
 **Acceptance:** Account for every frozen job with its issue, landing and frozen outputs or resolution; check the graph-agent-Lua recipe on PostgreSQL, its two negative controls, the pinned full check and claim evidence. No acceptance with an undecided job; fixtures and release mark follow separately.
+
+### ELZ-405
+
+ELZ-405 — workflow/pattern-step: pin the frozen v1 and v2 neutral maps
+
+Publication copy: [tasks/ELZ-405-pattern-step-record-fixtures.md](../../tasks/ELZ-405-pattern-step-record-fixtures.md).
+
+**Product aims:** P09.
+
+**Acceptance:** Pin canonical v1 and v2 request and input maps from the frozen pattern-step, with each action, input and outcome class and exact decode/encode round trips. No tracker fixture.
+
+### ELZ-406
+
+ELZ-406 — assembly/run-engine: pin recovery from the frozen DurableUnit rows
+
+Publication copy: [tasks/ELZ-406-run-engine-record-fixtures.md](../../tasks/ELZ-406-run-engine-record-fixtures.md).
+
+**Product aims:** P09.
+
+**Acceptance:** Pin committed v1 and v2 DurableUnit rows, including an event wait and both opt-in start options. Recover completed, paused and open Runs, compare status, transcript and result, progress the open Run and refuse a mismatched start option.
+
+### ELZ-407
+
+ELZ-407 — runtime/recipe-test: pin the frozen run/1 records
+
+Publication copy: [tasks/ELZ-407-recipe-test-record-fixtures.md](../../tasks/ELZ-407-recipe-test-record-fixtures.md).
+
+**Product aims:** P09.
+
+**Acceptance:** Pin exact golden run/1 records for an agent, a graph with a decision, a real Lua tool and a model graph after one restart. No public reader or preloaded engine rows.

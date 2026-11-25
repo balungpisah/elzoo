@@ -10577,6 +10577,80 @@
       "issue": 982,
       "url": "https://github.com/balungpisah/elzoo/issues/982",
       "issue_body_sha256": "3f344c5197e48de8c4043cf00b0d118418f066d90cd29435a378a8539b0fe307"
+    },
+    {
+      "id": "ELZ-405",
+      "title": "ELZ-405 — workflow/pattern-step: pin the frozen v1 and v2 neutral maps",
+      "kind": "published",
+      "release": "V2",
+      "stage": "release",
+      "dependencies": [
+        "ELZ-114",
+        "ELZ-404"
+      ],
+      "status": "published 2026-11-25",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-405-pattern-step-record-fixtures.md"
+      ],
+      "outputs": [],
+      "acceptance": "Pin canonical v1 and v2 request and input maps from the frozen pattern-step, with each action, input and outcome class and exact decode/encode round trips. No tracker fixture.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 985,
+      "url": "https://github.com/balungpisah/elzoo/issues/985",
+      "issue_body_sha256": "8c459bc3088b171423fdc7ba08da081dbcd50658a46267fe807a171f8d09092b"
+    },
+    {
+      "id": "ELZ-406",
+      "title": "ELZ-406 — assembly/run-engine: pin recovery from the frozen DurableUnit rows",
+      "kind": "published",
+      "release": "V2",
+      "stage": "release",
+      "dependencies": [
+        "ELZ-127",
+        "ELZ-387",
+        "ELZ-404"
+      ],
+      "status": "published 2026-11-25",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-406-run-engine-record-fixtures.md"
+      ],
+      "outputs": [],
+      "acceptance": "Pin committed v1 and v2 DurableUnit rows, including an event wait and both opt-in start options. Recover completed, paused and open Runs, compare status, transcript and result, progress the open Run and refuse a mismatched start option.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 986,
+      "url": "https://github.com/balungpisah/elzoo/issues/986",
+      "issue_body_sha256": "d11ee0538fa0ec7f90e66c67ec973fbf9f9a2eee47b2f20eab0ac93b51c6019f"
+    },
+    {
+      "id": "ELZ-407",
+      "title": "ELZ-407 — runtime/recipe-test: pin the frozen run/1 records",
+      "kind": "published",
+      "release": "V2",
+      "stage": "release",
+      "dependencies": [
+        "ELZ-181",
+        "ELZ-183",
+        "ELZ-404"
+      ],
+      "status": "published 2026-11-25",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-407-recipe-test-record-fixtures.md"
+      ],
+      "outputs": [],
+      "acceptance": "Pin exact golden run/1 records for an agent, a graph with a decision, a real Lua tool and a model graph after one restart. No public reader or preloaded engine rows.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 987,
+      "url": "https://github.com/balungpisah/elzoo/issues/987",
+      "issue_body_sha256": "1bb8f3a7c78bf38825a1fc8fab9f9a21210e81c5c9e416f3b815590f3a761e7d"
     }
   ],
   "entries": [
