@@ -615,7 +615,7 @@ defmodule Elzoo.OauthClientTest do
   end
 
   @tag :refresh_deadline
-  test "a stopped exchange task only spends a rotating token after admission", ctx do
+  test "an exchange task only spends a rotating token after admission", ctx do
     id = "starved"
     old = authorize!(ctx, id, provider: "rotating")
     set_clock(ctx, @t0 + @hour)
@@ -626,8 +626,8 @@ defmodule Elzoo.OauthClientTest do
       refresh_deadline: %{lock_wait_ms: 150, overhead_ms: 1_000, persistence_reserve_ms: 1_000}
     ]
 
-    # One normal scheduler: the high-priority caller can finish preparing and time out,
-    # but the normal-priority exchange task cannot run until the spinner yields.
+    # One normal scheduler: the high-priority caller can prepare the request, but the
+    # normal-priority worker cannot run until the 350 ms spinner yields.
     starve = fn target ->
       reply = ctx.b.transport.(target)
       Process.flag(:priority, :high)
@@ -640,22 +640,27 @@ defmodule Elzoo.OauthClientTest do
       reply
     end
 
-    b = binding!(ctx, [transport: starve] ++ opts)
+    # 120 ms: killed before it runs. 1,000 ms: starts after the 150 ms cutoff,
+    # while still alive; the worker itself must refuse dispatch.
+    for timeout <- [120, 1_000] do
+      b = binding!(ctx, Keyword.merge(opts, transport: starve, exchange_timeout_ms: timeout))
 
-    caller =
-      Task.async(fn ->
-        :erlang.system_flag(:multi_scheduling, :block_normal)
+      caller =
+        Task.async(fn ->
+          :erlang.system_flag(:multi_scheduling, :block_normal)
 
-        try do
-          token(b, id)
-        after
-          :erlang.system_flag(:multi_scheduling, :unblock_normal)
-        end
-      end)
+          try do
+            token(b, id)
+          after
+            :erlang.system_flag(:multi_scheduling, :unblock_normal)
+          end
+        end)
 
-    assert Task.await(caller) == {:error, :unavailable}
-    assert since(ctx, n) == []
-    assert get(ctx.b, id) == {:ok, old.connection}
+      result = Task.await(caller)
+      assert since(ctx, n) == []
+      assert result == {:error, :unavailable}
+      assert get(ctx.b, id) == {:ok, old.connection}
+    end
 
     respond(ctx, :never)
     assert token(binding!(ctx, opts), id) == {:error, :reauthorization_required}
