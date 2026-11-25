@@ -10600,7 +10600,7 @@
       ],
       "issue": 985,
       "url": "https://github.com/balungpisah/elzoo/issues/985",
-      "issue_body_sha256": "8c459bc3088b171423fdc7ba08da081dbcd50658a46267fe807a171f8d09092b"
+      "issue_body_sha256": "56de584f2922a7b768277a05a103de2ca7bba87fad8d37b9532820ca1bb98473"
     },
     {
       "id": "ELZ-406",
@@ -10625,7 +10625,7 @@
       ],
       "issue": 986,
       "url": "https://github.com/balungpisah/elzoo/issues/986",
-      "issue_body_sha256": "d11ee0538fa0ec7f90e66c67ec973fbf9f9a2eee47b2f20eab0ac93b51c6019f"
+      "issue_body_sha256": "9e084db4da19acd5f7eea81bfdafaf5c69939f37c37dc7bea8137ef6589b7419"
     },
     {
       "id": "ELZ-407",
@@ -10650,7 +10650,79 @@
       ],
       "issue": 987,
       "url": "https://github.com/balungpisah/elzoo/issues/987",
-      "issue_body_sha256": "1bb8f3a7c78bf38825a1fc8fab9f9a21210e81c5c9e416f3b815590f3a761e7d"
+      "issue_body_sha256": "e41dc1c6d622b140b7b833fac0a3f861bd618a56d1fc1c496bbc01cc2ac83852"
+    },
+    {
+      "id": "ELZ-408",
+      "title": "ELZ-408 — assembly/run-engine: recover committed Runs on a fresh VM",
+      "kind": "published",
+      "release": "V2",
+      "stage": "release",
+      "dependencies": [
+        "ELZ-127",
+        "ELZ-387",
+        "ELZ-403"
+      ],
+      "status": "published 2026-11-25",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-408-run-engine-fresh-vm-recovery.md"
+      ],
+      "outputs": [],
+      "acceptance": "Recover completed, paused and open Runs in a fresh BEAM with audited engine-owned atoms and safe decoding. Preserve frozen record bytes, progress the open Run and refuse a changed start option. Removing the loading step reproduces the failure.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 992,
+      "url": "https://github.com/balungpisah/elzoo/issues/992",
+      "issue_body_sha256": "fd501b3bfb438f0d0c9130181d27733ed39779734b78d44d3e8e93cfff342b16"
+    },
+    {
+      "id": "ELZ-409",
+      "title": "ELZ-409 — assembly/run-engine: launch the fresh-VM reader so it also runs in a copied consumer",
+      "kind": "published",
+      "release": "V2",
+      "stage": "release",
+      "dependencies": [
+        "ELZ-408"
+      ],
+      "status": "published 2026-11-25",
+      "owner_role": "coordinator; one-PR path for a test-only Piece repair; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-409-run-engine-cold-reader-consumer-launch.md"
+      ],
+      "outputs": [],
+      "acceptance": "Red main on 71e5f2b9 (check-aggregate): the run-engine fresh-VM reader launched with mix run cannot load the copied consumer's dependencies. Relaunch it so it runs in both the Elzoo checkout and a copied consumer while staying a fresh VM; test files only. Consumer reproduction before and pass after, loading-step negative control still fails, repeated cold cases, small gate, green full check on main after merge.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 996,
+      "url": "https://github.com/balungpisah/elzoo/issues/996",
+      "issue_body_sha256": "dfce5f92be9805b1c6ffa2ee18c7989983f23fa9d941504224f1536e9fe303a0"
+    },
+    {
+      "id": "ELZ-410",
+      "title": "ELZ-410 — Record the first-release refreeze after the run-engine repairs",
+      "kind": "published",
+      "release": "V2",
+      "stage": "release",
+      "dependencies": [
+        "ELZ-408",
+        "ELZ-409"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "coordinator; one-PR path for documents-only work; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-410-first-release-refreeze.md"
+      ],
+      "outputs": [],
+      "acceptance": "Record 71e5f2b9 as the X1–X3 record-writing baseline, admit both run-engine repairs without changing F's job set, and synchronize all three fixture guards and live issue hashes. Documents-only gate and independent review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 999,
+      "url": "https://github.com/balungpisah/elzoo/issues/999",
+      "issue_body_sha256": "b8b31b37e70dfe00142a58e6197ebee7eeed026ad63cc699edbcc1be3cc06a2d"
     }
   ],
   "entries": [
@@ -12002,7 +12074,7 @@
       "baseline_status": "not in baseline (new row, RC-50)",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/run-engine/piece.json",
-      "manifest_sha256": "4d62ba2e7d62cbed402ebef86c8c7b4ae552f639c8f00d1e1233802be3521c9d",
+      "manifest_sha256": "6376b6f4317e7d9fad3a2f11968735d0a4b2a77e57072106acc276a539dd94c7",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
