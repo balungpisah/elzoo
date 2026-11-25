@@ -657,6 +657,90 @@ defmodule Elzoo.RunEngineV2ReaderProofTest do
     assert {:error, :unavailable} = Task.await(task, 5_000)
   end
 
+  test "a create of another Run on the shared owner does not fail result of a completed Run" do
+    done =
+      reader_fixture([
+        request_v2([action("wait", "wait_event")]),
+        request_v2([finish_action("finish", %{"action_id" => "wait"})])
+      ])
+
+    done_engine = start_waiting(done)
+    {:ok, %{waits: [wait]}} = event_waits(done_engine)
+
+    assert {:ok, :applied} =
+             RunEngine.input(
+               done_engine,
+               "accepted-event",
+               outside_event(done, wait, "accepted-event"),
+               event_context(wait)
+             )
+
+    assert wait_for(done_engine, &(&1.outcome == :completed)).outcome == :completed
+    read_result = fn -> RunEngine.result(done_engine, result_scope(), result_limits()) end
+    assert {:ok, result} = read_result.()
+    assert {:ok, ^result} = held_read(done, read_result, &create_command("other", &1))
+  end
+
+  test "a create of another Run on the shared owner does not fail event_waits or transcript" do
+    waiting = reader_fixture([request_v2([action("wait", "wait_event")])])
+    engine = start_waiting(waiting)
+    assert {:ok, waits} = event_waits(engine)
+    assert {:ok, transcript} = transcript(engine)
+    held_waits = held_read(waiting, fn -> event_waits(engine) end, &create_command("other", &1))
+
+    held_transcript =
+      held_read(waiting, fn -> transcript(engine) end, &create_command("another", &1))
+
+    assert {held_waits, held_transcript} == {{:ok, waits}, {:ok, transcript}}
+  end
+
+  test "an attach_child of this Run with child_pid nil does not fail event_waits" do
+    attached = reader_fixture([request_v2([action("wait", "wait_event")])])
+    attached_engine = start_waiting(attached)
+    {:ok, owner} = RunApprovalRelease.status(attached.run, "run")
+
+    assert {:ok, _, _} =
+             RunApprovalRelease.command(attached.run, create_command("child", owner.revision))
+
+    assert {:ok, waits} = event_waits(attached_engine)
+
+    attach = fn revision ->
+      %{
+        kind: :attach_child,
+        run_id: "run",
+        attempt_id: "attempt",
+        child_run_id: "child",
+        child_pid: nil,
+        expected_revision: revision
+      }
+    end
+
+    assert {:ok, ^waits} = held_read(attached, fn -> event_waits(attached_engine) end, attach)
+    assert {:ok, %{children: %{"child" => _}}} = RunApprovalRelease.status(attached.run, "run")
+  end
+
+  test "an owner command that changes a fact of the Run during event_waits or transcript is unavailable" do
+    begin_attempt = fn revision ->
+      %{
+        kind: :begin_attempt,
+        run_id: "run",
+        attempt_id: "attempt-next",
+        expected_revision: revision
+      }
+    end
+
+    cancel = fn revision ->
+      %{kind: :cancel, run_id: "run", attempt_id: "attempt", expected_revision: revision}
+    end
+
+    for command <- [begin_attempt, cancel], read <- [&event_waits/1, &transcript/1] do
+      c = reader_fixture([request_v2([action("wait", "wait_event")])])
+      engine = start_waiting(c)
+      assert {:ok, _} = read.(engine)
+      assert {:error, :unavailable} = held_read(c, fn -> read.(engine) end, command)
+    end
+  end
+
   test "a changed retained head is rejected between history and stable-head checks" do
     c = reader_fixture([request_v2([action("wait", "wait_event")])])
     engine = start_waiting(c)
@@ -1731,6 +1815,41 @@ defmodule Elzoo.RunEngineV2ReaderProofTest do
   end
 
   defp event_waits(engine), do: RunEngine.event_waits(engine, result_scope(), result_limits())
+  defp transcript(engine), do: RunEngine.transcript(engine, result_scope(), result_limits())
+
+  defp create_command(run_id, revision),
+    do: %{
+      kind: :create,
+      run_id: run_id,
+      operation_id: "operation-" <> run_id,
+      provider_refs: %{},
+      expected_revision: revision
+    }
+
+  # Holds `read` at its first retained Unit read, after its first Run-owner read and before
+  # the second, commits `command` (given the owner's stream revision) on the shared owner,
+  # then lets the read go on.
+  defp held_read(c, read, command) do
+    parent = self()
+
+    ReaderProofStore.read_hook(c.reader_store, fn _stream, _from, _limit ->
+      send(parent, {:held_read, self()})
+
+      receive do
+        :release_held_read -> :ok
+      after
+        5_000 -> raise "held read timed out"
+      end
+    end)
+
+    task = Task.async(read)
+    assert_receive {:held_read, reader}, 5_000
+    {:ok, owner} = RunApprovalRelease.status(c.run, "run")
+    assert {:ok, revision, _} = RunApprovalRelease.command(c.run, command.(owner.revision))
+    assert revision > owner.revision
+    send(reader, :release_held_read)
+    Task.await(task, 5_000)
+  end
 
   defp append_wake(engine, id) do
     RunEngine.input(

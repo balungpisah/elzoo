@@ -293,7 +293,13 @@ outside-event settlement retains its accepted receipt.
 
 The reader folds complete retained Unit history with public row validation and
 the DurableUnit reducer, verifies activation/input/result and original receipt
-pairing, and rechecks owner and stable stream heads. It reads no clock and calls
+pairing, and rechecks the stable stream heads and the Run's own owner facts:
+`id`, `outcome`, `operation_id`, `current_attempt`, `completion_revision` and
+`evidence_ref`, not `revision`, which is the revision of the owner's whole
+stream. An owner command that leaves those six facts equal, of another Run of a
+shared owner or of this Run (such as an `attach_child`), does not fail the read;
+one that changes one of them (such as a `begin_attempt` or `cancel` of this
+Run) during the read gives `{:error, :unavailable}`. It reads no clock and calls
 no source callback, Operator, pattern, gate, schema, binding or work callback;
 it does not mutate, repair, acknowledge, expire or use a private cache. At most
 `64 * request_cap` waits are returned; valid waits are not truncated to
@@ -308,7 +314,9 @@ is not an empty result.
 `transcript(engine, scope, limits)` shows what one Run did, from its committed
 history in commit order. It takes the same call path, 60,000 ms caller limit,
 exact `scope` and `limits`, optional `result_reader` configuration, reading,
-budgets, owner and head rechecks and errors as `event_waits/3`:
+budgets, rechecks and errors as `event_waits/3` (the owner recheck compares the
+Run's own six facts, so an owner command that leaves them equal, of another Run
+or of this one, does not fail it; the stream heads are rechecked as there):
 `{:error, :scope}`, `{:error, :invalid_limits}`,
 `{:error, :reader_unconfigured}`, `{:error, :read_limit}`,
 `{:error, :history}` and `{:error, :unavailable}`. There is no completion
@@ -414,7 +422,10 @@ schema-validation, clock, binding, work or resource callbacks, use checkpoints
 or state-read shortcuts, or start, drain, repair, append, acknowledge or mutate
 the Unit. It refuses unavailable,
 unknown, pruned, gapped, staged, unpaired, over-budget or invalid history and
-rechecks owner revision and stream heads before returning. Later duplicate,
+rechecks the stream heads and the Run's own owner facts (the six that
+`event_waits/3` compares, not the owner's stream revision) before returning, so
+an owner command that leaves them equal, of another Run of a shared owner or of
+this Run, does not fail it. Later duplicate,
 late or otherwise non-settling records do not replace or invalidate the first
 accepted outcome. The existing `status/1` remains payload-free. The host must
 provide full retained history and a Store that truthfully reports committed
