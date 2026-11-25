@@ -443,10 +443,12 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-392](https://github.com/balungpisah/elzoo/issues/951) | V2 / pieces | ELZ-378 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-393](https://github.com/balungpisah/elzoo/issues/952) | V1B / pieces | ELZ-270 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-394](https://github.com/balungpisah/elzoo/issues/953) | V1B / pieces | ELZ-369 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
-| [ELZ-395](https://github.com/balungpisah/elzoo/issues/954) | V2 / pieces | ELZ-366 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-399](https://github.com/balungpisah/elzoo/issues/959) | V2 / pieces | ELZ-379 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-395](https://github.com/balungpisah/elzoo/issues/954) | V2 / pieces | ELZ-366, ELZ-399 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-396](https://github.com/balungpisah/elzoo/issues/955) | V1B / pieces | ELZ-127, ELZ-387, ELZ-389 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-397](https://github.com/balungpisah/elzoo/issues/956) | V1B / pieces | ELZ-301 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-398](https://github.com/balungpisah/elzoo/issues/957) | V1B / pieces | ELZ-301, ELZ-397 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-400](https://github.com/balungpisah/elzoo/issues/960) | V1B / pieces | ELZ-361, ELZ-393 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -650,13 +652,13 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-291, ELZ-305, ELZ-306, ELZ-307, ELZ-308, ELZ-309, ELZ-315, ELZ-311, ELZ-312, ELZ-310, ELZ-318, ELZ-317, ELZ-322, ELZ-325, ELZ-328, ELZ-329, ELZ-330, ELZ-331, ELZ-332, ELZ-333, ELZ-334, ELZ-335, ELZ-337, ELZ-338, ELZ-339, ELZ-340, ELZ-341, ELZ-342, ELZ-343, ELZ-344, ELZ-345, ELZ-346, ELZ-347, ELZ-348, ELZ-349, ELZ-351, ELZ-352, ELZ-354, ELZ-355, ELZ-357, ELZ-358, ELZ-359, ELZ-360, ELZ-361, ELZ-362, ELZ-363, ELZ-364, ELZ-368, ELZ-369, ELZ-370, ELZ-371, ELZ-372, ELZ-373, ELZ-374, ELZ-375, ELZ-376, ELZ-377, ELZ-380, ELZ-381, ELZ-382, ELZ-383, ELZ-384, ELZ-385, ELZ-386, ELZ-387, ELZ-389, ELZ-390, ELZ-391, ELZ-393, ELZ-394, ELZ-396, ELZ-397, ELZ-398.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262, ELZ-263, ELZ-264, ELZ-265, ELZ-266, ELZ-267, ELZ-268, ELZ-269, ELZ-270, ELZ-271, ELZ-272, ELZ-273, ELZ-274, ELZ-275, ELZ-276, ELZ-278, ELZ-279, ELZ-280, ELZ-281, ELZ-282, ELZ-283, ELZ-284, ELZ-285, ELZ-286, ELZ-277, ELZ-287, ELZ-288, ELZ-289, ELZ-290, ELZ-292, ELZ-293, ELZ-294, ELZ-295, ELZ-296, ELZ-298, ELZ-299, ELZ-300, ELZ-301, ELZ-302, ELZ-303, ELZ-291, ELZ-305, ELZ-306, ELZ-307, ELZ-308, ELZ-309, ELZ-315, ELZ-311, ELZ-312, ELZ-310, ELZ-318, ELZ-317, ELZ-322, ELZ-325, ELZ-328, ELZ-329, ELZ-330, ELZ-331, ELZ-332, ELZ-333, ELZ-334, ELZ-335, ELZ-337, ELZ-338, ELZ-339, ELZ-340, ELZ-341, ELZ-342, ELZ-343, ELZ-344, ELZ-345, ELZ-346, ELZ-347, ELZ-348, ELZ-349, ELZ-351, ELZ-352, ELZ-354, ELZ-355, ELZ-357, ELZ-358, ELZ-359, ELZ-360, ELZ-361, ELZ-362, ELZ-363, ELZ-364, ELZ-368, ELZ-369, ELZ-370, ELZ-371, ELZ-372, ELZ-373, ELZ-374, ELZ-375, ELZ-376, ELZ-377, ELZ-380, ELZ-381, ELZ-382, ELZ-383, ELZ-384, ELZ-385, ELZ-386, ELZ-387, ELZ-389, ELZ-390, ELZ-391, ELZ-393, ELZ-394, ELZ-396, ELZ-397, ELZ-398, ELZ-400.
 
 ### V2-ACCEPT
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350, ELZ-353, ELZ-365, ELZ-366, ELZ-367, ELZ-378, ELZ-379, ELZ-388, ELZ-392, ELZ-395.
+Prerequisites: ELZ-031, RC-20, RC-21, RC-22, RC-23, RC-24, RC-25, RC-27, RC-28, RC-29, RC-30, RC-31, ELZ-297, ELZ-304, ELZ-316, ELZ-313, ELZ-314, ELZ-319, ELZ-320, ELZ-321, ELZ-323, ELZ-324, ELZ-326, ELZ-327, ELZ-336, ELZ-350, ELZ-353, ELZ-365, ELZ-366, ELZ-367, ELZ-378, ELZ-379, ELZ-388, ELZ-392, ELZ-395, ELZ-399.
 
 Prior release gate: V1-ACCEPT.
 
@@ -5329,7 +5331,7 @@ Publication copy: [tasks/ELZ-391-os-isolation-recovery-notification.md](../../ta
 
 **Product aims:** P13.
 
-**Acceptance:** Force retirement between the snapshot and dead-Owner decision; get one result, or two under the old ordering; retain existing recovery behavior.
+**Acceptance:** Force retirement between the snapshot and dead-Owner decision; get only the original result for each retirement form, or two under the old ordering; retain existing recovery behavior.
 
 ### ELZ-392
 
@@ -5349,7 +5351,7 @@ Publication copy: [tasks/ELZ-393-tenant-isolation-transaction-timeout.md](../../
 
 **Product aims:** P13.
 
-**Acceptance:** Opt-in timeout prevents a held transaction from committing; a longer timeout commits; omitting the passed option fails the short case. Preserve the default path and reject malformed options before I/O.
+**Acceptance:** Opt-in timeout prevents a held transaction from committing; a longer timeout commits. Refuse an existing checkout before I/O only on the opt-in path. Preserve the default path and reject malformed options before I/O.
 
 ### ELZ-394
 
@@ -5379,7 +5381,7 @@ Publication copy: [tasks/ELZ-396-run-engine-reused-action-wait.md](../../tasks/E
 
 **Product aims:** P13.
 
-**Acceptance:** Refuse the reuse without dispatch and then apply the original outcome, including after restart. Deletion by action ID alone makes the outcome late.
+**Acceptance:** Refuse reuse without dispatch and apply the original tool outcome without restart or the original person outcome across restart. Deletion by action ID alone makes the outcome late.
 
 ### ELZ-397
 
@@ -5400,3 +5402,23 @@ Publication copy: [tasks/ELZ-398-dead-letter-store-resolve-generation.md](../../
 **Product aims:** P13.
 
 **Acceptance:** Guard both update and duplicate lookup against a replacement generation; keep unguarded behavior and test existing-row migration and tenant isolation.
+
+### ELZ-399
+
+ELZ-399 — Wave 9: check grant identity across Plan and Entitlement without pinning its format
+
+Publication copy: [tasks/ELZ-399-wave9-grant-id-composition.md](../../tasks/ELZ-399-wave9-grant-id-composition.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** On current main the Wave 9 scenario checks nonempty, distinct and stable grant IDs from Plan through Entitlement. Plan alone tests exact formats. The build is a shared root test change.
+
+### ELZ-400
+
+ELZ-400 — integration/oauth-client: compute and check an opt-in refresh transaction deadline
+
+Publication copy: [tasks/ELZ-400-oauth-client-refresh-deadline.md](../../tasks/ELZ-400-oauth-client-refresh-deadline.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Opt-in rotating refresh succeeds despite a short Repo default; refuse before dispatch when the full exchange and persistence reserve do not fit. Preserve the no-key behavior and host Need.

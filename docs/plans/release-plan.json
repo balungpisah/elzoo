@@ -10311,11 +10311,11 @@
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-391-os-isolation-recovery-notification.md"],
       "outputs": [],
-      "acceptance": "Force retirement between the snapshot and dead-Owner decision; get one result, or two under the old ordering; retain existing recovery behavior.",
+      "acceptance": "Force retirement between the snapshot and dead-Owner decision; get only the original result for each retirement form, or two under the old ordering; retain existing recovery behavior.",
       "product_aims": ["P13"],
       "issue": 950,
       "url": "https://github.com/balungpisah/elzoo/issues/950",
-      "issue_body_sha256": "7e5722245f9f205c34293f63a82d172c954b50c1ba1452b65aa28ddbb2010ccd"
+      "issue_body_sha256": "1645dfc9d19e1dc97745fa311b76d507c4b1d02765f5038a386cba2798c58608"
     },
     {
       "id": "ELZ-392",
@@ -10345,11 +10345,11 @@
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-393-tenant-isolation-transaction-timeout.md"],
       "outputs": [],
-      "acceptance": "Opt-in timeout prevents a held transaction from committing; a longer timeout commits; omitting the passed option fails the short case. Preserve the default path and reject malformed options before I/O.",
+      "acceptance": "Opt-in timeout prevents a held transaction from committing; a longer timeout commits. Refuse an existing checkout before I/O only on the opt-in path. Preserve the default path and reject malformed options before I/O.",
       "product_aims": ["P13"],
       "issue": 952,
       "url": "https://github.com/balungpisah/elzoo/issues/952",
-      "issue_body_sha256": "b25a41558f6086240d50c3006a53395a0272760167cfc3c54766c88afd9a5c2f"
+      "issue_body_sha256": "020c8fff41b59c41e8c8b6ea7f62b121bd4025c57dfad4e6db8ad53b18413668"
     },
     {
       "id": "ELZ-394",
@@ -10374,7 +10374,7 @@
       "kind": "published",
       "release": "V2",
       "stage": "pieces",
-      "dependencies": ["ELZ-366"],
+      "dependencies": ["ELZ-366", "ELZ-399"],
       "status": "published 2026-11-25",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-395-plan-grant-overlap-and-identity.md"],
@@ -10383,7 +10383,7 @@
       "product_aims": ["P09", "P10"],
       "issue": 954,
       "url": "https://github.com/balungpisah/elzoo/issues/954",
-      "issue_body_sha256": "799c8916f7d7dd1487ebe002cfac738224e00122e891c0133a01144833c3d5ae"
+      "issue_body_sha256": "a5afb5174fdb387153acc5fa94c8c743def5463fd35617b465192dc547b84fdc"
     },
     {
       "id": "ELZ-396",
@@ -10396,11 +10396,11 @@
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-396-run-engine-reused-action-wait.md"],
       "outputs": [],
-      "acceptance": "Refuse the reuse without dispatch and then apply the original outcome, including after restart. Deletion by action ID alone makes the outcome late.",
+      "acceptance": "Refuse reuse without dispatch and apply the original tool outcome without restart or the original person outcome across restart. Deletion by action ID alone makes the outcome late.",
       "product_aims": ["P13"],
       "issue": 955,
       "url": "https://github.com/balungpisah/elzoo/issues/955",
-      "issue_body_sha256": "24d4413948e088209ad5810f8abbc7d547023dc04f1db2294b33ac0e20a1f665"
+      "issue_body_sha256": "9b12b82e42a6e913c05eb103005d62da054c0a65aaf7932ca4125789d9b607a6"
     },
     {
       "id": "ELZ-397",
@@ -10434,7 +10434,41 @@
       "product_aims": ["P13"],
       "issue": 957,
       "url": "https://github.com/balungpisah/elzoo/issues/957",
-      "issue_body_sha256": "c948e5350d3fd055093efe2a4ce37189a3842aacdd6b2618d27e7ed1bc842a4d"
+      "issue_body_sha256": "6182798c849cb34b55b80ac40987bbe9c00103c446d3e07cf90b44bf395ae470"
+    },
+    {
+      "id": "ELZ-399",
+      "title": "ELZ-399 — Wave 9: check grant identity across Plan and Entitlement without pinning its format",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": ["ELZ-379"],
+      "status": "published 2026-11-25",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-399-wave9-grant-id-composition.md"],
+      "outputs": [],
+      "acceptance": "On current main the Wave 9 scenario checks nonempty, distinct and stable grant IDs from Plan through Entitlement. Plan alone tests exact formats. The build is a shared root test change.",
+      "product_aims": ["P09", "P10"],
+      "issue": 959,
+      "url": "https://github.com/balungpisah/elzoo/issues/959",
+      "issue_body_sha256": "932640cd686b4ec8c1f889eddfc30684e505c2b732e422f1148bad38e38da526"
+    },
+    {
+      "id": "ELZ-400",
+      "title": "ELZ-400 — integration/oauth-client: compute and check an opt-in refresh transaction deadline",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-361", "ELZ-393"],
+      "status": "published 2026-11-25",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-400-oauth-client-refresh-deadline.md"],
+      "outputs": [],
+      "acceptance": "Opt-in rotating refresh succeeds despite a short Repo default; refuse before dispatch when the full exchange and persistence reserve do not fit. Preserve the no-key behavior and host Need.",
+      "product_aims": ["P13"],
+      "issue": 960,
+      "url": "https://github.com/balungpisah/elzoo/issues/960",
+      "issue_body_sha256": "62f73374341254d8e1dd6ceeed08a018cba2fbe104ddbd657f3da8c4a3eddb56"
     }
   ],
   "entries": [

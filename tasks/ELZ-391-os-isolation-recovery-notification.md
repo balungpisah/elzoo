@@ -12,7 +12,7 @@ Unchanged. Adapter recovery must not start an observer or notify again for an Ow
 
 ## Acceptance
 
-- Force the interleaving, using a test barrier rather than a sleep: restart the Adapter, hold recovery after it snapshots the live row, let a short command finish and its Owner retire, notify and exit, then let recovery run. The submitter receives the one completed result and no second result; synchronize the assertion with completion of recovery and any observer work. Exercise both retirement forms, using the existing test fixture for an unconfirmed exit where appropriate.
+- Force the interleaving, using a test barrier rather than a sleep: restart the Adapter, hold recovery after it snapshots the live row, let the Owner retire, notify and exit, then let recovery run. The submitter receives its original result (`completed` for a short command that finished, `unknown` with reason `port_closed` for the existing unconfirmed-exit fixture) and no second result. Synchronize the assertion with completion of recovery and any observer work. Exercise both retirement forms.
 - Existing recovery scenarios still pass, including an Owner that really died without retiring.
 - Negative control: use the old snapshot-only dead-Owner decision and show the completed case receives a second `unknown` result with reason `owner_exit`.
 

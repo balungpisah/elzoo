@@ -1,6 +1,6 @@
 # ELZ-395 — domain/plan: refuse overlapping replacement grants and qualify grant IDs by tenant
 
-- Dependencies: ELZ-366
+- Dependencies: ELZ-366, ELZ-399
 - Release: V2
 - Output: no new Piece ID; enforce the replacement boundary for #885 and prevent cross-tenant grant ID collisions of the present format for #884.
 - Change class: Piece-only implementation.
@@ -11,6 +11,9 @@
 - `create/3` keeps same-ID duplicate and `:conflict` behavior first, and keeps `{:error, :subscription_exists}` for a different ID while the tenant has an open subscription, overlapping or not. Otherwise refuse with `{:error, :grant_overlap}` and commit nothing when the new first grant intersects any nonempty grant interval of a canceled subscription of the same tenant. Intervals are half-open, from `valid_from_ms` to the earlier of `valid_to_ms` and a returned `revoked_at_ms`, if present. Count trial and renewed periods already granted; do not count a withdrawn grant revoked at or before its own start. Use the stored period/anchor and cancel facts, not just whether a row is canceled or its nominal latest end. The overlap decision and successful creation must be atomic with respect to concurrent creates and a cancellation that frees the open slot.
 - `domain/entitlement` is a pure resolver, not a store. It checks uniqueness of `grant_id` across the *whole* facts list before filtering by tenant, so a wording change would not suffice. Use `plan1.` followed by lowercase hex SHA-256 of the bytes `elzoo-plan-grant/1:` followed by tenant and subscription ID each prefixed by its byte length as an unsigned big-endian 32-bit integer, then the period index as an unsigned big-endian 64-bit integer. This gives a fixed 70-byte UTF-8 identifier, independent of delimiters in IDs and within entitlement's 128-byte bound. State the digest assumption, not a mathematical guarantee of no collisions. Use that one format for emitted grants and revocations, including duplicate results and `get/3`'s stored cancel result for rows written by the revised Piece. No fee-line or subscription ID format change.
 - The consumer owns its copy and its grant facts. Document the format cutover: a consumer with old Plan rows and exported grants must migrate their grant and revocation references together (including the IDs in stored cancel results) or stay on its old copy. Do not mix old grant IDs and new revocations or add a dual-ID mode. The Piece does not write the host's grant store.
+- The new check applies to the replacement's first grant, not its future renewals. If that first period ends at the start of an older grant, the host must still avoid renewing into that older grant. Keep that host limit in the README; do not forbid earlier nonoverlapping first periods.
+
+**Coordinator decision (owner can veto):** ELZ-399 lands first so the root acceptance checks composition without pinning the format. The exact new format vector remains required in Plan's test lane.
 
 ## Acceptance
 

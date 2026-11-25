@@ -13,7 +13,7 @@ Unchanged. A reused action ID still settles its new occurrence with refusal `reu
 ## Acceptance
 
 - Without opt-in start options, the root starts two tool calls `t1` and `t2`; the outcome of `t1` makes the root ask for another `t2`. Assert a refusal of the new occurrence and no second dispatch. Deliver the original `t2` outcome with its own occurrence before its deadline; `input/4` acknowledges it and the slot settles, with applied classification and a single owner delivery. Check the transcript or committed slot state, not only `{:ok, :applied}`, which also acknowledges a recorded late input. A genuine duplicate of the input does not redeliver it.
-- Exercise the same rule with `messages: :while_active` as an alternate way to request the reused ID, then restart between the refusal and the original outcome on the same Store to check that recovery retains the wait without redispatch. Existing expiry and retained history tests still pass.
+- With `messages: :while_active`, let an `ask_person` wait open and give a message that makes the root reuse its action ID. Restart on the same Store between the refusal and a verified answer before the original deadline. Assert that the original `person_answer` settles the wait and reaches the owner once. A person wait survives restart; a dispatched tool may instead settle `unknown/lost_outcome`, so keep the tool scenario above free of a restart. Existing expiry and retained history tests still pass.
 - Negative control: restore deletion by action ID alone; the no-option original outcome is classified late and its slot remains running, failing the regression case.
 
 Durable state, concurrency and unknown outcomes: local small gate and full review. No new dependency.
