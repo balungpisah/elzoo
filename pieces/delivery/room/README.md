@@ -186,9 +186,12 @@ The minimal host: `open/3` with the retry rule below; `deliver/3` after
 each `put/3` of the mailbox and each time the tip becomes idle; `wake/3` from the timer, and
 after a `wake/3` at the Run deadline, `deliver/3` (a wake that ends the Run can still return
 `:busy` or `:rollover`; `deliver/3` then gives `{:ok, :terminal}`); on `{:ok, :terminal}`
-`rollover/3` with the tip's `seq` as `link_seq`; after a crash outside `open/3`, `resume/3`
-and, for a terminal tip, `rollover/3` with the same request (on `{:not_tip, seq}`, `rollover/3`
-of link `seq`).
+`rollover/3` with the tip's `seq` as `link_seq`.
+
+After a crash, if the host has not received a stop result for its outstanding `open/3`
+request, it repeats that request, even if it crashed between attempts. With no outstanding
+open, the host recovers an existing chain with `resume/3` and, for a terminal tip, `rollover/3`
+with the same request (on `{:not_tip, seq}`, `rollover/3` of link `seq`).
 
 The room checks none of these Needs:
 
