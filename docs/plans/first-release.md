@@ -131,10 +131,10 @@ A job for which A finds none of this is listed in the report as undecided eviden
 
 The plan uses only what [consuming.md](../consuming.md), the [coordinator guide](../development/13-coordinator.md) and the export code already support:
 
-- **The release commit.** The merge commit of the release-mark task M, with a green push run of `symbolic-check.yml` (Q1 A). M changes no Piece, so its Pieces are byte for byte those of the last fixture task's merge, which the acceptance and the fixtures checked. consuming.md lines 34–35 tell a consumer to take Pieces from "the latest commit of `main` whose push run … is green". When M's push run is green, that latest commit is the release commit, so the existing rule and the release agree on that day, with no new mechanism. A receipt's `revision` then names it. No marker branch is made.
-- **Taking it later.** Once `main` moves on, the latest green commit is no longer the release commit. M's consuming.md section therefore says that the first release is the merge commit of M's pull request (a commit cannot name its own SHA, so the section names the pull request, and GitHub shows its merge commit). It also says that a consumer who wants the first release runs `mix elzoo.take` from a checkout of that commit, and that the latest-green rule gives the newest code instead. An export from a checkout of the release commit copies a consuming.md that holds this section, because M wrote it in that commit.
+- **The release commit.** The merge commit of the release-mark task M, accepted only when the `symbolic-check.yml` push run for that exact SHA on `main` is green (Q1 A). M changes no Piece, so its Pieces are byte for byte those of the last fixture task's merge, which the acceptance and the fixtures checked. A receipt's `revision` names the commit taken. No marker branch is made.
+- **Taking it later.** M's consuming.md section names M's pull request, because a commit cannot name its own SHA. It tells consumers to find that pull request's merge SHA on GitHub and confirm that its own `symbolic-check.yml` push run on `main` succeeded before using it as the first release. If that push run is not green, the release mark is not accepted: a later green repair commit does not qualify, even if it carries the same mark. To take the accepted first release, run `mix elzoo.take` from a checkout of M's merge SHA. The usual latest-green rule in consuming.md lines 34–35 gives the newest code instead; it does not attest release acceptance. An export from the accepted release commit copies the consuming.md section that M wrote.
 - **Its record.** The release-mark task M names the release, which is M's own merge commit. The documents name it by M's pull request; release-plan.json names it by M's task ID, because `AGENTS.md` section 3 keeps pull request numbers out of that file. Level 5 lists every place; the main ones are:
-  - in consuming.md, a short section "The first release" (the pull request, and that from its merge commit a changed ready Contract has a new Piece ID with migration notes, lines 162–169);
+  - in consuming.md, a short section "The first release" (the pull request, the exact merge SHA's green push requirement, and the new Piece ID and migration-note rule from the accepted release commit, lines 162–169);
   - in the two bullets of `AGENTS.md` section 4 ("Elzoo is not released yet …" and "From the first release …");
   - in docs/choices.md, "In-place change before the first release";
   - in the `status` of the three gates in release-plan.json (by M's task ID, not a pull request number).
@@ -198,9 +198,14 @@ Each task names its new external dependency, which is "none" throughout. No prov
 
 - **ELZ-387** (`assembly/run-engine`, `messages: :while_active`, V1B). Merged as [#945](https://github.com/balungpisah/elzoo/pull/945) at `3e72f6f9`.
 
-### Level 1 — work that must land first (one lane per task)
+### Level 1 publication — work that must land before the freeze
 
-Run disjoint lanes in parallel. Run 1j after 1a, 1i after 1k, 1f after 1e, and 1h after 1l.
+One publication records both pre-freeze build tiers. The labels 1a–1l identify items in this publication, not build levels. Run disjoint lanes in parallel; a Tier 2 task can start as soon as its own dependencies are merged, without waiting for the rest of Tier 1.
+
+| Pre-freeze build tier | Tasks in this publication |
+| --- | --- |
+| Tier 1 — no dependency on another task in this publication | 1a (ELZ-389), 1b (ELZ-390), 1c (ELZ-391), 1d (ELZ-392), 1e (ELZ-393), 1g (ELZ-394), 1k (ELZ-397), 1l (ELZ-399) |
+| Tier 2 — depends on a Tier 1 task | 1f (ELZ-400) after 1e; 1h (ELZ-395) after 1l; 1i (ELZ-398) after 1k; 1j (ELZ-396) after 1a |
 
 **1a. [ELZ-389](../../tasks/ELZ-389-run-engine-fencing-recovery.md), `assembly/run-engine`, #852: diagnose and repair the recovery flake.**
 - *Dependencies:* ELZ-127, ELZ-385, ELZ-387 (same directory, so it starts after ELZ-387 merges). *Release:* V1B. *New external dependency:* none.
@@ -329,15 +334,15 @@ Each task writes its fixtures with the code at its base, and first checks that t
 ### Level 5 — the release mark (M)
 
 - *Dependencies:* X1, X2, X3. *Release and stage:* V2, `release`. *New external dependency:* none.
-- *Change:* M's own merge commit is the release commit. M names the release (as M's pull request, whose merge commit it is) in:
-  - `docs/consuming.md` (a section "The first release");
+- *Change:* M names its own merge commit as the release commit, subject to a green push run on that exact SHA. M names the release (as M's pull request, whose merge commit it is) in:
+  - `docs/consuming.md` (a section "The first release" with the exact-SHA green-push check and checkout instructions above);
   - the two bullets of `AGENTS.md` section 4 (the owner's answer to Q2 is the ask that the coordinator guide requires);
   - docs/choices.md, "In-place change before the first release";
   - [bot-platform.md](bot-platform.md), the 2026-11-14 decision line;
   - the `status` of the three gates, by M's task ID (no pull request number, `AGENTS.md` section 3), with the `manifest_sha256` of `assembly/run-engine`, `workflow/pattern-step` and `runtime/recipe-test` after X1–X3, since those three differ from the hashes that A recorded;
   - this page's "Status and scope".
 
-- *Acceptance:* consuming.md is read by code, so M takes the full check. `check-roadmap.py --live`, `check-claims.py` and `git diff --check` pass. One review checks that M's base holds the merges of X1–X3, that nothing after A's head changed a Piece except X1–X3, and that M changes no Piece. After the merge, the coordinator confirms that M's push run is green. If it stays red after any rerun allowed by `AGENTS.md` section 5, stop: the release is not accepted, and no later commit becomes the release commit without a new owner decision.
+- *Acceptance:* consuming.md is read by code, so M takes the full check. `check-roadmap.py --live`, `check-claims.py` and `git diff --check` pass. One review checks that M's base holds the merges of X1–X3, that nothing after A's head changed a Piece except X1–X3, that M changes no Piece, and that the consuming instructions distinguish M's successful exact-SHA push from a later green repair. After the merge, the coordinator confirms that the push run for M's exact merge SHA is green. If it stays red after any rerun allowed by `AGENTS.md` section 5, stop: the release is not accepted, and no later commit becomes the release commit without a new owner decision.
 - *From the release commit on:* the new-ID rule applies. A job published after it takes stage `later` until the owner plans a next release.
 
 ## Owner questions
