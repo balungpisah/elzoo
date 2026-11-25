@@ -49,6 +49,70 @@ defmodule Elzoo.OsProcessProviderFailureTest do
     OsProcess.info(sup, ref).os_pid
   end
 
+  for outcome <- [:completed, :port_closed, :owner_exit] do
+    @tag recovery_snapshot: outcome
+    test "restart with #{outcome} after the recovery snapshot notifies once", %{
+      recovery_snapshot: outcome
+    } do
+      parent = self()
+
+      hold = fn ->
+        send(parent, {:held, self()})
+
+        receive do
+          :continue -> :ok
+        end
+      end
+
+      sup =
+        start_supervised!(
+          {OsProcess,
+           max_concurrent: 1,
+           queue_limit: 0,
+           queue_timeout_ms: 1_000,
+           test_hooks: %{after_run: hold, after_snapshot: hold}}
+        )
+
+      args = if outcome == :completed, do: ["exit", "0"], else: ["sleep", "30"]
+
+      {:ok, ref} =
+        OsProcess.submit(sup, %{executable: @sh, args: [@fixture | args]}, max_run_ms: 20_000)
+
+      assert_receive {:held, owner}, 5_000
+      mon = Process.monitor(owner)
+      %{owner: ^owner, status: :running, os_pid: os_pid} = OsProcess.info(sup, ref)
+      Process.exit(OsProcess.adapter(sup), :kill)
+      assert_receive {:held, recovering}, 5_000
+
+      case outcome do
+        :completed ->
+          send(owner, :continue)
+          assert_receive {OsProcess, ^ref, %{status: :completed, exit_code: 0}}, 5_000
+
+        :port_closed ->
+          :ok = Application.stop(:erlexec)
+          send(owner, :continue)
+          assert_receive {OsProcess, ^ref, %{status: :unknown, reason: :port_closed}}, 10_000
+
+        :owner_exit ->
+          Process.exit(owner, :kill)
+      end
+
+      assert_receive {:DOWN, ^mon, :process, ^owner, _}, 5_000
+      send(recovering, :continue)
+
+      if outcome == :owner_exit do
+        assert_receive {OsProcess, ^ref, %{status: :unknown, reason: :owner_exit, os_pid: ^os_pid}},
+                       10_000
+      end
+
+      # The restarted Adapter answers only after recovery. Any observer holds its slot until DOWN.
+      assert :ok = wait_until(fn -> OsProcess.snapshot(sup).in_flight == 0 end, 10_000)
+      refute_received {OsProcess, ^ref, _}
+      assert OsProcess.info(sup, ref) == nil
+    end
+  end
+
   test "T24 stopping the provider application makes its port program stop every child (VM-exit analogue)" do
     sup =
       start_supervised!(
