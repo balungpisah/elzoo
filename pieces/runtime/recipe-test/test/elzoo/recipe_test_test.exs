@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 Code.require_file("../support/recipe_test_helper.exs", __DIR__)
-Code.require_file("../support/recipe_record_fixture.exs", __DIR__)
+Code.require_file("../support/recipe_record_fixture_test_helper.exs", __DIR__)
 
 defmodule Elzoo.RecipeTestTest.OtherAdapter do
   # An Adapter that is not the scripted one: it must be refused unless the caller lists it.

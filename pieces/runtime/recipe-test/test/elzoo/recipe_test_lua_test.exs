@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 Code.require_file("../support/recipe_test_helper.exs", __DIR__)
-Code.require_file("../support/recipe_record_fixture.exs", __DIR__)
+Code.require_file("../support/recipe_record_fixture_test_helper.exs", __DIR__)
 
 defmodule Elzoo.RecipeTestLuaTest do
   use ExUnit.Case, async: false
