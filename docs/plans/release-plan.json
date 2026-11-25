@@ -10469,6 +10469,27 @@
       "issue": 960,
       "url": "https://github.com/balungpisah/elzoo/issues/960",
       "issue_body_sha256": "62f73374341254d8e1dd6ceeed08a018cba2fbe104ddbd657f3da8c4a3eddb56"
+    },
+    {
+      "id": "ELZ-401",
+      "title": "ELZ-401 — CI: ci-minio.py retries a transient bucket check after MinIO reports ready",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-25",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-401-ci-minio-bucket-check-retry.md"
+      ],
+      "outputs": [],
+      "acceptance": "Defect #969: scripts/ci-minio.py check_bucket retries the signed bucket HEAD on 500, 502, 503, 504 and connection errors within the script's own fixed bound and then stops naming the last status; 403, 404 and other statuses stop at once, 200 succeeds as before; download retry path unchanged. Fake-server guard cases with request counts, single-HEAD negative control, full/affected local gate and full hosted check.",
+      "product_aims": [
+        "P13"
+      ],
+      "issue": 975,
+      "url": "https://github.com/balungpisah/elzoo/issues/975",
+      "issue_body_sha256": "cf1abb4c2f718320c26277143b929329cad3bce255ad2f7932e94b878e05c4ad"
     }
   ],
   "entries": [
