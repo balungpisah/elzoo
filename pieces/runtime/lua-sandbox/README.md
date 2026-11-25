@@ -393,12 +393,12 @@ repair of the test fakes adds two more (groups 25 and 26):
     the frame header from its input before it writes, so the request is never written to a child
     that has already ended. The two fakes of the test "a crashing child" that write bytes
     before they exit, `reply-then-fail` and `partial-then-fail`, also read the header first:
-    their test expects `process_exit`, but a Port exit after their bytes would be
-    `protocol_error`. The crashing fakes that write no byte (`exit3`, `killed`, `segv`) stay as
-    they are. The expected results are unchanged and the tests were run 200 times
-    in one launch with `--repeat-until-failure 200`. Negative control: with the read removed from
-    one fake the test still passes in most runs, so this control is not decisive and the review
-    reads the fakes.
+    their test expects `process_exit`, but a Port exit after the partial frame, or after part of
+    the reply frame, would be `protocol_error`. The crashing fakes that write no byte (`exit3`,
+    `killed`, `segv`) stay as they are. The expected results are unchanged and the tests were run
+    200 times in one launch with `--repeat-until-failure 200`. Negative control: with the read
+    removed from one fake the test still passes in most runs, so this control is not decisive and
+    the review reads the fakes.
 26. **`existing_behaviour`**: every existing test of the Piece passes unchanged, apart from the
     bodies of the fakes of group 25.
 
