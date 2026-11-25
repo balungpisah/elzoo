@@ -203,7 +203,7 @@ The 152 ready rows are grouped by the release of their owning job. These hashes 
 | --- | --- |
 | `assembly/checked-command` | `6c8f5dd71f2c476134ed54c341d3499e33f2f9b912ee1d1129a689ac6cad4fb2` |
 | `assembly/knowledge-ingest` | `6d2ad553a51dffba4a54c2eca0cb0daeae241ea50a9368aa883413a06d442988` |
-| `assembly/run-engine` | `4d62ba2e7d62cbed402ebef86c8c7b4ae552f639c8f00d1e1233802be3521c9d` |
+| `assembly/run-engine` | `6376b6f4317e7d9fad3a2f11968735d0a4b2a77e57072106acc276a539dd94c7` (updated by ELZ-408) |
 | `core/payload-schema` | `b7f5c1abbf1e90c7c3190127d715827731949fb1ccdf721117513fa4189b9935` |
 | `delivery/dead-letter-store` | `d7f2ddd3af34d072a607afd88c7c3d741f3bc1f82fde1c89091a3e30324a0e47` |
 | `delivery/debounce` | `7a63e94eda0d9c28ddbdcec2aebb06c5d5ffaa698a0a2b7d8e92997dd25a9ce6` |
@@ -402,10 +402,10 @@ Everything else waits unless the coordinator explicitly admits it before the fre
 
 ## Rules of the freeze
 
-These rules hold from the merge of ELZ-403 (F) to the release commit. The frozen code is the code at F's merge: F changes only documents, so that code is the code of its base. A accepts the frozen set before the fixture tasks and release mark; the new-ID rule starts at the release commit, not at F.
+These rules hold from the merge of ELZ-403 (F) to the release commit. F's merge `0a76dd21` set the original baseline and still defines the frozen job set. A accepts the frozen set before the fixture tasks and release mark; the new-ID rule starts at the release commit, not at F.
 
 1. Only these merge: the release tasks; repairs that restore a ready Contract; and test-only Piece repairs (`AGENTS.md` section 1). A repair published during the freeze takes stage `release`, so the derived frozen set does not change after F, and A lists it with its commit. A change to a ready Contract, a new ready Piece or a new job in stage `pieces` of V1, V1B or V2 waits until after the release commit. New Piece tasks for deferred rows may be published and built meanwhile with stage `later`, but they merge after the release commit.
-2. The record-writing paths of `assembly/run-engine`, `workflow/pattern-step`, `runtime/durable-unit` and `runtime/recipe-test` do not change. If a repair needs them to change, the release stops, and the owner decides whether to freeze again.
+2. The record-writing paths of `assembly/run-engine`, `workflow/pattern-step`, `runtime/durable-unit` and `runtime/recipe-test` do not change. If a repair needs them to change, the release stops, and the owner decides whether to freeze again. For X1–X3, the owner chose option A on [#990](https://github.com/balungpisah/elzoo/issues/990) and moved the baseline to the ELZ-408 merge `71e5f2b9` because the cold-VM recovery fix changed a record-writing path; ELZ-409 is an admitted test-only repair and does not move that baseline.
 3. A defect that A finds is its own repair task. One that restores the Contract merges during the freeze subject to rule 2, and A records it with its commit. One that needs a Contract change stops the release for the owner.
 4. The review, exact-head check, queue and red-`main` rules are unchanged.
 
@@ -525,7 +525,7 @@ One task, because the three gates share one integrated check on one commit, and 
 
 ### Level 4 — record fixtures written by the frozen code (X1–X3, three Piece tasks, parallel)
 
-Each task writes its fixtures with the code at its base, and first checks that the record-writing paths (Rules of the freeze, rule 2) equal those of F's merge commit. Each commits the fixture files under its Piece's `test/` and lists them in `piece.json`. A test pins each fixture's SHA-256, so a later change adds fixtures and never rewrites one. Each updates its index row hash. *Release and stage:* V2, `release` (each depends on A). *New external dependency:* none. The exact cases are checked against `main` at publication.
+Each task writes its fixtures with the code at its base, and first checks that the record-writing paths (Rules of the freeze, rule 2) equal those of the ELZ-408 merge `71e5f2b9`, the refreeze baseline. The owner chose option A on #990 because the cold-VM recovery fix changed a record-writing path; ELZ-409 is an admitted test-only repair. Each commits the fixture files under its Piece's `test/` and lists them in `piece.json`. A test pins each fixture's SHA-256, so a later change adds fixtures and never rewrites one. Each updates its index row hash. *Release and stage:* V2, `release` (each depends on A). *New external dependency:* none. The exact cases are checked against `main` at publication.
 
 **X1. `workflow/pattern-step`.**
 - *Dependencies:* ELZ-114, A.
@@ -561,7 +561,7 @@ Each task writes its fixtures with the code at its base, and first checks that t
   - the `status` of the three gates, by M's task ID (no pull request number, `AGENTS.md` section 3), with the `manifest_sha256` of `assembly/run-engine`, `workflow/pattern-step` and `runtime/recipe-test` after X1–X3, since those three differ from the hashes that A recorded;
   - this page's "Status and scope".
 
-- *Acceptance:* consuming.md is read by code, so M takes the full check. `check-roadmap.py --live`, `check-claims.py` and `git diff --check` pass. One review checks that M's base holds the merges of X1–X3, that nothing after A's head changed a Piece except X1–X3, that M changes no Piece, and that the consuming instructions distinguish M's successful exact-SHA push from a later green repair. After the merge, the coordinator confirms that the push run for M's exact merge SHA is green. If it stays red after any rerun allowed by `AGENTS.md` section 5, stop: the release is not accepted, and no later commit becomes the release commit without a new owner decision.
+- *Acceptance:* consuming.md is read by code, so M takes the full check. `check-roadmap.py --live`, `check-claims.py` and `git diff --check` pass. One review checks that M's base holds the merges of X1–X3, that nothing after A's head changed a Piece except X1–X3 and the admitted repairs ELZ-408 and ELZ-409, that M changes no Piece, and that the consuming instructions distinguish M's successful exact-SHA push from a later green repair. After the merge, the coordinator confirms that the push run for M's exact merge SHA is green. If it stays red after any rerun allowed by `AGENTS.md` section 5, stop: the release is not accepted, and no later commit becomes the release commit without a new owner decision.
 - *From the release commit on:* the new-ID rule applies. A job published after it takes stage `later` until the owner plans a next release.
 
 ## Owner questions

@@ -10,7 +10,7 @@
 
 ## Contract
 
-Unchanged. This is X2 in `docs/plans/first-release.md`. First compare all four frozen record-writing paths at the build base with `0a76dd21` (F's merge): `lib/` and `cure/` where present in `workflow/pattern-step`, `assembly/run-engine`, `runtime/durable-unit` and `runtime/recipe-test`, plus `runtime/recipe-test`'s `test/support/recipe_test_helper.exs`. Stop and report to the coordinator if any differ. They match at the publication base `00c842f9`. Use the frozen code at the build base; do not change any writer, reader or runtime Contract.
+Unchanged. This is X2 in `docs/plans/first-release.md`. First compare all four frozen record-writing paths at the build base with `71e5f2b9` (the ELZ-408 merge, the refreeze baseline): `lib/` and `cure/` where present in `workflow/pattern-step`, `assembly/run-engine`, `runtime/durable-unit` and `runtime/recipe-test`, plus `runtime/recipe-test`'s `test/support/recipe_test_helper.exs`. Stop and report to the coordinator if any differ. They match at the ELZ-410 base `5ed6b662`. Use the frozen code at the build base; do not change any writer, reader or runtime Contract.
 
 ## Acceptance
 
