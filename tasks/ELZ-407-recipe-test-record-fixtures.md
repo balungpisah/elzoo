@@ -10,7 +10,7 @@
 
 ## Contract
 
-Unchanged. This is X3 in `docs/plans/first-release.md`, owner answer Q4 A. First compare this Piece's `lib/` and `test/support/recipe_test_helper.exs` at the build base with `0a76dd21` (F's merge), along with the upstream writer paths of `assembly/run-engine` and `runtime/durable-unit` (`lib/` and `cure/`). Stop and report to the coordinator if any differ. They match at the publication base `00c842f9`. Use the frozen code at the build base; no writer, reader or runtime Contract changes, and no new public reader.
+Unchanged. This is X3 in `docs/plans/first-release.md`, owner answer Q4 A. First compare all four frozen record-writing paths at the build base with `0a76dd21` (F's merge): `lib/` and `cure/` where present in `workflow/pattern-step`, `assembly/run-engine`, `runtime/durable-unit` and `runtime/recipe-test`, plus `runtime/recipe-test`'s `test/support/recipe_test_helper.exs`. Stop and report to the coordinator if any differ. They match at the publication base `00c842f9`. Use the frozen code at the build base; no writer, reader or runtime Contract changes, and no new public reader.
 
 At the publication base `Elzoo.RecipeTest.run/1` is the sole public entry point (`test/support/recipe_test_helper.exs:67`). The private `record/1`, `steps/3` and `step/1` (lines 1047, 1059 and 1072) make the record: `outcome` comes from `RunEngine.status/1`; `asked`, `unused` and `restarted` come from harness state; only `steps` comes from decoding version-1 rows in the Run's own DurableLog stream. `run/1` starts its own engine and does read rows it writes during the run; it does not consume preloaded fixture rows. X2 pins those engine Store rows separately.
 
