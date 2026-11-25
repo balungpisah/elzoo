@@ -702,6 +702,29 @@ defmodule Elzoo.TenantIsolationTest do
       assert truth(p, "flat") == [["T1", "long"]]
     end
 
+    test "a delayed pool timer cannot admit a late commit", %{p: p} do
+      pool = Ecto.Adapter.lookup_meta(TestRepo).pid
+
+      result =
+        try do
+          TI.transact(
+            TestRepo,
+            t1(),
+            fn ->
+              q!("INSERT INTO #{p}.flat (tenant, body) VALUES ('T1', 'late')")
+              :ok = :sys.suspend(pool)
+              Process.sleep(500)
+              {:ok, :written}
+            end,
+            timeout: 200
+          )
+        after
+          :sys.resume(pool)
+        end
+
+      assert {result, truth(p, "flat")} == {{:error, :unavailable}, []}
+    end
+
     test "expiry after clearing refuses the commit without changing an explicit :rollback", %{p: p} do
       id = make_ref()
 

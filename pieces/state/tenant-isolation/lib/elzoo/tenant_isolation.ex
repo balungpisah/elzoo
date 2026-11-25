@@ -69,14 +69,21 @@ defmodule Elzoo.TenantIsolation do
 
   defp transaction(repo, [], run), do: repo.transact(fn -> run.(fn _ -> :ok end) end)
 
-  defp transaction(repo, [timeout: ms] = opts, run) do
+  defp transaction(repo, [timeout: ms], run) do
     deadline = System.monotonic_time(:millisecond) + ms
     # Repo.transact unwinds before it reports failure. Remember who was running: the same
     # error (even :rollback) from the callback must pass through untouched.
     ref = make_ref()
 
+    mark_phase = fn phase ->
+      Process.put(ref, phase)
+      # The holder can still be usable if the pool hasn't processed its deadline message.
+      if phase == :commit and System.monotonic_time(:millisecond) >= deadline,
+        do: repo.rollback(:unavailable)
+    end
+
     try do
-      case repo.transact(fn -> run.(fn phase -> Process.put(ref, phase) end) end, opts) do
+      case repo.transact(fn -> run.(mark_phase) end, timeout: ms, deadline: deadline) do
         {:error, :rollback} = error ->
           if Process.get(ref) == :commit and System.monotonic_time(:millisecond) >= deadline,
             do: {:error, :unavailable},
