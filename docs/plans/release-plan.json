@@ -11727,7 +11727,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/runtime/lua-sandbox/piece.json",
-      "manifest_sha256": "6244a0a389a2e5dbe4d089a8a4ae12bbf7c26f14489fe07502acf4afec1e1b69"
+      "manifest_sha256": "f37188110ec8007f607823b9149add03381dd19237808ca30c860840c2fbfb5c"
     },
     {
       "id": "domain/recipe-graph",
