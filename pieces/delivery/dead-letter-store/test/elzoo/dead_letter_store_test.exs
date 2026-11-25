@@ -230,6 +230,17 @@ defmodule Elzoo.DeadLetterStoreTest do
     test "two concurrent equal resolves: one applied, one duplicate", ctx do
       %{prefix: p, race: race} = ctx
       assert {:ok, :applied} = put(ctx.store, "T1", "src", record("m1"))
+      [%{generation: generation}] = all_open(ctx.store, "T1", "src", 1)
+
+      request = %{
+        source: "src",
+        message_id: "m1",
+        resolution: :replayed,
+        actor_ref: "op",
+        at_ms: 100,
+        generation: generation
+      }
+
       racer = DLS.new(repo: RaceRepo, prefix: p)
       test = self()
 
@@ -249,7 +260,7 @@ defmodule Elzoo.DeadLetterStoreTest do
       assert_receive :locked, 5_000
 
       resolvers =
-        for _ <- 1..2, do: Task.async(fn -> resolve(racer, "T1", "src", "m1", :replayed) end)
+        for _ <- 1..2, do: Task.async(fn -> DLS.resolve(racer, "T1", request) end)
 
       Harness.poll(fn -> Harness.waiting(race) == 2 end)
       send(holder.pid, :release)
@@ -289,7 +300,9 @@ defmodule Elzoo.DeadLetterStoreTest do
 
       {:ok, %{entries: [first | _] = page, next: next}} = list(s, "T1", "src", nil, 3)
       assert length(page) == 3 and is_binary(next)
-      assert first == %{message_id: "z", record: record("z"), work_ref: nil, put_at_ms: 5}
+      {generation, fields} = Map.pop!(first, :generation)
+      assert fields == %{message_id: "z", record: record("z"), work_ref: nil, put_at_ms: 5}
+      assert generation in 1..9_223_372_036_854_775_807
       # A page that ends exactly at the last open record reports no next.
       assert {:ok, %{entries: [_, _, _, _, _, _, _], next: nil}} = list(s, "T1", "src", nil, 7)
       {:ok, %{next: n6}} = list(s, "T1", "src", nil, 6)
@@ -353,6 +366,18 @@ defmodule Elzoo.DeadLetterStoreTest do
       # A T1 put of the T2 key is a new T1 key, not a duplicate or conflict.
       assert {:ok, :applied} = put(s, "T1", "src", record("t2-m"), "other")
 
+      [%{generation: t2_generation}] = all_open(s, "T2", "src", 1)
+
+      foreign = %{
+        source: "src",
+        message_id: "t2-m",
+        resolution: :discarded,
+        actor_ref: "op",
+        at_ms: 1,
+        generation: t2_generation
+      }
+
+      assert {:error, :unknown_record} = DLS.resolve(s, "T1", foreign)
       assert {:ok, :applied} = resolve(s, "T2", "src", "t2-m", :discarded, "op", 1)
       assert {:ok, 0} = DLS.purge(s, "T1", %{before_ms: 10, limit: 10})
 
@@ -487,6 +512,53 @@ defmodule Elzoo.DeadLetterStoreTest do
     end
   end
 
+  describe "guarded retry after purge and key reuse" do
+    setup %{store: s} do
+      assert {:ok, :applied} = put(s, "T1", "src", record("m1"))
+      [%{generation: original}] = all_open(s, "T1", "src", 1)
+      assert {:ok, :duplicate} = put(s, "T1", "src", record("m1"))
+      assert [%{generation: ^original}] = all_open(s, "T1", "src", 1)
+
+      request = %{
+        source: "src",
+        message_id: "m1",
+        resolution: :discarded,
+        actor_ref: "op",
+        at_ms: 10,
+        generation: original
+      }
+
+      assert {:ok, :applied} = DLS.resolve(s, "T1", request)
+      assert {:ok, :duplicate} = DLS.resolve(s, "T1", request)
+      assert {:error, :already_resolved} = DLS.resolve(s, "T1", %{request | resolution: :replayed})
+      assert {:ok, 1} = DLS.purge(s, "T1", %{before_ms: 11, limit: 1})
+      assert {:error, :unknown_record} = DLS.resolve(s, "T1", request)
+      assert {:ok, :applied} = put(s, "T1", "src", record("m1"))
+      [%{generation: replacement}] = all_open(s, "T1", "src", 1)
+      refute replacement == original
+      %{request: request, replacement: replacement}
+    end
+
+    test "the old request cannot hide the open replacement", %{
+      store: s,
+      request: request,
+      replacement: replacement
+    } do
+      assert {:error, :unknown_record} = DLS.resolve(s, "T1", request)
+      assert [%{generation: ^replacement}] = all_open(s, "T1", "src", 1)
+    end
+
+    test "the old request cannot adopt the resolved replacement", %{
+      store: s,
+      request: request,
+      replacement: replacement
+    } do
+      assert {:ok, :applied} = DLS.resolve(s, "T1", %{request | generation: replacement})
+      assert {:error, :unknown_record} = DLS.resolve(s, "T1", request)
+      assert {:error, :unknown_record} = DLS.resolve(s, "T1", %{request | resolution: :replayed})
+    end
+  end
+
   describe "9: Relay over a stream whose first full page fails permanently" do
     test "with the store, a later pass delivers the later items; without, they stay", ctx do
       s = ctx.store
@@ -534,6 +606,27 @@ defmodule Elzoo.DeadLetterStoreTest do
   end
 
   describe "10: bounds" do
+    test "invalid generations are rejected before any query", %{store: s} do
+      handler = make_ref()
+      :telemetry.attach(handler, [:elzoo_dls_app, :query], &__MODULE__.forward_query/4, self())
+      on_exit(fn -> :telemetry.detach(handler) end)
+      req = %{source: "src", message_id: "m", resolution: :replayed, actor_ref: "op", at_ms: 10}
+      max = 9_223_372_036_854_775_807
+
+      for bad <- [nil, 0, -1, max + 1, "1", 1.0] do
+        assert {:error, :invalid} = DLS.resolve(s, "T1", Map.put(req, :generation, bad))
+      end
+
+      assert {:error, :invalid} = DLS.resolve(s, "T1", Map.put(req, :extra, 1))
+      refute_received {:query, _}
+
+      for good <- [1, max] do
+        assert {:error, :unknown_record} = DLS.resolve(s, "T1", Map.put(req, :generation, good))
+      end
+
+      assert_received {:query, _}
+    end
+
     test "texts, work_ref, limit and times", %{store: s} do
       t128 = String.duplicate("t", 128)
       t129 = String.duplicate("t", 129)
@@ -645,6 +738,36 @@ defmodule Elzoo.DeadLetterStoreTest do
   end
 
   describe "interface" do
+    test "adding the identity column preserves existing open and resolved records", %{role: role} do
+      p = Harness.install!(role)
+      table = ~s("#{p}".elzoo_dead_letters)
+      s = DLS.new(repo: AppRepo, prefix: p)
+      assert {:ok, :applied} = put(s, "T1", "src", record("resolved"), "r")
+      assert {:ok, :applied} = resolve(s, "T1", "src", "resolved", :discarded)
+      q!(OwnerRepo, "ALTER TABLE #{table} DROP COLUMN generation")
+      assert {:ok, :applied} = put(s, "T1", "src", record("open"), "o")
+      before = Harness.truth(p)
+
+      q!(
+        OwnerRepo,
+        "ALTER TABLE #{table} ADD COLUMN generation bigint GENERATED ALWAYS AS IDENTITY (NO CYCLE)"
+      )
+
+      assert Harness.truth(p) == before
+      assert {:ok, :applied} = put(s, "T1", "src", record("later"))
+
+      assert {:ok, [[later], [open], [resolved]]} =
+               Elzoo.TenantIsolation.transact(AppRepo, %{tenant: "T1"}, fn ->
+                 {:ok, q!(AppRepo, "SELECT generation FROM #{table} ORDER BY message_id")}
+               end)
+
+      assert Enum.all?([later, open, resolved], &(&1 in 1..9_223_372_036_854_775_807))
+      assert length(Enum.uniq([later, open, resolved])) == 3
+
+      assert [%{message_id: "later", generation: ^later}, %{message_id: "open", generation: ^open}] =
+               all_open(s, "T1", "src", 2)
+    end
+
     test "new/1 and install/1 refuse other options before any DDL", %{prefix: p} do
       for bad <- [
             [repo: AppRepo],

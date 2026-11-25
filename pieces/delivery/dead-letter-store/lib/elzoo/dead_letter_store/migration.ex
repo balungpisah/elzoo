@@ -27,6 +27,7 @@ defmodule Elzoo.DeadLetterStore.Migration do
       tenant text NOT NULL,
       source text NOT NULL,
       message_id text NOT NULL,
+      generation bigint GENERATED ALWAYS AS IDENTITY (NO CYCLE),
       record text NOT NULL,
       work_ref bytea,
       put_at_ms bigint NOT NULL,
