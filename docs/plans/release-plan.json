@@ -12,7 +12,7 @@
         "RC-13",
         "RC-42"
       ],
-      "limit": "Durable work/result primitives; consumer supplies report logic, endpoints and deployment."
+      "limit": "Durable work/result primitives; consumer supplies report logic, endpoints and deployment. RC-42 (durable operation deduplication) is later."
     },
     {
       "id": "P02",
@@ -26,7 +26,7 @@
         "RC-42",
         "RC-43"
       ],
-      "limit": "Consumer supplies inbound HTTP/auth/signature verification; ready HTTP is an outbound recipe."
+      "limit": "Consumer supplies inbound HTTP/auth/signature verification; ready HTTP is an outbound recipe. RC-42 (durable operation deduplication) and RC-43 (outbox dispatch) are later."
     },
     {
       "id": "P03",
@@ -55,7 +55,7 @@
         "RC-19",
         "RC-42"
       ],
-      "limit": "Consumer supplies product roles/UI and identity deployment; paid subscription synchronization is V2."
+      "limit": "Consumer supplies product roles/UI and identity deployment; paid subscription synchronization is V2. RC-06 (identity provider), RC-09 (external authorization provider) and RC-42 (durable operation deduplication) are later."
     },
     {
       "id": "P05",
@@ -104,7 +104,7 @@
         "ELZ-024",
         "ELZ-030"
       ],
-      "limit": "Consumer owns acceptance and allowed tools; durable cost settlement and general resume are not inferred."
+      "limit": "Consumer owns acceptance and allowed tools; durable cost settlement and general resume are not inferred. RC-17 (external agent runner) is later."
     },
     {
       "id": "P08",
@@ -117,7 +117,7 @@
         "RC-14",
         "RC-42"
       ],
-      "limit": "Consumer supplies transformation and ingress; storage/stream bounds are tested at named boundaries."
+      "limit": "Consumer supplies transformation and ingress; storage/stream bounds are tested at named boundaries. RC-42 (durable operation deduplication) is later."
     },
     {
       "id": "P09",
@@ -147,7 +147,7 @@
         "RC-42",
         "RC-43"
       ],
-      "limit": "One payment provider, explicit accounting policy; no bank/compliance certification or inventory system."
+      "limit": "The first release has provider-neutral payment lifecycle and checkout, not a payment provider. RC-24 (payment provider), RC-42 (durable operation deduplication) and RC-43 (outbox dispatch) are later. Consumer supplies accounting policy; no bank/compliance certification or inventory system."
     },
     {
       "id": "P11",
@@ -160,7 +160,7 @@
         "RC-29",
         "RC-30"
       ],
-      "limit": "One broker/language; cache keys include actual build dependencies. Not a general build service."
+      "limit": "The first release supplies no part of P11. RC-27 (broker/pubsub), RC-28 (resequencing), RC-29 (incremental build graph) and RC-30 (foreign consumer protocol) are later; a product claim waits for a next release."
     },
     {
       "id": "P12",
@@ -1235,7 +1235,7 @@
         "ELZ-009",
         "ELZ-010"
       ],
-      "status": "blocked: accepted ELZ-010 and provider-fit decision required",
+      "status": "published 2026-11-06",
       "url": "https://github.com/balungpisah/elzoo/issues/45",
       "paths": [
         "tasks/ELZ-028-writer-lease.md"
@@ -1878,7 +1878,7 @@
       "title": "Versioned stored-state compatibility",
       "kind": "proposal",
       "release": "V1",
-      "stage": "pieces",
+      "stage": "later",
       "outputs": [
         "state/schema-evolution"
       ],
@@ -1970,7 +1970,7 @@
       "title": "Operational interfaces for new stateful Pieces",
       "kind": "proposal",
       "release": "V1",
-      "stage": "pieces",
+      "stage": "later",
       "outputs": [
         "runtime/faces"
       ],
@@ -2040,7 +2040,7 @@
       "title": "Authenticated identity and principal mapping",
       "kind": "proposal",
       "release": "V1",
-      "stage": "pieces",
+      "stage": "later",
       "outputs": [
         "integration/identity"
       ],
@@ -2134,7 +2134,7 @@
       "title": "One authorization-provider translation",
       "kind": "proposal",
       "release": "V1",
-      "stage": "pieces",
+      "stage": "later",
       "outputs": [
         "integration/auth-policy"
       ],
@@ -2404,7 +2404,7 @@
       "title": "One external agent-runner boundary",
       "kind": "proposal",
       "release": "V1",
-      "stage": "pieces",
+      "stage": "later",
       "outputs": [
         "integration/agent-runner"
       ],
@@ -2506,7 +2506,7 @@
       "title": "Finite versioned decision rules",
       "kind": "proposal",
       "release": "V2",
-      "stage": "pieces",
+      "stage": "later",
       "outputs": [
         "domain/policy-rules"
       ],
@@ -2623,7 +2623,7 @@
       "title": "One payment provider and reconciliation lifecycle",
       "kind": "proposal",
       "release": "V2",
-      "stage": "pieces",
+      "stage": "later",
       "outputs": [
         "integration/payments"
       ],
@@ -2714,7 +2714,7 @@
       "title": "One broker and explicit pubsub semantics",
       "kind": "proposal",
       "release": "V2",
-      "stage": "pieces",
+      "stage": "later",
       "outputs": [
         "integration/message-broker",
         "delivery/pubsub"
@@ -2748,7 +2748,7 @@
       "title": "Bounded resequencing",
       "kind": "proposal",
       "release": "V2",
-      "stage": "pieces",
+      "stage": "later",
       "outputs": [
         "delivery/resequence"
       ],
@@ -2778,7 +2778,7 @@
       "title": "Incremental build dependency policy",
       "kind": "proposal",
       "release": "V2",
-      "stage": "pieces",
+      "stage": "later",
       "outputs": [
         "workflow/build-graph"
       ],
@@ -2808,7 +2808,7 @@
       "title": "One foreign consumer protocol",
       "kind": "proposal",
       "release": "V2",
-      "stage": "pieces",
+      "stage": "later",
       "outputs": [
         "integration/sdk"
       ],
@@ -2838,7 +2838,7 @@
       "title": "Optional embeddable component",
       "kind": "proposal",
       "release": "V2",
-      "stage": "pieces",
+      "stage": "later",
       "outputs": [
         "ui/component"
       ],
@@ -3189,7 +3189,7 @@
       "title": "Durable operation deduplication gap",
       "kind": "proposal",
       "release": "V1",
-      "stage": "pieces",
+      "stage": "later",
       "outputs": [
         "candidate:delivery/durable-idempotency"
       ],
@@ -3221,7 +3221,7 @@
       "title": "Assess existing Relay and external-effect coverage",
       "kind": "proposal",
       "release": "V1",
-      "stage": "pieces",
+      "stage": "later",
       "outputs": [
         "candidate:delivery/outbox-dispatch"
       ],
@@ -12300,11 +12300,13 @@
         "release": "V1",
         "exclude_stages": [
           "examples-later",
-          "research"
+          "research",
+          "later",
+          "release"
         ]
       },
       "prior_release_gate": null,
-      "status": "not published; frozen selected set and independent integrated acceptance required",
+      "status": "frozen by F; acceptance A",
       "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012."
     },
     "V1B": {
@@ -12313,11 +12315,13 @@
         "release": "V1B",
         "exclude_stages": [
           "examples-later",
-          "research"
+          "research",
+          "later",
+          "release"
         ]
       },
       "prior_release_gate": null,
-      "status": "not published; frozen selected set and independent integrated acceptance required",
+      "status": "frozen by F; acceptance A",
       "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release."
     },
     "V2": {
@@ -12326,11 +12330,13 @@
         "release": "V2",
         "exclude_stages": [
           "examples-later",
-          "research"
+          "research",
+          "later",
+          "release"
         ]
       },
       "prior_release_gate": "V1-ACCEPT",
-      "status": "not published; frozen selected set and independent integrated acceptance required",
+      "status": "frozen by F; acceptance A",
       "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012."
     },
     "V3": {
