@@ -122,9 +122,22 @@ defmodule Elzoo.PlanTest do
   defp line(id, period, plan, amount),
     do: %{subscription_id: id, period: period, plan: plan, amount: amount}
 
+  defp grant_id(tenant, id, i) do
+    framed = [
+      "elzoo-plan-grant/1:",
+      <<byte_size(tenant)::32>>,
+      tenant,
+      <<byte_size(id)::32>>,
+      id,
+      <<i::64>>
+    ]
+
+    "plan1." <> Base.encode16(:crypto.hash(:sha256, framed), case: :lower)
+  end
+
   defp grant(id, tenant, period, plan),
     do: %{
-      grant_id: "#{id}/#{period.index}",
+      grant_id: grant_id(tenant, id, period.index),
       tenant: tenant,
       plan_id: plan.plan_id,
       version: plan.version,
@@ -390,11 +403,11 @@ defmodule Elzoo.PlanTest do
       {c, r1, x} = ahead_window!(ahead)
       p2 = r1.subscription.period
       grants = c.grants ++ r1.grants
-      assert x.revocations == [%{grant_id: "s1/2", revoked_at_ms: p2.start_ms}]
+      assert x.revocations == [%{grant_id: hd(r1.grants).grant_id, revoked_at_ms: p2.start_ms}]
       assert x.withdrawn_fee_line == r1.fee_line
 
       refused(p, :not_due, fn -> renew(ahead, "s1", 2, p2.start_ms - 1) end)
-      assert entitled_grant(grants, x.revocations, "T1", p2.start_ms - 1) == "s1/1"
+      assert entitled_grant(grants, x.revocations, "T1", p2.start_ms - 1) == hd(c.grants).grant_id
 
       # Canceled at the boundary: cancel_ms is the next period's start.
       assert {:ok, e} = renew(ahead, "s1", 2, p2.start_ms)
@@ -472,13 +485,13 @@ defmodule Elzoo.PlanTest do
       end
 
       # Before the boundary: both grants revoked at now_ms, the next period still withdrawn.
-      {_c, r1, _x} = ahead_window!(ahead, "T3")
+      {c, r1, _x} = ahead_window!(ahead, "T3")
       now = r1.subscription.period.start_ms - 500
       {:ok, n} = cancel(ahead, "s1", 3, :now, now, "T3")
 
       assert n.revocations == [
-               %{grant_id: "s1/1", revoked_at_ms: now},
-               %{grant_id: "s1/2", revoked_at_ms: now}
+               %{grant_id: hd(c.grants).grant_id, revoked_at_ms: now},
+               %{grant_id: hd(r1.grants).grant_id, revoked_at_ms: now}
              ]
 
       assert n.withdrawn_fee_line == r1.fee_line
@@ -488,7 +501,7 @@ defmodule Elzoo.PlanTest do
       start = ms(@jan31)
       c = create!(b, "s1")
       {:ok, x} = cancel(b, "s1", 1, :period_end, start - @hour)
-      assert x.revocations == [%{grant_id: "s1/1", revoked_at_ms: start}]
+      assert x.revocations == [%{grant_id: hd(c.grants).grant_id, revoked_at_ms: start}]
       assert x.withdrawn_fee_line == c.fee_line
       assert x.subscription.cancel_ms == start
       refused(p, :not_due, fn -> renew(b, "s1", 1, start - 1) end)
@@ -496,6 +509,8 @@ defmodule Elzoo.PlanTest do
       assert e.subscription.state == :canceled
       # A duplicate create still returns the first result.
       assert create(b, "s1") == {:ok, Map.put(c, :duplicate, true)}
+      # No part of the withdrawn first grant was served.
+      create!(b, "replacement", start_ms: start - 1)
     end
 
     test "a cancel now revokes the running grant; inside the ahead window both", %{
@@ -507,7 +522,7 @@ defmodule Elzoo.PlanTest do
       now = c.subscription.period.start_ms + 3 * @hour
       {:ok, x} = cancel(b, "s1", 1, :now, now)
       assert x.subscription.state == :canceled
-      assert x.revocations == [%{grant_id: "s1/1", revoked_at_ms: now}]
+      assert x.revocations == [%{grant_id: hd(c.grants).grant_id, revoked_at_ms: now}]
       assert x.withdrawn_fee_line == nil
       assert resolve(c.grants, x.revocations, "T1", now) == {:not_entitled, :revoked}
       assert get!(b, "s1").last_cancel == Map.take(x, [:revocations, :withdrawn_fee_line])
@@ -522,8 +537,8 @@ defmodule Elzoo.PlanTest do
       {:ok, x} = cancel(ahead, "s2", 2, :now, now, "T2")
 
       assert x.revocations == [
-               %{grant_id: "s2/1", revoked_at_ms: now},
-               %{grant_id: "s2/2", revoked_at_ms: now}
+               %{grant_id: hd(c.grants).grant_id, revoked_at_ms: now},
+               %{grant_id: hd(r1.grants).grant_id, revoked_at_ms: now}
              ]
 
       assert x.withdrawn_fee_line == r1.fee_line
@@ -560,7 +575,8 @@ defmodule Elzoo.PlanTest do
       refused(p, {:state, :canceled}, fn -> paid(b, "s1", 2) end)
       refused(p, {:state, :canceled}, fn -> renew(b, "s1", 1, c.subscription.period.end_ms) end)
 
-      assert create!(b, "s2", plan: @team).subscription.state == :active
+      refused(p, :grant_overlap, fn -> create(b, "s2", plan: @team) end)
+      assert create!(b, "s2", plan: @team, start_ms: ms(@jan31) + 1).subscription.state == :active
       refused(p, :subscription_exists, fn -> create(b, "s3") end)
     end
   end
@@ -579,17 +595,142 @@ defmodule Elzoo.PlanTest do
           due = hd(periods).end_ms - lead
           {:ok, r} = renew(binding, "s1", k, due, tenant)
           # Renewed ahead: the previous period is still the one in force until its end.
-          if lead > 0, do: assert(entitled_grant(grants ++ r.grants, [], tenant, due) == "s1/#{k}")
+          if lead > 0,
+            do:
+              assert(
+                entitled_grant(grants ++ r.grants, [], tenant, due) == List.last(grants).grant_id
+              )
+
           {[r.subscription.period | periods], grants ++ r.grants}
         end)
 
       for period <- periods,
           at <- [period.start_ms, div(period.start_ms + period.end_ms, 2), period.end_ms - 1] do
-        assert entitled_grant(grants, [], tenant, at) == "s1/#{period.index}"
+        assert entitled_grant(grants, [], tenant, at) == grant_id(tenant, "s1", period.index)
       end
 
       assert length(grants) == 3
     end
+  end
+
+  test "shared grant facts resolve by tenant before and after cancel", %{ahead: b} do
+    tenant = String.duplicate("é/", 42) <> "é"
+    id = String.duplicate("é/", 33) <> "x"
+    start = ms(@jan31)
+
+    [first, other] =
+      for t <- [tenant, "other"] do
+        c = create!(b, id, tenant: t)
+        r = renew!(b, id, 1, c.subscription.period.end_ms - @hour, t)
+        assert create(b, id, tenant: t) == {:ok, %{c | duplicate: true}}
+        assert renew(b, id, 1, 0, t) == {:ok, %{r | duplicate: true}}
+        c.grants ++ r.grants
+      end
+
+    all = first ++ other
+
+    for {t, grants} <- [{tenant, first}, {"other", other}], g <- grants do
+      assert entitled_grant(all, [], t, g.valid_from_ms) == g.grant_id
+    end
+
+    # Python hashlib.sha256, struct.pack('>I', byte_length) and struct.pack('>Q', 1).
+    assert hd(first).grant_id ==
+             "plan1.7b4109baca805af60b3f768eaa68359357563c8b8928015dba6c3ea904a023da"
+
+    for {a, b} <- Enum.zip(first, other), do: refute(a.grant_id == b.grant_id)
+    now = hd(first).valid_to_ms - 1
+    expected = Enum.map(first, &%{grant_id: &1.grant_id, revoked_at_ms: now})
+    assert {:ok, %{revocations: ^expected}} = cancel(b, id, 2, :now, now, tenant)
+
+    assert {:ok, %{last_cancel: %{revocations: ^expected}}} =
+             Plan.get(b, tenant, %{subscription_id: id})
+
+    assert entitled_grant(all, expected, tenant, start) == hd(first).grant_id
+    assert resolve(all, expected, tenant, now) == {:not_entitled, :revoked}
+
+    for g <- other,
+        do: assert(entitled_grant(all, expected, "other", g.valid_from_ms) == g.grant_id)
+  end
+
+  test "withdrawn ahead period does not extend the replacement boundary", %{ahead: b, p: p} do
+    {c, r, _} = ahead_window!(b)
+    boundary = r.subscription.period.start_ms
+    renew!(b, "s1", 2, boundary)
+    refused(p, :grant_overlap, fn -> create(b, "next", start_ms: boundary - 1) end)
+    create!(b, "next", start_ms: boundary)
+    # Even with a different open subscription, the original request wins by ID.
+    assert create(b, "s1") == {:ok, %{c | duplicate: true}}
+    refused(p, :conflict, fn -> create(b, "s1", plan: @team) end)
+
+    refused(p, :subscription_exists, fn ->
+      create(b, "later", start_ms: r.subscription.period.end_ms + 1)
+    end)
+  end
+
+  test "replacement compares trial and renewed history, including older canceled rows", %{
+    b: b,
+    p: p
+  } do
+    c = create!(b, "old", start_ms: 100, trial_end_ms: 110)
+    r = renew!(b, "old", 0, 110)
+    last = r.subscription.period.end_ms
+    {:ok, %{revocations: []}} = cancel(b, "old", 2, :now, last + 500)
+    # A newer canceled row strictly after the old one.
+    create!(b, "later", start_ms: last + 1)
+    {:ok, _} = cancel(b, "later", 1, :now, last + 2)
+
+    for {a, z} <- [{99, 101}, {110, 111}, {last - 1, last}] do
+      refused(p, :grant_overlap, fn -> create(b, "next", start_ms: a, trial_end_ms: z) end)
+    end
+
+    create!(b, "early", start_ms: 0, trial_end_ms: c.subscription.period.start_ms)
+  end
+
+  test "a cancel before both latest grants cannot revoke earlier paid periods", %{b: b, p: p} do
+    c = create!(b, "old")
+    end1 = c.subscription.period.end_ms
+    r = renew!(b, "old", 1, end1)
+    renew!(b, "old", 2, r.subscription.period.end_ms)
+    {:ok, _} = cancel(b, "old", 3, :now, 0)
+    refused(p, :grant_overlap, fn -> create(b, "next", start_ms: end1 - 1) end)
+    create!(b, "next", start_ms: end1)
+  end
+
+  test "create waits for an uncommitted cancel and sees its shortened grant", %{ahead: b, p: p} do
+    create!(b, "old", start_ms: 100, trial_end_ms: 10_000)
+    renew!(b, "old", 0, 9_000)
+    # Pause the real cancellation after its UPDATE and before COMMIT.
+    parent = self()
+    handler = make_ref()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:elzoo, :plan_test, :app_repo, :query],
+        fn _, _, meta, _ ->
+          if String.starts_with?(meta.query, "UPDATE ") do
+            send(parent, {:updated, self()})
+
+            receive do
+              :commit_cancel -> :ok
+            after
+              10_000 -> raise "cancel was not released"
+            end
+          end
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    canceling = Task.async(fn -> cancel(b, "old", 2, :now, 9_500) end)
+    assert_receive {:updated, pid}, 5_000
+    creating = Task.async(fn -> create(b, "next", start_ms: 9_499) end)
+    Harness.await_waiting!(1)
+    send(pid, :commit_cancel)
+    assert {:ok, %{subscription: %{state: :canceled}}} = Task.await(canceling)
+    assert {:error, :grant_overlap} = Task.await(creating)
+    assert [%{"subscription_id" => "old"}] = Harness.truth(p)
+    create!(b, "next", start_ms: 9_500)
   end
 
   # ------------------------------------------------------------ 7

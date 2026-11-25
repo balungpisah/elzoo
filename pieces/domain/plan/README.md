@@ -98,7 +98,12 @@ tick_ms = s.period.end_ms - 3_600_000
   interval, `start_ms`, `trial_end_ms`) returns the first result, rebuilt from the stored
   request, with `duplicate: true`, also after later renewals and changes; other bytes are
   `:conflict`; a tenant that holds a subscription that is not `:canceled` gets
-  `:subscription_exists`.
+  `:subscription_exists` for a different ID. Otherwise `:grant_overlap` refuses a first grant
+  that intersects any nonempty effective grant of a canceled subscription of this tenant.
+  The check runs after the insert takes the open slot, in a new READ COMMITTED statement of
+  the same transaction. It sees the cancellation that freed the slot; refusal undoes the insert.
+  Trial and renewed grants are half-open: their end is the earlier of `valid_to_ms` and any
+  returned `revoked_at_ms`. A grant revoked at or before its start counts for nothing.
 - `renew(p, tenant, %{subscription_id, from_index, now_ms})`:
   `{:ok, %{subscription, fee_line, grants, duplicate, withdrawn_fee_line}}` (rules below).
 - `change(p, tenant, %{subscription_id, expected_revision, plan, fee})`: sets
@@ -122,9 +127,20 @@ that a period-end cancel fixed; `revision` starts at 1 and every write adds 1.
 
 A **fee line** is `%{subscription_id, period: %{index, start_ms, end_ms}, plan: %{plan_id,
 version}, amount}`, the shape `domain/invoice` takes; period 0 has none. A **grant** is the
-`domain/entitlement` grant `%{grant_id: "<subscription_id>/<index>", tenant, plan_id, version,
+`domain/entitlement` grant `%{grant_id, tenant, plan_id, version,
 valid_from_ms: start_ms, valid_to_ms: end_ms, grace_until_ms: nil, revoked_at_ms: nil}`, and a
 **revocation** is `%{grant_id, revoked_at_ms}`, which the host sets on its stored grant.
+
+`grant_id` is `plan1.` followed by the lowercase hexadecimal SHA-256 digest of the bytes
+`elzoo-plan-grant/1:`, then the tenant and subscription ID (each preceded by its byte length
+as an unsigned big-endian 32-bit integer), then the period index (unsigned big-endian 64-bit).
+Hash the entire sequence. The resulting 70-byte ID assumes SHA-256 collision resistance;
+tenants can use the same subscription ID in one `domain/entitlement` facts list.
+
+**Cutover:** If your copy has old Plan rows and exported grants, migrate the grant IDs and all
+revocation references together, including the IDs in stored cancel results, or stay on the old
+copy. Do not mix old grant IDs with new revocations. Plan does not write the host's grant store
+or emit both formats. Subscription IDs and fee lines are unchanged.
 
 `tenant` and `plan_id` are 1..128 bytes, `subscription_id` 1..100 bytes, of valid UTF-8 without
 a C0 or C1 control character (the `domain/entitlement` text rule), compared by exact bytes;
@@ -132,7 +148,7 @@ a C0 or C1 control character (the `domain/entitlement` text rule), compared by e
 integers 0..2^63−1. A period that would end after 2^63−1 ms is `:invalid`.
 
 Errors are `{:error, reason}` with a fixed atom that never echoes an ID: `:invalid`,
-`:in_transaction`, `:isolation`, `:conflict`, `:subscription_exists`, `:unknown_subscription`,
+`:in_transaction`, `:isolation`, `:conflict`, `:subscription_exists`, `:grant_overlap`, `:unknown_subscription`,
 `:not_due`, `:stale_period`, `:stale_revision`, `{:state, state}`, `:unavailable`. The interval,
 state and error sets, and the subscription, request and result maps, may gain members and
 optional keys in a later in-place version; match on the members and keys you use.
@@ -241,16 +257,8 @@ with the old revision is `:stale_revision`, after which `get/3` shows the commit
   are the host's. The Piece has no timer.
 - UTC only; a period boundary keeps the anchor's UTC time of day. Monthly and yearly intervals
   only.
-- One open subscription per tenant (the unique partial index), so its grants never overlap in
-  `domain/entitlement`. The Piece does not compare a new subscription's `start_ms` with a
-  canceled one's grants: the host starts it at or after every grant of the canceled
-  subscription has ended, each at the earlier of its `valid_to_ms` and the `revoked_at_ms` of
-  its revocation (a cancel now after a grant expired returns none for it), or `resolve/3`
-  reports `:overlap` for the time in between.
-- A `grant_id` (`<subscription_id>/<index>`) is unique within a tenant only, as
-  `subscription_id` is. A host that resolves the grants of several tenants from one facts list
-  uses subscription IDs unique across tenants, or supplies each tenant's own grants:
-  `domain/entitlement` refuses a repeated `grant_id` in one facts list.
+- Only the **first** grant of a replacement is checked against canceled subscriptions. It may
+  end exactly where an older grant starts. The host must not renew it into the older grant.
 - No proration, refund, tax, dunning, timer or invoice.
 - The rule over every day is test evidence, not a proof: the selected Cure laws are equalities
   over literal dates.
