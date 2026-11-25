@@ -43,7 +43,7 @@ Run `mix test pieces/runtime/lua-sandbox/test`, then the small gate `mix check -
 
 ## Limits to state
 
-- The host's classification is unchanged, so a real child that writes bytes and ends before its request is written is still `protocol_error`, and one that is reaped first is `process_exit`: both host outcomes, as the moduledoc and, after this task, the README say.
+- The host's classification is unchanged, so a real child that writes bytes that are not one complete reply frame and ends before its request is written is still `protocol_error`, and one that is reaped first, or whose Port ends after one complete frame or after no byte, is `process_exit` (`await/4`): both host outcomes, as the moduledoc and, after this task, the README say.
 - The race was not reproduced with the unchanged fake; its cause is inferred from the one code path that can give that result, and shown with a delayed write and a fake that closes its input.
 - No test of the Piece covers the `protocol_error` half of the README's Port-exit sentence (the fakes that close their input write no byte and expect `process_exit`); it rests on the code and the temporary negative control, and is not worded as tested.
 - A fake that reads four bytes and ends cannot meet a closed input only while the rest of the request fits the pipe buffer of its input; the request of these tests is small, and its size is not measured here.
