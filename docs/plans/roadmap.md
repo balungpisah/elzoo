@@ -78,7 +78,8 @@ research-gated distributed/device/classified-record directions. None is a
 claim that a complete product can currently be assembled. Consumers supply
 business policy, UI, ingress/authentication where noted, deployment and credentials.
 
-V1/V2 gates select all same-release jobs except `examples-later` and `research`,
+V1, V1B and V2 gates select all same-release jobs except `examples-later`,
+`research`, `later` and `release`,
 with V2 also waiting on V1 acceptance. Every selected job needs accepted scoped
 outputs or a reviewed resolution naming exact upstream/composition/index evidence.
 A conditional resolution does not make a deferred Piece ready. Integrated

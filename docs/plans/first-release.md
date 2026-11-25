@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This document is the planning input for Elzoo's first release. The Level 1 publication adds task Contracts, not implementation, and promotes nothing to ready. [release-plan.json](release-plan.json) stays the one canonical planning source. ELZ-388 is this plan. The coordinator assigns ELZ IDs at publication; F, A, X1–X3 and M do not yet have IDs. Each published task is the Contract of its work. Where a task differs from a sketch below, the task wins.
+This document is the planning input for Elzoo's first release. [release-plan.json](release-plan.json) stays the one canonical planning source. ELZ-388 published this plan; the Level 1 work has since merged. F is [ELZ-403](../../tasks/ELZ-403-first-release-freeze.md). The coordinator assigns IDs to A, X1–X3 and M at publication. Each published task is the Contract of its work. Where a task differs from a sketch below, the task wins.
 
 Wave 9 is the last row of the wave table of [bot-platform.md](bot-platform.md). Its root consumer acceptance [ELZ-379](../../tasks/ELZ-379-wave9-tools-doors-models-money-acceptance.md) merged on `main` as [#933](https://github.com/balungpisah/elzoo/pull/933) at `c6fe7a8f`. Its follow-ups ELZ-380 to ELZ-386 have merged too, the last at `77569285`. The publication of ELZ-387 (#941, [#942](https://github.com/balungpisah/elzoo/pull/942)) merged at `a290e338`. Its build has since merged (Level 0 below). The plan's baseline comes from "What remains after Wave 9" in [bot-platform-wave9.md](bot-platform-wave9.md#what-remains-after-wave-9) and from the `release_gates`, `products` and `jobs` of [release-plan.json](release-plan.json), read at `a290e338`.
 
@@ -50,36 +50,250 @@ These facts were read at `a290e338`. They are facts, not claims that any release
 
 ## The selected set
 
-### Rule
+The V1, V1B and V2 gate selectors keep their existing logic. They exclude `examples-later`, `research`, `later` and `release`. The 14 proposals in the disposition table move to `later`; the release's own tasks (F, A, X1–X3 and M) and any repairs admitted during the freeze use `release`. Neither stage contributes jobs to the frozen set. Product job lists stay intact; their limits say which parts are not supplied.
 
-The freeze changes no selector logic. It uses the existing `exclude_stages` mechanism, the way `examples-later` already works:
+### Frozen set at F’s base (`edd27760`)
 
-- `later` is the stage of each job that the first release does not wait for. That means the proposals of the next section that move to a later release, and every job published after the release commit until the owner plans a next release.
-- `release` is the stage of the release's own tasks (F, A, X1–X3 and M). They accept the frozen set and are not part of it.
+This snapshot includes ELZ-387, all Level 1 jobs, ELZ-388 (the plan, V2), and the two admitted repairs ELZ-401 and ELZ-402 (V1B, stage `pieces`). F itself is excluded.
 
-The freeze adds both values to the `exclude_stages` of `V1`, `V1B` and `V2`, so each gate's derived prerequisites become its frozen set. The products keep their job lists: a product is a description, and its limit says what a consumer still supplies.
-
-### Frozen set, as of `a290e338`
-
-The freeze task (F) rewrites this section at its own base. It counts the Level 1 tasks (stage `pieces`; their releases are named below), ELZ-388 (this plan, V2) and any further task that the coordinator ties to #930.
-
-| Gate | Selected jobs now | Moved to `later` | Frozen jobs before Level 1 | Ready rows |
+| Gate | Selected at the base | Moved to `later` | Frozen jobs | Ready rows |
 | --- | --- | --- | --- | --- |
 | `V1-ACCEPT` | 113 (90 published, 23 proposals) | 7 (RC-01, RC-04, RC-06, RC-09, RC-17, RC-42, RC-43) | 106 | 70 |
-| `V1B-ACCEPT` | 254 (227 published, 27 proposals) | 0 | 254 | 75 |
-| `V2-ACCEPT` | 32 (21 published, 11 proposals), 33 with ELZ-388 | 7 (RC-20, RC-24, RC-27, RC-28, RC-29, RC-30, RC-31) | 25, 26 with ELZ-388 | 7 |
+| `V1B-ACCEPT` | 265 (238 published, 27 proposals) | 0 | 265 | 75 |
+| `V2-ACCEPT` | 36 (25 published, 11 proposals) | 7 (RC-20, RC-24, RC-27, RC-28, RC-29, RC-30, RC-31) | 29 | 7 |
 
-The frozen Pieces are today's 152 ready catalogue rows, with the `manifest_sha256` they have in `entries` at the freeze commit. A Level 1 repair changes some of those hashes before the freeze, and F records the values at its base.
+The lists below are in release-plan order.
 
-- **V1 (70):** `assembly/durable-job`, `assembly/http-job`, `assembly/ingest-dedup-accumulate`, `assembly/ingest-json-unit`, `assembly/request-route-retry`, `core/assembly`, `core/edge`, `core/effect`, `core/envelope`, `core/operator`, `core/port`, `core/selection`, `core/wiring`, `delivery/aggregation`, `delivery/backpressure`, `delivery/circuit-breaker`, `delivery/data-stream`, `delivery/dead-letter`, `delivery/effect-intent`, `delivery/idempotency`, `delivery/request-reply`, `delivery/retry-timeout`, `delivery/routing`, `delivery/stream-combinators`, `delivery/time`, `delivery/transformation`, `delivery/trigger`, `delivery/windowed-idempotency`, `domain/authorization`, `integration/ai-batch`, `integration/ai-batch-anthropic`, `integration/ai-embedding`, `integration/ai-embedding-openai`, `integration/ai-model`, `integration/ai-text`, `integration/ai-text-anthropic`, `integration/ai-text-openai`, `integration/crypto`, `integration/cure-json`, `integration/http`, `integration/jobs`, `integration/json`, `integration/mcp-client`, `integration/notification`, `integration/object-store`, `integration/observability`, `integration/search-data`, `integration/secrets`, `integration/sql`, `integration/text-chunking`, `runtime/adapter`, `runtime/host`, `runtime/os-isolation`, `runtime/registry`, `runtime/supervision`, `runtime/telemetry`, `runtime/unit`, `state/artifact`, `state/audit-log`, `state/checkpoint`, `state/event-log`, `state/lease`, `state/outbox`, `state/scheduler`, `workflow/approval`, `workflow/budget`, `workflow/context-selection`, `workflow/dependency-graph`, `workflow/run`, `workflow/state-machine`.
-- **V1B (75):** `assembly/checked-command`, `assembly/knowledge-ingest`, `assembly/run-engine`, `core/payload-schema`, `delivery/dead-letter-store`, `delivery/debounce`, `delivery/durable-mailbox`, `delivery/model-routing`, `delivery/provider-stream`, `delivery/rate-limit`, `delivery/room`, `domain/entitlement`, `domain/kill-switch`, `domain/membership`, `domain/metering`, `domain/principal`, `domain/provider-data-policy`, `domain/quota`, `domain/recipe-config`, `domain/recipe-graph`, `domain/recipe-package`, `domain/trigger-binding`, `integration/ai-text-compatible`, `integration/ai-text-google`, `integration/ai-token-count`, `integration/document-parse`, `integration/egress-policy`, `integration/encryption`, `integration/mcp-multi`, `integration/mcp-runtime`, `integration/mcp-server`, `integration/oauth-client`, `integration/pii-redaction`, `integration/token-verify`, `integration/webhook-in`, `integration/webhook-out`, `runtime/async-work`, `runtime/durable-unit`, `runtime/dynamic-units`, `runtime/lua-binding`, `runtime/lua-sandbox`, `runtime/recipe-test`, `state/conversation`, `state/memory-record`, `state/recipe-store`, `state/retention-erasure`, `state/tenant-isolation`, `workflow/agent-loop`, `workflow/bot-run-lifecycle`, `workflow/citation`, `workflow/context-compaction`, `workflow/delegation`, `workflow/eval`, `workflow/graph-run`, `workflow/lua-tool`, `workflow/mid-run-input`, `workflow/node-outcome`, `workflow/output-repair`, `workflow/pattern-step`, `workflow/prompt-assembly`, `workflow/recipe-check`, `workflow/run-approval-release`, `workflow/run-resource`, `workflow/runtime-graph`, `workflow/skill`, `workflow/stall-detect`, `workflow/tenant-lifecycle`, `workflow/tool-registry`, `workflow/tool-result-limit`, `workflow/turn-policy`, `workflow/typed-decision`, `workflow/untrusted-content`, `workflow/version-pin`, `workflow/wait-for-person`, `workflow/work-item`.
-- **V2 (7):** `assembly/ledger-checkout`, `domain/invoice`, `domain/journal`, `domain/money`, `domain/payment-lifecycle`, `domain/plan`, `domain/pricing`.
+#### V1-ACCEPT jobs
+
+```text
+ELZ-001 ELZ-002 ELZ-003 ELZ-004 ELZ-005 ELZ-006 ELZ-007 ELZ-008 ELZ-009 ELZ-010
+ELZ-011 ELZ-012 ELZ-013 ELZ-014 ELZ-015 ELZ-016 ELZ-017 ELZ-018 ELZ-019 ELZ-020
+ELZ-021 ELZ-022 ELZ-023 ELZ-024 ELZ-025 ELZ-026 ELZ-027 ELZ-028 ELZ-029 ELZ-030
+ELZ-032 ELZ-033 ELZ-050 ELZ-052 ELZ-053 ELZ-054 ELZ-055 ELZ-083 ELZ-081 ELZ-084
+ELZ-087 ELZ-079 ELZ-080 ELZ-085 ELZ-091 ELZ-092 ELZ-097 RC-02 RC-03 RC-05
+RC-07 RC-08 RC-10 RC-11 RC-12 RC-13 RC-14 RC-15 RC-16 RC-18
+RC-19 RC-26 RC-32 ELZ-094 ELZ-093 ELZ-095 ELZ-082 ELZ-096 ELZ-098 ELZ-099
+ELZ-100 ELZ-101 ELZ-104 ELZ-103 ELZ-105 ELZ-107 ELZ-106 ELZ-108 ELZ-109 ELZ-110
+ELZ-111 ELZ-112 ELZ-113 ELZ-116 ELZ-119 ELZ-120 ELZ-121 ELZ-128 ELZ-129 ELZ-130
+ELZ-131 ELZ-132 ELZ-133 ELZ-134 ELZ-135 ELZ-149 ELZ-151 ELZ-152 ELZ-153 ELZ-154
+ELZ-155 ELZ-157 ELZ-158 ELZ-184 ELZ-185 ELZ-244
+```
+
+#### V1B-ACCEPT jobs
+
+```text
+ELZ-114 RC-44 RC-45 RC-46 RC-47 RC-48 RC-49 RC-50 RC-51 RC-52
+RC-53 RC-54 RC-55 RC-56 RC-57 RC-58 RC-59 RC-60 RC-61 RC-62
+RC-63 RC-64 RC-65 RC-66 RC-67 RC-68 RC-69 RC-70 ELZ-115 ELZ-117
+ELZ-118 ELZ-122 ELZ-123 ELZ-125 ELZ-124 ELZ-126 ELZ-127 ELZ-136 ELZ-141 ELZ-144
+ELZ-145 ELZ-146 ELZ-137 ELZ-139 ELZ-140 ELZ-142 ELZ-138 ELZ-143 ELZ-147 ELZ-148
+ELZ-150 ELZ-156 ELZ-159 ELZ-160 ELZ-165 ELZ-161 ELZ-162 ELZ-163 ELZ-164 ELZ-166
+ELZ-167 ELZ-168 ELZ-169 ELZ-172 ELZ-170 ELZ-171 ELZ-174 ELZ-173 ELZ-175 ELZ-176
+ELZ-177 ELZ-178 ELZ-179 ELZ-180 ELZ-181 ELZ-182 ELZ-183 ELZ-186 ELZ-187 ELZ-188
+ELZ-189 ELZ-190 ELZ-191 ELZ-192 ELZ-193 ELZ-194 ELZ-195 ELZ-196 ELZ-197 ELZ-198
+ELZ-199 ELZ-200 ELZ-201 ELZ-202 ELZ-203 ELZ-204 ELZ-205 ELZ-206 ELZ-207 ELZ-208
+ELZ-210 ELZ-211 ELZ-212 ELZ-213 ELZ-214 ELZ-215 ELZ-216 ELZ-217 ELZ-218 ELZ-219
+ELZ-220 ELZ-221 ELZ-223 ELZ-224 ELZ-227 ELZ-229 ELZ-230 ELZ-222 ELZ-231 ELZ-232
+ELZ-233 ELZ-234 ELZ-225 ELZ-235 ELZ-236 ELZ-237 ELZ-238 ELZ-239 ELZ-240 ELZ-241
+ELZ-242 ELZ-243 ELZ-245 ELZ-246 ELZ-247 ELZ-248 ELZ-249 ELZ-250 ELZ-251 ELZ-252
+ELZ-253 ELZ-254 ELZ-255 ELZ-256 ELZ-257 ELZ-258 ELZ-259 ELZ-260 ELZ-261 ELZ-262
+ELZ-263 ELZ-264 ELZ-265 ELZ-266 ELZ-267 ELZ-268 ELZ-269 ELZ-270 ELZ-271 ELZ-272
+ELZ-273 ELZ-274 ELZ-275 ELZ-276 ELZ-278 ELZ-279 ELZ-280 ELZ-281 ELZ-282 ELZ-283
+ELZ-284 ELZ-285 ELZ-286 ELZ-277 ELZ-287 ELZ-288 ELZ-289 ELZ-290 ELZ-292 ELZ-293
+ELZ-294 ELZ-295 ELZ-296 ELZ-298 ELZ-299 ELZ-300 ELZ-301 ELZ-302 ELZ-303 ELZ-291
+ELZ-305 ELZ-306 ELZ-307 ELZ-308 ELZ-309 ELZ-315 ELZ-311 ELZ-312 ELZ-310 ELZ-318
+ELZ-317 ELZ-322 ELZ-325 ELZ-328 ELZ-329 ELZ-330 ELZ-331 ELZ-332 ELZ-333 ELZ-334
+ELZ-335 ELZ-337 ELZ-338 ELZ-339 ELZ-340 ELZ-341 ELZ-342 ELZ-343 ELZ-344 ELZ-345
+ELZ-346 ELZ-347 ELZ-348 ELZ-349 ELZ-351 ELZ-352 ELZ-354 ELZ-355 ELZ-357 ELZ-358
+ELZ-359 ELZ-360 ELZ-361 ELZ-362 ELZ-363 ELZ-364 ELZ-368 ELZ-369 ELZ-370 ELZ-371
+ELZ-372 ELZ-373 ELZ-374 ELZ-375 ELZ-376 ELZ-377 ELZ-380 ELZ-381 ELZ-382 ELZ-383
+ELZ-384 ELZ-385 ELZ-386 ELZ-387 ELZ-389 ELZ-390 ELZ-391 ELZ-393 ELZ-394 ELZ-396
+ELZ-397 ELZ-398 ELZ-400 ELZ-401 ELZ-402
+```
+
+#### V2-ACCEPT jobs
+
+```text
+ELZ-031 RC-21 RC-22 RC-23 RC-25 ELZ-297 ELZ-304 ELZ-316 ELZ-313 ELZ-314
+ELZ-319 ELZ-320 ELZ-321 ELZ-323 ELZ-324 ELZ-326 ELZ-327 ELZ-336 ELZ-350 ELZ-353
+ELZ-365 ELZ-366 ELZ-367 ELZ-378 ELZ-379 ELZ-388 ELZ-392 ELZ-395 ELZ-399
+```
+
+The 152 ready rows are grouped by the release of their owning job. These hashes are the manifest bytes at F’s base, before acceptance and the fixtures.
+
+#### V1 ready rows
+
+| Piece | `manifest_sha256` |
+| --- | --- |
+| `assembly/durable-job` | `5716b11e17c7ccdf3c0913c876e64263f483ee93b75af2ebcc2a949dce1d8056` |
+| `assembly/http-job` | `f40d390395f38469b8c54c1c4441b9a736c168b9356d13ad0e89c1d90c75cc0d` |
+| `assembly/ingest-dedup-accumulate` | `c4ea134d9de381d4187e310e6e4417d1fdda495ecb8389ef3f1b257c672e4f21` |
+| `assembly/ingest-json-unit` | `18636ead1b9dcd9d5d099bb24203fb86033580f384ad3230bae7e2238416e441` |
+| `assembly/request-route-retry` | `ffedf5eddca3e5583c51e4ff5baa656118871dacb276fa63cfa673177d81dba3` |
+| `core/assembly` | `d0968bd54175e3e82ac6d86676f1835457ec9f3c43dfebcb0f2002860a3935c4` |
+| `core/edge` | `ee75c26f1e4c9fe893354de6d51f4cb6e5ef79f0c7e7ce2dc6e25f8243035556` |
+| `core/effect` | `7871cfd927e328453cdff0d3f4a9ac83c358059f9017c3de9b8ede351dab5317` |
+| `core/envelope` | `818e8f6be6996189d400935cd9480321d25dd74d0196294da1487cf545739629` |
+| `core/operator` | `88551ff27503570e577083a64f2b6b289916c5e0ae2a0545da73550af9e866e3` |
+| `core/port` | `f20ebc536e00ae2dff18bc32a8ec47028e1319354ed4ae1abe1ab470b20c2645` |
+| `core/selection` | `983ba27f4259caa1da2667333e635a79ddd1006827daf8596cbcd4bda53032af` |
+| `core/wiring` | `20f53578935f338e6800e908b0ac1b3b8e83746201bb7ac6f14144d7407730be` |
+| `delivery/aggregation` | `ea622ec03fe96d10e73361b1e6a02061f7873be8b139c33e4670c8e09468d619` |
+| `delivery/backpressure` | `b862c87803507b88d771b1c726e9b5da202504f6052e4c181177814135c1fc99` |
+| `delivery/circuit-breaker` | `20c881bc3b1256e1a1a1d3ec92cb331d971bab10152a54289ac9778382aee7ee` |
+| `delivery/data-stream` | `02d29717c19cd324ad00082d91611ecd2638e44ed1bb9d1d69bb69d28bac18ec` |
+| `delivery/dead-letter` | `91445388adffeaec5ff36b792718e3c0e3bbf3df1ca173ab3ff62e20e08a0632` |
+| `delivery/effect-intent` | `78353460631d9851abe089144242d8cb50936267eda1a02c4597a647a8428ed4` |
+| `delivery/idempotency` | `dd6c1c583d7fbd264aa3ac0605fe5ad859b2fab02d13e6454078bbf38b00925c` |
+| `delivery/request-reply` | `054d7c4573308cb1d69d4e8b166db6d2ba19ce221034ddd8ad73ac4160ef3a6b` |
+| `delivery/retry-timeout` | `6c66629e41b3d2a2d41ca7e96028208e2d95d15076c58c1bd23fa931da9ee2e2` |
+| `delivery/routing` | `dec7f970ca07ecc49613ca02d279b11844dedec2c3a8c172c4db60c9920f7473` |
+| `delivery/stream-combinators` | `76d4f2c9c2e93ba937e609113ed5e50c565d51e04af0ae71a3ced153bf34b3df` |
+| `delivery/time` | `e33c2d5ecc2cd423ace555e804c9dd954cc43a92fe7ff93fe87597125450e540` |
+| `delivery/transformation` | `d4413383e9aec94c0dd329434e580b121b45f43175eaa515b0e2523b4103bce9` |
+| `delivery/trigger` | `dd6b28e11645d88c26c98c7cf2553c6a7bc241f58c0e9ba2818bdfb8bd5c1b06` |
+| `delivery/windowed-idempotency` | `f607b4e7d2c215a48c1223b132f3a46d536d04c753f0b9c4cca8445f805cb7fd` |
+| `domain/authorization` | `8363056c8f5f995e3d1cff1f421f488e90797c9ce1f7d28af26ae6b66a3fd971` |
+| `integration/ai-batch` | `d2359bd216c7eeac3e884dc7933a9e6e1bc3c0e4df3d8d2eca5122c8f8a90592` |
+| `integration/ai-batch-anthropic` | `3d9d482008b009e430720e659258c6380d451b367543e7944bc2d180837bf23a` |
+| `integration/ai-embedding` | `d93082245446c75f6f124a696777b60b1903814a64260b1c3c66524b4c51bd72` |
+| `integration/ai-embedding-openai` | `bdece85e53bbcf8e50ab11a6cd6599c676bd9b46b12f7da306241ca46ee38c0f` |
+| `integration/ai-model` | `f4235a8be041be0d7374311173fccffa186b4bc4aefe1a4c12efd514cf1fa845` |
+| `integration/ai-text` | `57a4600864b92a8d8f7a9fa129ef89e102048bc47b46104ba7a32d3bf62cf35a` |
+| `integration/ai-text-anthropic` | `695bce0ad91393dd43b21334ae0ac35422f278c577609bd319e49ebdf93e7551` |
+| `integration/ai-text-openai` | `b143c5015b388e2475a16e2ea65a228841935ccdff9f93a102c347a9602520b8` |
+| `integration/crypto` | `fe4b0e7185f0ea34974e0e47be60c9aab3d1ca49681382241b7b73ad9993157c` |
+| `integration/cure-json` | `d123cf62daf7d444e99925dd8cfa38fde840f9d32b49dd720e4e7c901b636941` |
+| `integration/http` | `0672cd28ee15b79bfff2682111a5f8ca6fae3440afed226d3e26b23ee24ff0a0` |
+| `integration/jobs` | `72a80e3ec12dea175dfc0e5e38f0a6c4b45fc8f94973843b527fd126d7374672` |
+| `integration/json` | `911cec4496318fa560769cc72328dc383b30d0f44aac60df27c6274e6c8796f2` |
+| `integration/mcp-client` | `95de43b8f09569f5ddf783cfb7873fac922dd02c7decd288b192218d75c355e3` |
+| `integration/notification` | `c0cd427253d69dc8bbdca6f66d7e8f2632be57cf9d93e7a5a561ceba634e3c16` |
+| `integration/object-store` | `90e91d2f91243ab5eca47d92e7eb26c2885cc320cfa0435629c59c9b0a9385e6` |
+| `integration/observability` | `8ae17b97ff389a1e56ca22c44257bb5be24d5e36173f75b8cf471c1830a61bd3` |
+| `integration/search-data` | `0e0892c96de67add66f92e6a0bda3d942217d4e2f8d7f8bf9232eea14ed726d8` |
+| `integration/secrets` | `5c4ec22114a338537cf26296b83dbedf90d226c7954fd9e87aa06b5e18ab342f` |
+| `integration/sql` | `03b15dd1d10ba95a986a5497e05ad40ca267eb3924150d6289ec20d1248c1195` |
+| `integration/text-chunking` | `0d43e8babba00d2f17e6c8ecf26f2ffe1f7375258d3fd998f36418e09b1232e7` |
+| `runtime/adapter` | `55c68918a2948f40e0abd858101ca74290e1f4d349d048cacdf8cbef00d5dcf2` |
+| `runtime/host` | `1fc764e58f63dba6457bc5ec97944eb0e9021c8806abef93308001c9acf6acee` |
+| `runtime/os-isolation` | `0210348010874b6295e9752f45deb0ed1fd70e8ada738509f3248d39b1b11c19` |
+| `runtime/registry` | `8983854571fc13bcb8213ea71e5842e02779afe0f42d980c12169717198dfd22` |
+| `runtime/supervision` | `3ed88dd2f4cf0495b54caa0aa054cee7bfc5fd6f1be0652b9d4870dc6c4af348` |
+| `runtime/telemetry` | `897639df67f7eef2f43074d91c7195f6549f1373dbf537126eec732d0048fe6d` |
+| `runtime/unit` | `464ec731a559a7aa5a8c4409a2d514b9c7830a52de9f029af3c22809db191c24` |
+| `state/artifact` | `00ec448b890797bca53606a8437f619e35f6d74ce9403b22e6d8129e1a6b62b0` |
+| `state/audit-log` | `839c402b1eac01713466bf83512dda59b58e63127ec33c6b30949bfe8b0dc179` |
+| `state/checkpoint` | `56ef1ba1ccc61f403269110b9270980e93a15ef4ba9b47ef33b8b929796a3c9e` |
+| `state/event-log` | `d367b3ff5f7b45b699a523a36e009a0a081156134e8c2107e1146668b75b03de` |
+| `state/lease` | `3a454246403b435a70b381760f55759f380b833a8d901c69c14205c85071b7ff` |
+| `state/outbox` | `ddff017e71185061ed59c54d8331392a1378dd679aa05667673e99297fa48c0b` |
+| `state/scheduler` | `d4da7ad1fc4a9d8b4d58f3ae6b4e76035fbb10e392033b3e12479438ccdfc794` |
+| `workflow/approval` | `fb4eca7cc00c381beb2f9e70f43146f13db0f4c9846c62d9976a61e8ab8704c9` |
+| `workflow/budget` | `bf176c03da60e538ad0a110694aca703706fc5b1c8ccd83194cde4c7da4c819a` |
+| `workflow/context-selection` | `81007ed4b12f6437e3ffa67f161f6401741aaf023b28d2db98454f5c43d74369` |
+| `workflow/dependency-graph` | `5f1c93429ac75b7d09f28ef280c6ef5b3ef9f33a23be5d53ec2bc8cacc2130ba` |
+| `workflow/run` | `52666906d97cc5a6a2f04ef753bed8b6c221d14fd873b3b2c45ee88d0684050c` |
+| `workflow/state-machine` | `2ca7d65169b9f94af253fdbf718ed46134fda5760ee7bb49717069969da1b83c` |
+
+#### V1B ready rows
+
+| Piece | `manifest_sha256` |
+| --- | --- |
+| `assembly/checked-command` | `6c8f5dd71f2c476134ed54c341d3499e33f2f9b912ee1d1129a689ac6cad4fb2` |
+| `assembly/knowledge-ingest` | `6d2ad553a51dffba4a54c2eca0cb0daeae241ea50a9368aa883413a06d442988` |
+| `assembly/run-engine` | `4d62ba2e7d62cbed402ebef86c8c7b4ae552f639c8f00d1e1233802be3521c9d` |
+| `core/payload-schema` | `b7f5c1abbf1e90c7c3190127d715827731949fb1ccdf721117513fa4189b9935` |
+| `delivery/dead-letter-store` | `d7f2ddd3af34d072a607afd88c7c3d741f3bc1f82fde1c89091a3e30324a0e47` |
+| `delivery/debounce` | `7a63e94eda0d9c28ddbdcec2aebb06c5d5ffaa698a0a2b7d8e92997dd25a9ce6` |
+| `delivery/durable-mailbox` | `5376ff753aea2d245d2cc88784e3a82c0d1ab511c7ba65f056de62dd78ce3486` |
+| `delivery/model-routing` | `6f71175ad481d87de360f6f59cc65f940b14f793eeacadee73b388885069165d` |
+| `delivery/provider-stream` | `b1aba6620815b0e185cc7294c02f8fc0b4bffaf44ab1c511446a76c89c1e22f7` |
+| `delivery/rate-limit` | `535d57a252292c6e600d4f08d2da6b842be068d708ab082cfbcd9d5c6e3a0e7b` |
+| `delivery/room` | `f868b250d700e1ee52a8bdfacf85cf1071fa26b29a20edf59a3f1c0265bef354` |
+| `domain/entitlement` | `391d5b25f5fffcce928ab879128848bc81aedff3b8f3d66d8178d485060258db` |
+| `domain/kill-switch` | `971613eddc65847123cecf183492f6dee11a0d037a99b45e969ac78a2c498182` |
+| `domain/membership` | `3a183a7107177b6dd6d7848940bc576002879ce8aab6fa6b114630882781ab96` |
+| `domain/metering` | `6c0b954f5dbfcb8ffffe7879d99aec1cf27562eca2af67149066f77b9c9dd7f8` |
+| `domain/principal` | `b3468d849382ec5505a07a5a042bcad59ba82cd0df4e0d172735ba777fd5037d` |
+| `domain/provider-data-policy` | `03fd58fa003576bd19f7f6b5077043e8e32818454afa1c40d9a296f063d09ba8` |
+| `domain/quota` | `3492eece0ca64c43b3858ba95ee66c22919041f6edec7e647f1c93ae15cf5639` |
+| `domain/recipe-config` | `fb61ce4dccb71d917bbb67c914d1e6097eb29096dc78b15cbfd9a714c2a5d5d7` |
+| `domain/recipe-graph` | `5a5f72e33a16d79851c73d7322935db9d36f45ad2f27e3dc171db8b4fc1a444c` |
+| `domain/recipe-package` | `1c026244dbc854ce6cfedf4912156a6a2437e998b84d2ba926a42357d881347e` |
+| `domain/trigger-binding` | `43aae395c28a1bd68df6b07942ecec8376be1e669b38b7b7525356463d5e76a9` |
+| `integration/ai-text-compatible` | `7268da161057601b914003f9653d890b764c789e22e1c55bbb61b43db461599a` |
+| `integration/ai-text-google` | `80f5bd66ad479152472a3f7214a2973f94dc8469194459f4fadb85386dfa86f4` |
+| `integration/ai-token-count` | `403b2ce627c2391e343e381940cb30270c7b180954fddddacaa01693008cc2e5` |
+| `integration/document-parse` | `1cf2a40804f1bf4d26327a12ab6b6c0d11ced182346cc5194d5b44384a3a18c1` |
+| `integration/egress-policy` | `b85f823dc074eadb28ebfb5919378e66ae489a40bf8057db8444c85c85ad30d8` |
+| `integration/encryption` | `da6965a659a64d96d2cdacfbeed3a978151f1db2162339f7022dbc4a78b77938` |
+| `integration/mcp-multi` | `3bfb14e162cecb26cbdae82ab4de7a13815264973899e40d50c4f193317b9021` |
+| `integration/mcp-runtime` | `cd31e3e48d59a15233d3ffa54776496521c207aade9f896d17de9ba28857ab5b` |
+| `integration/mcp-server` | `a66dc6f56ea485075a86c42233d6d1d229f0cc6fcac3d692f78fef472cfc2e9d` |
+| `integration/oauth-client` | `b96144cdf6bde25b5c41f8e11f8288d95f899922ac1bad72041d6b3421d6ed3c` |
+| `integration/pii-redaction` | `3cd1269062b2644f400a02eac05fd78eb35ffb3e51399bcdaab8c85e0a08ec6d` |
+| `integration/token-verify` | `e24fb71dd6e866bccee63ab61a5f13cbce4302f6a586276d5afef85355f792c6` |
+| `integration/webhook-in` | `44541c299f5679d119e12936728eae83138e65c13dd38050b3a087e5f26c9435` |
+| `integration/webhook-out` | `f6e1905851e72056a1ee9cf47ea88c47d196f048818748357721eea3f54b39f8` |
+| `runtime/async-work` | `e11814bc9ba18d1797829c35f00e4e83b38a7186e9ef3bd01b3d9a45098ff7c1` |
+| `runtime/durable-unit` | `7cef42ef2a81da3b0861f6b580ca29e39277cdf9ca85f62a5c06e1ed0f6067a4` |
+| `runtime/dynamic-units` | `11563fa0963b44ce683067832166f53ea978d1d9b0cef0436b7e700cd5bb3396` |
+| `runtime/lua-binding` | `35c56e342267608a01daa256248ceefaaf237e47bd85ffbedcf37e1b83822ec1` |
+| `runtime/lua-sandbox` | `8510645210894125c39fb3362538a890f43cd99211c900713cc8a62b471d92e0` |
+| `runtime/recipe-test` | `ac09b18c686fea12eec388189c4544440e7b5dbd921489eae894e0998aaf2530` |
+| `state/conversation` | `363f0bcb1587d10de1ad7c87b46991b2910cdb7129f1ec2e4e6f0bd3839470ab` |
+| `state/memory-record` | `84022887d01685bafdcf0f0c4319503c3c30abb448043cf4cb0c829c48ed551b` |
+| `state/recipe-store` | `3a7e013944b3cda007bc518f0bd9ea197bd91832293563ca117cac8ce20f1b30` |
+| `state/retention-erasure` | `176e7287a9373709abac01b19723dd2eae499f1881d97645e0950feccb05bd96` |
+| `state/tenant-isolation` | `ff22e8b60ebf7e3fb4f9e287bd88895a006c38358d055fd7cf56414bd741ac9f` |
+| `workflow/agent-loop` | `06b7485c568b8841f1482c59e367e38e07feb4e0b75e4eac2cd8f3c00cccfbb8` |
+| `workflow/bot-run-lifecycle` | `fb366e989508a675369f3943ebe9d8d546e48c3c194ee848a1cda49060bcdf9d` |
+| `workflow/citation` | `492264c31654fd1d9d15f67ce65e8fb7e9f5263cf3c4f4cff317a7bbf896577c` |
+| `workflow/context-compaction` | `9f30bca92525b5cf2a91c65aa2bd143e1e36365b24da2deafe5fa83bee499a5f` |
+| `workflow/delegation` | `8632ecc3f8b9bb298a986df1872c81f025c0301f9c2d05a8bc556d2306187a32` |
+| `workflow/eval` | `d3bd3d29546e272f5310f4d022adde2bd0eb03a0fb4d5bd8e496b64f9a361717` |
+| `workflow/graph-run` | `b4e5bff41c81503cdf539e94e6349f243bffcf0095d1fafb2315dd2fe69f4f49` |
+| `workflow/lua-tool` | `66200c218a39f2f2568965202e09d7ee9a9f3e609ca9f82d4737fe66f64ffd43` |
+| `workflow/mid-run-input` | `e077775a1ec59fe57b6d00d5110afe9ff63318c22f83914cc9a04f76451e6766` |
+| `workflow/node-outcome` | `d652f40a7fe97d9255bd4573ff9aecf8cf206eaa990e072a75d246258c26f830` |
+| `workflow/output-repair` | `1f6401bf7bed26cad13ec1f36f18fd340d5074e720d23ef1688fe3c93c375669` |
+| `workflow/pattern-step` | `8e0f5d8ffc864a696f8e31e20f18be45f6ef403e090d60672c9d6c4a9605554b` |
+| `workflow/prompt-assembly` | `9dcfa2a28861ea1512b0fd76156ff12e975011f59f65566cd0b95a89bf98e29b` |
+| `workflow/recipe-check` | `9ae4255f3a6c0180086b465672c325577e34e16e37c1f447ae2e31e84ff16fee` |
+| `workflow/run-approval-release` | `737e954103bd21d87e573cb730287fd193d550d51a7b6c7a294e944bb04a9c30` |
+| `workflow/run-resource` | `9a97218a45a9c00e575a963fe55e2b21fdbf0880bb5219c0b8076a86450c0e47` |
+| `workflow/runtime-graph` | `f6183749a90d7e669f4c15e2569c3b493ac02625a99a244b17bca42c1973b315` |
+| `workflow/skill` | `d6df0640abb580ef906d6e579a0245fb2f0fab1cf0f88ccf752f84faafa02e09` |
+| `workflow/stall-detect` | `1bd277dddfd9343f01e478c033521469eff270aca34b24c1914f3b2d4de73bf1` |
+| `workflow/tenant-lifecycle` | `3034eb384be1e6f3d5b5c11e7c845976e88dbceb0daa90416a9c221cc8c8fac5` |
+| `workflow/tool-registry` | `fdc6675fe8a127721f4982a28810438d0f0543ab4e19ae07e2bd3b43b3b983f2` |
+| `workflow/tool-result-limit` | `97fa7667eb20590f373a3e1fd0a95c2e829050c8e7101206e0bd6980253ae6c0` |
+| `workflow/turn-policy` | `2e456abb5bbcf79bfb909b6d020f6809eb121825e7a543cc42de107752676201` |
+| `workflow/typed-decision` | `27e9e653d7393007bff6b3bdfe2c12b2b0a7f8fc73a23686e7837a19aae54cd4` |
+| `workflow/untrusted-content` | `a6195ec2ef48341789f1980500cb7629f9ae928b3cbea279beeede3265eb8f62` |
+| `workflow/version-pin` | `f3a7ad8ad832bc5e2ebbe544fa64bf407702f11fbb662702e44b7ee80750d7bc` |
+| `workflow/wait-for-person` | `74a007107decca7d430ad096a2a20341b10bd786c7a1689e6cc3a45762b4b080` |
+| `workflow/work-item` | `9ed85d7e47fa61d73e41fd006387bc58f4774f3d62efb1c94f5c08206e19b207` |
+
+#### V2 ready rows
+
+| Piece | `manifest_sha256` |
+| --- | --- |
+| `assembly/ledger-checkout` | `cf0cada0446639db2a835bb3c9f2a5a32bed8abe3a51fad38e79c9af1cf64b4e` |
+| `domain/invoice` | `6461ee16203a7675984a8a4da092e3e6a0f835b033d0b8c545467aa99ad57504` |
+| `domain/journal` | `2f3a1ce9c6acaf50e31b8b593c656fe268ad0b0d2b2ef1e0eecd42f40600a0ba` |
+| `domain/money` | `2b7bf31dd597a1124340bb9f81c29bc89875686658161fbd257f02074104ebdc` |
+| `domain/payment-lifecycle` | `b8b8988dd435acf6d442ff9ddf9a01a5af1bdee4d1b05ba67e033be85d98feaf` |
+| `domain/plan` | `3f2b15858bf07ff4db161892cf69dae142e6140d09cbd24b03e26b9ae820f17d` |
+| `domain/pricing` | `c2da47be8e86eb4c7375652ff944cb125b23e8cf3d221c7a7422016be9f1f2ec` |
 
 **One release, so the cross-release closure is accepted with it.** `integration/search-data` (V1) copies `state/tenant-isolation` (V1B) into every consumer. V1-ACCEPT therefore holds only together with V1B-ACCEPT. A second reason: V1 Pieces carry in-place changes made by V1B jobs, among them ELZ-305 (`runtime/os-isolation`) and ELZ-382 (`integration/mcp-client`), so the frozen V1 code is not the V1 jobs' code alone. Because the first release passes the three gates together, nothing moves. The acceptance report states this. The job's release stays V1, and the job dependencies keep their order.
 
 ### What each still-unpublished RC job and each non-ready row becomes
 
-Every non-ready row of a selected job either moves to `later` or is accepted as an index resolution. No RC job is kept and built for this release: under decision 1 the release waits for no deferred row. The builds it waits for are ELZ-387 and the Level 1 repairs below, and none of them is an RC job. No row is dropped from the catalogue, because the 97 baseline rows must stay and `check-roadmap.py` refuses a lost one. A `later` row stays in the inventory with its disposition.
+Every non-ready row formerly selected either moves to `later` or is accepted as an index resolution. No RC job is kept and built for this release: under decision 1 the release waits for no deferred row. The prerequisite builds were ELZ-387, the Level 1 repairs and the two admitted repairs ELZ-401 and ELZ-402. No row is dropped from the catalogue, because the 97 baseline rows must stay and `check-roadmap.py` refuses a lost one. A `later` row stays in the inventory with its disposition.
 
 | Job | Release | Row or gap | Decision | Reason |
 | --- | --- | --- | --- | --- |
@@ -153,21 +367,26 @@ The plan uses only what [consuming.md](../consuming.md), the [coordinator guide]
 - leaves a Contract claim of the frozen set without evidence;
 - or comes from an owed review whose findings may change a Contract.
 
-Everything else waits unless the coordinator explicitly admits it before the freeze, as with #946. That covers unrelated timing flakes, which fall under the rerun rule of `AGENTS.md` section 5, other repairs that only restore a Contract (they keep the ID after the release too), and process or CI text that no Piece reads.
+Everything else waits unless the coordinator explicitly admits it before the freeze, as with ELZ-401 and ELZ-402. That covers unrelated timing flakes, which fall under the rerun rule of `AGENTS.md` section 5, other repairs that only restore a Contract (they keep the ID after the release too), and process or CI text that no Piece reads.
 
-| Item | State at Level 1 publication | Decision | Reason |
+| Item | State at F's base | Decision | Reason |
 | --- | --- | --- | --- |
-| [#930](https://github.com/balungpisah/elzoo/issues/930) | ELZ-387 merged as #945 | Landed (Level 0) | Decision 2. It adds a control key to the run-engine record, so it precedes the format freeze. |
+| [#930](https://github.com/balungpisah/elzoo/issues/930) | ELZ-387, [#945](https://github.com/balungpisah/elzoo/pull/945), `3e72f6f9` | Landed (Level 0) | Decision 2. It adds a control key to the run-engine record, so it precedes the format freeze. |
 | [#821](https://github.com/balungpisah/elzoo/issues/821) | Merged as ELZ-358 (PR [#864](https://github.com/balungpisah/elzoo/pull/864), `10dfd080`); the issue is closed as completed | Landed | — |
 | [#843](https://github.com/balungpisah/elzoo/issues/843) | Merged as ELZ-359 (PR [#863](https://github.com/balungpisah/elzoo/pull/863), `9580f2b1`); the issue is closed as completed | Landed | — |
 | [#931](https://github.com/balungpisah/elzoo/issues/931), [#932](https://github.com/balungpisah/elzoo/issues/932) | Merged as ELZ-385 (PR #940) and ELZ-386 (PR #939); both issues are closed | Landed | — |
-| [#852](https://github.com/balungpisah/elzoo/issues/852) | Open. The run-engine test "unpaired original input resumes from stored time and facts after owner-tree fencing" (`run_engine_v2_source_test.exs`) exited 2 under `--repeat-until-failure 30`: after 14 passes on the ELZ-351 head, and after 4 passes with `main`'s engine. The cause has not been investigated. | **Must land** (Level 1a) | It is in the engine's recovery, the durable path that X2's fixtures pin. If the cause is an engine defect whose fix changes a record, the fix must come before the format freeze. |
-| [#834](https://github.com/balungpisah/elzoo/issues/834) | Open. Text only: the stop set of `delivery/room`'s repeated `open/3` Need. | **Must land** (Level 1b) | It is the exact Contract text of a frozen Piece, and it changes `piece.json`, so its hash must be settled before the freeze. |
-| [#710](https://github.com/balungpisah/elzoo/issues/710) | Open. `runtime/os-isolation` `recover/1` can give a second result, against its README's "does not notify twice". | **Must land** (Level 1c) | The acceptance cannot accept a claim that a known defect contradicts. The fix restores the Contract. |
-| [#918](https://github.com/balungpisah/elzoo/issues/918) | Open. `assembly/ledger-checkout`: the recipient half of "another amount or recipient" has no test, a host duty is missing from the `piece.json` grounding, and a README wrap. | **Must land** (Level 1d) | A Contract clause has no evidence. Test, grounding and wrap only. |
-| [#886](https://github.com/balungpisah/elzoo/issues/886), [#915](https://github.com/balungpisah/elzoo/issues/915), [#885](https://github.com/balungpisah/elzoo/issues/885) with [#884](https://github.com/balungpisah/elzoo/issues/884), [#701](https://github.com/balungpisah/elzoo/issues/701) | #886 is a host Need of `integration/oauth-client`; #885 and #884 are host limits of `domain/plan`; #701 is a stated limit of `delivery/dead-letter-store`; `delivery/model-routing` states no bound on `tried` (#915). | **Must land** (Q3 A, Levels 1e–1i) | Each changes a ready Contract, so after the release each would need a new ID. For `state/tenant-isolation` (#886), every durable dependent would then have to opt in. |
-| [#946](https://github.com/balungpisah/elzoo/issues/946) | Reported on #945 and reproduced without the start option. | **Must land** (Level 1j) | A refused reused action ID removes the live occurrence's lifecycle wait and lets a valid outcome be classified late. Repair the ready Piece before freezing its formats. |
-| [#947](https://github.com/balungpisah/elzoo/issues/947) | One BLOCKER from the `delivery/dead-letter-store` recheck. | **Must land** (Level 1k, before 1i) | The retry wording covers a purge that can delete another batch after an unknown outcome. State the exception and test it without adding operation replay. |
+| [#852](https://github.com/balungpisah/elzoo/issues/852) | ELZ-389, [#968](https://github.com/balungpisah/elzoo/pull/968), `a75f381c` | Landed (1a) | Fencing recovery is on the durable path pinned by X2. |
+| [#834](https://github.com/balungpisah/elzoo/issues/834) | ELZ-390, [#962](https://github.com/balungpisah/elzoo/pull/962), `7f1b126e` | Landed (1b) | Settles the stop set of `delivery/room`'s repeated `open/3` Need and the manifest hash. |
+| [#710](https://github.com/balungpisah/elzoo/issues/710) | ELZ-391, [#964](https://github.com/balungpisah/elzoo/pull/964), `d4cec899` | Landed (1c) | Restores the one-result guarantee of `runtime/os-isolation`. |
+| [#918](https://github.com/balungpisah/elzoo/issues/918) | ELZ-392, [#963](https://github.com/balungpisah/elzoo/pull/963), `9cc78fac` | Landed (1d) | Supplies the missing recipient case and host-duty grounding. |
+| [#886](https://github.com/balungpisah/elzoo/issues/886) | ELZ-393, [#971](https://github.com/balungpisah/elzoo/pull/971), `10701c48`; ELZ-400, [#977](https://github.com/balungpisah/elzoo/pull/977), `f0fb4d95` | Landed (1e, 1f; Q3 A) | Bounds OAuth refresh using a new explicit transaction timeout in `state/tenant-isolation`. |
+| [#915](https://github.com/balungpisah/elzoo/issues/915) | ELZ-394, [#965](https://github.com/balungpisah/elzoo/pull/965), `71086455` | Landed (1g; Q3 A) | Bounds `delivery/model-routing`'s `tried` input. |
+| [#885](https://github.com/balungpisah/elzoo/issues/885), [#884](https://github.com/balungpisah/elzoo/issues/884) | ELZ-399, [#970](https://github.com/balungpisah/elzoo/pull/970), `9f650d2c`; ELZ-395, [#973](https://github.com/balungpisah/elzoo/pull/973), `9103cd79` | Landed (1l, 1h; Q3 A) | Exercises composition and settles overlap and grant identity for `domain/plan`. |
+| [#701](https://github.com/balungpisah/elzoo/issues/701) | ELZ-398, [#972](https://github.com/balungpisah/elzoo/pull/972), `829eda6a` | Landed (1i; Q3 A) | Gives `delivery/dead-letter-store` an opt-in generation check on resolve. |
+| [#946](https://github.com/balungpisah/elzoo/issues/946) | ELZ-396, [#974](https://github.com/balungpisah/elzoo/pull/974), `5bb57c13` | Landed (1j) | A refused reused action ID no longer removes the live occurrence's lifecycle wait. |
+| [#947](https://github.com/balungpisah/elzoo/issues/947) | ELZ-397, [#966](https://github.com/balungpisah/elzoo/pull/966), `ce2adb70` | Landed (1k, before 1i) | A purge retry after an unknown outcome can remove another batch; the Contract now says so. |
+| [#969](https://github.com/balungpisah/elzoo/issues/969) | ELZ-401 ([#975](https://github.com/balungpisah/elzoo/issues/975)), [#979](https://github.com/balungpisah/elzoo/pull/979), `edd27760` | Landed (coordinator admission; V1B `pieces`) | Retries the transient CI MinIO bucket check after readiness. |
+| [#967](https://github.com/balungpisah/elzoo/issues/967) | ELZ-402 ([#976](https://github.com/balungpisah/elzoo/issues/976)), [#978](https://github.com/balungpisah/elzoo/pull/978), `288149cd` | Landed (coordinator admission; V1B `pieces`) | Repairs the test-only run-engine busy-stop interleaving. |
 | [#912](https://github.com/balungpisah/elzoo/issues/912) | Open. ELZ-382 ([#928](https://github.com/balungpisah/elzoo/pull/928)) states and tests the bound of 64 distinct tokens per session. | **Can wait** | The shipped claim is exact and tested. A signal before the bound or an eviction that keeps redaction is new behaviour. Q3 A did not select it. |
 | [#670](https://github.com/balungpisah/elzoo/issues/670), [#669](https://github.com/balungpisah/elzoo/issues/669), [#547](https://github.com/balungpisah/elzoo/issues/547) | Open timing flakes under host load | **Can wait** | The rerun rule applies, and #670 stays unchanged by the owner's decision ([choices](../choices.md#a-flaky-elz-176-bounded_time-test-stays-unchanged-2026-11-21)). The sandbox has no default limits (`runtime/lua-sandbox` README line 79, `wall_ms` at most 1,000), and `workflow/lua-tool` requires all five (its README line 29). So A's Lua entry states `wall_ms` 1,000, twice #547's 500 ms, and X3's Lua spec does the same. |
 | [#715](https://github.com/balungpisah/elzoo/issues/715) | Open. Notes on the recheck steps of the coordinator guide. | **Can wait** | Process text. No Piece or gate reads it. |
@@ -183,11 +402,11 @@ Everything else waits unless the coordinator explicitly admits it before the fre
 
 ## Rules of the freeze
 
-These rules hold from the merge of F to the release commit. F writes them into this section as they stand at its base.
+These rules hold from the merge of ELZ-403 (F) to the release commit. The frozen code is the code at F's merge: F changes only documents, so that code is the code of its base. A accepts the frozen set before the fixture tasks and release mark; the new-ID rule starts at the release commit, not at F.
 
 1. Only these merge: the release tasks; repairs that restore a ready Contract; and test-only Piece repairs (`AGENTS.md` section 1). A repair published during the freeze takes stage `release`, so the derived frozen set does not change after F, and A lists it with its commit. A change to a ready Contract, a new ready Piece or a new job in stage `pieces` of V1, V1B or V2 waits until after the release commit. New Piece tasks for deferred rows may be published and built meanwhile with stage `later`, but they merge after the release commit.
 2. The record-writing paths of `assembly/run-engine`, `workflow/pattern-step`, `runtime/durable-unit` and `runtime/recipe-test` do not change. If a repair needs them to change, the release stops, and the owner decides whether to freeze again.
-3. A defect that A finds is its own repair task. One that restores the Contract merges during the freeze, and A records it with its commit. One that needs a Contract change stops the release for the owner.
+3. A defect that A finds is its own repair task. One that restores the Contract merges during the freeze subject to rule 2, and A records it with its commit. One that needs a Contract change stops the release for the owner.
 4. The review, exact-head check, queue and red-`main` rules are unchanged.
 
 ## Dependency levels
