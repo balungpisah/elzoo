@@ -602,7 +602,8 @@ defmodule Elzoo.LedgerCheckoutTest do
        ctx do
     # c5a: a succeeded payment under the checkout's ID of other approved terms (10).
     # c5b: a succeeded payment of the checkout's approved terms (100); the checkout asks 120.
-    for {id, units} <- [{"c5a", 10}, {"c5b", 100}] do
+    # c5c: the approved terms match; only the requested recipient differs.
+    for {id, units} <- [{"c5a", 10}, {"c5b", 100}, {"c5c", 100}] do
       {:ok, :applied} =
         PL.create(ctx.lc, "T1", %{
           payment_id: "checkout." <> id,
@@ -620,12 +621,19 @@ defmodule Elzoo.LedgerCheckoutTest do
 
     open!(ctx.b, top_up("c5a"))
     open!(ctx.b, top_up("c5b", units: 120))
+    open!(ctx.b, %{top_up("c5c") | recipient: "merchant-2"})
 
-    for {id, reason} <- [{"c5a", :conflict}, {"c5b", :approval_mismatch}] do
+    for {id, reason} <- [
+          {"c5a", :conflict},
+          {"c5b", :approval_mismatch},
+          {"c5c", :approval_mismatch}
+        ] do
       assert resume(ctx.b, id) == {:ok, %{state: :compensated, wait: nil}}
 
-      assert %{failure: ^reason, steps: [%{step: :charge, state: :failed, compensation: nil}]} =
-               get!(ctx.b, id)
+      assert %{
+               failure: ^reason,
+               steps: [%{step: :charge, state: :failed, failure: ^reason, compensation: nil}]
+             } = get!(ctx.b, id)
 
       assert refunds(ctx, id) == []
     end
