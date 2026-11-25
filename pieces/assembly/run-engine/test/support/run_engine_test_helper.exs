@@ -308,7 +308,7 @@ defmodule Elzoo.RunEngine.TestHelper do
     pid
   end
 
-  def fixture(overrides \\ []) do
+  def fixture(overrides \\ [], reopen_prefix \\ nil) do
     {effect_bindings, overrides} = Keyword.pop(overrides, :effect_bindings, %{})
     {unit_store, overrides} = Keyword.pop(overrides, :unit_store)
     # The schema and its migration stay on TestRepo (the owner). The runtime Store calls use
@@ -334,25 +334,28 @@ defmodule Elzoo.RunEngine.TestHelper do
       end
 
     unit_version = if protocol_version == 2, do: 2, else: 1
-    prefix = "engine_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+    prefix = reopen_prefix || "engine_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
 
-    Ecto.Adapters.SQL.query!(TestRepo, "CREATE SCHEMA #{Postgres.identifier(prefix)}", [],
-      log: false
-    )
-
-    # Registered first, so it runs last (after the process shutdown below) and also when a later
-    # setup step (the migration, the grant, the first append) fails.
-    ExUnit.Callbacks.on_exit(fn ->
-      Ecto.Adapters.SQL.query!(
-        TestRepo,
-        "DROP SCHEMA IF EXISTS #{Postgres.identifier(prefix)} CASCADE",
-        [],
+    unless reopen_prefix do
+      Ecto.Adapters.SQL.query!(TestRepo, "CREATE SCHEMA #{Postgres.identifier(prefix)}", [],
         log: false
       )
-    end)
 
-    :ok = Ecto.Migrator.up(TestRepo, 1, TestMigration, prefix: prefix, log: false)
-    :ok = grant.(prefix)
+      # Registered first, so it runs last (after the process shutdown below) and also when a later
+      # setup step (the migration, the grant, the first append) fails.
+      ExUnit.Callbacks.on_exit(fn ->
+        Ecto.Adapters.SQL.query!(
+          TestRepo,
+          "DROP SCHEMA IF EXISTS #{Postgres.identifier(prefix)} CASCADE",
+          [],
+          log: false
+        )
+      end)
+
+      :ok = Ecto.Migrator.up(TestRepo, 1, TestMigration, prefix: prefix, log: false)
+      :ok = grant.(prefix)
+    end
+
     controller = ExUnit.Callbacks.start_supervised!({PostgresHarness, []}, id: make_ref())
     clock = ExUnit.Callbacks.start_supervised!({Agent, fn -> 2_000 end}, id: make_ref())
     now = fn -> Agent.get(clock, & &1) end
@@ -413,7 +416,11 @@ defmodule Elzoo.RunEngine.TestHelper do
 
     run_store = Postgres.store(repo, prefix: prefix, fold: Run.fold(), limits: Run.limits())
     {:ok, lease} = Lease.new(store: run_store, clock: :store)
-    {:held, held} = Lease.claim(lease, "runs", "owner", 3_600_000)
+
+    {:held, held} =
+      if reopen_prefix,
+        do: Lease.hold(lease, "runs", "owner"),
+        else: Lease.claim(lease, "runs", "owner", 3_600_000)
 
     host_store =
       Postgres.store(repo, prefix: prefix, fold: StoreHost.fold(), limits: StoreHost.limits())
@@ -466,22 +473,24 @@ defmodule Elzoo.RunEngine.TestHelper do
     {:ok, run} = Run.start_link(store: run_store, lease: lease, held: held, effect_intent: intents)
     Process.unlink(run)
 
-    assert {:ok, revision, _} =
-             Run.command(run, %{
-               kind: :create,
-               run_id: "run",
-               operation_id: "operation",
-               provider_refs: %{},
-               expected_revision: held.live.revision
-             })
+    unless reopen_prefix do
+      assert {:ok, revision, _} =
+               Run.command(run, %{
+                 kind: :create,
+                 run_id: "run",
+                 operation_id: "operation",
+                 provider_refs: %{},
+                 expected_revision: held.live.revision
+               })
 
-    assert {:ok, _, _} =
-             Run.command(run, %{
-               kind: :begin_attempt,
-               run_id: "run",
-               attempt_id: "attempt",
-               expected_revision: revision
-             })
+      assert {:ok, _, _} =
+               Run.command(run, %{
+                 kind: :begin_attempt,
+                 run_id: "run",
+                 attempt_id: "attempt",
+                 expected_revision: revision
+               })
+    end
 
     evidence_fold = %{
       initial: nil,
