@@ -105,7 +105,12 @@ defmodule Elzoo.FirstReleaseRecipeTest do
     assert [%{"tool_use_id" => "call1", "text" => delivered}] =
              for(%{"role" => "tool_result"} = message <- second, do: message)
 
-    assert [_opening_mark, ~s({"total":13}), _closing_mark] = String.split(delivered, "\n")
+    # First 32 hex digits of the SHA-256 of the 12 content bytes, without a newline.
+    tag = "c3a655bcfcf2c823509ad12876498354"
+
+    assert delivered ==
+             "<<<untrusted-content #{tag} trust=untrusted bytes=12 sources=recipe-test:lua>>>\n" <>
+               ~s({"total":13}) <> "\n<<<end untrusted-content #{tag}>>>"
 
     # The model's answer is scripted. Check the actual Lua result separately so
     # that a failed tool followed by the same scripted answer cannot pass.
