@@ -2102,9 +2102,14 @@ defmodule Elzoo.RunEngineV2SourceTest do
     assert original.correlation.source_head_revision == 1
     refute has_result_row?(rows_before_fence, event_id)
 
-    fence_tree(tree, [])
+    # Fence the caller before loss of the Unit can produce an indeterminate reply.
+    Process.exit(tree.engine, :kill)
     assert_receive {:outside_call_finished, ^token, :caller_fenced}, 5_000
     assert_receive {:DOWN, ^caller_monitor, :process, ^caller, _}, 5_000
+
+    # The old supervisor must not restart the Unit while the tree is being killed.
+    :ok = :sys.suspend(tree.supervisor)
+    fence_tree(tree, [])
     assert rows(c) == rows_before_fence
 
     :persistent_term.put(
