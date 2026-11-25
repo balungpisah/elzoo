@@ -479,7 +479,7 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
                })
 
       assert %{state: :trialing, period: %{index: 0, end_ms: ^trial_end}} = s0
-      assert g0.grant_id == "sub-1/0"
+      assert is_binary(g0.grant_id) and g0.grant_id != ""
 
       renew = fn now ->
         Plan.renew(w.plan, "T1", %{subscription_id: "sub-1", from_index: 0, now_ms: now})
@@ -496,17 +496,22 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
              } = s1
 
       assert %{period: %{index: 1}, amount: %Money.Amount{minor_units: 2_900}} = fee_line
-      assert g1.grant_id == "sub-1/1"
+      renewal_id = g1.grant_id
+      assert is_binary(renewal_id) and renewal_id != ""
+      refute renewal_id == g0.grant_id
 
       before = subscription_row(w, "T1")
-      assert {:ok, %{duplicate: true}} = renew.(trial_end + 1)
+
+      assert {:ok, %{duplicate: true, grants: [%{grant_id: ^renewal_id}]}} =
+               renew.(trial_end + 1)
+
       assert subscription_row(w, "T1") == before
 
       # The host stores the grants (here in its harness state); resolve/3 over the stored
       # grants is entitled in period 1.
       H.env(w, {:grants, "T1"}, [g0, g1])
 
-      assert {:entitled, %{grants: [%{grant_id: "sub-1/1"}]}} =
+      assert {:entitled, %{grants: [%{grant_id: ^renewal_id}]}} =
                Entitlement.resolve(plan_facts(H.env(w, {:grants, "T1"})), "T1", trial_end + 1)
     end
 
