@@ -42,7 +42,7 @@ on insert. For an existing installation, run this in a consumer-owned migration 
 table owner **before serving the revised Piece** (substitute the installed schema):
 
 ```sql
-ALTER TABLE <prefix>.elzoo_dead_letters
+ALTER TABLE "<prefix>".elzoo_dead_letters
   ADD COLUMN generation bigint GENERATED ALWAYS AS IDENTITY (NO CYCLE);
 ```
 
