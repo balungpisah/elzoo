@@ -432,11 +432,17 @@ defmodule Elzoo.LuaSandboxProtocolTest do
       assert run_fake(dir, "killed", "kill -KILL $$") == {:host_outcome, :process_exit}
       assert run_fake(dir, "segv", "kill -SEGV $$") == {:host_outcome, :process_exit}
 
-      assert run_fake(dir, "reply-then-fail", Helper.printf(reply_frame()) <> "\nexit 1") ==
-               {:host_outcome, :process_exit}
+      assert run_fake(
+               dir,
+               "reply-then-fail",
+               "head -c 4 >/dev/null\n" <> Helper.printf(reply_frame()) <> "\nexit 1"
+             ) == {:host_outcome, :process_exit}
 
-      assert run_fake(dir, "partial-then-fail", Helper.printf(<<9, 0, 0, 0, ?{>>) <> "\nexit 2") ==
-               {:host_outcome, :process_exit}
+      assert run_fake(
+               dir,
+               "partial-then-fail",
+               "head -c 4 >/dev/null\n" <> Helper.printf(<<9, 0, 0, 0, ?{>>) <> "\nexit 2"
+             ) == {:host_outcome, :process_exit}
     end
 
     test "private text on stderr is in no return value and no log", %{fake: dir} do
