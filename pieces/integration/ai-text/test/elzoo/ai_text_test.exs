@@ -246,7 +246,7 @@ defmodule Elzoo.AiTextTest do
 
   ## I4 retries
 
-  test "I4 retries: only the attested no-send credential failure is redispatched; throttled and overloaded are not; unknown never (RetryTimeout policy + owner)",
+  test "I4 retries: the attested no-send credential failure is redispatched; throttled and overloaded are not; unknown never (RetryTimeout policy + owner)",
        ctx do
     {:ok, policy} = Elzoo.RetryTimeout.policy(max_attempts: 3, base_backoff_ms: 10)
 
