@@ -31,6 +31,12 @@ its commit; its stage is `release`, outside the selected set.
    two bootstrap commits and pinned check instead of a PR. List a job without
    evidence as undecided for the coordinator. Do not set **any** gate accepted
    while any such job is undecided.
+
+   Coordinator decision for ELZ-130 only: accept the reviewed no-change
+   resolution on completed issue #269. The independent outcome review and
+   coordinator acceptance record a measured DROP with no pin, configuration,
+   guide or source retained. Merging PR and merge commit are not applicable;
+   the carrying check today is the pinned `mix check` on main without tia.
 2. Name the source-copy plan of every ready Piece, aggregate consumer,
    `cure_record_tags_test.exs`, `registry_test.exs`, `install_configuration_test.exs`,
    the provider pins in `registry/providers.json` and install-guidance cases in
