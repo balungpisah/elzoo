@@ -5238,13 +5238,14 @@ defmodule Elzoo.RunEngine do
 
   defp valid_completion_owner?(_, _, _), do: false
 
+  # The Run's own facts that the readers use. Not `:revision`: it is the revision of the
+  # owner's whole stream, which a command of another Run of a shared owner moves too.
   defp owner_snapshot(owner) do
     Map.take(owner, [
       :id,
       :outcome,
       :operation_id,
       :current_attempt,
-      :revision,
       :completion_revision,
       :evidence_ref
     ])
