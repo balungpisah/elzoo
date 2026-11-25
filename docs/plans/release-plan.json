@@ -10553,6 +10553,30 @@
       "issue": 980,
       "url": "https://github.com/balungpisah/elzoo/issues/980",
       "issue_body_sha256": "cd2f745fa17f135bd2b0d6a238a5e00cf67c903ab7e863caae9d18a353aefa96"
+    },
+    {
+      "id": "ELZ-404",
+      "title": "ELZ-404 — Accept the three frozen first-release gates",
+      "kind": "published",
+      "release": "V2",
+      "stage": "release",
+      "dependencies": [
+        "ELZ-403"
+      ],
+      "status": "published 2026-11-25",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-404-first-release-acceptance.md"
+      ],
+      "outputs": [],
+      "acceptance": "Account for every frozen job with its issue, landing and frozen outputs or resolution; check the graph-agent-Lua recipe on PostgreSQL, its two negative controls, the pinned full check and claim evidence. No acceptance with an undecided job; fixtures and release mark follow separately.",
+      "product_aims": [
+        "P10",
+        "P11"
+      ],
+      "issue": 982,
+      "url": "https://github.com/balungpisah/elzoo/issues/982",
+      "issue_body_sha256": "0824deedd89335284a35f294bbf31066318a0faf3bbfdd38a19fdae8f0887e6a"
     }
   ],
   "entries": [

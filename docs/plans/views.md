@@ -452,6 +452,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-401](https://github.com/balungpisah/elzoo/issues/975) | V1B / pieces | none | published 2026-11-25 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 | [ELZ-402](https://github.com/balungpisah/elzoo/issues/976) | V1B / pieces | ELZ-127, ELZ-389, ELZ-396 | published 2026-11-25 | coordinator; one-PR path; independent review and merge queue |
 | [ELZ-403](https://github.com/balungpisah/elzoo/issues/980) | V2 / release | ELZ-387, ELZ-389, ELZ-390, ELZ-391, ELZ-392, ELZ-393, ELZ-394, ELZ-395, ELZ-396, ELZ-397, ELZ-398, ELZ-399, ELZ-400, ELZ-401, ELZ-402 | published 2026-11-25 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
+| [ELZ-404](https://github.com/balungpisah/elzoo/issues/982) | V2 / release | ELZ-403 | published 2026-11-25 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -5455,3 +5456,13 @@ Publication copy: [tasks/ELZ-403-first-release-freeze.md](../../tasks/ELZ-403-fi
 **Product aims:** P10, P11.
 
 **Acceptance:** Freeze exactly the documented V1, V1B and V2 job lists and ready manifest hashes; defer only the named proposals, record product limits and keep release-stage tasks out. Roadmap, live Contracts, claims, docs-only classification and independent review; acceptance follows separately.
+
+### ELZ-404
+
+ELZ-404 — Accept the three frozen first-release gates
+
+Publication copy: [tasks/ELZ-404-first-release-acceptance.md](../../tasks/ELZ-404-first-release-acceptance.md).
+
+**Product aims:** P10, P11.
+
+**Acceptance:** Account for every frozen job with its issue, landing and frozen outputs or resolution; check the graph-agent-Lua recipe on PostgreSQL, its two negative controls, the pinned full check and claim evidence. No acceptance with an undecided job; fixtures and release mark follow separately.
