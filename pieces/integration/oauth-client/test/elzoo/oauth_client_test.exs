@@ -614,6 +614,60 @@ defmodule Elzoo.OauthClientTest do
     end
   end
 
+  @tag :refresh_deadline
+  test "a stopped exchange task only spends a rotating token after admission", ctx do
+    id = "starved"
+    old = authorize!(ctx, id, provider: "rotating")
+    set_clock(ctx, @t0 + @hour)
+    n = Server.count(ctx.server)
+
+    opts = [
+      exchange_timeout_ms: 120,
+      refresh_deadline: %{lock_wait_ms: 150, overhead_ms: 1_000, persistence_reserve_ms: 1_000}
+    ]
+
+    # One normal scheduler: the high-priority caller can finish preparing and time out,
+    # but the normal-priority exchange task cannot run until the spinner yields.
+    starve = fn target ->
+      reply = ctx.b.transport.(target)
+      Process.flag(:priority, :high)
+
+      :erlang.spawn_opt(fn -> spin_until(System.monotonic_time(:millisecond) + 350) end, [
+        :link,
+        priority: :high
+      ])
+
+      reply
+    end
+
+    b = binding!(ctx, [transport: starve] ++ opts)
+
+    caller =
+      Task.async(fn ->
+        :erlang.system_flag(:multi_scheduling, :block_normal)
+
+        try do
+          token(b, id)
+        after
+          :erlang.system_flag(:multi_scheduling, :unblock_normal)
+        end
+      end)
+
+    assert Task.await(caller) == {:error, :unavailable}
+    assert since(ctx, n) == []
+    assert get(ctx.b, id) == {:ok, old.connection}
+
+    respond(ctx, :never)
+    assert token(binding!(ctx, opts), id) == {:error, :reauthorization_required}
+    assert length(since(ctx, n)) == 1
+    assert {:ok, %{state: :reauthorization_required, revision: rev}} = get(ctx.b, id)
+    assert rev == old.connection.revision + 1
+  end
+
+  defp spin_until(deadline) do
+    if System.monotonic_time(:millisecond) < deadline, do: spin_until(deadline)
+  end
+
   test "opt-in client credentials refuse a checkout, dispatch once, then read fresh", ctx do
     b =
       binding!(ctx,

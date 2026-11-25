@@ -728,22 +728,34 @@ defmodule Elzoo.OauthClient do
     end
   end
 
-  # One request in a task that is killed at exchange_timeout_ms; a stopped exchange is unknown.
+  # A stopped opt-in task is unknown only if it passed the dispatch check.
   defp send_bounded(b, request, latest) do
+    admitted = if latest, do: :atomics.new(1, [])
+
     task =
       Task.async(fn ->
         try do
           # Task scheduling spends the same budget. A local refusal is not a provider outcome.
-          with :ok <- headroom(latest), do: {:sent, Req.request(request)}
+          with :ok <- headroom(latest) do
+            if admitted, do: :atomics.put(admitted, 1, 1)
+            {:sent, Req.request(request)}
+          end
         catch
           _kind, _reason -> {:sent, :failed}
         end
       end)
 
     case Task.yield(task, b.exchange_timeout_ms) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {:error, :unavailable} = refused} -> refused
-      {:ok, {:sent, result}} -> {:sent, outcome(result)}
-      _stopped -> {:sent, :unknown}
+      {:ok, {:error, :unavailable} = refused} ->
+        refused
+
+      {:ok, {:sent, result}} ->
+        {:sent, outcome(result)}
+
+      _stopped ->
+        if admitted && :atomics.get(admitted, 1) == 0,
+          do: {:error, :unavailable},
+          else: {:sent, :unknown}
     end
   end
 
