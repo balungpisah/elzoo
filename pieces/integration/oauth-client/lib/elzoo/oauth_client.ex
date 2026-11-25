@@ -13,7 +13,7 @@ defmodule Elzoo.OauthClient do
   Every exchange is one `application/x-www-form-urlencoded` POST through Req, after
   `Elzoo.EgressPolicy.resolve/3`, with retries and redirects off, in a task stopped at
   `exchange_timeout_ms`. Every write runs in its own transaction through
-  `Elzoo.TenantIsolation.transact/3` at READ COMMITTED (a consumer Need that the Piece checks).
+  `Elzoo.TenantIsolation` at READ COMMITTED (a consumer Need that the Piece checks).
 
   Errors are `{:error, reason}` with a fixed atom that echoes no ID, URL, token, code or provider
   message. The Piece emits no telemetry and no log; its queries pass `log: false`.
@@ -47,7 +47,7 @@ defmodule Elzoo.OauthClient do
     :unavailable
   ]
   @required [:clock, :policy, :prefix, :providers, :repo, :resolver, :sealing, :secrets, :transport]
-  @optional [:exchange_timeout_ms, :skew_ms]
+  @optional [:exchange_timeout_ms, :skew_ms, :refresh_deadline]
   @provider_keys Enum.sort(~w(provider_id authorization_endpoint token_endpoint
                     revocation_endpoint redirect_uri client_id client_secret_ref client_auth
                     scopes_allowed refresh_rotation default_lifetime_s)a)
@@ -82,7 +82,7 @@ defmodule Elzoo.OauthClient do
     :clock,
     :skew_ms
   ]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [refresh_deadline: nil]
 
   defimpl Inspect do
     def inspect(_binding, _opts), do: "#Elzoo.OauthClient<redacted>"
@@ -91,7 +91,7 @@ defmodule Elzoo.OauthClient do
   # ── binding ─────────────────────────────────────────────────────────────
 
   @doc """
-  A binding from exactly the options of the README (`exchange_timeout_ms` and `skew_ms`
+  A binding from exactly the options of the README (`exchange_timeout_ms`, `skew_ms` and `refresh_deadline`
   optional): `{:ok, binding}` or `{:error, :invalid}`. Calls no Need.
   """
   def new(opts) do
@@ -106,6 +106,7 @@ defmodule Elzoo.OauthClient do
          true <- is_function(opts[:secrets], 1) and is_function(opts[:clock], 0),
          timeout when is_integer(timeout) and timeout in 1..30_000 <-
            Keyword.get(opts, :exchange_timeout_ms, 10_000),
+         {:ok, budget} <- refresh_budget(Keyword.fetch(opts, :refresh_deadline), timeout),
          skew when is_integer(skew) and skew in 0..3_600_000 <- Keyword.get(opts, :skew_ms, 60_000),
          true <- sealing?(opts[:sealing]),
          {:ok, providers} <- providers(opts[:providers], policy) do
@@ -118,6 +119,7 @@ defmodule Elzoo.OauthClient do
          resolver: opts[:resolver],
          transport: opts[:transport],
          exchange_timeout_ms: timeout,
+         refresh_deadline: budget,
          secrets: opts[:secrets],
          sealing: opts[:sealing],
          clock: opts[:clock],
@@ -127,6 +129,19 @@ defmodule Elzoo.OauthClient do
       _ -> {:error, :invalid}
     end
   end
+
+  defp refresh_budget(:error, _exchange), do: {:ok, nil}
+
+  defp refresh_budget(
+         {:ok, %{lock_wait_ms: lock, overhead_ms: overhead, persistence_reserve_ms: reserve} = m},
+         exchange
+       )
+       when map_size(m) == 3 and is_integer(lock) and lock > 0 and is_integer(overhead) and
+              is_integer(reserve) and reserve > 0 and reserve <= overhead and
+              lock + exchange + overhead <= 600_000,
+       do: {:ok, {lock + exchange + overhead, exchange + reserve}}
+
+  defp refresh_budget(_, _), do: :invalid
 
   @doc false
   # The quoted schema name, shared with Elzoo.OauthClient.Migration.install/1.
@@ -301,8 +316,9 @@ defmodule Elzoo.OauthClient do
          {:ok, state, code} <- callback_shape(tenant, request),
          :ok <- outside(b),
          {:ok, claim} <-
-           run(b, tenant, fn -> claim(b, tenant, :crypto.hash(:sha256, state), code) end) do
-      case tokens(send_bounded(b, claim.request), claim.now, claim.provider) do
+           run(b, tenant, fn -> claim(b, tenant, :crypto.hash(:sha256, state), code) end),
+         {:sent, outcome} <- send_bounded(b, claim.request, nil) do
+      case tokens(outcome, claim.now, claim.provider) do
         {:tokens, t} ->
           run(b, tenant, fn ->
             with {:ok, c} <- connection(b, tenant, claim.connection_id, :lock) do
@@ -423,28 +439,39 @@ defmodule Elzoo.OauthClient do
     with {:ok, b} <- checked(binding),
          {:ok, id} <- id_shape(tenant, request),
          :ok <- outside(b) do
-      run(b, tenant, fn ->
+      {opts, latest_dispatch} =
+        case b.refresh_deadline do
+          nil ->
+            {[], nil}
+
+          {total, required} ->
+            {[timeout: total],
+             System.monotonic_time() +
+               System.convert_time_unit(total - required, :millisecond, :native)}
+        end
+
+      run(b, tenant, opts, fn ->
         with {:ok, c} <- connection(b, tenant, id, :lock),
              {:ok, now} <- now(b) do
-          token(b, tenant, c, now)
+          token(b, tenant, c, now, latest_dispatch)
         end
       end)
     end
   end
 
-  defp token(_b, _tenant, %{state: :revoked}, _now), do: {:error, :revoked}
+  defp token(_b, _tenant, %{state: :revoked}, _now, _latest), do: {:error, :revoked}
 
-  defp token(_b, _tenant, %{state: :reauthorization_required}, _now),
+  defp token(_b, _tenant, %{state: :reauthorization_required}, _now, _latest),
     do: {:error, :reauthorization_required}
 
-  defp token(_b, _tenant, %{state: :pending}, _now), do: {:error, :not_active}
+  defp token(_b, _tenant, %{state: :pending}, _now, _latest), do: {:error, :not_active}
 
-  defp token(b, tenant, c, now) do
+  defp token(b, tenant, c, now, latest) do
     if fresh?(c, now, b.skew_ms) do
       with {:ok, t} <- open(b, c.access_token, tenant, c.connection_id, "access_token"),
            do: {:ok, {:ok, t}}
     else
-      renew(b, tenant, c, now)
+      renew(b, tenant, c, now, latest)
     end
   end
 
@@ -456,11 +483,11 @@ defmodule Elzoo.OauthClient do
 
   defp fresh?(_c, _now, _skew), do: false
 
-  defp renew(b, tenant, %{grant: :client_credentials} = c, now) do
+  defp renew(b, tenant, %{grant: :client_credentials} = c, now, latest) do
     with {:ok, p} <- provider(b, c.provider_id),
          {:ok, key} <- seal_key(b),
          {:sent, outcome} <-
-           exchange(b, p, p.token_endpoint, [
+           exchange(b, p, p.token_endpoint, latest, [
              {"grant_type", "client_credentials"},
              {"scope", Enum.join(c.scopes, " ")}
            ]) do
@@ -475,14 +502,14 @@ defmodule Elzoo.OauthClient do
     end
   end
 
-  defp renew(b, tenant, %{refresh_token: nil} = c, _now), do: reauthorize(b, tenant, c)
+  defp renew(b, tenant, %{refresh_token: nil} = c, _now, _latest), do: reauthorize(b, tenant, c)
 
-  defp renew(b, tenant, c, now) do
+  defp renew(b, tenant, c, now, latest) do
     with {:ok, p} <- provider(b, c.provider_id),
          {:ok, refresh} <- open(b, c.refresh_token, tenant, c.connection_id, "refresh_token"),
          {:ok, key} <- seal_key(b),
          {:sent, outcome} <-
-           exchange(b, p, p.token_endpoint, [
+           exchange(b, p, p.token_endpoint, latest, [
              {"grant_type", "refresh_token"},
              {"refresh_token", refresh}
            ]) do
@@ -569,7 +596,7 @@ defmodule Elzoo.OauthClient do
     with true <- is_binary(envelope),
          {:ok, %{revocation_endpoint: url} = p} when is_binary(url) <- provider(b, c.provider_id),
          {:ok, token} <- open(b, envelope, tenant, c.connection_id, hint),
-         do: exchange(b, p, url, [{"token", token}, {"token_type_hint", hint}])
+         do: exchange(b, p, url, nil, [{"token", token}, {"token_type_hint", hint}])
 
     :ok
   end
@@ -603,9 +630,16 @@ defmodule Elzoo.OauthClient do
 
   # ── exchanges ───────────────────────────────────────────────────────────
 
-  defp exchange(b, p, url, form) do
-    with {:ok, request} <- prepare(b, p, url, form), do: {:sent, send_bounded(b, request)}
+  defp exchange(b, p, url, latest, form) do
+    with {:ok, request} <- prepare(b, p, url, form),
+         :ok <- headroom(latest),
+         do: send_bounded(b, request, latest)
   end
+
+  defp headroom(nil), do: :ok
+
+  defp headroom(latest),
+    do: if(System.monotonic_time() <= latest, do: :ok, else: {:error, :unavailable})
 
   # Everything before the first byte: egress, the client secret and the transport Need.
   defp prepare(b, p, url, form) do
@@ -695,23 +729,22 @@ defmodule Elzoo.OauthClient do
   end
 
   # One request in a task that is killed at exchange_timeout_ms; a stopped exchange is unknown.
-  defp send_bounded(b, request) do
+  defp send_bounded(b, request, latest) do
     task =
       Task.async(fn ->
         try do
-          Req.request(request)
+          # Task scheduling spends the same budget. A local refusal is not a provider outcome.
+          with :ok <- headroom(latest), do: {:sent, Req.request(request)}
         catch
-          _kind, _reason -> :failed
+          _kind, _reason -> {:sent, :failed}
         end
       end)
 
-    result =
-      case Task.yield(task, b.exchange_timeout_ms) || Task.shutdown(task, :brutal_kill) do
-        {:ok, result} -> result
-        _stopped -> :failed
-      end
-
-    outcome(result)
+    case Task.yield(task, b.exchange_timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, {:error, :unavailable} = refused} -> refused
+      {:ok, {:sent, result}} -> {:sent, outcome(result)}
+      _stopped -> {:sent, :unknown}
+    end
   end
 
   defp outcome({:ok, %Req.Response{status: status} = r}) when status in 200..299,
@@ -924,10 +957,15 @@ defmodule Elzoo.OauthClient do
   # One transaction under the tenant scope, after the READ COMMITTED check. `fun` returns
   # `{:ok, result}` to commit and return `result`, or `{:error, reason}` to roll back. A database
   # failure is :unavailable and says nothing about whether a write committed.
-  defp run(b, tenant, fun) do
-    case TenantIsolation.transact(b.repo, %{tenant: tenant}, fn ->
-           with :ok <- isolation(b), do: fun.()
-         end) do
+  defp run(b, tenant, opts \\ [], fun) do
+    case TenantIsolation.transact(
+           b.repo,
+           %{tenant: tenant},
+           fn ->
+             with :ok <- isolation(b), do: fun.()
+           end,
+           opts
+         ) do
       {:ok, result} -> result
       {:error, {:tenant_isolation, :in_transaction}} -> {:error, :in_transaction}
       {:error, reason} when reason in @errors -> {:error, reason}
