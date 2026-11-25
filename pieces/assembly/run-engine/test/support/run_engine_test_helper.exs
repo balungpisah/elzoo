@@ -308,7 +308,8 @@ defmodule Elzoo.RunEngine.TestHelper do
     pid
   end
 
-  def fixture(overrides \\ [], reopen_prefix \\ nil) do
+  def fixture(overrides \\ [], recovery \\ []) do
+    reopen_prefix = recovery[:prefix]
     {effect_bindings, overrides} = Keyword.pop(overrides, :effect_bindings, %{})
     {unit_store, overrides} = Keyword.pop(overrides, :unit_store)
     # The schema and its migration stay on TestRepo (the owner). The runtime Store calls use
@@ -410,7 +411,10 @@ defmodule Elzoo.RunEngine.TestHelper do
          registry: Elzoo.RunEngine.UnitRegistry,
          supervisor: supervisor,
          idle_ms: 60_000,
-         unit_options: fn _ -> unit_opts end},
+         unit_options: fn identity ->
+           if audit = recovery[:audit], do: audit.(store, identity)
+           unit_opts
+         end},
         id: make_ref()
       )
 

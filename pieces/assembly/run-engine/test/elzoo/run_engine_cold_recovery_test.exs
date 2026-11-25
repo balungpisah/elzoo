@@ -103,7 +103,7 @@ defmodule Elzoo.RunEngineColdRecoveryTest do
       Keyword.take(c.opts, [:identity, :pattern, :protocol_version, :messages, :expiry_reports])
 
     encode = fn term -> Base.encode64(:erlang.term_to_binary(term)) end
-    script = Path.expand("../support/run_engine_cold_reader.exs", __DIR__)
+    script = Path.expand("../support/run_engine_cold_reader_test_helper.exs", __DIR__)
     paths = Enum.flat_map(:code.get_path(), &["-pz", List.to_string(&1)])
     args = paths ++ [script, c.prefix, encode.(options), encode.({status, transcript, result})]
 

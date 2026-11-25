@@ -52,7 +52,7 @@
     "test/elzoo/run_engine_expiry_report_test.exs",
     "test/elzoo/run_engine_messages_test.exs",
     "test/elzoo/run_engine_cold_recovery_test.exs",
-    "test/support/run_engine_cold_reader.exs",
+    "test/support/run_engine_cold_reader_test_helper.exs",
     "test/support/run_engine_test_helper.exs"
   ],
   "grounding": [
