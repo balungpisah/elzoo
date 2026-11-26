@@ -172,7 +172,7 @@ defmodule Elzoo.Wave4ChannelExample do
       execute_reply_input(state, event, operation_id, decision)
     else
       {:error, :expired} -> {{:rejected, :conflict}, state}
-      {:error, :conflict} -> {{:rejected, :conflict}, state}
+      {:error, {:conflict, _code}} -> {{:rejected, :conflict}, state}
       {:error, :busy} -> {{:error, :unavailable}, state}
       {:error, :scope} -> {{:rejected, :forbidden}, state}
       {:error, :ticket} -> {{:rejected, :conflict}, state}
@@ -504,7 +504,7 @@ defmodule Elzoo.Wave4ChannelExample do
       execute_input(state, event, operation_id, decision)
     else
       {:error, :expired} -> {{:rejected, :conflict}, state}
-      {:error, :conflict} -> {{:rejected, :conflict}, state}
+      {:error, {:conflict, _code}} -> {{:rejected, :conflict}, state}
       {:error, :busy} -> {{:error, :unavailable}, state}
       {:error, :scope} -> {{:rejected, :forbidden}, state}
       {:error, :unknown} -> {{:error, :unavailable}, state}
@@ -586,6 +586,12 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp answer_projection_head?(_), do: false
 
+  # A stable head pair proves no concurrent command committed between the two
+  # reads: the revision chain and retention are identical.
+  defp stable_projection_heads?(before, after_head) do
+    Map.drop(before, [:capabilities]) == Map.drop(after_head, [:capabilities])
+  end
+
   # Before a Conversation-writing command commits, its exact intent must be a
   # new admissible record after this conversation's earlier committed,
   # undelivered intents, which must all still be admissible or present
@@ -598,10 +604,15 @@ defmodule Elzoo.Wave4ChannelExample do
            Conversation.check(state.conversation.owner, earlier ++ [{mode, dto}]) do
       {prior, [candidate]} = Enum.split(decisions, -1)
 
-      cond do
-        not Enum.all?(prior, &(&1 in [:ok, {:ok, :already_present}])) -> {:error, :unknown}
-        candidate == :ok -> :ok
-        true -> {:error, :conflict}
+      if Enum.all?(prior, &(&1 in [:ok, {:ok, :already_present}])) do
+        case candidate do
+          :ok -> :ok
+          {:ok, :already_present} -> {:error, {:conflict, "already_present"}}
+          {:refused, code} -> {:error, {:conflict, code}}
+          _ -> {:error, :unknown}
+        end
+      else
+        {:error, :unknown}
       end
     else
       :error -> {:error, :invalid}
@@ -1342,35 +1353,356 @@ defmodule Elzoo.Wave4ChannelExample do
   defp advance_once(%{poison: {:answer, _}} = state),
     do: reconcile_answer(state)
 
+  defp advance_once(%{poison: {:delivery, key, _reason}} = state),
+    do: deliver_retry(state, key)
+
+  defp advance_once(%{poison: {:delivery_refused, _key, code}} = state),
+    do: {{:blocked, {:delivery_refused, code}}, state}
+
+  defp advance_once(%{poison: {:intent, _mode, code}} = state),
+    do: {{:blocked, {:intent, code}}, state}
+
   defp advance_once(%{poison: poison} = state) when not is_nil(poison),
     do: {{:blocked, elem(poison, 0)}, state}
 
-  defp advance_once(%{approval: %{release_state: :committed_expired}} = state),
+  # Every non-poison advance first delivers the tenant's committed,
+  # not-yet-delivered intents in command sequence order; a failure stops the
+  # pass and no phase step runs.
+  defp advance_once(state), do: deliver_then_step(state)
+
+  defp advance_step(%{approval: %{release_state: :committed_expired}} = state),
     do: advance_committed_expired(state)
 
-  defp advance_once(%{approval: %{input_state: :committed_expired}} = state),
+  defp advance_step(%{approval: %{input_state: :committed_expired}} = state),
     do: advance_committed_expired(state)
 
-  defp advance_once(%{reply: %{release_state: :committed_expired}} = state),
+  defp advance_step(%{reply: %{release_state: :committed_expired}} = state),
     do: advance_committed_expired(state)
 
-  defp advance_once(%{reply: %{input_state: :committed_expired}} = state),
+  defp advance_step(%{reply: %{input_state: :committed_expired}} = state),
     do: advance_committed_expired(state)
 
-  defp advance_once(%{phase: :idle} = state), do: observe_input(state)
-  defp advance_once(%{phase: :association} = state), do: associate(state)
-  defp advance_once(%{phase: :create_run} = state), do: create_run(state)
-  defp advance_once(%{phase: :begin_attempt} = state), do: begin_attempt(state)
-  defp advance_once(%{phase: :start_engine} = state), do: start_engine(state)
-  defp advance_once(%{phase: :start_input} = state), do: start_input(state)
-  defp advance_once(%{phase: :result} = state), do: observe_result(state)
-  defp advance_once(%{phase: :answer} = state), do: append_answer(state)
-  defp advance_once(%{phase: :reply_observe} = state), do: observe_reply(state)
-  defp advance_once(%{phase: :reply_association} = state), do: associate_reply(state)
-  defp advance_once(%{phase: :reply_input} = state), do: submit_reply_input(state)
-  defp advance_once(%{phase: :reply_ack} = state), do: acknowledge_reply(state)
-  defp advance_once(%{phase: :ack} = state), do: acknowledge(state)
-  defp advance_once(state), do: {{:blocked, :invalid_phase}, state}
+  defp advance_step(%{phase: :idle} = state), do: observe_input(state)
+  defp advance_step(%{phase: :association} = state), do: associate(state)
+  defp advance_step(%{phase: :create_run} = state), do: create_run(state)
+  defp advance_step(%{phase: :begin_attempt} = state), do: begin_attempt(state)
+  defp advance_step(%{phase: :start_engine} = state), do: start_engine(state)
+  defp advance_step(%{phase: :start_input} = state), do: start_input(state)
+  defp advance_step(%{phase: :result} = state), do: observe_result(state)
+  defp advance_step(%{phase: :answer} = state), do: append_answer(state)
+  defp advance_step(%{phase: :reply_observe} = state), do: observe_reply(state)
+  defp advance_step(%{phase: :reply_association} = state), do: associate_reply(state)
+  defp advance_step(%{phase: :reply_input} = state), do: submit_reply_input(state)
+  defp advance_step(%{phase: :reply_ack} = state), do: acknowledge_reply(state)
+  defp advance_step(%{phase: :ack} = state), do: acknowledge(state)
+  defp advance_step(state), do: {{:blocked, :invalid_phase}, state}
+
+  # The delivery pass: pending outbox items in command sequence order.
+  # Delivery-only items (association, answer) are acknowledged with their
+  # original key and nonce once their append is proven; primary and reply
+  # input items stay pending, marked delivered, until their native-work
+  # custody and teardown checks complete. A retried poisoned delivery runs
+  # the identical intent again before anything else.
+  defp deliver_retry(state, key) do
+    case deliver_pending(%{state | poison: nil}) do
+      {:ok, state} ->
+        advance_once(state)
+
+      {:error, state, reply} ->
+        case state.poison do
+          {:delivery, ^key, _} -> {reply, state}
+          _ -> {reply, state}
+        end
+    end
+  end
+
+  defp deliver_then_step(state) do
+    case deliver_pending(state) do
+      {:ok, state} -> advance_step(state)
+      {:error, state, reply} -> {reply, state}
+    end
+  end
+
+  defp deliver_pending(state) do
+    stream = checked_stream(state.profile.tenant)
+
+    case Outbox.pending(state.command_store, stream, @outbox_limit) do
+      {:ok, items} ->
+        if pending_window_full?(items) do
+          fail_delivery(state, {:input_observation, :pending_window_full}, {:unknown, :delivery})
+        else
+          deliver_items(state, items)
+        end
+
+      _ ->
+        fail_delivery(state, {:input_observation, :read}, {:unknown, :delivery})
+    end
+  rescue
+    _ -> fail_delivery(state, {:input_observation, :exception}, {:unknown, :delivery})
+  catch
+    _, _ -> fail_delivery(state, {:input_observation, :exit}, {:unknown, :delivery})
+  end
+
+  defp deliver_items(state, []), do: {:ok, state}
+
+  defp deliver_items(state, [item | rest]) do
+    cond do
+      item.destination in [@destination, @reply_destination] and
+          Map.has_key?(state.delivered, item.idempotency_key) ->
+        deliver_items(state, rest)
+
+      true ->
+        case deliver_item(state, item) do
+          {:ok, state} -> deliver_items(state, rest)
+          {:error, state, reply} -> {:error, state, reply}
+        end
+    end
+  end
+
+  defp fail_delivery(state, poison, reply) do
+    {:error, %{state | poison: poison}, reply}
+  end
+
+  # One item: foreign or unreadable items block this tenant's ordered
+  # delivery; our items are rebuilt from their committed receipts, verified
+  # against their bound digest and appended through the conversation owner.
+  defp deliver_item(state, item) do
+    case delivery_intent(state, item) do
+      {:ok, mode, dto} ->
+        deliver_owner(state, item, mode, dto)
+
+      {:error, :foreign} ->
+        fail_delivery(state, {:input_observation, :foreign_item}, {:unknown, :delivery})
+
+      {:error, reason} ->
+        fail_delivery(state, {:delivery, item.idempotency_key, reason}, {:unknown, :delivery})
+    end
+  end
+
+  defp deliver_owner(state, item, mode, dto) do
+    result =
+      case mode do
+        :input -> Conversation.append_input(state.conversation.owner, dto)
+        :association -> Conversation.associate_run(state.conversation.owner, dto)
+        :answer -> Conversation.append_answer(state.conversation.owner, dto)
+      end
+
+    key = item.idempotency_key
+
+    case result do
+      {:ok, %{sequence: sequence}} ->
+        delivery_proven(state, item, sequence)
+
+      {:ok, :already_present} ->
+        delivery_proven(state, item, nil)
+
+      {:refused, code} ->
+        fail_delivery(
+          state,
+          {:delivery_refused, key, code},
+          {:blocked, {:delivery_refused, code}}
+        )
+
+      {unknown, :unresolved} when unknown == :unknown ->
+        fail_delivery(state, {:delivery, key, :unresolved}, {:unknown, :delivery})
+
+      {:error, reason} ->
+        fail_delivery(state, {:delivery, key, reason}, {:unknown, :delivery})
+
+      other ->
+        fail_delivery(state, {:delivery, key, other}, {:unknown, :delivery})
+    end
+  rescue
+    _ -> fail_delivery(state, {:delivery, item.idempotency_key, :exception}, {:unknown, :delivery})
+  catch
+    _, _ -> fail_delivery(state, {:delivery, item.idempotency_key, :exit}, {:unknown, :delivery})
+  end
+
+  # A proven append: delivery-only items are acknowledged at once with their
+  # original key and nonce; primary and reply items stay pending, recorded in
+  # `delivered` with the conversation sequence when it is known (an
+  # `already_present` redelivery proves delivery without the sequence, which
+  # the association facts scan for when they need it).
+  defp delivery_proven(state, item, sequence) do
+    if item.destination == @delivery_destination do
+      case acknowledge_original_item(state, item.idempotency_key, item.nonce, @delivery_destination) do
+        :ok ->
+          {:ok, state}
+
+        {:error, reason} ->
+          fail_delivery(
+            state,
+            {:delivery, item.idempotency_key, {:ack, reason}},
+            {:unknown, :delivery}
+          )
+      end
+    else
+      delivered = Map.put(state.delivered, item.idempotency_key, sequence)
+      {:ok, %{state | delivered: delivered}}
+    end
+  end
+
+  # The intent of one pending item: `{:ok, mode, dto}` for an item of this
+  # channel, `{:error, :foreign}` for an item of another destination,
+  # principal or conversation, or `{:error, reason}` when the committed
+  # receipt cannot be read or the binding does not verify.
+  defp delivery_intent(state, item) do
+    profile = state.profile
+
+    with true <- item.destination in [@destination, @reply_destination, @delivery_destination],
+         {:ok, notice} <- delivery_notice(item, profile) do
+      case CheckedCommand.result(
+             state.handles.input,
+             result_scope(profile),
+             {profile.tenant, profile.actor, notice["operation_id"]}
+           ) do
+        {:completed, result} ->
+          if result.revision == notice["revision"] do
+            Intents.delivery(result.response)
+          else
+            {:error, :revision}
+          end
+
+        _ ->
+          {:error, :result}
+      end
+    else
+      false -> {:error, :foreign}
+      {:error, :foreign} -> {:error, :foreign}
+      {:error, :notice} -> {:error, :notice}
+    end
+  rescue
+    _ -> {:error, :exception}
+  catch
+    :exit, _ -> {:error, :exit}
+    _, _ -> {:error, :exception}
+  end
+
+  # The notice of one of this channel's items. A well-formed notice of a
+  # different tenant, actor or conversation is foreign; a malformed one
+  # cannot be classified and blocks delivery like any unreadable item.
+  defp delivery_notice(item, profile) do
+    with {:ok, notice} <- Jason.decode(item.payload),
+         true <-
+           Map.keys(notice) |> Enum.sort() == [
+             "actor",
+             "operation_id",
+             "resource",
+             "revision",
+             "tenant",
+             "type",
+             "version"
+           ],
+         true <- notice["type"] == "checked_command" and notice["version"] == 1,
+         true <- is_binary(notice["operation_id"]) and is_binary(notice["resource"]),
+         true <- is_integer(notice["revision"]) and notice["revision"] > 0 do
+      if notice["tenant"] == profile.tenant and notice["actor"] == profile.actor and
+           notice["resource"] == profile.conversation_id do
+        {:ok, notice}
+      else
+        {:error, :foreign}
+      end
+    else
+      _ -> {:error, :notice}
+    end
+  rescue
+    _ -> {:error, :notice}
+  end
+
+  # The conversation sequence of a delivered input record: remembered when
+  # the delivery itself returned it, otherwise scanned from the stream. The
+  # record is present because its delivery is proven before any use.
+  defp input_sequence(state, key, message_id) do
+    case Map.get(state.delivered, key) do
+      sequence when is_integer(sequence) ->
+        {:ok, sequence}
+
+      _ ->
+        conversation_sequence(state, message_id, [:input])
+    end
+  end
+
+  # The sequence for a custody fact, `nil` when the scan is unavailable: the
+  # pair cannot be proven then, which is the same outcome as a damaged stream.
+  defp custody_sequence(state, key, message_id) do
+    case input_sequence(state, key, message_id) do
+      {:ok, sequence} -> sequence
+      _ -> nil
+    end
+  end
+
+  defp conversation_sequence(state, message_id, kinds) do
+    reference = %{
+      target_tenant: state.profile.tenant,
+      conversation_id: state.profile.conversation_id
+    }
+
+    scan_pages(state, reference, 1, fn entry ->
+      entry.kind in kinds and entry.message_id == message_id
+    end)
+  end
+
+
+  # Scan the conversation forward in bounded pages until `match?` holds for
+  # one entry or the head is reached: `{:ok, entry}`, `{:error, :absent}` or
+  # the page read's error.
+  defp scan_pages(state, reference, from, match?) do
+    case Conversation.page(
+           state.conversation.store,
+           resource_scope(state.profile),
+           reference,
+           from,
+           1_000
+         ) do
+      {:ok, %{revision: revision, entries: entries}} ->
+        case Enum.find(entries, match?) do
+          nil ->
+            if revision >= from + length(entries),
+              do: scan_pages(state, reference, from + length(entries), match?),
+              else: {:error, :absent}
+
+          entry ->
+            {:ok, entry}
+        end
+
+      error ->
+        error
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
+  end
+
+  # Scan the whole delivered conversation for one association.
+  defp conversation_association?(state, input_message_id, run_id) do
+    reference = %{
+      target_tenant: state.profile.tenant,
+      conversation_id: state.profile.conversation_id
+    }
+
+    case scan_pages(state, reference, 1, fn entry ->
+           entry.kind == :association and entry.input_message_id == input_message_id and
+             entry.run_id == run_id
+         end) do
+      {:ok, _} -> true
+      _ -> false
+    end
+  end
+
+  # Scan the whole delivered conversation for one input or answer message.
+  defp conversation_message(state, message_id, role) do
+    reference = %{
+      target_tenant: state.profile.tenant,
+      conversation_id: state.profile.conversation_id
+    }
+
+    scan_pages(state, reference, 1, fn entry ->
+      entry.message_id == message_id and
+        ((entry.kind == :input and entry.role == role) or
+           (entry.kind == :answer and role == "assistant"))
+    end)
+  end
 
   defp advance_committed_expired(%{profile: profile, current: current} = state)
        when is_map(current) do
@@ -1540,7 +1872,7 @@ defmodule Elzoo.Wave4ChannelExample do
 
     with {:ok, item} <- item_result,
          {:ok, event, operation_id, resource_revision} <- recover_input(state, item),
-         {:ok, input, text, snapshot, conversation} <-
+         {:ok, input, text, snapshot} <-
            input_from_resource(state, event, resource_revision) do
       if reply_profile?(state.profile) and not before_deadline?(state) do
         retained_event = %{event | text: text}
@@ -1576,8 +1908,7 @@ defmodule Elzoo.Wave4ChannelExample do
                    answer: nil,
                    terminal: nil
                  },
-                 snapshot,
-                 conversation
+                 snapshot
                ) do
           {{:observed, input}, %{state | current: current, phase: phase, approval: nil}}
         else
@@ -1595,58 +1926,27 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> {{:unknown, :input_observation}, %{state | poison: {:input_observation, :exit}}}
   end
 
+
   defp retained_reply_metadata(snapshot, profile) do
-    case Map.fetch(snapshot.fields, "wave4_reply") do
-      :error ->
+    case Intents.metadata(snapshot.fields, profile.tenant) do
+      {:ok, nil} ->
         {:ok, nil}
 
-      {:ok, {:record, fields}} ->
-        values = Map.new(fields)
+      {:ok, metadata} ->
+        {:ok,
+         %{
+           run_id: metadata.run_id,
+           primary_key: metadata.primary_key,
+           reply_key: metadata.reply_key
+         }}
 
-        with {:ok, _} <-
-               Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
-                 snapshot,
-                 profile.tenant
-               ),
-             {:text, "1"} <- Map.get(values, "version"),
-             {:text, run_id} <- Map.get(values, "run_id"),
-             {:text, primary_key} <- Map.get(values, "primary_key"),
-             true <- is_binary(run_id) and byte_size(run_id) in 1..128,
-             true <- canonical_command_key?(primary_key, profile.tenant),
-             {:ok, reply_key} <- retained_reply_key(values, profile.tenant) do
-          {:ok, %{run_id: run_id, primary_key: primary_key, reply_key: reply_key}}
-        else
-          _ -> {:error, :metadata}
-        end
-
-      _ ->
+      {:error, _} ->
         {:error, :metadata}
     end
   rescue
     _ -> {:error, :metadata}
   end
 
-  defp retained_reply_key(values, tenant) do
-    case Map.get(values, "reply_key") do
-      nil -> {:ok, nil}
-      {:text, key} -> if canonical_command_key?(key, tenant), do: {:ok, key}, else: {:error, :key}
-      _ -> {:error, :key}
-    end
-  end
-
-  defp canonical_command_key?(key, tenant) when is_binary(key) do
-    with {:ok, {stream, sequence, 1}} <- Outbox.parse_id(key),
-         true <- stream == checked_stream(tenant),
-         true <- sequence in 1..9_223_372_036_854_775_806 do
-      true
-    else
-      _ -> false
-    end
-  rescue
-    _ -> false
-  end
-
-  defp canonical_command_key?(_, _), do: false
 
   defp completed_pair_matches_metadata?(pair, metadata) when is_map(pair) do
     pair.run_id == metadata.run_id and pair.primary_key == metadata.primary_key
@@ -1657,7 +1957,7 @@ defmodule Elzoo.Wave4ChannelExample do
   defp recover_v2_metadata(state, metadata, pending, _snapshot) do
     with {:ok, item} <- read_original_item(state, metadata.primary_key, @destination),
          {:ok, event, operation_id, resource_revision} <- recover_input(state, item),
-         {:ok, input, text, snapshot, conversation} <-
+         {:ok, input, text, snapshot} <-
            input_from_resource(state, event, resource_revision),
          run_id <- run_id(event, operation_id, state),
          true <- run_id == metadata.run_id,
@@ -1671,8 +1971,8 @@ defmodule Elzoo.Wave4ChannelExample do
            ),
          true <- association_revision == resource_revision + 1,
          true <- association_receipt?(association_response, input, run_id),
-         true <- has_run_association?(conversation.associations, input, run_id),
-         {:ok, reply} <- recover_v2_reply(state, metadata, pending, run_id, input, conversation),
+         true <- conversation_association?(state, input, run_id),
+         {:ok, reply} <- recover_v2_reply(state, metadata, pending, run_id, input),
          current <- %{
            event: event,
            input_id: input,
@@ -1754,7 +2054,7 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> :unknown
   end
 
-  defp recover_v2_reply(state, %{reply_key: nil}, pending, run_id, primary_id, conversation) do
+  defp recover_v2_reply(state, %{reply_key: nil}, pending, run_id, primary_id) do
     case Enum.filter(pending, &(&1.destination == @reply_destination)) do
       [] ->
         {:ok, nil}
@@ -1762,7 +2062,7 @@ defmodule Elzoo.Wave4ChannelExample do
       [candidate] ->
         with {:ok, item} <- read_original_item(state, candidate.idempotency_key, @reply_destination),
              {:ok, reply} <-
-               recover_v2_reply_item(state, item, nil, run_id, primary_id, conversation) do
+               recover_v2_reply_item(state, item, nil, run_id, primary_id) do
           {:ok, reply}
         end
 
@@ -1771,16 +2071,16 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
-  defp recover_v2_reply(state, %{reply_key: key}, _pending, run_id, primary_id, conversation)
+  defp recover_v2_reply(state, %{reply_key: key}, _pending, run_id, primary_id)
        when is_binary(key) do
     with {:ok, item} <- read_original_item(state, key, @reply_destination),
          {:ok, reply} <-
-           recover_v2_reply_item(state, item, key, run_id, primary_id, conversation) do
+           recover_v2_reply_item(state, item, key, run_id, primary_id) do
       {:ok, reply}
     end
   end
 
-  defp recover_v2_reply_item(state, item, metadata_key, run_id, primary_id, conversation) do
+  defp recover_v2_reply_item(state, item, metadata_key, run_id, primary_id) do
     with {:ok, notice} <- reply_notice(item, state.profile),
          {:completed, result} <-
            CheckedCommand.result(
@@ -1791,9 +2091,8 @@ defmodule Elzoo.Wave4ChannelExample do
          true <- result.revision == notice["revision"],
          {:ok, ticket, receipt_revision} <- receipt_input(result.response),
          true <- receipt_revision == result.revision,
-         %{role: "source", text: text} <-
-           Enum.find(conversation.messages, &(&1.message_id == ticket)),
-         true <- has_run_association?(conversation.associations, primary_id, run_id),
+         {:ok, %{text: text}} <- conversation_message(state, ticket, "source"),
+         true <- conversation_association?(state, primary_id, run_id),
          reply_operation <- notice["operation_id"],
          association_operation <- association_operation(reply_operation, ticket, state.profile),
          {:ok, association_revision} <-
@@ -1804,8 +2103,7 @@ defmodule Elzoo.Wave4ChannelExample do
              result.revision,
              ticket,
              run_id,
-             item,
-             conversation
+             item
            ) do
       event = %{
         version: 1,
@@ -1852,8 +2150,7 @@ defmodule Elzoo.Wave4ChannelExample do
          _revision,
          ticket,
          run_id,
-         item,
-         conversation
+         item
        ) do
     case CheckedCommand.result(
            state.handles.reply_association,
@@ -1862,7 +2159,7 @@ defmodule Elzoo.Wave4ChannelExample do
          ) do
       {:unknown, :not_observed} ->
         if item.state == :pending and
-             not has_run_association?(conversation.associations, ticket, run_id),
+             not conversation_association?(state, ticket, run_id),
            do: {:ok, nil},
            else: {:error, :association}
 
@@ -1878,8 +2175,7 @@ defmodule Elzoo.Wave4ChannelExample do
          revision,
          ticket,
          run_id,
-         _item,
-         conversation
+         _item
        )
        when is_binary(key) do
     case CheckedCommand.result(
@@ -1890,7 +2186,7 @@ defmodule Elzoo.Wave4ChannelExample do
       {:completed, %{revision: association_revision, response: response}}
       when association_revision == revision + 1 ->
         if association_receipt?(response, ticket, run_id) and
-             has_run_association?(conversation.associations, ticket, run_id),
+             conversation_association?(state, ticket, run_id),
            do: {:ok, association_revision},
            else: {:error, :association}
 
@@ -1899,7 +2195,7 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
-  defp retained_reply_association(_, _, _, _, _, _, _, _), do: {:error, :association}
+  defp retained_reply_association(_, _, _, _, _, _, _), do: {:error, :association}
 
   defp recover_input(state, item) do
     with true <-
@@ -1952,26 +2248,15 @@ defmodule Elzoo.Wave4ChannelExample do
     with true <- event.conversation_id == state.profile.conversation_id,
          {:ok, snapshot} <-
            CheckedCommand.resource(state.handles.input, scope, state.profile.conversation_id),
-         {:ok, conversation_snapshot} <-
-           if(reply_profile?(state.profile),
-             do:
-               Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
-                 snapshot,
-                 state.profile.tenant
-               ),
-             else: {:ok, snapshot}
-           ),
-         {:ok, view} <- Conversation.view(conversation_snapshot, scope),
-         %{message_id: id, role: "source", text: text} <-
-           Enum.find(view.messages, &(&1.message_id == event.input_id)),
+         {:ok, entry} <- conversation_message(state, event.input_id, "source"),
          true <- snapshot.revision >= revision do
-      {:ok, id, text, snapshot, view}
+      {:ok, entry.message_id, entry.text, snapshot}
     else
       _ -> {:error, :unavailable}
     end
   end
 
-  defp retained_phase(state, current, snapshot, conversation) do
+  defp retained_phase(state, current, snapshot) do
     identity = {state.profile.tenant, state.profile.actor, current.association_operation}
 
     case CheckedCommand.result(state.handles.association, result_scope(state.profile), identity) do
@@ -1980,16 +2265,12 @@ defmodule Elzoo.Wave4ChannelExample do
 
       {:completed, %{revision: revision, response: response}}
       when revision == current.resource_revision + 1 ->
-        associated? =
-          Enum.any?(conversation.associations, fn association ->
-            Map.get(association, :input_message_id) == current.input_id and
-              Map.get(association, :run_id) == current.run_id
-          end)
+        associated? = conversation_association?(state, current.input_id, current.run_id)
 
         if association_receipt?(response, current.input_id, current.run_id) and associated? do
           if reply_profile?(state.profile),
             do: {:error, :metadata_required},
-            else: retained_answer_phase(state, current, snapshot, conversation)
+            else: retained_answer_phase(state, current, snapshot)
         else
           {:error, :association}
         end
@@ -2003,7 +2284,7 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> {:error, :association}
   end
 
-  defp retained_answer_phase(state, current, snapshot, conversation) do
+  defp retained_answer_phase(state, current, snapshot) do
     identity = {state.profile.tenant, state.profile.actor, current.answer_operation}
 
     case CheckedCommand.result(state.handles.answer, result_scope(state.profile), identity) do
@@ -2026,8 +2307,8 @@ defmodule Elzoo.Wave4ChannelExample do
               false
           end
 
-        case Enum.find(conversation.messages, &(&1.message_id == message_id)) do
-          %{role: "assistant", text: text} when valid_run? ->
+        case {valid_run?, conversation_message(state, message_id, "assistant")} do
+          {true, {:ok, %{text: text}}} ->
             if answer_receipt?(response, current.input_id, current.run_id, message_id) and
                  valid_answer_payload?(%{"answer" => text}) do
               {:ok, :ack, %{current | answer: text}}
@@ -2060,15 +2341,24 @@ defmodule Elzoo.Wave4ChannelExample do
         %{"message_id" => c.input_id}
       )
 
-    facts =
+    facts_result =
       if reply_profile?(state.profile) do
-        reply_primary_association_facts(c.run_id, c.item.key)
+        with {:ok, sequence} <- input_sequence(state, c.item.key, c.input_id) do
+          {:ok,
+           reply_primary_association_facts(c.run_id, c.item.key, c.item.nonce, sequence)}
+        end
       else
-        association_facts(c.run_id)
+        {:ok, association_facts(c.run_id)}
       end
 
-    result = execute_checked(state, :association, c.event, request, facts)
-    classify_association(state, c, result)
+    case facts_result do
+      {:ok, facts} ->
+        result = execute_checked(state, :association, c.event, request, facts)
+        classify_association(state, c, result)
+
+      _ ->
+        {{:error, :unavailable}, state}
+    end
   rescue
     _ -> {{:error, :unavailable}, state}
   catch
@@ -2099,6 +2389,9 @@ defmodule Elzoo.Wave4ChannelExample do
 
       {:conflict, _} ->
         {{:blocked, :association_conflict}, %{state | poison: {:association, :conflict}}}
+
+      {:intent_conflict, code} ->
+        {{:blocked, {:intent, code}}, %{state | poison: {:intent, :association, code}}}
 
       other ->
         {{:blocked, :association}, %{state | poison: {:association, other}}}
@@ -2612,24 +2905,9 @@ defmodule Elzoo.Wave4ChannelExample do
          true <- result.revision == reply.resource_revision,
          {:ok, ticket, response_revision} <- receipt_input(result.response),
          true <- ticket == reply.ticket and response_revision == result.revision,
-         {:ok, snapshot} <-
-           CheckedCommand.resource(
-             state.handles.input,
-             resource_scope(state.profile),
-             state.profile.conversation_id
-           ),
-         {:ok, clean} <-
-           Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
-             snapshot,
-             state.profile.tenant
-           ),
-         {:ok, conversation} <- Conversation.view(clean, resource_scope(state.profile)),
-         true <-
-           Enum.any?(
-             conversation.messages,
-             &(&1.message_id == ticket and &1.text == reply.event.text)
-           ),
-         true <- has_run_association?(conversation.associations, current.input_id, current.run_id) do
+         {:ok, reply_entry} <- conversation_message(state, ticket, "source"),
+         true <- reply_entry.text == reply.event.text,
+         true <- conversation_association?(state, current.input_id, current.run_id) do
       reply = %{reply | item: item, text: reply.event.text}
       {{:reply_observed, item.idempotency_key}, %{state | reply: reply, phase: :reply_association}}
     else
@@ -2708,7 +2986,20 @@ defmodule Elzoo.Wave4ChannelExample do
         %{"message_id" => reply.ticket}
       )
 
-    facts = reply_association_facts(current.run_id, current.item.key, reply.item.idempotency_key)
+    facts =
+      case input_sequence(state, reply.item.idempotency_key, reply.ticket) do
+        {:ok, sequence} ->
+          reply_association_facts(
+            current.run_id,
+            current.item.key,
+            reply.item.idempotency_key,
+            reply.item.nonce,
+            sequence
+          )
+
+        _ ->
+          raise "reply input sequence unavailable"
+      end
 
     case execute_checked(state, :reply_association, reply.event, request, facts) do
       {:completed, %{revision: revision, response: response}}
@@ -2733,6 +3024,9 @@ defmodule Elzoo.Wave4ChannelExample do
 
       {:unavailable, _} ->
         {{:error, :unavailable}, state}
+
+      {:intent_conflict, code} ->
+        {{:blocked, {:intent, code}}, %{state | poison: {:intent, :reply_association, code}}}
 
       _ ->
         {{:blocked, :reply_association}, %{state | poison: {:reply_association, :conflict}}}
@@ -2806,35 +3100,17 @@ defmodule Elzoo.Wave4ChannelExample do
        %{state | poison: {:provider_owner_replacement, :unknown_run}}}
 
   defp confirm_reply_association(state, reply, current) do
-    with {:ok, snapshot} <-
-           CheckedCommand.resource(
-             state.handles.input,
-             resource_scope(state.profile),
-             state.profile.conversation_id
-           ),
-         {:ok, clean} <-
-           Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
-             snapshot,
-             state.profile.tenant
-           ),
-         {:ok, conversation} <- Conversation.view(clean, resource_scope(state.profile)),
-         true <- has_run_association?(conversation.associations, current.input_id, current.run_id),
-         true <- has_run_association?(conversation.associations, reply.ticket, current.run_id) do
-      true
-    else
-      _ -> false
-    end
+    # The reply association command is committed (its receipt verifies) but
+    # not yet delivered; the delivered primary association and the reply input
+    # are the conversation-side proof.
+    conversation_association?(state, current.input_id, current.run_id) and
+      match?({:ok, _}, conversation_message(state, reply.ticket, "source"))
   rescue
     _ -> false
   catch
     _, _ -> false
   end
 
-  defp has_run_association?(associations, message_id, run_id) do
-    Enum.any?(associations, fn association ->
-      association.input_message_id == message_id and association.run_id == run_id
-    end)
-  end
 
   defp submit_reply_input(%{reply: reply, current: current, engine: engine} = state)
        when is_map(reply) and is_map(current) and is_map(reply.item) and is_pid(engine) do
@@ -2913,34 +3189,17 @@ defmodule Elzoo.Wave4ChannelExample do
            ),
          true <-
            snapshot.revision == revision and
-             reply_metadata_matches?(snapshot, current.run_id, primary_key, reply_key),
-         {:ok, clean_snapshot} <-
-           Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
-             snapshot,
-             state.profile.tenant
-           ),
-         {:ok, conversation} <- Conversation.view(clean_snapshot, resource_scope(state.profile)),
-         true <- has_run_association?(conversation.associations, current.input_id, current.run_id),
-         true <- has_run_association?(conversation.associations, reply.ticket, current.run_id),
-         %{role: "source", text: text} <-
-           Enum.find(conversation.messages, &(&1.message_id == reply.ticket)),
+             reply_metadata_matches?(
+               snapshot,
+               current.run_id,
+               primary_key,
+               reply_key,
+               state.profile.tenant
+             ),
+         true <- conversation_association?(state, current.input_id, current.run_id),
+         true <- conversation_association?(state, reply.ticket, current.run_id),
+         {:ok, %{text: text}} <- conversation_message(state, reply.ticket, "source"),
          true <- text == reply.text,
-         answer_request <-
-           command_request(
-             state.profile,
-             state.profile.conversation_id,
-             snapshot.revision,
-             current.answer_operation,
-             %{"message_id" => answer_id(current.input_id), "text" => String.duplicate("x", 71)}
-           ),
-         {:ok, writes, _} <-
-           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_answer(
-             snapshot,
-             answer_request,
-             prepare_facts(state.profile, answer_facts(current.run_id, current.input_id, true))
-           ),
-         projected <- apply_writes(snapshot, writes),
-         true <- resource_snapshot_fits?(projected),
          {:ok, after_head} <- Elzoo.DurableLog.Store.read(state.command_store, :head, [stream]),
          true <- answer_projection_head?(after_head) and stable_projection_heads?(head, after_head) do
       :ok
@@ -2953,17 +3212,21 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> {:error, :unavailable}
   end
 
-  defp reply_metadata_matches?(snapshot, run_id, primary_key, reply_key) do
-    expected =
-      {:record,
-       Enum.sort([
-         {"primary_key", {:text, primary_key}},
-         {"reply_key", {:text, reply_key}},
-         {"run_id", {:text, run_id}},
-         {"version", {:text, "1"}}
-       ])}
+  # The keys are already validated; sequences and nonces are delivery-custody
+  # facts verified through scans, not repeated here.
+  defp reply_metadata_matches?(snapshot, run_id, primary_key, reply_key, tenant) do
+    case Intents.metadata(snapshot.fields, tenant) do
+      {:ok, metadata} ->
+        metadata.run_id == run_id and metadata.primary_key == primary_key and
+          metadata.reply_key == reply_key and is_binary(metadata.reply_nonce) and
+          is_integer(metadata.reply_sequence) and is_binary(metadata.primary_nonce) and
+          is_integer(metadata.primary_sequence)
 
-    Map.get(snapshot.fields, "wave4_reply") == expected
+      _ ->
+        false
+    end
+  rescue
+    _ -> false
   end
 
   defp safe_native_input(engine, id, input, context) do
@@ -3598,6 +3861,7 @@ defmodule Elzoo.Wave4ChannelExample do
         completed = %{c.input_id => %{run_id: c.run_id, outcome: :completed}}
 
         pair = %{
+          tenant: state.profile.tenant,
           run_id: c.run_id,
           operation_id: c.operation_id,
           input_id: c.input_id,
@@ -3607,10 +3871,12 @@ defmodule Elzoo.Wave4ChannelExample do
           answer_revision: c.answer_revision,
           primary_key: c.item.key,
           primary_nonce: c.item.nonce,
+          primary_sequence: custody_sequence(state, c.item.key, c.input_id),
           reply_operation: state.reply.operation_id,
           reply_ticket: state.reply.ticket,
           reply_key: state.reply.item.idempotency_key,
-          reply_nonce: state.reply.item.nonce
+          reply_nonce: state.reply.item.nonce,
+          reply_sequence: custody_sequence(state, state.reply.item.idempotency_key, state.reply.ticket)
         }
 
         latest_native = %{
@@ -3640,6 +3906,7 @@ defmodule Elzoo.Wave4ChannelExample do
     reply_ack = reply_ack_eligibility(state)
 
     pair = %{
+      tenant: state.profile.tenant,
       terminal: c.terminal,
       operation_id: native_operation(c.run_id, state),
       attempt_id: attempt_id(c.run_id, state),
@@ -4102,18 +4369,35 @@ defmodule Elzoo.Wave4ChannelExample do
   defp execute_checked(state, mode, event, request, facts) do
     handle = state.handles[mode]
 
-    case command_context(state, mode, event, request, facts) do
-      {:ok, context} ->
-        try do
-          CheckedCommand.execute(handle, context, request)
-        rescue
-          _ -> {:unknown, :exception}
-        catch
-          _, _ -> {:unknown, :exception}
+    # Host-generated Conversation-writing commands are checked against the
+    # ordered admitted state like signed commands: a conflict is a definite
+    # host-level contradiction, never committed.
+    admission =
+      if mode in [:association, :reply_association, :answer],
+        do: admission_intent(state, request, facts),
+        else: :ok
+
+    case admission do
+      :ok ->
+        case command_context(state, mode, event, request, facts) do
+          {:ok, context} ->
+            try do
+              CheckedCommand.execute(handle, context, request)
+            rescue
+              _ -> {:unknown, :exception}
+            catch
+              _, _ -> {:unknown, :exception}
+            end
+
+          {:error, reason} ->
+            {:unavailable, reason}
         end
 
-      {:error, reason} ->
-        {:unavailable, reason}
+      {:error, {:conflict, code}} ->
+        {:intent_conflict, code}
+
+      {:error, _reason} ->
+        {:unavailable, :admission}
     end
   rescue
     _ -> {:unavailable, :context}
@@ -4136,65 +4420,7 @@ defmodule Elzoo.Wave4ChannelExample do
              state.profile.conversation_id
            ) do
       prepared =
-        if reply_profile?(state.profile) do
-          prepared_facts = prepare_facts(state.profile, facts)
-
-          case mode do
-            :input ->
-              Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
-                snapshot,
-                request,
-                prepared_facts
-              )
-
-            :reply_input ->
-              Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
-                snapshot,
-                request,
-                prepared_facts
-              )
-
-            :release ->
-              Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
-                snapshot,
-                request,
-                prepared_facts
-              )
-
-            :reply_release ->
-              Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
-                snapshot,
-                request,
-                prepared_facts
-              )
-
-            :association ->
-              Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_association(
-                snapshot,
-                request,
-                prepared_facts
-              )
-
-            :reply_association ->
-              Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_association(
-                snapshot,
-                request,
-                prepared_facts
-              )
-
-            :answer ->
-              Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_answer(
-                snapshot,
-                request,
-                prepared_facts
-              )
-
-            _ ->
-              Conversation.prepare(snapshot, request, prepared_facts)
-          end
-        else
-          Conversation.prepare(snapshot, request, prepare_facts(state.profile, facts))
-        end
+        Intents.prepare(snapshot, request, prepare_facts(state.profile, facts))
 
       writes =
         case prepared do
@@ -4230,16 +4456,26 @@ defmodule Elzoo.Wave4ChannelExample do
 
         with {:ok, snapshot} <-
                CheckedCommand.resource(state.handles.input, scope, state.profile.conversation_id),
-             {:ok, conversation_snapshot} <- read_conversation_snapshot(snapshot, state.profile),
-             {:ok, conversation} <- Conversation.view(conversation_snapshot, scope),
-             {:ok, summaries} <- run_summaries(state, conversation.associations),
+             {:ok, %{entries: entries}} <-
+               Conversation.tail(
+                 state.conversation.store,
+                 resource_scope(state.profile),
+                 %{
+                   target_tenant: state.profile.tenant,
+                   conversation_id: state.profile.conversation_id
+                 },
+                 @view_entries
+               ),
+             messages = view_messages(entries),
+             associations = view_associations(entries),
+             {:ok, summaries} <- run_summaries(state, associations),
              {:ok, event_waits} <- native_event_waits_view(state, snapshot),
              view <- %{
                tenant: state.profile.tenant,
                resource: state.profile.conversation_id,
                revision: snapshot.revision,
-               messages: conversation.messages,
-               associations: conversation.associations,
+               messages: messages,
+               associations: associations,
                runs: summaries
              },
              view <-
@@ -4260,14 +4496,26 @@ defmodule Elzoo.Wave4ChannelExample do
     :exit, _ -> {:error, :unavailable}
   end
 
-  defp read_conversation_snapshot(snapshot, profile) do
-    if reply_profile?(profile),
-      do:
-        Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
-          snapshot,
-          profile.tenant
-        ),
-      else: {:ok, snapshot}
+  # View entries shape: inputs read as their source/user messages and answers
+  # as assistant messages; associations read as run attachments. Delivered
+  # sequence positions are not part of the view.
+  defp view_messages(entries) do
+    for entry <- entries, entry.kind in [:input, :answer] do
+      case entry do
+        %{kind: :input} ->
+          Map.take(entry, [:message_id, :role, :actor, :text])
+
+        %{kind: :answer} ->
+          entry
+          |> Map.take([:message_id, :actor, :text, :run_id, :input_message_id])
+          |> Map.put(:role, "assistant")
+      end
+    end
+  end
+
+  defp view_associations(entries) do
+    for entry <- entries, entry.kind == :association,
+        do: %{input_message_id: entry.input_message_id, run_id: entry.run_id}
   end
 
   defp native_event_waits_view(%{profile: profile} = state, snapshot) do
@@ -4282,7 +4530,8 @@ defmodule Elzoo.Wave4ChannelExample do
         native_event_waits_for_live_reader(state, reader)
 
       known_pre_native?(state) and
-          (not metadata_present? or pre_native_metadata_matches?(snapshot, state.current)) ->
+          (not metadata_present? or
+             pre_native_metadata_matches?(snapshot, state.current, profile.tenant)) ->
         {:ok, nil}
 
       true ->
@@ -4367,19 +4616,20 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp known_pre_native?(_), do: false
 
-  defp pre_native_metadata_matches?(snapshot, %{run_id: run_id, item: %{key: primary_key}}) do
-    case Map.get(snapshot.fields, "wave4_reply") do
-      {:record, fields} ->
-        List.keyfind(fields, "run_id", 0) == {"run_id", {:text, run_id}} and
-          List.keyfind(fields, "primary_key", 0) == {"primary_key", {:text, primary_key}} and
-          is_nil(List.keyfind(fields, "reply_key", 0))
+  defp pre_native_metadata_matches?(snapshot, %{run_id: run_id, item: %{key: primary_key}}, tenant) do
+    case Intents.metadata(snapshot.fields, tenant) do
+      {:ok, metadata} when is_map(metadata) ->
+        metadata.run_id == run_id and metadata.primary_key == primary_key and
+          is_nil(metadata.reply_key)
 
       _ ->
         false
     end
+  rescue
+    _ -> false
   end
 
-  defp pre_native_metadata_matches?(_, _), do: false
+  defp pre_native_metadata_matches?(_, _, _), do: false
 
   defp native_event_waits(state) do
     c = state.current
@@ -4613,6 +4863,7 @@ defmodule Elzoo.Wave4ChannelExample do
   defp reply_event_source(state, c) do
     profile = state.profile
     store = state.command_store
+    conv_store = state.conversation.store
     handles = state.handles
     run_id = c.run_id
     primary = %{key: c.item.key, operation_id: c.operation_id, input_id: c.input_id, run_id: run_id}
@@ -4630,6 +4881,7 @@ defmodule Elzoo.Wave4ChannelExample do
           profile,
           run_id,
           store,
+          conv_store,
           handles,
           primary
         )
@@ -5016,18 +5268,11 @@ defmodule Elzoo.Wave4ChannelExample do
              state.profile.conversation_id
            ),
          true <- snapshot.revision >= answer_revision and completed_pair_metadata?(snapshot, pair),
-         {:ok, clean_snapshot} <-
-           Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
-             snapshot,
-             state.profile.tenant
-           ),
-         {:ok, conversation} <- Conversation.view(clean_snapshot, resource_scope(state.profile)),
-         %{role: "assistant", text: answer} <-
-           Enum.find(conversation.messages, &(&1.message_id == pair.answer_id)),
+         {:ok, answer_entry} <- conversation_message(state, pair.answer_id, "assistant"),
          true <-
-           answer == pair.answer and
-             has_run_association?(conversation.associations, pair.input_id, pair.run_id) and
-             has_run_association?(conversation.associations, pair.reply_ticket, pair.run_id),
+           answer_entry.text == pair.answer and
+             conversation_association?(state, pair.input_id, pair.run_id) and
+             conversation_association?(state, pair.reply_ticket, pair.run_id),
          :ok <-
            acknowledged_outbox_item(state, pair.reply_key, pair.reply_nonce, @reply_destination),
          :ok <- acknowledged_outbox_item(state, pair.primary_key, pair.primary_nonce, @destination) do
@@ -5089,17 +5334,23 @@ defmodule Elzoo.Wave4ChannelExample do
   defp terminal_reply_ack_proven(_state, %{reply_committed: false}), do: :ok
   defp terminal_reply_ack_proven(_state, _pair), do: {:error, :unknown}
 
+  # The pair metadata carries the committed custody facts; the pair fields are
+  # derived from the same items, so the full comparison is exact.
   defp completed_pair_metadata?(snapshot, pair) do
-    expected =
-      {:record,
-       Enum.sort([
-         {"primary_key", {:text, pair.primary_key}},
-         {"reply_key", {:text, pair.reply_key}},
-         {"run_id", {:text, pair.run_id}},
-         {"version", {:text, "1"}}
-       ])}
+    case Intents.metadata(snapshot.fields, pair.tenant) do
+      {:ok, metadata} ->
+        metadata.run_id == pair.run_id and metadata.primary_key == pair.primary_key and
+          metadata.reply_key == pair.reply_key and
+          metadata.primary_nonce == pair.primary_nonce and
+          metadata.primary_sequence == pair.primary_sequence and
+          metadata.reply_nonce == pair.reply_nonce and
+          metadata.reply_sequence == pair.reply_sequence
 
-    Map.get(snapshot.fields, "wave4_reply") == expected
+      _ ->
+        false
+    end
+  rescue
+    _ -> false
   end
 
   defp acknowledged_outbox_item(state, key, nonce, destination) do
@@ -5168,40 +5419,27 @@ defmodule Elzoo.Wave4ChannelExample do
   defp association_facts(run_id),
     do: portable_facts(%{"mode" => {:text, "associate_run"}, "run_id" => {:text, run_id}})
 
-  defp reply_primary_association_facts(run_id, primary_key),
-    do:
-      portable_facts(%{
-        "mode" => {:text, "associate_run"},
-        "run_id" => {:text, run_id},
-        "primary_key" => {:text, primary_key}
-      })
-
-  defp reply_association_facts(run_id, primary_key, reply_key),
+  defp reply_primary_association_facts(run_id, primary_key, primary_nonce, primary_sequence),
     do:
       portable_facts(%{
         "mode" => {:text, "associate_run"},
         "run_id" => {:text, run_id},
         "primary_key" => {:text, primary_key},
-        "reply_key" => {:text, reply_key}
+        "primary_nonce" => {:bytes, primary_nonce},
+        "primary_sequence" => primary_sequence
       })
 
-  defp projected_reply_key(profile, operation_id) do
-    nonce =
-      :crypto.hash(
-        :sha256,
-        :erlang.term_to_binary({profile.tenant, operation_id, :reply_projection})
-      )
-      |> binary_part(0, 16)
+  defp reply_association_facts(run_id, primary_key, reply_key, reply_nonce, reply_sequence),
+    do:
+      portable_facts(%{
+        "mode" => {:text, "associate_run"},
+        "run_id" => {:text, run_id},
+        "primary_key" => {:text, primary_key},
+        "reply_key" => {:text, reply_key},
+        "reply_nonce" => {:bytes, reply_nonce},
+        "reply_sequence" => reply_sequence
+      })
 
-    Elzoo.Outbox.new(
-      checked_stream(profile.tenant),
-      4096,
-      1,
-      "wave4-channel-reply",
-      "{}",
-      nonce
-    ).idempotency_key
-  end
 
   defp answer_facts(run_id, input_id, completed),
     do:
@@ -5217,21 +5455,6 @@ defmodule Elzoo.Wave4ChannelExample do
   defp prepare_facts(profile, facts),
     do: %{tenant: profile.tenant, actor: profile.actor, data: facts}
 
-  defp apply_writes(snapshot, writes) do
-    fields =
-      Enum.reduce(writes, snapshot.fields, fn write, acc ->
-        Map.put(acc, write.field, write.value)
-      end)
-
-    %{snapshot | revision: snapshot.revision + 1, fields: fields}
-  end
-
-  defp resource_snapshot_fits?(%{revision: revision, fields: fields}) do
-    bytes = :erlang.term_to_binary(%{revision: revision, fields: fields}, [:deterministic])
-    map_size(fields) <= 64 and byte_size(bytes) <= 65_536
-  rescue
-    _ -> false
-  end
 
   defp result_scope(profile), do: %{tenant: profile.tenant, actor: profile.actor}
 
@@ -5695,7 +5918,6 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
 
   @destination "wave4-channel-reply"
   @primary_destination "wave4-channel-input"
-  @metadata_field "wave4_reply"
   @max_records 4_096
   @max_record_bytes 1_048_576
   @max_bytes @max_records * @max_record_bytes
@@ -5717,7 +5939,7 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
     _, _ -> {:error, :unavailable}
   end
 
-  def read(scope, event_id, profile, run_id, store, handles, primary) do
+  def read(scope, event_id, profile, run_id, store, conv_store, handles, primary) do
     target_stream = stream(profile.tenant)
 
     with :ok <- valid_scope(scope, profile, run_id),
@@ -5733,7 +5955,7 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
             {:error, :gap}
 
           true ->
-            read_event(store, before, event_id, sequence, profile, run_id, handles, primary)
+            read_event(store, before, event_id, sequence, profile, run_id, conv_store, handles, primary)
         end
 
       stable_result(store, target_stream, before, result)
@@ -5780,7 +6002,7 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
     end
   end
 
-  defp read_event(store, before, event_id, sequence, profile, run_id, handles, primary) do
+  defp read_event(store, before, event_id, sequence, profile, run_id, conv_store, handles, primary) do
     target_stream = stream(profile.tenant)
 
     with {:ok, records, read_head} <- DurableLog.read(store, target_stream, 1, before.revision),
@@ -5791,7 +6013,7 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
     else
       {:ok, item} when is_map(item) ->
         with :ok <- valid_item(item, event_id, sequence, profile, @destination),
-             {:ok, event} <- source_event(item, event_id, profile, run_id, handles, primary) do
+             {:ok, event} <- source_event(item, event_id, profile, run_id, conv_store, handles, primary) do
           {:ok, event}
         else
           _ -> {:error, :unavailable}
@@ -5876,7 +6098,7 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
     end
   end
 
-  defp source_event(item, event_id, profile, run_id, handles, primary) do
+  defp source_event(item, event_id, profile, run_id, conv_store, handles, primary) do
     with :ok <- valid_primary_capture(primary, profile, run_id),
          {:ok, reply_notice} <- notice(item, @destination, profile),
          reply_operation when is_binary(reply_operation) <- reply_notice["operation_id"],
@@ -5909,6 +6131,12 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
          {:ok, primary_id, primary_response_revision} <- receipt(primary_result.response),
          true <- primary_response_revision == primary_result.revision,
          true <- primary_id == primary.input_id,
+         {:ok, snapshot} <- resource_snapshot(handles.input, profile),
+         {:ok, metadata} when is_map(metadata) <-
+           Elzoo.Wave4ChannelExample.Intents.metadata(snapshot.fields, profile.tenant),
+         true <-
+           metadata.run_id == run_id and metadata.primary_key == primary.key and
+             metadata.reply_key == event_id,
          :ok <-
            same_run_associations(
              handles,
@@ -5917,22 +6145,11 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
              primary,
              reply_operation,
              ticket,
-             event_id,
-             primary_notice,
              primary_result.revision,
-             reply_notice,
              reply_result.revision
            ),
          {:ok, text} <-
-           conversation_text(
-             handles.input,
-             profile,
-             ticket,
-             "source",
-             run_id,
-             primary.key,
-             event_id
-           ) do
+           conversation_text(conv_store, profile, ticket, metadata) do
       {:ok,
        %{
          id: event_id,
@@ -5974,6 +6191,9 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
 
   defp valid_primary_capture(_, _, _), do: {:error, :identity}
 
+  # The custody facts bind the run and the items; the conversation records are
+  # proven by the sequence reads, so the remaining check is the committed
+  # association receipts of both commands.
   defp same_run_associations(
          handles,
          profile,
@@ -5981,22 +6201,10 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
          primary,
          reply_operation,
          ticket,
-         reply_key,
-         primary_notice,
          primary_revision,
-         reply_notice,
          reply_revision
        ) do
-    with true <- reply_notice["resource"] == profile.conversation_id,
-         true <- primary_notice["resource"] == profile.conversation_id,
-         {:ok, snapshot} <- resource_snapshot(handles.input, profile),
-         true <- metadata_matches?(snapshot, profile, run_id, primary.key, reply_key),
-         {:ok, conversation_snapshot} <-
-           conversation_snapshot(snapshot, profile, run_id, primary.key, reply_key),
-         {:ok, conversation} <- Conversation.view(conversation_snapshot, resource_scope(profile)),
-         true <- has_association?(conversation.associations, primary.input_id, run_id),
-         true <- has_association?(conversation.associations, ticket, run_id),
-         true <-
+    with true <-
            association_result?(
              handles.association,
              profile,
@@ -6029,70 +6237,40 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
            {profile.tenant, profile.actor, association}
          ) do
       {:completed, %{revision: ^revision, response: {:record, fields}}} ->
-        fields ==
-          Enum.sort([
-            {"message_id", {:text, message_id}},
-            {"revision", revision},
-            {"run_id", {:text, run_id}}
-          ])
-
+        length(Enum.uniq_by(fields, &elem(&1, 0))) == length(fields) and
+          field_value(fields, "message_id") == {:text, message_id} and
+          field_value(fields, "revision") == revision and
+          field_value(fields, "run_id") == {:text, run_id}
       _ ->
         false
     end
   end
 
-  defp metadata_matches?(snapshot, profile, run_id, primary_key, reply_key) do
-    Map.get(snapshot.fields, @metadata_field) ==
-      metadata_record(run_id, primary_key, reply_key, profile.tenant)
-  end
+  # The reply input's text is its delivered record at the sequence the
+  # custody facts carry; the reply was delivered before the engine could
+  # observe it, so the row exists.
+  defp conversation_text(store, profile, message_id, metadata) do
+    reference = %{target_tenant: profile.tenant, conversation_id: profile.conversation_id}
 
-  defp conversation_text(handle, profile, message_id, role, run_id, primary_key, reply_key) do
-    with {:ok, snapshot} <- resource_snapshot(handle, profile),
-         {:ok, conversation_snapshot} <-
-           conversation_snapshot(snapshot, profile, run_id, primary_key, reply_key),
-         {:ok, conversation} <- Conversation.view(conversation_snapshot, resource_scope(profile)),
-         %{role: ^role, text: text} <-
-           Enum.find(conversation.messages, &(&1.message_id == message_id)),
+    with sequence when is_integer(sequence) and sequence >= 1 <- metadata.reply_sequence,
+         {:ok, %{entries: [entry]}} <-
+           Conversation.page(store, resource_scope(profile), reference, sequence, 1),
+         %{kind: :input, role: "source", message_id: ^message_id, text: text} <- entry,
          true <- is_binary(text) and byte_size(text) in 1..4_096 do
       {:ok, text}
     else
       _ -> {:error, :message}
     end
+  rescue
+    _ -> {:error, :message}
+  catch
+    _, _ -> {:error, :message}
   end
 
   defp resource_snapshot(handle, profile),
     do: CheckedCommand.resource(handle, resource_scope(profile), profile.conversation_id)
 
-  defp conversation_snapshot(snapshot, profile, run_id, primary_key, reply_key) do
-    if metadata_matches?(snapshot, profile, run_id, primary_key, reply_key),
-      do: {:ok, %{snapshot | fields: Map.delete(snapshot.fields, @metadata_field)}},
-      else: {:error, :metadata}
-  end
 
-  defp metadata_record(run_id, primary_key, reply_key, tenant) do
-    with true <- bounded_id?(run_id),
-         {:ok, _} <- key_sequence(primary_key, tenant),
-         {:ok, _} <- key_sequence(reply_key, tenant) do
-      {:record,
-       Enum.sort_by(
-         [
-           {"primary_key", {:text, primary_key}},
-           {"reply_key", {:text, reply_key}},
-           {"run_id", {:text, run_id}},
-           {"version", {:text, "1"}}
-         ],
-         &elem(&1, 0)
-       )}
-    else
-      _ -> nil
-    end
-  end
-
-  defp has_association?(associations, message_id, run_id),
-    do:
-      Enum.any?(associations, fn association ->
-        association.input_message_id == message_id and association.run_id == run_id
-      end)
 
   defp notice(%{payload: payload, destination: item_destination}, destination, profile) do
     with {:ok, notice} <- Jason.decode(payload),
@@ -6137,9 +6315,10 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
     end
   end
 
+  # The response carries the intent record and digest next to the receipt
+  # fields; only the fields the source needs are compared.
   defp receipt({:record, fields}) when is_list(fields) do
-    with true <- Enum.sort(Enum.map(fields, &elem(&1, 0))) == ["message_id", "revision"],
-         true <- length(Enum.uniq_by(fields, &elem(&1, 0))) == 2,
+    with true <- length(Enum.uniq_by(fields, &elem(&1, 0))) == length(fields),
          {:text, id} <- field_value(fields, "message_id"),
          true <- bounded_id?(id),
          revision when is_integer(revision) and revision > 0 <- field_value(fields, "revision") do
@@ -6305,9 +6484,9 @@ defmodule Elzoo.Wave4ChannelExample.Intents do
   @doc "The portable custody facts record of a metadata map."
   def metadata_record(metadata) do
     primary = [
-      {"primary_input", {:text, metadata.primary_input}},
       {"primary_key", {:text, metadata.primary_key}},
       {"primary_nonce", {:bytes, metadata.primary_nonce}},
+      {"primary_sequence", metadata.primary_sequence},
       {"run_id", {:text, metadata.run_id}},
       {"version", {:text, "2"}}
     ]
@@ -6317,8 +6496,7 @@ defmodule Elzoo.Wave4ChannelExample.Intents do
         do: [
           {"reply_key", {:text, metadata.reply_key}},
           {"reply_nonce", {:bytes, metadata.reply_nonce}},
-          {"reply_sequence", metadata.reply_sequence},
-          {"reply_ticket", {:text, metadata.reply_ticket}}
+          {"reply_sequence", metadata.reply_sequence}
         ],
         else: []
 
@@ -6404,18 +6582,20 @@ defmodule Elzoo.Wave4ChannelExample.Intents do
   defp derive_mode(_, _, _, _, _), do: :error
 
   # Version 1 associations carry no custody facts; the version 2 primary
-  # association carries the primary item's key and nonce, and the reply
-  # association the reply item's key and nonce and the reply's sequence.
+  # association carries the primary item's key, nonce and conversation
+  # sequence, and the reply association the reply item's key, nonce and the
+  # reply input's conversation sequence.
   defp association_custody(facts, tenant) do
     case Enum.sort(Map.keys(facts)) do
       ["mode", "run_id"] ->
         {:ok, nil}
 
-      ["mode", "primary_key", "primary_nonce", "run_id"] ->
+      ["mode", "primary_key", "primary_nonce", "primary_sequence", "run_id"] ->
         with {:text, key} <- facts["primary_key"],
              {:bytes, nonce} <- facts["primary_nonce"],
+             sequence when is_integer(sequence) and sequence >= 1 <- facts["primary_sequence"],
              true <- canonical_key?(key, tenant) and nonce?(nonce) do
-          {:ok, %{primary_key: key, primary_nonce: nonce}}
+          {:ok, %{primary_key: key, primary_nonce: nonce, primary_sequence: sequence}}
         else
           _ -> :error
         end
@@ -6470,7 +6650,6 @@ defmodule Elzoo.Wave4ChannelExample.Intents do
          true <- run_id == dto.run_id and primary_key == custody.primary_key do
       next =
         Map.merge(metadata, %{
-          reply_ticket: dto.input_message_id,
           reply_key: custody.reply_key,
           reply_nonce: custody.reply_nonce,
           reply_sequence: custody.reply_sequence
@@ -6483,21 +6662,23 @@ defmodule Elzoo.Wave4ChannelExample.Intents do
   end
 
   defp metadata_writes(:association, dto, %{primary_key: _} = custody, metadata, request, _facts) do
-    # A new primary association starts the custody facts of a new Run; the
-    # previous Run's facts must be complete.
+    # A new primary association starts the custody facts of a new Run. The
+    # association of a round is committed exactly once, so replacement only
+    # ever applies to a different Run; a terminal round's reply facts may be
+    # absent.
     replaceable? =
       case metadata do
         nil -> true
-        %{reply_key: key, run_id: run_id} -> is_binary(key) and run_id != dto.run_id
+        %{run_id: run_id} -> run_id != dto.run_id
+        _ -> false
       end
 
     if replaceable? do
       next = %{
         run_id: dto.run_id,
-        primary_input: dto.input_message_id,
         primary_key: custody.primary_key,
         primary_nonce: custody.primary_nonce,
-        reply_ticket: nil,
+        primary_sequence: custody.primary_sequence,
         reply_key: nil,
         reply_nonce: nil,
         reply_sequence: nil
@@ -6517,19 +6698,20 @@ defmodule Elzoo.Wave4ChannelExample.Intents do
     with true <- map_size(fields) == length(pairs),
          {:text, "2"} <- fields["version"],
          {:text, run_id} <- fields["run_id"],
-         {:text, primary_input} <- fields["primary_input"],
          {:text, primary_key} <- fields["primary_key"],
          {:bytes, primary_nonce} <- fields["primary_nonce"],
-         true <- Record.id?(run_id) and Record.id?(primary_input),
+         primary_sequence when is_integer(primary_sequence) and primary_sequence >= 1 <-
+           fields["primary_sequence"],
+         true <- Record.id?(run_id),
          true <- canonical_key?(primary_key, tenant) and nonce?(primary_nonce),
          {:ok, reply} <- parse_reply(fields, tenant) do
       metadata =
         Map.merge(
           %{
             run_id: run_id,
-            primary_input: primary_input,
             primary_key: primary_key,
-            primary_nonce: primary_nonce
+            primary_nonce: primary_nonce,
+            primary_sequence: primary_sequence
           },
           reply
         )
@@ -6547,15 +6729,13 @@ defmodule Elzoo.Wave4ChannelExample.Intents do
   defp parse_reply(fields, tenant) do
     case fields["reply_key"] do
       nil ->
-        {:ok, %{reply_ticket: nil, reply_key: nil, reply_nonce: nil, reply_sequence: nil}}
+        {:ok, %{reply_key: nil, reply_nonce: nil, reply_sequence: nil}}
 
       {:text, key} ->
         with {:bytes, nonce} <- fields["reply_nonce"],
              sequence when is_integer(sequence) and sequence >= 1 <- fields["reply_sequence"],
-             {:text, ticket} <- fields["reply_ticket"],
-             true <- canonical_key?(key, tenant) and nonce?(nonce) and Record.id?(ticket) do
-          {:ok,
-           %{reply_ticket: ticket, reply_key: key, reply_nonce: nonce, reply_sequence: sequence}}
+             true <- canonical_key?(key, tenant) and nonce?(nonce) do
+          {:ok, %{reply_key: key, reply_nonce: nonce, reply_sequence: sequence}}
         else
           _ -> :error
         end
