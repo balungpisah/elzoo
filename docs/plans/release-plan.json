@@ -12605,11 +12605,11 @@
     {
       "id": "workflow/run-approval-release",
       "job": "ELZ-126",
-      "note": "Explicit Run source variant retaining guarded lifecycle, children, completion and Run-owned dispatch, plus release_approved committing or currently revalidating exact-action Approval without intent admission, activation, work scheduling or send; Resource retains its independent current lifetime/FIFO and reservation-before-send boundary.",
+      "note": "Explicit Run source variant retaining guarded lifecycle, children, completion and Run-owned dispatch, plus release_approved committing or currently revalidating exact-action Approval without intent admission, activation, work scheduling or send, and renew/2 renewing the held lease between commands, installing only its own next-revision token and stopping on a fenced, lost or unknown renewal; Resource retains its independent current lifetime/FIFO and reservation-before-send boundary.",
       "baseline_status": "not in baseline (new row, ELZ-126)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/run-approval-release/piece.json",
-      "manifest_sha256": "737e954103bd21d87e573cb730287fd193d550d51a7b6c7a294e944bb04a9c30",
+      "manifest_sha256": "a9c1d13666177f40524122ff5f1126bd36a767387104e0184484974154d0929d",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
