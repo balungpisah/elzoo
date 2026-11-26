@@ -359,7 +359,7 @@ HOSTED_BACKEND_GATE_STEP = """      - name: Verify the GitHub-hosted runner
           echo "Hosted runner: $RUNNER_NAME"
           free -h || true"""
 # The hosted Gleam checkout must not persist the job token either.
-HOSTED_GLEAM_CHECKOUT = """      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+HOSTED_GLEAM_CHECKOUT = """      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false"""
 GLEAM_RUNTIME_STEP = """      - name: Install runtime libraries
@@ -770,7 +770,7 @@ for file in files:
             after = rest[0] if rest else ''
             # The step must follow the setup-node step and end where the next step starts, so no key
             # (shell:, if:, working-directory:, continue-on-error:) can be appended to it.
-            pinned = pinned and (before == "          node-version: '24.16.0'"
+            pinned = pinned and (before == "          node-version: '26.13.1'"
                                  and (not after or after.startswith('      - ')
                                       or len(after) - len(after.lstrip(' ')) <= 4))
         if not pinned:

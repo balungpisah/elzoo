@@ -334,8 +334,8 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertIn("pinned by a full commit SHA", self.check(1).stderr)
 
     def test_short_sha_action_rejected(self):
-        self.change("symbolic-gleam.yml", "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
-                    "actions/setup-node@49933ea")
+        self.change("symbolic-gleam.yml", "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+                    "actions/setup-node@949feb2")
         self.assertIn("pinned by a full commit SHA", self.check(1).stderr)
 
     def test_unpinned_added_action_rejected(self):
