@@ -167,4 +167,6 @@ role that must not bypass row security. Finite scenarios, not proofs; row-level 
   PostgreSQL 16 to PostgreSQL 19; its tests now require a PostgreSQL 19 server.
   A host on an older server upgrades to PostgreSQL 19 before taking this
   revision. No code or API change: only the module documentation names the new
-  server and the README names the current provider pins.
+  server, the README names the current provider pins, and the plan test reads
+  PostgreSQL 19's EXPLAIN names (`InitPlan expr_1`, used in the filter as
+  `(InitPlan expr_1).col1`).
