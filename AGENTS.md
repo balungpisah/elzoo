@@ -44,7 +44,7 @@ Separate publication PRs keep the coordinator merge path (section 9).
 
 | Change | Publication and claim | Local gate → hosted check |
 | --- | --- | --- |
-| New or changed Piece Contract | New capability or split: coordinator publishes the new Piece ID first; then claim (sections 2–4, 9). Changed Contract of a ready Piece: a published task on the same ID (section 4) | Piece gate below; a breaking change adds an entry to the `## Changes` section of the Piece README (section 4) |
+| New or changed Piece Contract | New capability or split: coordinator publishes the new Piece ID first; then claim (sections 2–4, 9). Changed Contract of a ready Piece: a published task on the same ID (section 4) | Piece gate below; full ID rule in section 4: a breaking change keeps the ID and adds an entry to the `## Changes` section of the Piece README; a consumer's copy changes only when it takes again, and its receipt names the revision that `## Changes` is read from |
 | Piece-only implementation | Published task, claim, implementation PR (sections 2–3); a test-only Piece repair may use the coordinator one-PR path below | Small gate (section 5) → `check-piece`; full check on main covers omitted tests |
 | Documents only | Published task or coordinator one-PR path below; claim | Roadmap/claims checks and diff check → docs-only check; no executable inputs changed |
 | Spike only, including dependencies or pins confined to the spike's own files (`mix.exs`, `mix.lock`, etc.) | Own task; published or coordinator one-PR path; claim | Changed spike's own checks and roadmap/diff checks → `check-spike` and Gleam when applicable; root tests do not consume spike contents, full check on main |

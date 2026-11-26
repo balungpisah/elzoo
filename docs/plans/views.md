@@ -5586,4 +5586,4 @@ Publication copy: [tasks/ELZ-415-ready-piece-improves-in-place.md](../../tasks/E
 
 **Product aims:** P10, P11.
 
-**Acceptance:** State the owner's rule of 2026-11-26 (a ready Piece keeps its ID when it improves; a breaking change records a README Changes entry; a new ID only for a new capability or a split) in AGENTS.md, docs/consuming.md, docs/choices.md and docs/catalogue.md. Roadmap and claims checks, full hosted check, independent review.
+**Acceptance:** State the owner's rule of 2026-11-26 (a ready Piece keeps its ID when it improves; a breaking change records a README Changes entry; a new ID only for a new capability or a split) in AGENTS.md, docs/consuming.md, docs/choices.md, docs/catalogue.md and each Piece README or manifest limit that stated the old rule (wording only). Roadmap and claims checks, full hosted check, independent review.

@@ -35,7 +35,8 @@ the chunk text.
 
 `Elzoo.TextChunking.limits/0` returns the same table. Sizes are graphemes (`String.length/1`), as
 `text_chunker` measures them; there is no caller-supplied measure (`get_chunk_size`) and no
-`strategy` option in this Contract; a byte or token measure would be a new Piece ID. A repeated
+`strategy` option in this Contract; a byte or token measure would be a later change of this
+Piece under the same ID, with a `## Changes` entry here if a copy would notice it. A repeated
 or unknown option is refused. The overlap default is a fixed 200 and is not derived from `chunk_size`: a
 `chunk_size` below 400 needs an explicit `chunk_overlap` of at most half of it, otherwise the
 call returns `{:error, {:invalid_option, :chunk_overlap}}`.

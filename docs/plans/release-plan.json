@@ -10835,14 +10835,14 @@
         "tasks/ELZ-415-ready-piece-improves-in-place.md"
       ],
       "outputs": [],
-      "acceptance": "State the owner's rule of 2026-11-26 (a ready Piece keeps its ID when it improves; a breaking change records a README Changes entry; a new ID only for a new capability or a split) in AGENTS.md, docs/consuming.md, docs/choices.md and docs/catalogue.md. Roadmap and claims checks, full hosted check, independent review.",
+      "acceptance": "State the owner's rule of 2026-11-26 (a ready Piece keeps its ID when it improves; a breaking change records a README Changes entry; a new ID only for a new capability or a split) in AGENTS.md, docs/consuming.md, docs/choices.md, docs/catalogue.md and each Piece README or manifest limit that stated the old rule (wording only). Roadmap and claims checks, full hosted check, independent review.",
       "product_aims": [
         "P10",
         "P11"
       ],
       "issue": 1012,
       "url": "https://github.com/balungpisah/elzoo/issues/1012",
-      "issue_body_sha256": "d957cecd2d8d140210f347363de869a610b28bfe494d828c7589895fce3eee14"
+      "issue_body_sha256": "2fc2b5ec4c92c68001897c9a8aa9c40f42dced20f50c0e8598c27523b774f24b"
     }
   ],
   "entries": [
@@ -11032,7 +11032,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/core/edge/piece.json",
-      "manifest_sha256": "ee75c26f1e4c9fe893354de6d51f4cb6e5ef79f0c7e7ce2dc6e25f8243035556"
+      "manifest_sha256": "8f9df766ac6ea640b58454971e2ff9069d36ed25e381b6b74cf458409eb79801"
     },
     {
       "id": "core/effect",
@@ -11316,7 +11316,7 @@
       "disposition": "merged-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/authorization/piece.json",
-      "manifest_sha256": "8363056c8f5f995e3d1cff1f421f488e90797c9ce1f7d28af26ae6b66a3fd971"
+      "manifest_sha256": "b804b727f2b4f75e42f3f9d5544257438aef8e08feab88c28e462519e36dda9f"
     },
     {
       "id": "domain/entitlement",
@@ -12037,7 +12037,7 @@
       "disposition": "merged-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/approval/piece.json",
-      "manifest_sha256": "fb4eca7cc00c381beb2f9e70f43146f13db0f4c9846c62d9976a61e8ab8704c9"
+      "manifest_sha256": "d76e1f16ea28ad0040de37becd3d62efafe008c5f4f6bf34f500cab8311ab82b"
     },
     {
       "id": "workflow/budget",

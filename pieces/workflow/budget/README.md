@@ -377,8 +377,9 @@ call that cost nothing cannot settle with `actual: 0`. It is closed with
 `release`, which has the same accounting effect (committed unchanged). No
 listed caller (C2, C6, C7, C9) needs a zero settle. The ELZ-025 study says
 unreported usage is "never zero", which supports rejection. If a caller later
-needs a recorded zero actual, that is a new Contract and a new Piece ID, not a
-relaxation here.
+needs a recorded zero actual, that is a later Contract change of this Piece
+under the same ID (with an entry in the `## Changes` section of this README
+if a copy would notice it), not a relaxation here.
 
 ### D8. Critical-path time admission (pure, beside the owner)
 

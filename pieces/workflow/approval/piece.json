@@ -18,7 +18,7 @@
     "Laws are in decision-split (hypothesis) form; self-approval, rejection and released-twice laws cover fresh evidence; retained paths are covered by the general laws and tests.",
     "Test-grounded only: lookup after insert (release-then-release), replay and request/3 idempotence, eq_value reflexivity and Elixir agreement, released writes equal to the originally bound escrow, retained selection order, time/age comparisons (native <=, < and + are neutral in pinned Cure), the Elixir-side validation and control-key refusal.",
     "Check 7 (consumed) is defence in depth: public transitions consume a once key only together with its release record, so check 2 or 4 reports first.",
-    "Single approver per request; evidence scope must equal the requirement scope; exact-value authority. Changing these needs a new Piece ID.",
+    "Single approver per request; evidence scope must equal the requirement scope; exact-value authority. Changing these is a later change of this Piece under the same ID, with a README `## Changes` entry if a copy would notice it.",
     "A fixed retained choice can block other valid consents when the chosen reviewer lost authority; the owner revokes that consent or obtains fresh evidence.",
     "Volatile pure value: the owner serializes transitions, retains events durably if needed, and owns dispatch of released writes; a timeout after dispatch is an unknown outcome.",
     "apply_event/replay validate each event with the live validators, bounds and transition invariants, but cannot prove that a consistent approving event was produced by a live transition; log origin is an owner assumption."

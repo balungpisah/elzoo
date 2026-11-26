@@ -14,7 +14,7 @@
   "contract": "Named output-to-input schema bindings with same-unit fused or cross-unit volatile policies; declarations only.",
   "limits": [
     "No broker, durable hop, function binding or certification of live execution.",
-    "One binding cannot mix fused/hop policies. Required-kind/metadata policy is deferred and needs a new Piece ID to extend this exact binding."
+    "One binding cannot mix fused/hop policies. Required-kind/metadata policy is deferred; extending this exact binding with it is a later change of this Piece under the same ID, with a README `## Changes` entry if a copy would notice it."
   ],
   "files": [
     "cure/elzoo/edge.cure",

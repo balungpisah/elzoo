@@ -49,7 +49,7 @@ To take the first release rather than the latest green `main`:
 2. In [the backend workflow runs](https://github.com/balungpisah/elzoo/actions/workflows/symbolic-check.yml), confirm that the **push** run on `main` for that exact SHA succeeded. A green PR check alone does not count. If the push run is missing, pending or red, do not take the SHA as the first release. A later green repair does not attest the release, even if it carries the same mark.
 3. Run `git checkout --detach <merge-sha>` in the Elzoo checkout. From there, follow [Copy](#copy) to run `mix elzoo.take` for the Pieces you need.
 
-From the release commit on, a ready Piece keeps its Piece ID when it improves or is fixed, and also through a breaking change, a change that your copy would notice. Each breaking change has an entry in the `## Changes` section of the Piece README. A new Piece ID is only for a new capability or a split. Your copy changes only when you take again ([Verify and customize](#verify-and-customize)).
+From the release commit on, a ready Piece keeps its Piece ID when it improves or is fixed, and also through a breaking change, a change that your copy would notice. Each breaking change has an entry in the `## Changes` section of the Piece README: the task, what breaks and how to move. A changed stored format also comes with a reader of the old format or a stated migration step. A new Piece ID is only for a new capability or a split, as the Elzoo capability model (`docs/capability-model.md`) decides. Your copy changes only when you take again: your receipt names the revision you took, so before you take again, read the `## Changes` entries since that revision ([Verify and customize](#verify-and-customize)).
 
 ## Who provides what
 
@@ -67,7 +67,7 @@ This table summarizes the sections below; it adds no Contract or claim.
 | Pure Operators and explicit Effect and Adapter boundaries where provided | Its effects, delivery policy and persistence, and an OTP shell where a lifecycle needs a process |
 | The default `Elzoo.*` / `Cure.Elzoo.*` namespace for application-owned copies and documented public record tags | Before redistributing copied source as a library, renaming modules, Cure imports, Elixir MFA/atom references and tests; explicitly renaming public record tags or translating them at an Adapter and testing the boundary |
 | Known conflicts detected before writing, identical files left intact and no force replacement; copying is not a multi-file transaction | No concurrent writers against a destination, and deliberate merging of updates through a scratch project |
-| A ready Piece that keeps its ID as it improves, and an entry in the `## Changes` section of its README for each breaking change: the task, what breaks and how to move; a changed stored format comes with a reader of the old format or a stated migration step | Reading the `## Changes` entries since the revision in its receipt before it takes again and making the moves they name; opting in to a new ID for a new capability or a split, and resolving any module or data-tag overlap |
+| A ready Piece that keeps its ID as it improves and also through a breaking change, with an entry in the `## Changes` section of its README for each breaking change: the task, what breaks and how to move; a changed stored format comes with a reader of the old format or a stated migration step | Reading the `## Changes` entries since the revision in its receipt before it takes again and making the moves they name; opting in to a new ID for a new capability or a split, and resolving any module or data-tag overlap |
 
 ## Copy
 
@@ -177,9 +177,10 @@ a failure guarantee changes; or a required Need is added. A breaking change
 keeps the ID too, and the `## Changes` section of the Piece README names its
 task, what breaks and how to move. A changed stored format comes with a reader
 of the old format or a stated migration step. A new Piece ID is only for a new
-capability or a split. Your copy is safe because you own it: it changes only
-when you take again. Before you take again, read the `## Changes` entries since
-the revision in your receipt. Taking a new ID does not itself rename BEAM
+capability or a split; the Elzoo capability model (`docs/capability-model.md`)
+decides which. Your copy is safe because you own it: it changes only when you
+take again. Before you take again, read the `## Changes` entries since the
+revision in your receipt. Taking a new ID does not itself rename BEAM
 modules. Compare both Contract and source/provenance; opt in to new
 dependencies deliberately and resolve any module/data-tag overlap.
 

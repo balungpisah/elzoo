@@ -599,18 +599,22 @@ These are set in the published task texts
 ## Deferred options
 
 Each option below is open by design. "Additive" means a change of a ready
-Piece that leaves existing callers working: it keeps the Piece ID and needs no
-`## Changes` entry. A change that a copy would notice keeps the ID too, with a
-`## Changes` entry. Only a new capability or a split gets a new ID (the ID
-rule above).
+Piece that an existing copy would not notice: it keeps the Piece ID and needs
+no `## Changes` entry. A change that a copy would notice is a breaking change:
+it keeps the ID too and adds a `## Changes` entry. A changed stored format is
+always breaking: it needs that entry and also a reader of the old format or a
+stated migration step. Only a new capability or a split gets a new ID, as the
+capability model decides. A copy changes only when its owner takes again; the
+receipt names the revision, and `## Changes` lists what moved since then (the
+ID rule above).
 
 | Option | Piece | How it is added | Additive |
 | --- | --- | --- | --- |
 | Volume tiers | `domain/pricing` ([ELZ-304](../tasks/ELZ-304-pricing.md)) | An optional `tiers` field on a rate-card line; each line stands alone, so a card without tiers prices as before | Yes |
-| Tenant-local month, rolling window | `domain/entitlement`, `domain/quota`, `domain/metering` | Entitlement gains a `period_kind` member; quota keys its allowance by a tagged window (`{:period, id}`) and gains a rolling window beside it; metering already takes an opaque period ID and keeps `observed_at_ms`, so a time-range total is a new read | Yes |
+| Tenant-local month, rolling window | `domain/entitlement`, `domain/quota`, `domain/metering` | Entitlement gains a `period_kind` member; quota keys its allowance by a tagged window (`{:period, id}`) and gains a rolling window beside it; metering already takes an opaque period ID and keeps `observed_at_ms`, so a time-range total is a new read | No: the allowance key of `domain/quota` is a changed stored format, so a `## Changes` entry and a migration step (same IDs) |
 | A reusable `assembly/tenant-edge` | new Assembly (RC-40) | Composes the public interfaces of verify, membership, authorization, kill-switch, entitlement, quota, Run, metering, pricing and journal; no Piece needs a private path for it | Yes (new ID) |
 | Run and model metrics | `runtime/telemetry`, `integration/observability`, `assembly/run-engine`, `integration/ai-text` | A new event family emitted in place; the transcript and metering stay as they are | Yes |
-| More than one active plan per tenant | `domain/entitlement` | Drop the version 1 `overlap` refusal for a declared stacking rule; a resolution already lists its grants and plans, and allowances are a list tagged by grant; `domain/quota` checks each allowance against the listed grants and sums the amounts of one unit | Yes (accepted inputs widen) |
+| More than one active plan per tenant | `domain/entitlement` | Drop the version 1 `overlap` refusal for a declared stacking rule; a resolution already lists its grants and plans, and allowances are a list tagged by grant; `domain/quota` checks each allowance against the listed grants and sums the amounts of one unit | No: the `overlap` refusal is a failure guarantee that goes, so a `## Changes` entry (same ID) |
 | A host unit such as `runs` | `domain/metering`, `domain/entitlement` | A new member of the unit set | Yes |
 | Live-model eval | `workflow/eval` | An optional dataset `mode` member, default scripted | Yes |
 | A runtime turn-rule switch | `workflow/turn-policy`, `workflow/delegation` | An optional `set_rule` key of `elzoo.room.answer`, handled like `handoff_to` and allowed only through a policy key `rule_change: %{allowed, by}`; an `allowed_patterns` key of the delegation grant, narrowed per child like scopes | Yes |
@@ -1232,13 +1236,17 @@ of `bot-platform.md`, unless an entry names another.
 
 - **Chosen.** A Piece ID names one capability. From the release commit on, a
   ready Piece keeps its ID when it improves, and also through a breaking
-  change, which adds an entry to the `## Changes` section of the Piece README.
-  A new Piece ID is only for a new capability or a split
-  ([ELZ-415](../tasks/ELZ-415-ready-piece-improves-in-place.md)). This
-  replaces the rule that a changed ready Contract gets a new Piece ID.
+  change, which adds an entry to the `## Changes` section of the Piece README;
+  a changed stored format also comes with a reader of the old format or a
+  stated migration step. A new Piece ID is only for a new capability or a
+  split; the
+  [capability model](capability-model.md#admission-and-splitting-rules)
+  decides which ([ELZ-415](../tasks/ELZ-415-ready-piece-improves-in-place.md)).
+  This replaces the rule that a changed ready Contract gets a new Piece ID.
 - **Why.** A consumer is safe because it owns a copy, not because the ID
-  changes: the copy changes only when the consumer takes again. One
-  capability keeps one ID.
+  changes: the copy changes only when the consumer takes again, the receipt
+  names the revision, and `## Changes` lists what moved since that revision.
+  One capability keeps one ID.
 - **For you.** Before you take a Piece again, read the `## Changes` entries
   since the revision in your receipt and make the moves they name. A changed
   stored format comes with a reader of the old format or a stated migration
@@ -1277,7 +1285,7 @@ of `bot-platform.md`, unless an entry names another.
 
 - **Chosen.** Before the first release, a ready Piece could change in place so it did not need a second ID for the same job.
 - **Boundary.** The merge commit of [ELZ-411](https://github.com/balungpisah/elzoo/pull/1004) on `main` is the release commit only if the `symbolic-check.yml` push run for that exact SHA succeeds.
-- **For you.** Replaced on 2026-11-26: from that commit on, a ready Piece keeps its ID when it improves. See [A ready Piece improves in place (2026-11-26)](#a-ready-piece-improves-in-place-2026-11-26).
+- **For you.** Replaced on 2026-11-26: from that commit on, a ready Piece keeps its ID when it improves and through a breaking change, which adds a `## Changes` entry; your copy changes only when you take again. See [A ready Piece improves in place (2026-11-26)](#a-ready-piece-improves-in-place-2026-11-26).
 
 ### Version-1 action kinds, RC-68 (2026-11-12)
 

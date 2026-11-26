@@ -40,27 +40,42 @@ State the new rule in each place that states the old one:
   1251. Add one dated decision record for 2026-11-26; earlier records stay as
   they are.
 - `docs/catalogue.md`, line 4: an entry is a stable capability ID.
+- Each Piece README sentence that states the old rule for a later change of
+  that Piece: `core/assembly` (line 84), `core/envelope` (74), `core/port`
+  (83), `core/edge` (58), `workflow/approval` (592, 594), `workflow/budget`
+  (380), `assembly/http-job` (102), `delivery/effect-intent` (113),
+  `domain/authorization` (109, 439, 459) and `integration/text-chunking` (38).
+  Each says instead that such a change is a later change of the same Piece
+  under the rule above, or a new Piece only where the capability model calls
+  it a new capability. A README is not in its manifest's `files`, so no
+  manifest changes for these.
+- The `limits` sentence that says "needs a new Piece ID" in the manifests of
+  `core/edge`, `domain/authorization` and `workflow/approval`, with the same
+  meaning as their README sentences. Only that wording changes, never the
+  limit itself. Each of these three manifests gets its new `manifest_sha256`
+  in the `entries` row of `docs/plans/release-plan.json`.
 
 Records of past decisions (`docs/plans/`, `docs/work/`, `tasks/`) do not
-change. Neither do the `limits` of the three manifests that say "needs a new
-Piece ID" (`core/edge`, `domain/authorization`, `workflow/approval`): the next
-Piece task that changes one of those Pieces updates its own text.
+change.
 
 This is a coordinator-owned task on the one-PR path (`AGENTS.md` section 1),
-release V2, stage `later`. It changes no Piece, Contract, release selector or
-executable code. `docs/consuming.md` is read by code (`Elzoo.Export` copies it
-into each export), so the change is not documents-only and the full gate
-applies. New external dependencies: none.
+release V2, stage `later`. It changes no Piece Contract, release selector or
+executable code: the Piece texts above change in wording only, and no limit
+or behavior changes. `docs/consuming.md` is read by code (`Elzoo.Export`
+copies it into each export), and Piece files change, so the change is not
+documents-only and the full gate applies. New external dependencies: none.
 
 - Commit this task file, its new job row with the live issue-body hash in
-  `docs/plans/release-plan.json`, and the resulting generated view changes.
+  `docs/plans/release-plan.json`, the three new manifest hashes, and the
+  resulting generated view changes.
 
 ## Acceptance
 
-- Each listed place states the new rule. `rg -n -i "new piece id|reuse an old
-  id|stable contract" AGENTS.md README.md CONTEXT.md docs/consuming.md
-  docs/catalogue.md docs/capability-model.md` finds no statement of the old
-  rule; in `docs/choices.md` only dated records of earlier decisions keep it.
+- Each listed place states the new rule. `rg -n -i "new piece id|new id\b|reuse
+  an old id|stable contract" AGENTS.md README.md CONTEXT.md docs/consuming.md
+  docs/catalogue.md docs/capability-model.md pieces/*/*/README.md
+  pieces/*/*/piece.json` finds no statement of the old rule; in
+  `docs/choices.md` only dated records of earlier decisions keep it.
 - `mix elzoo.ledger`, `python3 scripts/check-roadmap.py --write`, the plain and
   `--live` roadmap checks, `python3 scripts/check-claims.py`, `git diff --check`
   and `git diff --check origin/main...HEAD` exit 0.
