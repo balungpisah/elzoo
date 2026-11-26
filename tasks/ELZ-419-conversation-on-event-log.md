@@ -172,6 +172,11 @@ append becomes a delivery after the commit:
   `assembly/checked-command` fits the largest), and delivery verifies the
   binding. Idempotent delivery of the same command is not permission for a new
   command to claim an existing message ID.
+- Need (wave 4 README): the channel is the only writer of the conversation
+  streams it delivers to. `check/2` cannot stop another writer from claiming
+  a message ID before delivery; such a write makes the checked intent fail at
+  delivery, and that definite refusal is reported and blocks later
+  deliveries for the tenant (below), so the violation fails closed.
 - Every Conversation-writing command, including associations and answers, is
   configured with a delivery notification (today the association and answer
   descriptors have no outbox destination). The channel processes
