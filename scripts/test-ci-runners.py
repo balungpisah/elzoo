@@ -1564,20 +1564,35 @@ class RunnerPolicyTest(unittest.TestCase):
             result, _ = self.run_script(agg, {**env, name: "failure"})
             self.assertNotEqual(0, result.returncode)
 
-    def test_spike_job_is_pinned_and_needs_no_root_setup_or_services(self):
+    def test_spike_job_is_pinned_and_compiles_the_root_project_with_the_database(self):
         job = self.job_text("check-spike")
-        self.assertNotIn("services:", job)
-        self.assertNotIn("mix setup", job)
-        self.assertIn("working-directory: spikes/ash_foundation", job)
+        self.assertIn("    services:", job)
+        self.assertIn("      - run: mix setup", job)
+        self.assertIn("run: mix elzoo.ash_spike", job)
         self.assertIn("MIX_ENV: test", job)
-        for old, new in (("          mix test --warnings-as-errors", "          true"),
-                         ("          mix deps.get", "          true"),
+        self.assertNotIn("ci-minio", job)
+        self.assertNotIn("working-directory: spikes/ash_foundation", job)
+        for old, new in (("      - run: mix setup", "      - run: true"),
+                         ("        run: mix elzoo.ash_spike", "        run: true"),
                          ("    needs: check-plan", "    needs: []"),
                          ("needs.check-plan.outputs.spike == 'true'", "true")):
             self.change_in_job("symbolic-check.yml", "check-spike", old, new)
             self.assertTrue(self.check(1).stderr)
             self.tearDown()
             self.setUp()
+
+    def test_the_spike_job_needs_the_postgres_service_and_the_database_step(self):
+        # ELZ-431 refusal cases: a check-spike without the PostgreSQL service, and one without the
+        # "Prepare disposable PostgreSQL database" step, are both refused.
+        job = self.job_text("check-spike")
+        services = job[job.index("    services:\n"):job.index("    steps:\n")]
+        db_step = job[job.index("      - name: Prepare disposable PostgreSQL database\n"):job.index("      - uses: actions/checkout@")]
+        for old, new in ((services, ""), (db_step, "")):
+            with self.subTest(old=old.strip().split("\n")[0][:60]):
+                self.change_in_job("symbolic-check.yml", "check-spike", old, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
 
 
 if __name__ == "__main__":

@@ -75,11 +75,23 @@ SPIKE_JOB = '''  check-spike:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       ImageOS: ubuntu24
       ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'
       MIX_ENV: test
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.7-pg19-trixie@sha256:ace863afa68a13560603dc7366fad0adb4f5ddd0a21c8f06418195f32e03fa08
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - name: Verify the GitHub-hosted runner
         run: |
@@ -91,6 +103,29 @@ SPIKE_JOB = '''  check-spike:
           test "$VERSION_ID" = 24.04
           echo "Hosted runner: $RUNNER_NAME"
           free -h || true
+      - name: Report host load and memory context
+        run: |
+          sed -n '1,5p' /proc/meminfo
+          cat /proc/loadavg
+          nproc
+      - name: Prepare disposable PostgreSQL database
+        run: |
+          set -eu
+          export PGPASSWORD=postgres PGHOST=localhost PGUSER=postgres
+          psql -v ON_ERROR_STOP=1 -c "CREATE ROLE elzoo_test LOGIN PASSWORD 'elzoo_test'"
+          psql -v ON_ERROR_STOP=1 -c 'CREATE ROLE elzoo_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS'
+          psql -v ON_ERROR_STOP=1 -c 'GRANT elzoo_app TO elzoo_test WITH INHERIT FALSE, SET TRUE'
+          createdb -O elzoo_test elzoo_test
+          psql -d elzoo_test -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector'
+          echo 'ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test' >> "$GITHUB_ENV"
+          echo 'ELZOO_TEST_APP_ROLE=elzoo_app' >> "$GITHUB_ENV"
+          psql -d elzoo_test -c 'SHOW server_version'
+          psql -d elzoo_test -v ON_ERROR_STOP=1 -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
+          test "$(psql -d elzoo_test -At -c "SELECT count(*) FROM pg_extension WHERE extname = 'vector'")" = 1
+          # As the test role: super, createrole and bypassrls of each role, then SET, USAGE (inherit) and the reverse.
+          role_check="$(PGUSER=elzoo_test PGPASSWORD=elzoo_test psql -d elzoo_test -v ON_ERROR_STOP=1 -At -c "SELECT format('current_user=%s elzoo_test=%s,%s,%s elzoo_app=%s,%s,%s set=%s usage=%s app_member_of_test=%s', current_user, t.rolsuper, t.rolcreaterole, t.rolbypassrls, a.rolsuper, a.rolcreaterole, a.rolbypassrls, pg_has_role('elzoo_test', 'elzoo_app', 'SET'), pg_has_role('elzoo_test', 'elzoo_app', 'USAGE'), pg_has_role('elzoo_app', 'elzoo_test', 'MEMBER')) FROM pg_roles t, pg_roles a WHERE t.rolname = 'elzoo_test' AND a.rolname = 'elzoo_app'")"
+          echo "ELZOO ROLE CHECK $role_check"
+          test "$role_check" = 'current_user=elzoo_test elzoo_test=f,f,f elzoo_app=f,f,f set=t usage=f app_member_of_test=f'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -102,22 +137,23 @@ SPIKE_JOB = '''  check-spike:
           elixir-version: '1.20.5'
           otp-version: '29.1.3'
       - name: Restore dependency cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: deps-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
+            deps
+            _build
             spikes/ash_foundation/deps
             spikes/ash_foundation/_build
-          key: elzoo-spike-v1-${{ runner.os }}-${{ env.ImageOS }}-otp29.1.3-elixir1.20.5-${{ hashFiles('spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
+          key: elzoo-hosted-v1-${{ runner.os }}-${{ env.ImageOS }}-otp29.1.3-elixir1.20.5-${{ hashFiles('mix.lock', 'mix.exs', 'spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
+          restore-keys: |
+            elzoo-hosted-v1-${{ runner.os }}-${{ env.ImageOS }}-otp29.1.3-elixir1.20.5-
       - run: mix local.hex --force
       - run: mix local.rebar --force
+      - run: mix setup
       - name: Check the Ash spike
         if: ${{ needs.check-plan.outputs.ash == 'true' }}
-        working-directory: spikes/ash_foundation
-        run: |
-          unset MIX_BUILD_PATH MIX_DEPS_PATH
-          mix deps.get
-          mix format --check-formatted
-          mix test --warnings-as-errors
+        run: mix elzoo.ash_spike
       - name: Record the spike check
         run: echo "ELZOO SPIKE CHECK PASSED"'''
 expected = {
@@ -129,7 +165,7 @@ expected = {
         ("check-consumers-db", [WORK_IF, WORK_NEEDS], HOSTED_LABEL, HOSTED_BACKEND_HEADER, "work"),
         ("check-consumers", [WORK_IF, WORK_NEEDS], HOSTED_LABEL, HOSTED_BACKEND_HEADER, "work"),
         ("check-piece", [PIECE_IF, WORK_NEEDS], HOSTED_LABEL, HOSTED_BACKEND_HEADER, "work"),
-        ("check-spike", SPIKE_JOB.splitlines()[1:3], HOSTED_LABEL, SPIKE_JOB.splitlines()[4:12], "spike"),
+        ("check-spike", SPIKE_JOB.splitlines()[1:3], HOSTED_LABEL, SPIKE_JOB.splitlines()[4:24], "spike"),
         ("check-hosted", [AGG_IF, AGG_NEEDS], HOSTED_LABEL, HOSTED_AGG_HEADER, "aggregate"),
     ],
     "symbolic-gleam.yml": [
@@ -689,7 +725,11 @@ for file in files:
                 pin(MIX_CHECK_STEPS[name])
                 expected_ifs = WORK_STEP_IFS[name]
             elif role == 'spike':
-                pin(SPIKE_JOB[SPIKE_JOB.index("      - uses: actions/checkout@"):])
+                # ELZ-431: the spike job compiles the root project (`mix setup`) and runs the spike through
+                # `mix elzoo.ash_spike` against the same disposable PostgreSQL as the work jobs; every step
+                # after the identity gate is pinned as one block, the database preparation included. It
+                # restores the shared dependency cache but never saves it and has no S3 steps.
+                pin(SPIKE_JOB[SPIKE_JOB.index("      - name: Report host load and memory context"):])
                 expected_ifs = [("      - name: Check the Ash spike", "        if: ${{ needs.check-plan.outputs.ash == 'true' }}")]
             else:
                 pin(AGG_STEP)
@@ -736,7 +776,7 @@ for file in files:
             # `actions/cache` and `actions/cache/save` written in this form; other spellings (a `.` path part) and other
             # actions that cache are not counted (follow-ups on #147).
             cache_saves = [i for i in block if re.search(r'uses\s*:\s*actions/cache(?:/save)?@', lines[i], re.IGNORECASE)]
-            if len(cache_saves) != (2 if name == 'check-root' else 1 if role == 'spike' else 0):
+            if len(cache_saves) != (2 if name == 'check-root' else 0):
                 errors.append(f'{file}: only the root job saves caches, with exactly two save steps ({name})')
     # ELZ-069: no workflow reads `vars` (the lane variable is gone), and no self-hosted runner, label list or
     # tier input may come back. Case-insensitive and on raw lines, script text and comments included: GitHub
