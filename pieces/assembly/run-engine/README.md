@@ -451,10 +451,14 @@ before it, gives exactly the recorded state, for a root `finish` of that Attempt
 whose admitted action is exactly the action of its request frame (as terms, so
 `1` and `1.0` differ) and names no action. Every other step of the history into
 a pending failure (a record changed to name an action, for example) is
-`{:error, :history}`. With one, the Run, Attempt and operation, the finish slot
-(settled `completed`, the Run's completion), the terminal `failed` state and the
-canonical evidence row that the owner names (in the configured stream, its four
-keys naming the finish action) must agree, and the reply is
+`{:error, :history}`. While a failure is pending, a record that ends it (the
+terminal Run view, or the Run view of a new Attempt, which drops it) or changes
+the Attempt is replayed the same way, also in v1, and must give exactly its
+recorded state, else `{:error, :history}`. With one, the Run, Attempt and
+operation, the finish slot (settled `completed`, the Run's completion), the
+terminal `failed` state and the canonical evidence row that the owner names (in
+the configured stream, its four keys naming the finish action) must agree, and
+the reply is
 `{:failed, %{run_id, attempt_id, operation_id, action_id, schema_id,
 schema_version, payload, evidence_ref}}` with the finish's own action ID, schema
 identity and payload. Any disagreement is `{:error, :completion_mismatch}` or
@@ -1531,7 +1535,11 @@ failure, exact limits read, one record or byte less is `read_limit`, a damaged r
 a raised low-water or an unpaired tail is `history` and an unavailable Store is
 `unavailable`; the failure record changed to name the completed action, its digest
 made valid, is `history` in v1 and v2; a request frame whose finish payload `1`
-became `1.0` before the failure record, its digest made valid, is `history`),
+became `1.0` before the failure record, its digest made valid, is `history`; after
+a new Attempt begun on the owner while the engine was down and a later plain
+failure of it (`{:terminal, :failed}`), the Run view that dropped the older failure
+changed to name the older Attempt, its digest made valid and its recorded state
+left, is `history` in v1 and v2),
 `crash_before_the_owner_command` (the engine killed at its owner command after the
 failure and its evidence row: the restart appends an equal row, the owner stream
 holds one terminal record naming it, the journal one failure record, and
@@ -1559,10 +1567,12 @@ a pending failure at a change of Attempt (both new-Attempt tests fail), the owne
 command that takes the owner's current Attempt (the engine halts with
 `terminal_commit_pending`), the reader that also takes an older Attempt's failure
 (`completion_mismatch`), no check of the steps into a pending failure (v1 gives
-`{:terminal, :failed}`), loose equality of the admitted and the request-frame
-action (`{:failed, record}` with payload `1.0`) and the evidence row read without
-its stream check (the moved row gives `{:failed, record}`). Listed finite
-scenarios, not a proof.
+`{:terminal, :failed}`), no replay of the steps out of one (v1 gives
+`{:terminal, :failed}` for the changed Run view; v2 alone still gives `history`
+from its own replay), loose equality of the admitted and the request-frame action
+(`{:failed, record}` with payload `1.0`) and the evidence row read without its
+stream check (the moved row gives `{:failed, record}`). Listed finite scenarios,
+not a proof.
 
 ## Changes
 

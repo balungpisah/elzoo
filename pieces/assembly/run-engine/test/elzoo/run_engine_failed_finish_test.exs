@@ -542,6 +542,44 @@ defmodule Elzoo.RunEngineFailedFinishTest do
       corrupt_row(c, before_row, {1, {id, put_in(state.requests[ordinal], changed)}})
       assert {:error, :history} = result(engine)
     end
+
+    test "a Run view changed to keep the older Attempt cannot drop a pending failure, in v1 and v2" do
+      for version <- [1, 2] do
+        v2? = version == 2
+        frame = if v2?, do: &request_v2/1, else: &request/1
+        version_opts = if v2?, do: [protocol_version: 2], else: []
+        finish = finish_action("finish", @null, "stopped-null")
+
+        c =
+          fixture(
+            [unit_store: memory_unit_store(version), pattern: pattern([frame.([finish])])] ++
+              version_opts
+          )
+          |> with_schemas()
+
+        # The engine dies at its owner command after the failure and its evidence row, the
+        # host begins a new Attempt, the restart's Run view drops the older failure, and
+        # the host fails the new Attempt: a plain failure.
+        engine = start(c, run_owner: forwarder(c, :kill), result_reader: reader(c))
+        monitor = Process.monitor(engine)
+        input = if v2?, do: start_input_v2(), else: start_input()
+        catch_exit(RunEngine.input(engine, "start", input, verified()))
+        assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+        begin_attempt(c, "second")
+        engine = start(c, result_reader: reader(c))
+        assert %{attempt_id: "second", stop_pending: nil} = view(engine)
+        fail_on_owner(c, "second")
+        assert {:terminal, :failed} = result(engine)
+
+        # The Run view now names the older Attempt, its row digest made valid; its recorded
+        # state (the new Attempt, the failure dropped) is left as it was.
+        {row, id, record} =
+          input_row(c, &match?(%{kind: :run_view, view: %{current_attempt: "second"}}, &1))
+
+        corrupt_row(c, row, {1, {id, put_in(record.view.current_attempt, "attempt")}})
+        assert {:error, :history} = result(engine)
+      end
+    end
   end
 
   describe "crash_before_the_owner_command" do
@@ -605,19 +643,7 @@ defmodule Elzoo.RunEngineFailedFinishTest do
       assert [_] = failure_records(c)
 
       # A later plain failure of the new Attempt reads as one: the older failure is not read.
-      {:ok, owner} = Run.status(c.run, "run")
-
-      assert {:ok, _, _} =
-               Run.command(c.run, %{
-                 kind: :complete,
-                 run_id: "run",
-                 attempt_id: "second",
-                 outcome: :failed,
-                 reason: "engine",
-                 evidence_ref: nil,
-                 expected_revision: owner.revision
-               })
-
+      fail_on_owner(c, "second")
       assert {:terminal, :failed} = result(engine)
     end
 
@@ -837,6 +863,22 @@ defmodule Elzoo.RunEngineFailedFinishTest do
              })
   end
 
+  # The host fails the Run on the owner alone for `attempt`, with no evidence.
+  defp fail_on_owner(c, attempt) do
+    {:ok, owner} = Run.status(c.run, "run")
+
+    assert {:ok, _, _} =
+             Run.command(c.run, %{
+               kind: :complete,
+               run_id: "run",
+               attempt_id: attempt,
+               outcome: :failed,
+               reason: "engine",
+               evidence_ref: nil,
+               expected_revision: owner.revision
+             })
+  end
+
   # The Run of the test pattern is open in Attempt "second" with no failure pending,
   # the owner has no terminal record and the evidence rows are `evidence`; then a wake
   # of the new Attempt reaches the root, whose next request (`work`) completes.
@@ -895,17 +937,19 @@ defmodule Elzoo.RunEngineFailedFinishTest do
 
   defp decode(row), do: :erlang.binary_to_term(row.payload, [:safe])
 
-  # The Unit row that holds the :finish record with no source, its input ID and record.
-  defp failure_input_row(c) do
+  # The one Unit input row whose record `fun` selects: the row, its input ID and record.
+  defp input_row(c, fun) do
     [found] =
       for %{kind: "input", payload: payload} = row <- rows(c),
-          {1, {id, %{kind: :finish, source: nil} = record}} <- [
-            :erlang.binary_to_term(payload, [:safe])
-          ],
+          {1, {id, record}} <- [:erlang.binary_to_term(payload, [:safe])],
+          fun.(record),
           do: {row, id, record}
 
     found
   end
+
+  # The Unit row that holds the :finish record with no source.
+  defp failure_input_row(c), do: input_row(c, &match?(%{kind: :finish, source: nil}, &1))
 
   # A Unit row of the in-memory Store with `term` as its payload, its digest made valid.
   defp corrupt_row(c, row, term) do

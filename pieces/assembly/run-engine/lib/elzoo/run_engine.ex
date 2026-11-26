@@ -6064,7 +6064,9 @@ defmodule Elzoo.RunEngine.ResultReader do
   # state before it, gives exactly the recorded state and settles a root finish that
   # names no action. Such a record that changed nothing (not permitted at its time) is
   # not one. Every other step into a pending `:failed` stop, and such a record whose
-  # replay differs, is damaged history.
+  # replay differs, is damaged history. While a failure is pending, a record that ends
+  # it (the terminal Run view, or the Run view of a new Attempt, which drops it) or
+  # changes the Attempt must replay to exactly its recorded state, in v1 too.
   defp accepted_failure(
          %{pending: {_input_id, record}, state: before},
          %{state: after_state},
@@ -6073,19 +6075,28 @@ defmodule Elzoo.RunEngine.ResultReader do
        when is_map(record) do
     case record do
       %{kind: :finish, source: nil, occurrence: key} ->
-        with {:ok, projected} <- Elzoo.RunEngine.project_event_wait_transition(before, record),
-             true <- projected === after_state do
+        if replays?(before, record, after_state) do
           if after_state === before,
             do: {:ok, candidates},
             else: failure_candidate(before, after_state, key, candidates)
         else
-          _ -> {:error, :history}
+          {:error, :history}
         end
 
       _ ->
-        if failure_pending?(after_state) and not failure_pending?(before),
-          do: {:error, :history},
-          else: {:ok, candidates}
+        cond do
+          failure_pending?(after_state) and not failure_pending?(before) ->
+            {:error, :history}
+
+          failure_pending?(before) and
+              (not failure_pending?(after_state) or attempt(before) != attempt(after_state)) ->
+            if replays?(before, record, after_state),
+              do: {:ok, candidates},
+              else: {:error, :history}
+
+          true ->
+            {:ok, candidates}
+        end
     end
   rescue
     _ -> {:error, :history}
@@ -6094,6 +6105,15 @@ defmodule Elzoo.RunEngine.ResultReader do
   defp accepted_failure(_, _, candidates), do: {:ok, candidates}
 
   defp failure_pending?(state), do: get_in(state, [:control, :stop_pending]) == :failed
+  defp attempt(state), do: get_in(state, [:control, :attempt_id])
+
+  # The engine's own pure fold of `record` on `before` gives exactly `after_state`.
+  defp replays?(before, record, after_state) do
+    case Elzoo.RunEngine.project_event_wait_transition(before, record) do
+      {:ok, projected} -> projected === after_state
+      _ -> false
+    end
+  end
 
   # The checks of one root failure against the state before and after it: a root finish
   # of the current Attempt, admitted as the pattern asked for it, naming no action, now
