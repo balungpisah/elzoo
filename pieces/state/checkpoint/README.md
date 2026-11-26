@@ -39,10 +39,13 @@ consumer assumptions are distinct; no disk durability or exactly-once claim.
   invalid or undecodable latest checkpoint it read one checkpoint per sequence
   down to 0. Retention now deletes the checkpoints below `low_water`
   (state/event-log and integration/sql, same task), so that walk would cost one
-  Store call per pruned sequence. With no usable checkpoint from the failed one
-  down to `low_water`, recovery returns `{:error, {:pruned, low_water}}`, as
-  before. One result changes: a checkpoint below `low_water` that an earlier
-  retention left in a PostgreSQL table is no longer a seed, so one with
-  terminal damage (corrupt or truncated) is no longer returned as the damaged
-  model; recovery returns the pruned result instead. Nothing to move; to
-  remove such rows, see the `## Changes` entry of integration/sql.
+  Store call per pruned sequence. On a pruned stream (`low_water > 0`) with no
+  usable checkpoint from the failed one down to `low_water`, recovery returns
+  `{:error, {:pruned, low_water}}`, as before; an unpruned stream still
+  replays from sequence 1. One result changes, on the fallback only: it no
+  longer reaches a checkpoint below `low_water` that an earlier retention left
+  in a PostgreSQL table, so such a checkpoint with terminal damage (corrupt or
+  truncated) is no longer returned as the damaged model through the fallback;
+  recovery returns the pruned result instead. If such a checkpoint is still
+  the latest of its fold version, recovery reads it as before. Nothing to
+  move; to remove such rows, see the `## Changes` entry of integration/sql.
