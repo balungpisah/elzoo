@@ -84,10 +84,10 @@ On both Stores:
   either commits first and is then deleted by it, or is refused after it;
   never a surviving checkpoint below `low_water` (lock order shown in the
   test).
-- Same-version checkpoints at `N - 1` and `N`, a retention through `N`, then
-  a checkpoint at `N` that does not decode: recovery through `Elzoo.Checkpoint`
-  returns the existing pruned result with a bounded number of Store calls
-  (count them), not one call per pruned sequence.
+- For `N > 1`, write valid same-version checkpoints at `N - 1` and `N`, then
+  retain through `N`. Recover with a decoder that rejects the model at `N`.
+  Assert `{:error, {:pruned, N}}` and zero `read_checkpoint` fallback calls on
+  both Stores.
 - A negative control: a temporary edit that skips the delete makes the first
   case fail (recorded and reverted).
 - `mix check --piece "$(git merge-base origin/main HEAD)"` and
