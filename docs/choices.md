@@ -611,7 +611,7 @@ ID rule above).
 | Option | Piece | How it is added | Additive |
 | --- | --- | --- | --- |
 | Volume tiers | `domain/pricing` ([ELZ-304](../tasks/ELZ-304-pricing.md)) | An optional `tiers` field on a rate-card line; each line stands alone, so a card without tiers prices as before | Yes |
-| Tenant-local month, rolling window | `domain/entitlement`, `domain/quota`, `domain/metering` | Entitlement gains a `period_kind` member; quota keys its allowance by a tagged window (`{:period, id}`) and gains a rolling window beside it; metering already takes an opaque period ID and keeps `observed_at_ms`, so a time-range total is a new read | No: the allowance key of `domain/quota` is a changed stored format, so a `## Changes` entry and a migration step (same IDs) |
+| Tenant-local month, rolling window | `domain/entitlement`, `domain/quota`, `domain/metering` | Entitlement gains a `period_kind` member; quota keys its allowance by a tagged window (`{:period, id}`) and gains a rolling window beside it; metering already takes an opaque period ID and keeps `observed_at_ms`, so a time-range total is a new read | Yes, while the stored `{:period, id}` encoding (its `window_tag` and `window_id`) stays as it is; a change to that encoding is breaking |
 | A reusable `assembly/tenant-edge` | new Assembly (RC-40) | Composes the public interfaces of verify, membership, authorization, kill-switch, entitlement, quota, Run, metering, pricing and journal; no Piece needs a private path for it | Yes (new ID) |
 | Run and model metrics | `runtime/telemetry`, `integration/observability`, `assembly/run-engine`, `integration/ai-text` | A new event family emitted in place; the transcript and metering stay as they are | Yes |
 | More than one active plan per tenant | `domain/entitlement` | Drop the version 1 `overlap` refusal for a declared stacking rule; a resolution already lists its grants and plans, and allowances are a list tagged by grant; `domain/quota` checks each allowance against the listed grants and sums the amounts of one unit | No: the `overlap` refusal is a failure guarantee that goes, so a `## Changes` entry (same ID) |
@@ -1285,7 +1285,7 @@ of `bot-platform.md`, unless an entry names another.
 
 - **Chosen.** Before the first release, a ready Piece could change in place so it did not need a second ID for the same job.
 - **Boundary.** The merge commit of [ELZ-411](https://github.com/balungpisah/elzoo/pull/1004) on `main` is the release commit only if the `symbolic-check.yml` push run for that exact SHA succeeds.
-- **For you.** Replaced on 2026-11-26: from that commit on, a ready Piece keeps its ID when it improves and through a breaking change, which adds a `## Changes` entry; your copy changes only when you take again. See [A ready Piece improves in place (2026-11-26)](#a-ready-piece-improves-in-place-2026-11-26).
+- **For you.** Replaced on 2026-11-26: from that commit on, a ready Piece keeps its ID when it improves and through a breaking change, which adds a `## Changes` entry (a changed stored format also comes with a reader of the old format or a stated migration step); a new Piece ID is only for a new capability or a split, as the capability model decides. Your copy changes only when you take again: your receipt names the revision you took, and the `## Changes` entries since that revision are the ones to read. See [A ready Piece improves in place (2026-11-26)](#a-ready-piece-improves-in-place-2026-11-26).
 
 ### Version-1 action kinds, RC-68 (2026-11-12)
 
