@@ -1071,8 +1071,9 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
         B.start_bot!(w, "T1", label, spec, text, [model: :routed] ++ opts)
       end
 
-      # The loop's finish. A stopped finish names no completed action, so the engine refuses it
-      # as `completion_evidence` and the Run has no completion (run-engine's root finish rule).
+      # The loop's finish. A stopped finish names no completed action (its `action_id` is null),
+      # so the engine ends the Run `:failed` with it: the finish settles completed and result/3
+      # returns its payload (run-engine's root finish rule).
       finish = fn label ->
         B.await!(fn -> List.keyfind(B.settlements(w, label), label <> ":finish", 0) end)
         [payload] = for {_, "finish", _, p} <- B.actions(w, label), do: p
@@ -1192,7 +1193,8 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
       Models.script(w, "compat", [{:transport_error, :timeout}])
       start.("r4", "Hello.", [])
 
-      assert %{"status" => "stopped", "reason" => "model_call_not_completed"} = finish.("r4")
+      stopped = finish.("r4")
+      assert %{"status" => "stopped", "reason" => "model_call_not_completed"} = stopped
       assert [{:ok, %{eligible: ["compat", "gemini"]}}] = select_of.("r4:m:1")
 
       assert after_of.("r4:m:1") == [
@@ -1205,7 +1207,17 @@ defmodule Elzoo.Wave9.ToolsDoorsModelsMoneyTest do
              ]
 
       assert {"r4:m:1", "unknown", _} = List.keyfind(B.settlements(w, "r4"), "r4:m:1", 0)
-      assert {"r4:finish", "refused", _} = List.keyfind(B.settlements(w, "r4"), "r4:finish", 0)
+      assert {"r4:finish", "completed", _} = List.keyfind(B.settlements(w, "r4"), "r4:finish", 0)
+      assert %{phase: :terminal, outcome: :failed} = B.finished!(w, "r4")
+
+      assert {:failed,
+              %{
+                action_id: "r4:finish",
+                schema_id: "elzoo.agent-loop.result",
+                schema_version: 1,
+                payload: ^stopped
+              }} = B.result(w, "r4")
+
       assert [%{ref: "compat", n: 1}] = intents_of.("r4")
       assert Models.intent_streams(w, "r4", ["r4:m:1", "r4:m:1:2"]) == [{"r4:m:1", "compat", 1}]
       assert length(Models.requests(w, "compat")) == 2

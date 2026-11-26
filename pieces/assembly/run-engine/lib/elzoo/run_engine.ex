@@ -498,6 +498,25 @@ defmodule Elzoo.RunEngine do
     {classify(state, decision), :none}
   end
 
+  # A root finish that names no action (its payload has `"action_id": null`, no
+  # `action_id` key, or is not an object) ends the Run :failed: its own schema and
+  # payload settle the finish slot, and that payload is the failure record.
+  defp transition(state, %{kind: :finish, occurrence: key, source: nil, at_ms: at}) do
+    slot = state.slots[key]
+
+    if slot.phase == :ready and permitted?(state, slot, at) do
+      true = slot.kind == "finish" and slot.callable == "root"
+      true = is_nil(named_source(slot.action))
+      input = internal_input(state, key, slot, "completed", nil, kept_finish(slot.action), at)
+      state = settle_finish(state, key, slot, input, at)
+      state = put_in(state.control.completion, key)
+      state = put_in(state.control.generation_closed, true)
+      {put_in(state.control.stop_pending, :failed), :none}
+    else
+      {state, :none}
+    end
+  end
+
   defp transition(state, %{kind: :finish, occurrence: key, source: source, at_ms: at}) do
     slot = state.slots[key]
 
@@ -515,23 +534,7 @@ defmodule Elzoo.RunEngine do
           at
         )
 
-      {:ok, checked} = decode_step(input, state.version)
-      request = state.control.trackers[elem(key, 0)]
-      {:applied, tracker} = PatternStep.accept(request.tracker, checked)
-      state = put_in(state.control.trackers[elem(key, 0)].tracker, tracker)
-      state = settle_join(state, key, input, %{}) |> settle_budget(key, 0, at)
-
-      state =
-        put_in(state.slots[key], %{
-          action_id: slot.action_id,
-          kind: slot.kind,
-          callable: slot.callable,
-          attempt_id: slot.attempt_id,
-          phase: :settled,
-          outcome: "completed",
-          verdict: slot.verdict
-        })
-
+      state = settle_finish(state, key, slot, input, at)
       state = put_in(state.control.completion, source)
       state = put_in(state.control.generation_closed, true)
       {put_in(state.control.stop_pending, :completed), :none}
@@ -1464,6 +1467,26 @@ defmodule Elzoo.RunEngine do
   end
 
   defp settle_budget(state, _, _, _), do: state
+
+  # A root finish settles `completed` by its own :finish record: the tracker and the
+  # join take the outcome, and its Budget entry settles at actual 0.
+  defp settle_finish(state, key, slot, input, at) do
+    {:ok, checked} = decode_step(input, state.version)
+    request = state.control.trackers[elem(key, 0)]
+    {:applied, tracker} = PatternStep.accept(request.tracker, checked)
+    state = put_in(state.control.trackers[elem(key, 0)].tracker, tracker)
+    state = settle_join(state, key, input, %{}) |> settle_budget(key, 0, at)
+
+    put_in(state.slots[key], %{
+      action_id: slot.action_id,
+      kind: slot.kind,
+      callable: slot.callable,
+      attempt_id: slot.attempt_id,
+      phase: :settled,
+      outcome: "completed",
+      verdict: slot.verdict
+    })
+  end
 
   defp expire_waits(state, at) do
     Enum.reduce(state.slots, state, fn {key, slot}, acc ->
@@ -3426,17 +3449,20 @@ defmodule Elzoo.RunEngine do
     if slot.callable == "root" do
       {state, s} = read_state(s)
       {finish_action, s} = read_action(s, state, key)
-      target_id = finish_action["payload"]["action_id"]
+      target_id = named_source(finish_action)
 
       source =
-        Enum.find_value(state.slots, fn {k, original} ->
-          if original.action_id == target_id and
-               original.phase == :settled and original.outcome == "completed" and
-               original.attempt_id == slot.attempt_id,
-             do: k
-        end)
+        target_id &&
+          Enum.find_value(state.slots, fn {k, original} ->
+            if original.action_id == target_id and
+                 original.phase == :settled and original.outcome == "completed" and
+                 original.attempt_id == slot.attempt_id,
+               do: k
+          end)
 
-      if source do
+      # A finish that names no action fails the Run: its :finish record has no source.
+      # One that names an action needs that action settled completed in this Attempt.
+      if source || is_nil(target_id) do
         with {:ok, _, s} <-
                commit(s, stable_id("finish:", {s.opts.run_id, key}), %{
                  version: state.version,
@@ -3790,10 +3816,20 @@ defmodule Elzoo.RunEngine do
     |> Map.put("schema_version", finish.schema_version)
   end
 
+  # `:failed` comes only from a root finish that names no action (its :finish record):
+  # the evidence names that finish, and the reason says the pattern ended the Run.
   defp finish_run(s, result, key) do
     {state, s} = read_state(s)
-    {evidence, s} = if result == :completed, do: completion_evidence(s, key), else: {nil, s}
-    reason = if state.control.charge_stopped, do: "request_cap", else: "engine"
+
+    {evidence, s} =
+      if result in [:completed, :failed], do: completion_evidence(s, key), else: {nil, s}
+
+    reason =
+      cond do
+        result == :failed -> "pattern"
+        state.control.charge_stopped -> "request_cap"
+        true -> "engine"
+      end
 
     case run_command(s, :complete, %{outcome: result, reason: reason, evidence_ref: evidence}) do
       {:ok, _, _} ->
@@ -4715,6 +4751,11 @@ defmodule Elzoo.RunEngine do
     }
   end
 
+  # The action that a root finish names: its payload's `action_id`; nil when that is
+  # null or absent, or when the payload is not an object.
+  defp named_source(%{"payload" => %{"action_id" => id}}), do: id
+  defp named_source(_), do: nil
+
   # A non-root finish whose callable has kept no finish: the continuation will keep it.
   defp keeps_first_finish?(c, slot) do
     node = c.callables[slot.callable]
@@ -5108,9 +5149,11 @@ defmodule Elzoo.RunEngine do
           {:ok, %{outcome: nil}} ->
             {:pending, :not_completed}
 
-          {:ok, %{outcome: outcome}}
-          when outcome in [:failed, :cancelled, :out_of_budget, :out_of_time] ->
+          {:ok, %{outcome: outcome}} when outcome in [:cancelled, :out_of_budget, :out_of_time] ->
             {:terminal, outcome}
+
+          {:ok, %{outcome: :failed} = owner} ->
+            failed_result(s, owner, limits)
 
           {:ok, %{outcome: :completed} = owner} ->
             completed_result(s, owner, limits)
@@ -5255,6 +5298,53 @@ defmodule Elzoo.RunEngine do
          payload: selected.payload,
          evidence_ref: owner.evidence_ref
        }}
+    else
+      false -> {:error, :completion_mismatch}
+      {:error, _} = error -> error
+    end
+  end
+
+  # An owner `:failed` is read from the history, never from its reason: this Run's
+  # journaled root failure gives `{:failed, record}`, a verified history without one
+  # gives `{:terminal, :failed}`, and a history that cannot show which gives an error.
+  defp failed_result(s, owner, limits) do
+    reader = s.opts.result_reader
+    evidence = Map.get(s.opts, :evidence)
+
+    with true <- valid_event_wait_owner?(owner, s.opts.run_id),
+         {:ok, selected} <-
+           Elzoo.RunEngine.ResultReader.read_failed(
+             s.opts.store,
+             s.opts.identity,
+             reader.evidence_store,
+             is_map(evidence) && Map.get(evidence, :stream),
+             owner,
+             valid_completion_owner?(owner, s.opts.run_id, evidence),
+             reader.retention_count,
+             limits,
+             s.opts.bindings,
+             reader_config(s),
+             {__MODULE__, :step, empty_state(protocol_version(s))}
+           ),
+         {:ok, current} <- result_owner(s),
+         true <- owner_snapshot(owner) == owner_snapshot(current) do
+      case selected do
+        :plain ->
+          {:terminal, :failed}
+
+        failure ->
+          {:failed,
+           %{
+             run_id: owner.id,
+             attempt_id: owner.current_attempt,
+             operation_id: owner.operation_id,
+             action_id: failure.action_id,
+             schema_id: failure.schema_id,
+             schema_version: failure.schema_version,
+             payload: failure.payload,
+             evidence_ref: owner.evidence_ref
+           }}
+      end
     else
       false -> {:error, :completion_mismatch}
       {:error, _} = error -> error
@@ -5666,8 +5756,94 @@ defmodule Elzoo.RunEngine.ResultReader do
         audit,
         operator
       ) do
+    with {:ok, model, candidates, counters, unit_head} <-
+           read_history(
+             unit_store,
+             unit_stream,
+             owner,
+             retention,
+             limits,
+             bindings,
+             audit,
+             operator
+           ),
+         {:ok, source} <- completed_source(model.state, candidates, owner, bindings) do
+      read_evidence(
+        {unit_store, unit_stream, unit_head},
+        {evidence_store, evidence_stream},
+        owner,
+        source,
+        limits,
+        counters
+      )
+    end
+  rescue
+    _ -> {:error, :history}
+  catch
+    :exit, _ -> {:error, :unavailable}
+    _, _ -> {:error, :history}
+  end
+
+  # An owner `:failed`: `{:ok, :plain}` when the verified history holds no root failure
+  # of the Run, else that failure once it and the owner's evidence row agree.
+  # `owner_valid?` is the owner's evidence check of the completed reader.
+  def read_failed(
+        unit_store,
+        unit_stream,
+        evidence_store,
+        evidence_stream,
+        owner,
+        owner_valid?,
+        retention,
+        limits,
+        bindings,
+        audit,
+        operator
+      ) do
+    with {:ok, model, candidates, counters, unit_head} <-
+           read_history(
+             unit_store,
+             unit_stream,
+             owner,
+             retention,
+             limits,
+             bindings,
+             audit,
+             operator
+           ),
+         {:ok, failure} <- failed_source(model.state, candidates, owner, owner_valid?) do
+      if is_nil(failure) do
+        with {:ok, _counters} <-
+               recheck_head(
+                 unit_store,
+                 unit_stream,
+                 unit_head.revision + 1,
+                 unit_head,
+                 limits,
+                 counters
+               ),
+             do: {:ok, :plain}
+      else
+        read_evidence(
+          {unit_store, unit_stream, unit_head},
+          {evidence_store, evidence_stream},
+          owner,
+          failure,
+          limits,
+          counters
+        )
+      end
+    end
+  rescue
+    _ -> {:error, :history}
+  catch
+    :exit, _ -> {:error, :unavailable}
+    _, _ -> {:error, :history}
+  end
+
+  # The whole retained Unit history, folded, paired and verified against the owner.
+  defp read_history(unit_store, unit_stream, owner, retention, limits, bindings, audit, operator) do
     fold = DurableUnit.fold(operator: operator, retention_count: retention)
-    counters = %{records: 0, bytes: 0}
     version = elem(operator, 2).version
 
     with {:ok, model, candidates, counters, unit_head, nil} <-
@@ -5681,16 +5857,31 @@ defmodule Elzoo.RunEngine.ResultReader do
              bindings,
              audit,
              limits,
-             counters,
+             %{records: 0, bytes: 0},
              fold.initial,
              %{},
              nil
            ),
          :ok <- if(is_nil(model.pending), do: :ok, else: {:error, :history}),
          :ok <- if(valid_model_version?(model, version), do: :ok, else: {:error, :history}),
-         {:ok, _waits} <- project_event_waits(model.state, candidates, owner, bindings, audit),
-         {:ok, source} <- completed_source(model.state, candidates, owner, bindings),
-         {:ok, completion, counters, evidence_head} <-
+         {:ok, _waits} <- project_event_waits(model.state, candidates, owner, bindings, audit) do
+      {:ok, model, candidates, counters, unit_head}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :history}
+    end
+  end
+
+  # The canonical evidence row that the owner names, then both stream heads again.
+  defp read_evidence(
+         {unit_store, unit_stream, unit_head},
+         {evidence_store, evidence_stream},
+         owner,
+         source,
+         limits,
+         counters
+       ) do
+    with {:ok, completion, counters, evidence_head} <-
            read_completion(
              evidence_store,
              evidence_stream,
@@ -5723,13 +5914,7 @@ defmodule Elzoo.RunEngine.ResultReader do
     else
       false -> {:error, :completion_mismatch}
       {:error, _} = error -> error
-      _ -> {:error, :history}
     end
-  rescue
-    _ -> {:error, :history}
-  catch
-    :exit, _ -> {:error, :unavailable}
-    _, _ -> {:error, :history}
   end
 
   defp read_unit_history(
@@ -5823,7 +6008,8 @@ defmodule Elzoo.RunEngine.ResultReader do
 
     with true <- valid_model_version?(next, version),
          {:ok, candidates} <- accepted_activation(before, next, candidates, version, audit),
-         :ok <- validate_event_wait_transition(before, next, candidates, version) do
+         :ok <- validate_event_wait_transition(before, next, candidates, version),
+         {:ok, candidates} <- accepted_failure(before, next, candidates) do
       candidates =
         case accepted_settlement(before, next, candidates, version, bindings, audit) do
           {:ok, key, candidate} ->
@@ -5844,6 +6030,82 @@ defmodule Elzoo.RunEngine.ResultReader do
   end
 
   defp reduce_row(_, _, _, _, _, _, _), do: {:error, :history}
+
+  # A root failure: a :finish record with no source whose pure fold, replayed on the
+  # state before it, gives the recorded state and settles a root finish that names no
+  # action. Such a record that changed nothing (not permitted at its time) is not one;
+  # any other such record is damaged history.
+  defp accepted_failure(
+         %{
+           pending: {_input_id, %{kind: :finish, source: nil, occurrence: key} = record},
+           state: before
+         },
+         %{state: after_state},
+         candidates
+       ) do
+    with {:ok, projected} <- Elzoo.RunEngine.project_event_wait_transition(before, record),
+         true <- projected == after_state do
+      if after_state == before,
+        do: {:ok, candidates},
+        else: failure_candidate(before, after_state, key, candidates)
+    else
+      _ -> {:error, :history}
+    end
+  rescue
+    _ -> {:error, :history}
+  end
+
+  defp accepted_failure(_, _, candidates), do: {:ok, candidates}
+
+  # The checks of one root failure against the state before and after it: a root finish
+  # of the current Attempt, admitted as the pattern asked for it, naming no action, now
+  # settled completed as the Run's completion with the :failed stop pending.
+  defp failure_candidate(before, after_state, key, candidates) do
+    slot = Map.get(before.slots, key)
+    after_slot = Map.get(after_state.slots, key)
+    control = after_state.control
+
+    with %{kind: "finish", callable: "root", phase: :ready} <- slot,
+         true <- slot.attempt_id == before.control.attempt_id,
+         {:ok, action} <- original_action(before, key),
+         true <- action == slot[:action] and action["id"] == slot.action_id,
+         true <- action["kind"] == "finish",
+         false <- match?(%{"payload" => %{"action_id" => id}} when not is_nil(id), action),
+         %{phase: :settled, outcome: "completed"} <- after_slot,
+         true <- after_slot.action_id == slot.action_id and after_slot.kind == slot.kind,
+         true <- after_slot.attempt_id == slot.attempt_id,
+         true <- control.completion == key and control.stop_pending == :failed,
+         true <- control.generation_closed do
+      failure = %{
+        key: key,
+        run_id: before.control.run_id,
+        attempt_id: slot.attempt_id,
+        operation_id: before.control.operation_id,
+        action_id: slot.action_id,
+        schema_id: action["schema_id"],
+        schema_version: action["schema_version"],
+        payload: action["payload"]
+      }
+
+      {:ok, Map.put(candidates, {:failure, failure.run_id, failure.attempt_id, key}, failure)}
+    else
+      _ -> {:error, :history}
+    end
+  end
+
+  # The action at its index of the request frame: the request cache keeps the frame
+  # while a slot of that request is not yet under way, as a finish in `ready` is not.
+  defp original_action(state, {request, index}) do
+    with encoded when is_binary(encoded) <- Map.get(state.requests, request),
+         {:ok, frame} <- Jason.decode(encoded),
+         true <- Elzoo.RunEngine.HistoryVersion.valid_request_frame?(frame, state.version),
+         actions when is_list(actions) <- Map.get(frame, "actions"),
+         action when is_map(action) <- Enum.at(actions, index) do
+      {:ok, action}
+    else
+      _ -> :error
+    end
+  end
 
   # Transcript entries of one committed record: the change of the folded state that
   # the record makes, read together with the record. Nothing is called or stepped.
@@ -6709,6 +6971,36 @@ defmodule Elzoo.RunEngine.ResultReader do
       {:ok, source}
     else
       _ -> {:error, :completion_mismatch}
+    end
+  rescue
+    _ -> {:error, :completion_mismatch}
+  end
+
+  # The Run's root failure: nil when its history holds none. One that it holds must be
+  # this owner's Run, Attempt and operation, the Run's completion, settled, with the
+  # Run terminal `:failed`, and the owner must name evidence; else a mismatch.
+  defp failed_source(state, candidates, owner, owner_valid?) do
+    control = state.control
+
+    case for({{:failure, run_id, _, _}, failure} <- candidates, run_id == owner.id, do: failure) do
+      [] ->
+        {:ok, nil}
+
+      [failure] ->
+        slot = Map.get(state.slots, failure.key)
+
+        if owner_valid? and failure.attempt_id == owner.current_attempt and
+             failure.operation_id == owner.operation_id and
+             control.lifecycle.phase == :terminal and control.lifecycle.outcome == :failed and
+             is_nil(control.stop_pending) and control.completion == failure.key and
+             is_map(slot) and slot.phase == :settled and slot.outcome == "completed" and
+             slot.kind == "finish" and slot.action_id == failure.action_id and
+             slot.attempt_id == owner.current_attempt,
+           do: {:ok, failure},
+           else: {:error, :completion_mismatch}
+
+      _ ->
+        {:error, :completion_mismatch}
     end
   rescue
     _ -> {:error, :completion_mismatch}
