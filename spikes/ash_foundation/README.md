@@ -31,7 +31,7 @@ mix test --warnings-as-errors
 ```
 
 The lockfile records transitive versions/checksums. Direct upstream pins are
-Ash 3.37.3, AshAi 1.5.4, AshStateMachine 0.3.0 and SimpleSat 0.1.4. SimpleSat
+Ash 3.38.1, AshAi 1.5.6, AshStateMachine 0.3.1 and SimpleSat 0.1.4. SimpleSat
 is the supported pure-Elixir SAT solver used by Ash policies; it avoids a
 native build dependency in this small experiment. No solver-performance or
 upstream theorem-proving claim follows from choosing it.
@@ -99,11 +99,11 @@ graph. Foundation adoption remains conditional on durable-boundary tests.
 
 Versioned upstream references:
 
-- [Ash resource/actions](https://hexdocs.pm/ash/3.37.3/what-is-ash.html)
-- [Ash authorization](https://hexdocs.pm/ash/3.37.3/policies.html)
-- [ETS storage limits](https://hexdocs.pm/ash/3.37.3/Ash.DataLayer.Ets.html)
-- [AshAi tools](https://hexdocs.pm/ash_ai/1.5.4/AshAi.Tools.html)
-- [State transitions and stale records](https://hexdocs.pm/ash_state_machine/0.3.0/getting-started-with-ash-state-machine.html)
+- [Ash resource/actions](https://hexdocs.pm/ash/3.38.1/what-is-ash.html)
+- [Ash authorization](https://hexdocs.pm/ash/3.38.1/policies.html)
+- [ETS storage limits](https://hexdocs.pm/ash/3.38.1/Ash.DataLayer.Ets.html)
+- [AshAi tools](https://hexdocs.pm/ash_ai/1.5.6/AshAi.Tools.html)
+- [State transitions and stale records](https://hexdocs.pm/ash_state_machine/0.3.1/getting-started-with-ash-state-machine.html)
 
 See [ADR-0005](../../docs/adr/0005-ash-foundation-and-upstream-first.md) and
 the [upstream/fork policy](../../docs/development/08-upstream-and-forks.md).
