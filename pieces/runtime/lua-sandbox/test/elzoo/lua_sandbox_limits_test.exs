@@ -4,7 +4,7 @@ defmodule Elzoo.LuaSandboxLimitsTest do
   Group `counted_sticky_limits`: counted `steps` and `call_depth` at the exact boundary,
   string and memory bombs, and the budgets, parser and allocation failures of loading.
 
-  The counts below are the pinned runtime's counts of the pinned build (Lua 5.4.9, the
+  The counts below are the pinned runtime's counts of the pinned build (Lua 5.5.1, the
   recipe of `Elzoo.LuaSandbox.Build`). Each is found here by a scan for the smallest
   passing budget, so a changed runtime or a changed counting rule fails this file instead
   of passing silently. "Boundary" is the smallest budget that succeeds, "boundary + 1" of
@@ -38,6 +38,18 @@ defmodule Elzoo.LuaSandboxLimitsTest do
   defp search(ok?, low, high) do
     middle = div(low + high, 2)
     if ok?.(middle), do: search(ok?, low, middle), else: search(ok?, middle + 1, high)
+  end
+
+  # The smallest memory budget at which `source` starts user code: below the floor
+  # initialization alone ends in the memory stop; at the floor the run reaches its
+  # counted end (here a steps stop). The outcome is monotone in the budget, so a
+  # binary search finds the transition.
+  defp memory_floor(exe, source) do
+    started? = fn budget ->
+      not match?({:host_outcome, :memory}, Helper.run(exe, source, nil, %{memory_bytes: budget}))
+    end
+
+    if started?.(1), do: 1, else: search(started?, 1, 40_000)
   end
 
   # Exact boundary: success at `expected`, refusal `reason` one budget below it, and
@@ -333,6 +345,17 @@ defmodule Elzoo.LuaSandboxLimitsTest do
 
       assert {:ok, %{value: 109}} = Helper.run(exe, with_sep, nil, %{value_bytes: 109})
       assert Helper.run(exe, with_sep, nil, %{value_bytes: 108}) == {:refused, :value_size}
+
+      # the same exactness across the buffer library's initial buffer size of 1,024
+      # bytes: a longer result is finished as an external string whose content the
+      # allocator cannot see, so the host charges it before the string exists
+      rep1024 = "return function() return #string.rep('x', 1024) end"
+      rep1025 = "return function() return #string.rep('x', 1025) end"
+
+      assert {:ok, %{value: 1_024}} = Helper.run(exe, rep1024, nil, %{value_bytes: 1_024})
+      assert Helper.run(exe, rep1024, nil, %{value_bytes: 1_023}) == {:refused, :value_size}
+      assert {:ok, %{value: 1_025}} = Helper.run(exe, rep1025, nil, %{value_bytes: 1_025})
+      assert Helper.run(exe, rep1025, nil, %{value_bytes: 1_024}) == {:refused, :value_size}
     end
 
     test "string.pack with large counts and with s and z strings", %{executable: exe} do
@@ -368,10 +391,12 @@ defmodule Elzoo.LuaSandboxLimitsTest do
         end
       end
 
-      # a two-gigabyte request under a small memory limit is `memory`, still no large allocation
+      # a two-gigabyte request is stopped before the allocation: Lua 5.5.1 sizes
+      # the pack buffer once, so the scoped allocation cap refuses it as value_size
+      # even below a small memory limit (5.4 grew the buffer and ended in memory)
       assert Helper.run(exe, "return function() return string.pack('c1000000000', 'a') end", nil, %{
                memory_bytes: 100_000
-             }) == {:host_outcome, :memory}
+             }) == {:refused, :value_size}
 
       # a repeated format with too few arguments is an error, not an allocation
       assert {:refused, :lua_error} =
@@ -554,11 +579,20 @@ defmodule Elzoo.LuaSandboxLimitsTest do
 
       for limit <- [1, 100, 5_000, baseline - 1] do
         assert Helper.run(exe, @identity, 1, %{memory_bytes: limit}) == {:host_outcome, :memory}
-        # an infinite loop never starts either: the outcome is the memory stop, not `steps`
-        assert Helper.run(exe, "return function() while true do end end", nil, %{
-                 memory_bytes: limit
-               }) ==
-                 {:host_outcome, :memory}
+      end
+
+      # the memory floor is per program: below it no user code runs, so the
+      # outcome is memory; at it the loop starts and ends in steps. The floor is
+      # the first budget whose outcome is steps rather than memory.
+      loop = "return function() while true do end end"
+
+      loop_floor = memory_floor(exe, loop)
+      assert is_integer(loop_floor) and loop_floor > 5_000
+
+      assert Helper.run(exe, loop, nil, %{memory_bytes: loop_floor}) == {:refused, :steps}
+
+      for limit <- [1, 100, 5_000, loop_floor - 1] do
+        assert Helper.run(exe, loop, nil, %{memory_bytes: limit}) == {:host_outcome, :memory}
       end
     end
 

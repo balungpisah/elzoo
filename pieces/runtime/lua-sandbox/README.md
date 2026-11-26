@@ -1,15 +1,15 @@
 # runtime/lua-sandbox
 
 `Elzoo.LuaSandbox` evaluates one pure Lua function of one plain input in a fresh
-PUC **Lua 5.4.9** process outside the BEAM, under **policy version 3** (a fixed
+PUC **Lua 5.5.1** process outside the BEAM, under **policy version 3** (a fixed
 allow-list, ten safe helpers and the bindings mechanism) and exact limits. The runtime is built from the installed
-`lua_source` checkout (MIT, pinned to revision `312b9efaa1061c2c4cad08554dbc1351c3270eef`)
+`lua_source` checkout (MIT, pinned to revision `7579fc9d7ed90240487251dfb69168f8e64e9294`)
 with plain `cc` and `ar` and an owned C host under `lib/elzoo/lua_sandbox/native/`.
 No upstream source is copied into the Piece. Apache-2.0 for the Elzoo source.
 
 ## Contract
 
-Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.4.9 process
+Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.5.1 process
 outside the VM, started by an OTP Port from an executable that `build/2`
 compiles from the installed pinned `lua_source` checkout and an owned C host, over
 length-framed JSON, under capability policy version 3, whose fixed allow-list of names
@@ -51,8 +51,9 @@ Elzoo.LuaSandbox.run(executable, %{
 * `build/2` returns `{:ok, executable}` or `{:error, :build_failed}`. Both operands are
   trusted host paths, never Lua input. The build verifies the exact bytes of the upstream
   files it reads (the 32 library sources and every header), compiles them with the
-  explicit recipe plus fixed defines for a constant hash seed and sort pivot, archives
-  them fresh, compiles the owned host with `-Werror` and refuses a missing tool, a
+  explicit recipe plus a fixed define for a constant sort pivot, passes the constant hash
+  seed to `lua_newstate` at state creation, archives them fresh, compiles the owned host
+  with `-Werror` and refuses a missing tool, a
   different revision, an output directory inside the source and any compiler error. It
   never writes into the source. It is for the consumer's build or install step, not for
   each evaluation.
@@ -415,10 +416,19 @@ repair of the test fakes adds two more (groups 25 and 26):
   beyond the ASCII rules of `string.lower` and `string.upper` (they need Unicode data tables),
   and no helper reads a clock, a time zone or a locale. A time is an integer of milliseconds
   that the caller puts in the input, in 1970-01-01 to 9999-12-31 UTC, proleptic Gregorian.
-* **Private-layout maintenance limitation:** the allocator string guard reads
-  `offsetof(TString, contents)` and the string allocation tag of the pinned internal
-  `lobject.h`. The build refuses any revision other than the pinned bytes, but a new Lua
-  revision needs a new review of that coupling before the pin moves.
+* **Private-layout maintenance limitation:** the allocator string guard reads the string
+  allocation tag and the offsets `offsetof(TString, contents)` and `offsetof(TString, falloc)`
+  of the pinned internal `lobject.h`, and `LUAI_MAXSHORTLEN` of the pinned internal
+  `lstring.h`. Lua 5.5.1 allocates a short string at the first offset and a long string at
+  the second; the guard derives the exact content length from the allocation size along the
+  one branch that the size can belong to. An external string (whose header size falls in the
+  short-string range) cannot exist: the host uses no `lua_pushexternalstring` and accepts no
+  bytecode. A large buffer of the Lua library is finished as an external string whose
+  content allocation the guard cannot see; the build compiles `lauxlib.c` with its one
+  internal `lua_pushexternalstring` call renamed to a host shim that charges the content
+  length exactly before the string exists. The build refuses any revision other than the
+  pinned bytes, but a new Lua revision needs a new review of that coupling before the
+  pin moves.
 * **Held strings:** `value_bytes` is enforced for a string when the run allocates it. A short
   string (at most 40 bytes, the pinned `LUAI_MAXSHORTLEN`) whose content equals a string that
   the Lua state already holds when the limits are armed is not allocated and so is not
@@ -454,3 +464,53 @@ Declare the source-only `lua_source` provider in your own project with
 the pinned Git revision), copy this Piece's files, and call `build/2` once from your
 build or install step with `Mix.Project.deps_paths()[:lua_source]` and a build directory
 outside that checkout. `examples/elzoo/lua_sandbox.exs` shows the call and evaluates 42.
+
+## Changes
+
+- ELZ-426 (2026-11-26): the Lua runtime moves from PUC Lua 5.4.9 (revision
+  `312b9efaa1061c2c4cad08554dbc1351c3270eef`) to PUC Lua 5.5.1 (revision
+  `7579fc9d7ed90240487251dfb69168f8e64e9294`). Policy version 3 is unchanged: the
+  capability surface, the descriptor, counted-step costs, limit semantics and
+  refusal atoms are the same (each one measured again under 5.5.1). What changes:
+  - A runtime identity recorded under 5.4.9 does not replay under this build: the
+    Lua release, the upstream revision, the C host SHA-256 and the build options all
+    differ. Nothing in the sandbox rejects a recorded identity as such, but no 5.4.9
+    identity equals a 5.5.1 identity, so a consumer that recorded runtime identities
+    must record them again under this build.
+  - The constant hash seed is now an argument of `lua_newstate` at state creation
+    and the sort pivot macro is `-Dl_randomizePivot(L)=0u` (a function-like macro in
+    5.5.1); the `luai_makeseed` define is gone, so the recorded build options differ.
+  - `string.pack` with a very large count is refused as `value_size` instead of
+    ending in the host outcome `memory`: 5.5.1 sizes the pack buffer once before
+    allocating, so the scoped allocation cap refuses it before the memory limit is
+    reached (5.4 grew the buffer and hit the memory limit first). The refusal is
+    earlier and smaller; nothing is granted that 5.4.9 refused.
+  - `error(nil)` is now caught inside Lua as the string `"<no error object>"`
+    instead of `nil`; every other error object is unchanged.
+  - 5.5.1 makes for-loop control variables read-only: assigning to one is a
+    load-time error (`lua_error`), not a run-time assignment.
+  - 5.5.1 adds `global` declarations (compat mode, the upstream default, which
+    this build keeps): a source that uses one compiles, and inside its scope a read
+    of an undeclared name is a load-time error (`lua_error`) instead of the
+    run-time refusal `unlisted_name`. A declared-but-missing name is still refused
+    as `unlisted_name`, and a source without `global` declarations is unchanged.
+    `table.create`, the one new library function of 5.5.1, is not on the allow-list
+    and is refused as `unlisted_name`.
+  - The allocator string guard now reads the two allocation offsets
+    `offsetof(TString, contents)` and `offsetof(TString, falloc)` of `lobject.h`
+    and `LUAI_MAXSHORTLEN` of `lstring.h`; the private-layout Limit above names the
+    new coupling. A large buffer of the Lua library (`table.concat`, `string.rep`,
+    `string.gsub`, `string.format`, `string.pack`) is finished as an external
+    string whose content allocation the allocator cannot see; `lauxlib.c` is
+    compiled with its one internal `lua_pushexternalstring` call renamed to a host
+    shim that charges the content length exactly, so the `value_bytes` enforcement
+    of these operations is unchanged (this is what the pin move would otherwise
+    weaken).
+  - Floats print differently: the pinned runtime first tries `%.15g` (5.4 used
+    `%.14g`) and falls back to `%.17g` when the first form does not read back as
+    the same number, so `tostring(2^53)` is now `9007199254740992.0` instead of
+    `9.007199254741e+15`. Integers and non-integral floats are unchanged, and the
+    rendering is still the C library's, not a locale's.
+  - `#t` of a constructor with holes answers what the pinned runtime answers: a
+    sparse constructor `{1, 2, nil, 4}` has length 2 now (5.4.9 answered 4). Lua
+    assigns no rule here; the answer is deterministic for this build.

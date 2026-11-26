@@ -6,7 +6,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
 
   * (a) probes from inside the sandbox: one process per name asks `type(name)`. There is
     no `pairs` or `next`, so the names come from a fixed universe: every name of the
-    upstream 5.4 libraries plus the names that this policy must not grant. A listed name
+    upstream 5.5 libraries plus the names that this policy must not grant. A listed name
     gives its type, any other name is `{:refused, :unlisted_name}`.
   * (b) the `--audit` frame of the C host (environment, each library table, the shared
     string metatable). The audit is an argument of the executable: no request, no Lua
@@ -75,7 +75,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
                     tostring type warn xpcall _G _VERSION)
   @upstream_string ~w(byte char dump find format gmatch gsub len lower match pack packsize rep
                       reverse sub unpack upper)
-  @upstream_table ~w(concat insert move pack remove sort unpack)
+  @upstream_table ~w(concat create insert move pack remove sort unpack)
   @upstream_math ~w(abs acos asin atan ceil cos deg exp floor fmod huge log max maxinteger min
                     mininteger modf pi rad random randomseed sin sqrt tan tointeger type ult)
   @upstream_libraries ~w(coroutine debug io math os package string table utf8)
@@ -468,7 +468,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
         {"1.5", "1.5"},
         {"-0.0", "-0.0"},
         {"1e15", "1e+15"},
-        {"2^53", "9.007199254741e+15"},
+        {"2^53", "9007199254740992.0"},
         {"100 / 2", "50.0"},
         {"0.1", "0.1"},
         {"math.maxinteger", "9223372036854775807"},
