@@ -473,7 +473,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-424](https://github.com/balungpisah/elzoo/issues/1016) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-425](https://github.com/balungpisah/elzoo/issues/1017) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-426](https://github.com/balungpisah/elzoo/issues/1024) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
-| [ELZ-418](https://github.com/balungpisah/elzoo/issues/1025) | V2 / later | ELZ-416, ELZ-417, ELZ-419 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-427](https://github.com/balungpisah/elzoo/issues/1028) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-418](https://github.com/balungpisah/elzoo/issues/1025) | V2 / later | ELZ-416, ELZ-417, ELZ-419, ELZ-427 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-421](https://github.com/balungpisah/elzoo/issues/1026) | V2 / later | ELZ-420, ELZ-422, ELZ-423 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
@@ -5727,3 +5728,17 @@ Publication copy: [tasks/ELZ-421-run-host.md](../../tasks/ELZ-421-run-host.md).
 **Product aims:** P09.
 
 **Acceptance:** New assembly/run-host: a supervised node host for engine Runs with renewal, reap, text AI bindings, a trusted outcome route, predecessor fencing, recovery and deadline wakes. Small gate including its own copied consumer, strongest other-family review.
+
+### ELZ-427
+
+ELZ-427 — durable log: retention removes the checkpoints it leaves unusable
+
+Publication copy: [tasks/ELZ-427-retention-removes-dead-checkpoints.md](../../tasks/ELZ-427-retention-removes-dead-checkpoints.md).
+
+**Product aims:** P09.
+
+**Acceptance:** Durable log retention also deletes the stream's checkpoints below its new low-water, and a checkpoint below low-water is refused, on the Memory and PostgreSQL Stores in place; tests on both Stores with a race case and a negative control; Piece gate, strongest other-family review.
+
+**Secondary contribution:** state/event-log — In-place change under the same ID: Memory Store retention deletes checkpoints below low-water.
+
+**Secondary contribution:** integration/sql — In-place change under the same ID: PostgreSQL Store retention deletes checkpoints below low-water.

@@ -1,6 +1,6 @@
 # ELZ-418 — assembly/checked-command: no lifetime cap for a tenant
 
-- Dependencies: ELZ-416, ELZ-417, ELZ-419
+- Dependencies: ELZ-416, ELZ-417, ELZ-419, ELZ-427
 
 ## Outcome and scope
 
@@ -71,7 +71,7 @@ operation ID again with another time. A retry repeats both.
 **Window, skew and watermark.** The descriptor gets two optional keys,
 `window_ms` and `max_skew_ms`, with defaults that the README states. The first
 version 2 row of a stream records both. A later `execute/3`, `release/4` or
-`maintain/2` whose descriptor has other values is refused before any effect:
+`maintain/3` whose descriptor has other values is refused before any effect:
 `{:refused, :window_changed}`, `{:release_refused, :window_changed}` or
 `{:error, :window_changed}`. Changing them needs a new stream, never an
 in-place change. Each version 2 row records the stream watermark `W`, the
@@ -182,35 +182,47 @@ confirmed checkpoint plus the tail makes the same decisions.
 **Maintenance cycle.** The Piece runs it after a committed append once the
 tail since the last confirmed checkpoint reaches `checkpoint_rows` rows (a
 descriptor option with a stated default), before a transition that needs room
-(above), and when the host calls a new `maintain(handle, tenant)` (for
+(above), and when the host calls a new `maintain(handle, tenant, now)` (`now`
+is the same trusted integer Unix ms as in the `execute/3` context; for
 example after acknowledging outbox items: `Elzoo.Outbox.ack/3` marks an item
-and does not retain). `maintain/2` returns
+and does not retain). `maintain/3` returns
 `{:ok, %{checkpoint: sequence, low_water: low_water}}` or `{:error, reason}`
-(the README lists the reasons). After a failed cycle, maintenance is retried
-while the threshold remains exceeded; the cadence bound is not claimed during
-that backlog. A cycle:
+(the README lists the reasons; `now < W - max_skew_ms` is
+`{:error, :clock_behind}` before any effect). After a failed cycle,
+maintenance is retried while the threshold remains exceeded; the cadence
+bound is not claimed during that backlog. A cycle:
 
 1. loads the projection from the newest confirmed checkpoint plus the tail;
-2. evicts each evictable terminal version 2 receipt (the rule above), calls
-   `Elzoo.Approval.retire/2` for the request lines of exactly those
-   operations, and then `Elzoo.Approval.prune/2` at `W`. The receipt tells a
-   terminal-stale operation (whose Approval request is still `:open`) from a
-   pending ASK, never the Approval status; a pending ASK is never retired;
-3. reuses a confirmed checkpoint at the current head only when it already
+2. advances time when that frees room: if `now` is later than the committed
+   `W` and advancing `W` to `now` makes at least one more receipt evictable,
+   the cycle compare-and-set appends a versioned maintenance marker that
+   records the new `W`. The marker changes no resource, command result or
+   outbox item. So a full stream whose receipts expire only with time regains
+   room without a successful command, and replay makes the same decision from
+   the committed marker;
+3. evicts each evictable terminal version 2 receipt (the rule above) at the
+   committed `W`, calls `Elzoo.Approval.retire/2` for the request lines of
+   exactly those operations, and then `Elzoo.Approval.prune/2` at `W`. The
+   receipt tells a terminal-stale operation (whose Approval request is still
+   `:open`) from a pending ASK, never the Approval status; a pending ASK is
+   never retired;
+4. reuses a confirmed checkpoint at the current head only when it already
    represents the required compacted projection. Both Stores key a checkpoint
    by stream, sequence and fold version, so one cannot be replaced. If
    receipt eligibility changed at an occupied anchor (for example after an
-   ack), the cycle compare-and-set appends a versioned maintenance marker to
-   obtain a new anchor; the marker changes no resource, command result or
-   outbox item. It then writes and confirms the checkpoint at that head;
-4. retains through
+   ack) and step 2 appended no marker, the cycle compare-and-set appends a
+   maintenance marker that records the unchanged `W`, to obtain a new anchor.
+   It then writes and confirms the checkpoint at that head;
+5. retains through
    `T = min(checkpoint_sequence, first_pending_sequence - 1, first_needed_original_row - 1)`,
    ignoring a blocker that does not exist, only when `T > low_water`, with the
    observed `low_water` as `expected` and a fresh 16-byte nonce. An
    unconfirmed checkpoint never authorizes retention.
    `first_needed_original_row` is the first row whose content the checkpoint
    does not hold and a retained receipt or pending ASK still needs; with a
-   self-contained checkpoint there is none.
+   self-contained checkpoint there is none. The retention also deletes the
+   stream's checkpoints below `T` (ELZ-427), so the stored checkpoints, and
+   the evicted receipts and removed resources they held, do not outlive it.
 
 Races: at the same expected head, exactly one append compare-and-set wins; a
 losing call may reload and commit a later, separately valid row. At the same
@@ -318,6 +330,15 @@ Memory and PostgreSQL Stores unless a case says otherwise:
   changes after an ack but still cannot fit the proposed command, the
   `:capacity` refusal leaves no command or release row, resource mutation or
   new outbox item; a maintenance marker may already have committed.
+- Time alone frees room: a stream at the live-state budget whose receipts
+  become evictable only as time passes. With no successful command, after the
+  clock passes their expiry, `maintain/3` (and, separately, the pre-append
+  compaction of the next command) appends one marker that advances `W`,
+  evicts them, and the next command is admitted; after reopen the decisions
+  are the same. With a clock that has not passed their expiry, no marker is
+  appended and the command stays `:capacity`.
+- Stored checkpoints stay bounded: after many maintenance cycles with
+  retention, the stream holds no checkpoint below `low_water` on either Store.
 - Checkpoint use: an incompatible checkpoint (another version, or the stock
   checkpoint that the existing test installs) is never used, and a pruned
   stream with no usable checkpoint is `{:unknown, :unresolved}`.
