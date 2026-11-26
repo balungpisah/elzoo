@@ -464,6 +464,9 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-413](https://github.com/balungpisah/elzoo/issues/1008) | V2 / later | ELZ-411 | published 2026-11-26 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
 | [ELZ-414](https://github.com/balungpisah/elzoo/issues/1007) | V2 / later | ELZ-411 | published 2026-11-26 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
 | [ELZ-415](https://github.com/balungpisah/elzoo/issues/1012) | V2 / later | ELZ-411 | published 2026-11-26 | coordinator; one-PR path for documents and docs/consuming.md; independent review and merge queue |
+| [ELZ-416](https://github.com/balungpisah/elzoo/issues/1013) | V2 / later | ELZ-415 | published 2026-11-26 | coordinator; root dependency change published before its implementation; independent review and merge queue |
+| [ELZ-424](https://github.com/balungpisah/elzoo/issues/1016) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-425](https://github.com/balungpisah/elzoo/issues/1017) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -5587,3 +5590,33 @@ Publication copy: [tasks/ELZ-415-ready-piece-improves-in-place.md](../../tasks/E
 **Product aims:** P10, P11.
 
 **Acceptance:** State the owner's rule of 2026-11-26 (a ready Piece keeps its ID when it improves; a breaking change records a README Changes entry; a new ID only for a new capability or a split) in AGENTS.md, docs/consuming.md, docs/choices.md, docs/catalogue.md and each Piece README or manifest limit that stated the old rule (wording only). Roadmap and claims checks, full hosted check, independent review.
+
+### ELZ-416
+
+ELZ-416 — Every pin to its latest stable release
+
+Publication copy: [tasks/ELZ-416-latest-stable-pins.md](../../tasks/ELZ-416-latest-stable-pins.md).
+
+**Product aims:** P09, P10, P11, P12.
+
+**Acceptance:** Move OTP, Elixir, the PostgreSQL service (19), the action pins and every Hex package to its latest stable release; name each held package and its holder; state moved versions in the Pieces that state them, each with a README Changes entry; the state/lease PostgreSQL 18+ catalog fix. Full gate, full hosted check on PostgreSQL 19, independent review.
+
+### ELZ-424
+
+ELZ-424 — spikes/ash_foundation: every pin to its latest stable release
+
+Publication copy: [tasks/ELZ-424-ash-spike-latest-pins.md](../../tasks/ELZ-424-ash-spike-latest-pins.md).
+
+**Product aims:** P09.
+
+**Acceptance:** spikes/ash_foundation: every direct pin and the lock to the latest stable release, clearing the advisories in its lock; spike checks and the hosted check-spike job, independent review.
+
+### ELZ-425
+
+ELZ-425 — spikes/gleam_ui: every pin to its latest stable release
+
+Publication copy: [tasks/ELZ-425-gleam-spike-latest-pins.md](../../tasks/ELZ-425-gleam-spike-latest-pins.md).
+
+**Product aims:** P09.
+
+**Acceptance:** spikes/gleam_ui: Gleam, its packages, Node, npm packages, OTP and actions of the Gleam workflow to the latest stable releases; spike scripts and the hosted Gleam workflow, independent review.

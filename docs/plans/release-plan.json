@@ -10843,6 +10843,78 @@
       "issue": 1012,
       "url": "https://github.com/balungpisah/elzoo/issues/1012",
       "issue_body_sha256": "9b2e1be2776a4598a87ede33446113fe7aa575108a463000d5013b0daf63cc31"
+    },
+    {
+      "id": "ELZ-416",
+      "title": "ELZ-416 — Every pin to its latest stable release",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-415"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "coordinator; root dependency change published before its implementation; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-416-latest-stable-pins.md"
+      ],
+      "outputs": [],
+      "acceptance": "Move OTP, Elixir, the PostgreSQL service (19), the action pins and every Hex package to its latest stable release; name each held package and its holder; state moved versions in the Pieces that state them, each with a README Changes entry; the state/lease PostgreSQL 18+ catalog fix. Full gate, full hosted check on PostgreSQL 19, independent review.",
+      "product_aims": [
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ],
+      "issue": 1013,
+      "url": "https://github.com/balungpisah/elzoo/issues/1013",
+      "issue_body_sha256": "8836fed8295da494a4f01d1a0b5d410086eb9f514ffb2ba9d1a81a7aacc6f0c8"
+    },
+    {
+      "id": "ELZ-424",
+      "title": "ELZ-424 — spikes/ash_foundation: every pin to its latest stable release",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-416"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-424-ash-spike-latest-pins.md"
+      ],
+      "outputs": [],
+      "acceptance": "spikes/ash_foundation: every direct pin and the lock to the latest stable release, clearing the advisories in its lock; spike checks and the hosted check-spike job, independent review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1016,
+      "url": "https://github.com/balungpisah/elzoo/issues/1016",
+      "issue_body_sha256": "a6466ead2bbeb16117f66b7835b9a47c3f2c2ca7bc306f293e9990b57123f420"
+    },
+    {
+      "id": "ELZ-425",
+      "title": "ELZ-425 — spikes/gleam_ui: every pin to its latest stable release",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-416"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-425-gleam-spike-latest-pins.md"
+      ],
+      "outputs": [],
+      "acceptance": "spikes/gleam_ui: Gleam, its packages, Node, npm packages, OTP and actions of the Gleam workflow to the latest stable releases; spike scripts and the hosted Gleam workflow, independent review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1017,
+      "url": "https://github.com/balungpisah/elzoo/issues/1017",
+      "issue_body_sha256": "b235b1caf3c241edbabc50ebd98b8a4762335f9649a998e77148e2de31e3f11f"
     }
   ],
   "entries": [
