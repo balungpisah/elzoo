@@ -613,7 +613,7 @@ defmodule Elzoo.ApprovalPruneTest do
     assert {:ok, ^s} = Task.await(task, 60_000)
   end
 
-  test "retire encodes only the pairs that the state names: 65,536 distinct absent pairs fit a heap limit" do
+  test "retire retains no encoding of an absent pair: 65,536 distinct absent pairs fit a heap limit" do
     s = history()
     present = {"run-1", "act-a"}
     long = fn prefix, i -> String.pad_trailing(prefix <> Integer.to_string(i), 1024, "x") end

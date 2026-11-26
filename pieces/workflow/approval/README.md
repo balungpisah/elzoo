@@ -469,9 +469,11 @@ pass the capacity check:
 | `retire/2` | `release/4` or `select_retained/3` on a retired line, with a context of the key's Run | the line's outcome | `:unknown_request` |
 | `retire/2` | `revalidate/3` on a retired line | the line's outcome | `:not_released` |
 
-A context that names another Run still gets `:run_mismatch` from
-`release/4` and `select_retained/3` on a retired line, as before retirement:
-check 0 runs before the request lookup.
+Once a call reaches check 0, a context that names another Run still gets
+`:run_mismatch` from `release/4` and `select_retained/3` on a retired line, as
+before retirement: check 0 runs before the request lookup. (A wrong-Run call
+whose proposal carries the `:approval` control field gets `:deny_at_release`
+first; retirement changes neither outcome.)
 
 For `release/4` with evidence that keeps the Verifier Need and a request key
 that is not on a retired line, `:revoked`, `:consumed` and `:evidence_reused`
