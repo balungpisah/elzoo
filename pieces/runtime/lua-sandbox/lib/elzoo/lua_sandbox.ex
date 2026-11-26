@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.LuaSandbox do
   @moduledoc """
-  Bounded Lua evaluation outside the VM (policy version 3: the safe helper set and module-call bindings).
+  Bounded Lua evaluation outside the VM (policy version 4: the safe helper set and module-call bindings).
 
   A trusted host builds the executable once with `build/2` from the installed pinned
   `lua_source` checkout and an owned C host. Each `run/2` starts one fresh OS
@@ -12,7 +12,7 @@ defmodule Elzoo.LuaSandbox do
   * `build(source_directory, build_directory)` ->
     `{:ok, executable} | {:error, :build_failed}`. Both operands are trusted
     host-supplied paths, never Lua input.
-  * `policy()` -> `%{identity: "policy-v3:sha256:<hex>", descriptor: map}`.
+  * `policy()` -> `%{identity: "policy-v4:sha256:<hex>", descriptor: map}`.
   * `run(executable, request)` -> `{:ok, %{value: v, identity: i, runtime: r}}`,
     `{:refused, reason}`, `{:host_outcome, reason}` or `{:pending_call, call}`.
 

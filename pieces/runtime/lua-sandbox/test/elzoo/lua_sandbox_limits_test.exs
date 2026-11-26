@@ -404,6 +404,18 @@ defmodule Elzoo.LuaSandboxLimitsTest do
                  exe,
                  "return function() return string.pack(string.rep('i8', 20000), 1) end"
                )
+
+      # the exact external-string cutoff: packing sizes its buffer up front, so a
+      # 1,025-byte result is charged at adoption even when rep of the same size is
+      # stopped earlier by the scoped allocation cap
+      assert {:ok, %{value: 1_025}} =
+               Helper.run(exe, "return function() return #string.pack('c1025', 'a') end", nil, %{
+                 value_bytes: 1_025
+               })
+
+      assert Helper.run(exe, "return function() return #string.pack('c1025', 'a') end", nil, %{
+               value_bytes: 1_024
+             }) == {:refused, :value_size}
     end
 
     test "string.format with a wide width", %{executable: exe} do
@@ -594,6 +606,66 @@ defmodule Elzoo.LuaSandboxLimitsTest do
       for limit <- [1, 100, 5_000, loop_floor - 1] do
         assert Helper.run(exe, loop, nil, %{memory_bytes: limit}) == {:host_outcome, :memory}
       end
+    end
+
+    test "Lua 5.5.1 compile-time and load-time differences are pinned", %{executable: exe} do
+      # a 20-element constructor over many live locals is more expensive than in 5.4:
+      # the 5.5.1 parser emits one SETLIST per element once the register pressure is
+      # high, so tight step budgets remeasure; 225 is this build's exact cost
+      locals = Enum.map_join(1..180, " ", fn i -> "local l#{i} = #{i}" end)
+
+      pressure =
+        "return function() " <>
+          locals <>
+          " local t = {l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15, l16, l17, l18, l19, l20} return #t end"
+
+      assert smallest(exe, pressure, :steps, 3_000) == 225
+
+      # a vararg function makes the parser intern the 14-byte name "(vararg table)":
+      # value_bytes of 13 refuses the load, 14 runs it; a plain function loads at 13
+      vararg = "return function(...) return 1 end"
+      assert Helper.run(exe, vararg, nil, %{value_bytes: 13}) == {:refused, :value_size}
+      assert {:ok, %{value: 1}} = Helper.run(exe, vararg, nil, %{value_bytes: 14})
+      assert {:ok, %{value: 1}} = Helper.run(exe, "return function() return 1 end", nil, %{value_bytes: 13})
+
+      # global declarations: an undeclared name inside one's scope is a load error,
+      # a declared-but-missing one and a wildcard declaration still reach unlisted_name
+      assert Helper.run(exe, "global x return function() return os end") == {:refused, :lua_error}
+      assert Helper.run(exe, "global * return function() return os end") == {:refused, :unlisted_name}
+      assert Helper.run(exe, "global os return function() return os end") == {:refused, :unlisted_name}
+
+      # error(nil) is the string "<no error object>" inside pcall
+      assert {:ok, %{value: [false, "string", "<no error object>"]}} =
+               Helper.run(
+                 exe,
+                 "return function() local ok, e = pcall(error, nil) return {ok, type(e), tostring(e)} end"
+               )
+
+      # in a generic for, only the first control variable is read-only
+      assert Helper.run(
+               exe,
+               "return function() for a, b in (function() return nil end) do a = 1 end return 1 end"
+             ) == {:refused, :lua_error}
+
+      assert {:ok, %{value: 1}} =
+               Helper.run(
+                 exe,
+                 "return function() for a, b in (function() return nil end) do b = 1 end return 1 end"
+               )
+
+      # granted calls whose result changed with 5.5.1
+      assert Helper.run(
+               exe,
+               "return function() return select('#', table.unpack(false, 2, 1)) end"
+             ) == {:refused, :lua_error}
+
+      assert {:ok, %{value: ""}} = Helper.run(exe, "return function() return table.concat('') end")
+
+      assert {:ok, %{value: 4_000_000_000}} =
+               Helper.run(
+                 exe,
+                 "return function() return string.packsize('c2000000000c2000000000') end"
+               )
     end
 
     test "steps 1, call_depth 1 and wall_ms 1 at their smallest values", %{executable: exe} do

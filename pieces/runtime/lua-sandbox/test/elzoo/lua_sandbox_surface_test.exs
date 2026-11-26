@@ -13,7 +13,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
     name and no frame can reach it.
   * (c) the descriptor of `Elzoo.LuaSandbox.policy/0`, and fixed probes of constants.
 
-  The expected lists below are copied from the contract (Policy version 3), not from the
+  The expected lists below are copied from the contract (Policy version 4), not from the
   descriptor, so a change of any one source fails here.
 
   Negative control (recorded in the pull request, never committed): granting `print` in
@@ -36,7 +36,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
   @math_constants ~w(huge maxinteger mininteger pi)
   @libraries ~w(math string table)
   @operator_metamethods ~w(__add __div __idiv __mod __mul __pow __sub __unm)
-  # The helpers of policy version 3: name => type of the value (each part adds its names).
+  # The helpers of policy version 4: name => type of the value (each part adds its names).
   @helpers %{
     "json_decode" => "function",
     "json_encode" => "function",
@@ -76,7 +76,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
   @upstream_string ~w(byte char dump find format gmatch gsub len lower match pack packsize rep
                       reverse sub unpack upper)
   @upstream_table ~w(concat create insert move pack remove sort unpack)
-  @upstream_math ~w(abs acos asin atan ceil cos deg exp floor fmod huge log max maxinteger min
+  @upstream_math ~w(abs acos asin atan ceil cos deg exp floor fmod frexp huge ldexp log max maxinteger min
                     mininteger modf pi rad random randomseed sin sqrt tan tointeger type ult)
   @upstream_libraries ~w(coroutine debug io math os package string table utf8)
   @excluded_extra ~w(loadstring json text time clock now helper_echo bindings
@@ -469,6 +469,9 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
         {"-0.0", "-0.0"},
         {"1e15", "1e+15"},
         {"2^53", "9007199254740992.0"},
+        {"1 / 3", "0.33333333333333331"},
+        {"2 / 3", "0.66666666666666663"},
+        {"1e-5", "1e-05"},
         {"100 / 2", "50.0"},
         {"0.1", "0.1"},
         {"math.maxinteger", "9223372036854775807"},

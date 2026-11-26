@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
-** Owned C host of the Elzoo Lua sandbox (policy version 3: the safe helper set and
+** Owned C host of the Elzoo Lua sandbox (policy version 4: the safe helper set and
 ** module-call bindings).
 **
 ** One process runs one request: it reads one frame (u32 little-endian
@@ -18,8 +18,9 @@
 ** `offsetof(TString, falloc) + length + 1` bytes; the guard derives the
 ** content length from the allocation size along the one branch that the size
 ** can belong to. An external string (LSTRFIX or LSTRMEM) keeps its content in
-** a separate allocation that the tag cannot see: it exists here because the
-** buffer library of `lauxlib.c` finishes a large buffer as one. The build
+** a separate allocation that the tag cannot see: it exists here only because
+** the buffer library of `lauxlib.c` finishes a large buffer as one; no other
+** path of this host can create one. The build
 ** compiles that one file with `lua_pushexternalstring` renamed, so its one
 ** internal call resolves to `elz_laux_pushexternalstring` below, which charges
 ** the content length exactly before the string exists (the host itself uses
@@ -792,7 +793,7 @@ static void charge(lua_State *L, long long n) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Wrappers (policy version 3)                                           */
+/* Wrappers (policy version 4)                                           */
 /* ------------------------------------------------------------------ */
 
 static int unlisted(lua_State *L) {
@@ -818,7 +819,7 @@ static int w_pcall(lua_State *L) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Helpers (policy version 3): fields of the global `helpers`            */
+/* Helpers (policy version 4): fields of the global `helpers`            */
 /* ------------------------------------------------------------------ */
 
 /* Record the table at the top of the stack as an array (kind 1) or an object (kind 2)
@@ -1423,7 +1424,7 @@ static int string_index(lua_State *L) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Environment (policy version 3)                                         */
+/* Environment (policy version 4)                                         */
 /* ------------------------------------------------------------------ */
 
 static const char *const string_names[] = {"byte", "char", "find", "format", "gmatch", "gsub", "len",

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.LuaSandboxBindingsTest do
   @moduledoc """
-  The module-call bindings (policy version 3), one group for each `describe`:
+  The module-call bindings (policy version 4), one group for each `describe`:
   `request_shape` (the five-key request with its `calls` operand, decided before any
   process starts and again by the host, the version 3 identity), `none_is_version_2_surface`,
   `data_mode_builds_data`, `replay_in_order`, `replay_mismatch`, `pending_is_sticky`,
@@ -371,12 +371,12 @@ defmodule Elzoo.LuaSandboxBindingsTest do
       end
     end
 
-    test "the identity is policy-v3 over the digest of the descriptor and the descriptor names it" do
+    test "the identity is policy-v4 over the digest of the descriptor and the descriptor names it" do
       %{identity: identity, descriptor: descriptor} = LuaSandbox.policy()
 
-      assert identity =~ ~r/\Apolicy-v3:sha256:[0-9a-f]{64}\z/
+      assert identity =~ ~r/\Apolicy-v4:sha256:[0-9a-f]{64}\z/
       assert identity == Descriptor.identity(descriptor)
-      assert descriptor["policy_version"] == 3
+      assert descriptor["policy_version"] == 4
 
       assert descriptor["bindings"] == %{
                "mechanism_version" => 1,
@@ -388,15 +388,15 @@ defmodule Elzoo.LuaSandboxBindingsTest do
       refute Map.has_key?(descriptor["bounds"], "max_names")
       refute Map.has_key?(descriptor["bounds"], "max_recorded")
 
-      "policy-v3:sha256:" <> digest = identity
+      "policy-v4:sha256:" <> digest = identity
       assert digest == Base.encode16(:crypto.hash(:sha256, Json.encode(descriptor)), case: :lower)
     end
 
     test "a policy-v2 identity is policy_mismatch in Elixir and in the host", ctx do
       %{identity: identity, descriptor: descriptor} = LuaSandbox.policy()
-      "policy-v3:sha256:" <> digest = identity
+      "policy-v4:sha256:" <> digest = identity
       old_descriptor = %{descriptor | "bindings" => %{}} |> Map.put("policy_version", 2)
-      "policy-v3:sha256:" <> old_digest = Descriptor.identity(old_descriptor)
+      "policy-v4:sha256:" <> old_digest = Descriptor.identity(old_descriptor)
       refute old_digest == digest
 
       for other <- ["policy-v2:sha256:" <> digest, "policy-v2:sha256:" <> old_digest] do

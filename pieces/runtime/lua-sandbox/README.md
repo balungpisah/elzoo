@@ -1,7 +1,7 @@
 # runtime/lua-sandbox
 
 `Elzoo.LuaSandbox` evaluates one pure Lua function of one plain input in a fresh
-PUC **Lua 5.5.1** process outside the BEAM, under **policy version 3** (a fixed
+PUC **Lua 5.5.1** process outside the BEAM, under **policy version 4** (a fixed
 allow-list, ten safe helpers and the bindings mechanism) and exact limits. The runtime is built from the installed
 `lua_source` checkout (MIT, pinned to revision `7579fc9d7ed90240487251dfb69168f8e64e9294`)
 with plain `cc` and `ar` and an owned C host under `lib/elzoo/lua_sandbox/native/`.
@@ -12,7 +12,7 @@ No upstream source is copied into the Piece. Apache-2.0 for the Elzoo source.
 Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.5.1 process
 outside the VM, started by an OTP Port from an executable that `build/2`
 compiles from the installed pinned `lua_source` checkout and an owned C host, over
-length-framed JSON, under capability policy version 3, whose fixed allow-list of names
+length-framed JSON, under capability policy version 4, whose fixed allow-list of names
 and safe helper set (ten C helpers under the global `helpers`, each version 1, for JSON
 null and empty object, canonical JSON encode and decode, ASCII trim, plain split, UTF-8
 code-point count and UTC time values that the caller passes in) has a canonical identity,
@@ -134,7 +134,7 @@ one reply frame were read) and never an exit signal to the caller, whose links,
 monitors, flags and mailbox are unchanged (a host `setitimer` backstop and a
 stdin-hangup poll end the child if the owner cannot).
 
-## Policy version 3
+## Policy version 4
 
 Fresh library, `helpers`, `bindings` and environment tables; strict lookup of a missing
 global, library field, helper, binding or string method is `unlisted_name`. No callbacks.
@@ -153,7 +153,7 @@ access, `dofile`. `tostring` accepts only scalar text, numbers, booleans and nil
 `string.format`, and the allocating or dense-array functions) carry explicit versions
 in the descriptor; dense-array operations refuse sparse or mixed tables.
 
-The **identity** is `policy-v3:sha256:<64 lowercase hex>` over the canonical JSON of the
+The **identity** is `policy-v4:sha256:<64 lowercase hex>` over the canonical JSON of the
 descriptor (sorted keys, sorted qualified names, wrapper versions, numeric and iteration
 rules, fixed maxima, framing version, the ten sorted helper descriptors
 `{"name", "version": 1}` and the bindings entry `{"mechanism_version": 1, "max_names": 64,
@@ -163,7 +163,7 @@ one, fails closed as `policy_mismatch`. The runtime identity
 (release, revision, host SHA-256, build options, seed) is returned beside it; a changed
 policy or build identity is not replay-compatible.
 
-## Policy version 3: helpers
+## Policy version 4: helpers
 
 A source reaches the helpers as fields of the global `helpers`, a fresh table of each
 run with the same strict lookup as the libraries: `helpers.x` for a name that is not
@@ -202,7 +202,7 @@ and gives plain values. It reads no clock, environment or file.
 * **Time is an input:** no helper gives the current time; the caller puts milliseconds
   in the input.
 
-## Policy version 3: bindings
+## Policy version 4: bindings
 
 `calls` is a plain map with exactly the keys `mode`, `names` and `recorded`:
 
@@ -219,7 +219,7 @@ and does not measure the size of a recorded value again; a single string over `v
 record is stopped by the allocator when the record is pushed, with the one exception that the
 held-string Limit below states (a short string equal to one that the state already holds is not
 allocated, in a record too). In the frame `calls` is one more member with string
-keys, so the host reads five members. Policy version 3 names only: it has no schema check of
+keys, so the host reads five members. Policy version 4 names only: it has no schema check of
 arguments, no cost and no permission (`runtime/lua-binding` owns them).
 
 With mode `"none"` the global `bindings` does not exist (`bindings` and `bindings.x` are
@@ -291,8 +291,8 @@ observations of listed scenarios, not a proof and not a security claim.
    calls and two fresh BEAM processes, memory and wall time recorded but not compared,
    a changed identity refused, the BEAM alive and the child reaped after adverse cases,
    no live child after caller death.
-7. **`policy_v3_identity`** (`lua_sandbox_helpers_test.exs`): the descriptor names version
-   3 and the ten helpers, the identity has the prefix `policy-v3:sha256:` and equals the
+7. **`policy_v4_identity`** (`lua_sandbox_helpers_test.exs`): the descriptor names version
+   4 and the ten helpers, the identity has the prefix `policy-v4:sha256:` and equals the
    digest of the descriptor, a `policy-v1:` identity and an identity with one helper
    removed are `policy_mismatch`, and the audit, the descriptor and the probes agree on the
    helper names. Negative control: granting one more helper field fails the audit.
@@ -424,11 +424,12 @@ repair of the test fakes adds two more (groups 25 and 26):
   one branch that the size can belong to. An external string (whose header size falls in the
   short-string range) cannot exist: the host uses no `lua_pushexternalstring` and accepts no
   bytecode. A large buffer of the Lua library is finished as an external string whose
-  content allocation the guard cannot see; the build compiles `lauxlib.c` with its one
-  internal `lua_pushexternalstring` call renamed to a host shim that charges the content
-  length exactly before the string exists. The build refuses any revision other than the
-  pinned bytes, but a new Lua revision needs a new review of that coupling before the
-  pin moves.
+  content allocation the guard cannot see; that shimmed buffer path is the only one
+  that can create an external string in this host. The build compiles `lauxlib.c` with
+  its one internal `lua_pushexternalstring` call renamed to a host shim that charges
+  the content length exactly before the string exists. The build refuses any revision
+  other than the pinned bytes, but a new Lua revision needs a new review of that
+  coupling before the pin moves.
 * **Held strings:** `value_bytes` is enforced for a string when the run allocates it. A short
   string (at most 40 bytes, the pinned `LUAI_MAXSHORTLEN`) whose content equals a string that
   the Lua state already holds when the limits are armed is not allocated and so is not
@@ -469,9 +470,15 @@ outside that checkout. `examples/elzoo/lua_sandbox.exs` shows the call and evalu
 
 - ELZ-426 (2026-11-26): the Lua runtime moves from PUC Lua 5.4.9 (revision
   `312b9efaa1061c2c4cad08554dbc1351c3270eef`) to PUC Lua 5.5.1 (revision
-  `7579fc9d7ed90240487251dfb69168f8e64e9294`). Policy version 3 is unchanged: the
-  capability surface, the descriptor, counted-step costs, limit semantics and
-  refusal atoms are the same (each one measured again under 5.5.1). What changes:
+  `7579fc9d7ed90240487251dfb69168f8e64e9294`). The capability surface, limit
+  semantics and refusal atoms are unchanged, and the descriptor carries them at
+  version 4 (below); counted-step costs and
+  refusal atoms are the same. Counted-step and memory costs are the same on the
+  corpus of plain operations measured for 5.4.9, but not everywhere: the parser of
+  5.5.1 emits different bytecode and programs have per-program memory floors, so a
+  consumer with a tight step or memory budget must remeasure it under this build.
+  The policy identity moves to version 4 because the float text of `tostring`
+  changed (below). What changes:
   - A runtime identity recorded under 5.4.9 does not replay under this build: the
     Lua release, the upstream revision, the C host SHA-256 and the build options all
     differ. Nothing in the sandbox rejects a recorded identity as such, but no 5.4.9
@@ -482,35 +489,62 @@ outside that checkout. `examples/elzoo/lua_sandbox.exs` shows the call and evalu
     5.5.1); the `luai_makeseed` define is gone, so the recorded build options differ.
   - `string.pack` with a very large count is refused as `value_size` instead of
     ending in the host outcome `memory`: 5.5.1 sizes the pack buffer once before
-    allocating, so the scoped allocation cap refuses it before the memory limit is
-    reached (5.4 grew the buffer and hit the memory limit first). The refusal is
-    earlier and smaller; nothing is granted that 5.4.9 refused.
+    allocating (reserving the padding of each fixed-width field), so the scoped
+    allocation cap refuses it before the memory limit is reached (5.4 grew the
+    buffer and hit the memory limit first). The refusal is earlier and smaller;
+    nothing is granted that 5.4.9 refused.
   - `error(nil)` is now caught inside Lua as the string `"<no error object>"`
     instead of `nil`; every other error object is unchanged.
   - 5.5.1 makes for-loop control variables read-only: assigning to one is a
-    load-time error (`lua_error`), not a run-time assignment.
+    load-time error (`lua_error`), not a run-time assignment; in a generic `for`
+    only the first control variable is read-only.
   - 5.5.1 adds `global` declarations (compat mode, the upstream default, which
     this build keeps): a source that uses one compiles, and inside its scope a read
     of an undeclared name is a load-time error (`lua_error`) instead of the
-    run-time refusal `unlisted_name`. A declared-but-missing name is still refused
-    as `unlisted_name`, and a source without `global` declarations is unchanged.
-    `table.create`, the one new library function of 5.5.1, is not on the allow-list
-    and is refused as `unlisted_name`.
+    run-time refusal `unlisted_name` (`global x` with a read of `os` fails at
+    load). A declared-but-missing name and a wildcard declaration still reach the
+    host's refusal (`global os` with a read of `os`, and `global *` with a read
+    of `os`, are both `unlisted_name`), and a source without `global`
+    declarations is unchanged.
+    `table.create`, `math.frexp` and `math.ldexp`, the new library functions of
+    5.5.1, are not on the allow-list and are refused as `unlisted_name`.
   - The allocator string guard now reads the two allocation offsets
     `offsetof(TString, contents)` and `offsetof(TString, falloc)` of `lobject.h`
     and `LUAI_MAXSHORTLEN` of `lstring.h`; the private-layout Limit above names the
     new coupling. A large buffer of the Lua library (`table.concat`, `string.rep`,
     `string.gsub`, `string.format`, `string.pack`) is finished as an external
-    string whose content allocation the allocator cannot see; `lauxlib.c` is
-    compiled with its one internal `lua_pushexternalstring` call renamed to a host
-    shim that charges the content length exactly, so the `value_bytes` enforcement
-    of these operations is unchanged (this is what the pin move would otherwise
-    weaken).
+    string whose content allocation the allocator cannot see; the shimmed buffer
+    path is the only one that can create an external string in this host, and
+    `lauxlib.c` is compiled with its one internal `lua_pushexternalstring` call
+    renamed to a host shim that charges the content length exactly, so the
+    `value_bytes` enforcement of these operations is unchanged (this is what the
+    pin move would otherwise weaken).
   - Floats print differently: the pinned runtime first tries `%.15g` (5.4 used
     `%.14g`) and falls back to `%.17g` when the first form does not read back as
-    the same number, so `tostring(2^53)` is now `9007199254740992.0` instead of
-    `9.007199254741e+15`. Integers and non-integral floats are unchanged, and the
-    rendering is still the C library's, not a locale's.
+    the same number. `tostring(1/3)` is now `0.33333333333333331` instead of
+    `0.33333333333333` and `tostring(2^53)` is `9007199254740992.0` instead of
+    `9.007199254741e+15`. This changes the policy descriptor, so the policy
+    version moves from 3 to 4 and every identity now has the prefix
+    `policy-v4:sha256:`: a request that carries a recorded v3 identity is
+    answered `policy_mismatch`, and consumers must adopt the new identity.
+    Integers and the shortest round-trip rule of the encoding are unchanged, and
+    the rendering is still the C library's, not a locale's.
   - `#t` of a constructor with holes answers what the pinned runtime answers: a
     sparse constructor `{1, 2, nil, 4}` has length 2 now (5.4.9 answered 4). Lua
     assigns no rule here; the answer is deterministic for this build.
+  - Some programs cost more steps: the 5.5.1 parser emits one `SETLIST` per
+    element instead of one per constructor once register pressure is high (a
+    function with about 180 live locals building a 20-element list costs 225
+    steps here instead of 206), and the memory floor is per program (an infinite
+    loop starts at 18,663 bytes where the identity function needs 18,821). A
+    tight step or memory budget measured under 5.4.9 can now refuse a source it
+    used to run: remeasure it against this build.
+  - A vararg function now needs `value_bytes` of at least 14 to load: the parser
+    interns the 14-byte name `(vararg table)` (13 refuses the load as
+    `value_size`, 14 runs it; a plain function still loads at 13). 5.5.1 also
+    adds a named-vararg syntax `function(...name)`, which compiles like the
+    plain form.
+  - Three granted calls change results: `select('#', table.unpack(false, 2, 1))`
+    is a `lua_error` now instead of 0, `table.concat('')` is `""` now instead of
+    a `lua_error`, and on 64-bit `string.packsize('c2000000000c2000000000')` is
+    4000000000 now instead of a `lua_error`.
