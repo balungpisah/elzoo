@@ -23,18 +23,26 @@ Both Pieces improve in place under their IDs (the rule of ELZ-415):
   the same state update (Memory), every checkpoint of that stream with a
   sequence below `through`, of every checkpoint version. Checkpoints at or
   above `through`, including the one the retention check requires, and the
-  checkpoints of other streams stay. The replay of a committed retention
-  (same nonce, the existing duplicate path) deletes nothing more and returns
-  its first result. A refused or conflicting retention deletes nothing.
-- `put_checkpoint` of a checkpoint whose sequence is below the stream's
-  `low_water` is refused with `{:rejected, :checkpoint_below_low_water}`, so a
-  late put cannot recreate a dead checkpoint. A put at or above `low_water`
-  behaves as today.
+  checkpoints of other streams stay. An exact retry of a committed `retain`
+  keeps the existing conflict result and deletes nothing more;
+  `Elzoo.DurableLog.confirm_retention/2` confirms the original commit while
+  its receipt is current. A refused or conflicting retention deletes no
+  checkpoints.
+- Add `:checkpoint_below_low_water` to the accepted Store rejection reasons
+  (`Store.classify_write/2` turns an unlisted reason into
+  `{:indeterminate, ...}`). Both adapters return
+  `{:rejected, :checkpoint_below_low_water}` for a valid checkpoint below the
+  locked or serialized stream `low_water`, and write nothing, so a late put
+  cannot recreate a dead checkpoint. A valid checkpoint at or above
+  `low_water`, no later than the head and with an unused key, still commits.
 - `latest_checkpoint` and `read_checkpoint` never return a deleted
-  checkpoint (`read_checkpoint` gives `:absent`).
-- The README of each Piece states the rule (where it says records and
-  checkpoints are immutable, it says that retention deletes them below
-  `low_water`), with a `## Changes` entry; each changed `piece.json` gets a new
+  checkpoint (`read_checkpoint` gives `{:ok, :absent}`).
+- Both READMEs document that retention deletes records through `low_water`
+  and checkpoints strictly below it. A checkpoint receipt needed for Writer
+  reconciliation must be resolved before retaining past its anchor: after
+  deletion, `confirm_checkpoint/2` returns `{:unknown, :unfenced}`, and that
+  absence does not prove that the put failed. Each README records this in
+  its `## Changes` section; each changed `piece.json` gets a new
   `manifest_sha256` in its `entries` row, with `note` equal to a changed
   `contract`.
 
@@ -49,15 +57,19 @@ pull request). New external dependencies: none.
 
 On both Stores:
 
-- Three checkpoints at sequences `a < b < c` (one of another version below
-  `b`), and a retention through `b`: the checkpoints below `b` are gone
-  (`read_checkpoint` gives `:absent`), `b` and `c` remain, `latest_checkpoint`
-  is unchanged, and the checkpoints of another stream are untouched.
-- A replayed retention (same nonce) and a refused one (no checkpoint at or
-  above `through`, a pending outbox item, an `expected` conflict) delete no
-  checkpoint.
-- `put_checkpoint` below `low_water` is refused and writes nothing; at
-  `low_water` and above it commits.
+- Write checkpoints at `a < b < c`, with `a` the only checkpoint of fold
+  version 2 and `b` and `c` of fold version 1. Retain through `b`. The exact
+  read of `a` returns `{:ok, :absent}`, latest for version 2 returns
+  `{:ok, :none}`, and `b`, `c` and the other stream's checkpoints remain.
+  Latest for version 1 still returns `c`.
+- An exact retry of a committed `retain` keeps the existing conflict result
+  and deletes nothing more; `Elzoo.DurableLog.confirm_retention/2` confirms
+  the original commit while its receipt is current. A refused retention (no
+  checkpoint at or above `through`, a pending outbox item, an `expected`
+  conflict) deletes no checkpoint.
+- `put_checkpoint` below `low_water` returns
+  `{:rejected, :checkpoint_below_low_water}` through `Store.write/4` and
+  writes nothing; at `low_water` and above it commits.
 - PostgreSQL: a `put_checkpoint` below `through` that races the retention
   either commits first and is then deleted by it, or is refused after it;
   never a surviving checkpoint below `low_water` (lock order shown in the

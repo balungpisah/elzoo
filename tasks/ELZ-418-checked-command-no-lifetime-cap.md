@@ -220,9 +220,10 @@ bound is not claimed during that backlog. A cycle:
    unconfirmed checkpoint never authorizes retention.
    `first_needed_original_row` is the first row whose content the checkpoint
    does not hold and a retained receipt or pending ASK still needs; with a
-   self-contained checkpoint there is none. The retention also deletes the
-   stream's checkpoints below `T` (ELZ-427), so the stored checkpoints, and
-   the evicted receipts and removed resources they held, do not outlive it.
+   self-contained checkpoint there is none. Retention deletes only
+   checkpoints below `T` (ELZ-427). A pending item can pin `T`, so newer
+   checkpoints and their projections may accumulate until retention
+   advances.
 
 Races: at the same expected head, exactly one append compare-and-set wins; a
 losing call may reload and commit a later, separately valid row. At the same
@@ -337,8 +338,10 @@ Memory and PostgreSQL Stores unless a case says otherwise:
   evicts them, and the next command is admitted; after reopen the decisions
   are the same. With a clock that has not passed their expiry, no marker is
   appended and the command stays `:capacity`.
-- Stored checkpoints stay bounded: after many maintenance cycles with
-  retention, the stream holds no checkpoint below `low_water` on either Store.
+- Checkpoints after retention: hold a pending outbox item across several
+  maintenance cycles and show that checkpoints above the pinned floor remain.
+  Acknowledge the item, advance retention, and on both Stores verify that
+  checkpoints below the new `low_water` are gone and recovery still works.
 - Checkpoint use: an incompatible checkpoint (another version, or the stock
   checkpoint that the existing test installs) is never used, and a pruned
   stream with no usable checkpoint is `{:unknown, :unresolved}`.
