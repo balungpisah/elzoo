@@ -11295,6 +11295,27 @@
       "issue": 1036,
       "url": "https://github.com/balungpisah/elzoo/issues/1036",
       "issue_body_sha256": "2290bd259084eac506496e0faf3b8d3842005490bed598abb6bac84c5aacd65b"
+    },
+    {
+      "id": "ELZ-431",
+      "title": "ELZ-431 — check-spike: the Ash spike gets the database and root build its tests need",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [],
+      "status": "published 2026-11-26",
+      "owner_role": "coordinator-owned CI repair; one PR carries publication and implementation; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-431-check-spike-database-and-root-build.md"
+      ],
+      "outputs": [],
+      "acceptance": "check-spike gets the work jobs' PostgreSQL service and database step, restores the check-piece dependency cache, runs mix setup and then the Ash spike; the CI guard pins the shape and refuses a check-spike without the service or the database step; guard tests, negative control, full local gate and full hosted check; ELZ-424's next exact head shows check-spike green.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1039,
+      "url": "https://github.com/balungpisah/elzoo/issues/1039",
+      "issue_body_sha256": "169989b842cde5f18e62f552c3ac75f14c9471f6a9cf39fa61b4caba9ca327a4"
     }
   ],
   "entries": [
