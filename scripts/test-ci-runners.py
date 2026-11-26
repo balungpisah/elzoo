@@ -224,7 +224,8 @@ class RunnerPolicyTest(unittest.TestCase):
 
     # Script text and comments are not YAML keys (ELZ-040 review finding 3).
     def test_run_script_text_and_comments_allowed(self):
-        # ELZ-057: apply to both backend jobs; their bodies must stay identical.
+        # ELZ-057: apply to the backend jobs; their bodies must stay identical. ELZ-431: check-spike is
+        # pinned whole, byte for byte, so its gate script is restored after the mutation.
         self.change_all(
             "symbolic-check.yml",
             "          free -h || true\n",
@@ -236,8 +237,30 @@ class RunnerPolicyTest(unittest.TestCase):
             "          image: not-a-container-key\n"
             "          echo pull_request_target is not used here\n",
         )
+        self.change_in_job(
+            "symbolic-check.yml",
+            "check-spike",
+            "          free -h || true\n"
+            "          cat > /tmp/daemon.json <<'JSON'\n"
+            "          {\"registry-mirrors\": []}\n"
+            "          \"debug\": false\n"
+            "          JSON\n"
+            "          image: not-a-container-key\n"
+            "          echo pull_request_target is not used here\n",
+            "          free -h || true\n",
+        )
         self.change("symbolic-gleam.yml", "\njobs:\n", "\n# No pull_request_target trigger.\njobs:\n")
         self.check(0)
+
+    def test_spike_gate_script_text_is_pinned(self):
+        # ELZ-431: the whole job is pinned byte for byte, so changed script text is refused too.
+        self.change_in_job(
+            "symbolic-check.yml",
+            "check-spike",
+            "          free -h || true\n",
+            "          free -h || true\n          echo pull_request_target is not used here\n",
+        )
+        self.assertTrue(self.check(1).stderr)
 
     def test_quoted_key_after_run_script_still_rejected(self):
         self.change("symbolic-check.yml", "          free -h || true\n",
@@ -1593,6 +1616,17 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.assertTrue(self.check(1).stderr)
                 self.tearDown()
                 self.setUp()
+
+    def test_the_spike_job_refuses_an_appended_database_step_after_the_marker(self):
+        # ELZ-431 review: the job is pinned whole; a second database preparation step appended after the
+        # success marker would fail at the duplicate CREATE ROLE and must be refused here.
+        job = self.job_text("check-spike")
+        db_step = job[job.index("      - name: Prepare disposable PostgreSQL database\n"):job.index("      - uses: actions/checkout@")]
+        marker = '      - name: Record the spike check\n        run: echo "ELZOO SPIKE CHECK PASSED"\n'
+        self.change_in_job("symbolic-check.yml", "check-spike", marker, marker + db_step)
+        self.assertTrue(self.check(1).stderr)
+        self.tearDown()
+        self.setUp()
 
 
 if __name__ == "__main__":

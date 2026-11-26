@@ -726,10 +726,13 @@ for file in files:
                 expected_ifs = WORK_STEP_IFS[name]
             elif role == 'spike':
                 # ELZ-431: the spike job compiles the root project (`mix setup`) and runs the spike through
-                # `mix elzoo.ash_spike` against the same disposable PostgreSQL as the work jobs; every step
-                # after the identity gate is pinned as one block, the database preparation included. It
-                # restores the shared dependency cache but never saves it and has no S3 steps.
-                pin(SPIKE_JOB[SPIKE_JOB.index("      - name: Report host load and memory context"):])
+                # `mix elzoo.ash_spike` against the same disposable PostgreSQL as the work jobs. It is pinned
+                # whole, from its header line to the line before the next job: nothing may be moved, dropped
+                # or appended — a second database preparation step after the success marker would pass a
+                # steps-only pin and then fail at the duplicate CREATE ROLE. It restores the shared
+                # dependency cache but never saves it and has no S3 steps.
+                if lines[h:e] != SPIKE_JOB.split('\n'):
+                    errors.append(f'{file}: the pinned spike job is missing or changed ({name})')
                 expected_ifs = [("      - name: Check the Ash spike", "        if: ${{ needs.check-plan.outputs.ash == 'true' }}")]
             else:
                 pin(AGG_STEP)
