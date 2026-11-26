@@ -10775,6 +10775,29 @@
       "issue_body_sha256": "38a0269d38f910daa3b2787a904e099029ddfdc3606e47aa456fa26144d4f386"
     },
     {
+      "id": "ELZ-413",
+      "title": "ELZ-413 — assembly/run-engine: wait for Unit removal in the nested result restart test",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-411"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "coordinator; one-PR path for a test-only Piece repair; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-413-run-engine-nested-result-busy-stop.md"
+      ],
+      "outputs": [],
+      "acceptance": "Wait for the directory to observe Unit removal before the single stop in nested_result_survives_restart. Preserve the three committed cuts, no-double-action and one-outcome assertions. Record the base failure and negative control, pass 200 repeats, the run-engine tests and the small gate.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1008,
+      "url": "https://github.com/balungpisah/elzoo/issues/1008",
+      "issue_body_sha256": "38f43d5f46caee383d24e99fc1fbfd99e6d1baed58ebaecfe0ebf5c863c5b528"
+    },
+    {
       "id": "ELZ-414",
       "title": "ELZ-414 — integration/mcp-server: isolate the oversized refusal from the valid bearer controls",
       "kind": "published",

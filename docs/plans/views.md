@@ -461,6 +461,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-410](https://github.com/balungpisah/elzoo/issues/999) | V2 / release | ELZ-408, ELZ-409 | published 2026-11-26 | coordinator; one-PR path for documents-only work; independent review and merge queue |
 | [ELZ-411](https://github.com/balungpisah/elzoo/issues/1002) | V2 / release | ELZ-405, ELZ-406, ELZ-407 | published 2026-11-26 | one claimed task worker; coordinator owns independent review, merge queue and exact-SHA push confirmation |
 | [ELZ-412](https://github.com/balungpisah/elzoo/issues/1006) | V2 / later | ELZ-411 | published 2026-11-26 | coordinator; one-PR path for documents-only work; independent review and merge queue |
+| [ELZ-413](https://github.com/balungpisah/elzoo/issues/1008) | V2 / later | ELZ-411 | published 2026-11-26 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
 | [ELZ-414](https://github.com/balungpisah/elzoo/issues/1007) | V2 / later | ELZ-411 | published 2026-11-26 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
 
 ## Catalogue accounting
@@ -5555,6 +5556,16 @@ Publication copy: [tasks/ELZ-412-align-release-id-summary.md](../../tasks/ELZ-41
 **Product aims:** P10, P11.
 
 **Acceptance:** Align the ID-rule summary with the first release without changing a Piece or release selector. Documents-only gate and independent review.
+
+### ELZ-413
+
+ELZ-413 — assembly/run-engine: wait for Unit removal in the nested result restart test
+
+Publication copy: [tasks/ELZ-413-run-engine-nested-result-busy-stop.md](../../tasks/ELZ-413-run-engine-nested-result-busy-stop.md).
+
+**Product aims:** P09.
+
+**Acceptance:** Wait for the directory to observe Unit removal before the single stop in nested_result_survives_restart. Preserve the three committed cuts, no-double-action and one-outcome assertions. Record the base failure and negative control, pass 200 repeats, the run-engine tests and the small gate.
 
 ### ELZ-414
 
