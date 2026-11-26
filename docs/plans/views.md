@@ -475,7 +475,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-426](https://github.com/balungpisah/elzoo/issues/1024) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-427](https://github.com/balungpisah/elzoo/issues/1028) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-418](https://github.com/balungpisah/elzoo/issues/1025) | V2 / later | ELZ-416, ELZ-417, ELZ-419, ELZ-427 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
-| [ELZ-421](https://github.com/balungpisah/elzoo/issues/1026) | V2 / later | ELZ-420, ELZ-422, ELZ-423 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-429](https://github.com/balungpisah/elzoo/issues/1031) | V2 / later | ELZ-420, ELZ-422, ELZ-423 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-421](https://github.com/balungpisah/elzoo/issues/1026) | V2 / later | ELZ-420, ELZ-422, ELZ-423, ELZ-429 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-428](https://github.com/balungpisah/elzoo/issues/1029) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
@@ -5755,3 +5756,17 @@ Publication copy: [tasks/ELZ-428-lease-malformed-reply-no-crash.md](../../tasks/
 **Acceptance:** state/lease write and sweep transactions return {:error, :malformed} for a malformed head or clock reply before any lease-record write is attempted, nothing written and the caller alive; after that, the existing indeterminate result; tests with a negative control; Piece gate, strongest other-family review.
 
 **Secondary contribution:** state/lease — In-place fix under the same ID: a malformed reply inside a write transaction returns {:error, :malformed} instead of crashing the caller.
+
+### ELZ-429
+
+ELZ-429 — assembly/run-engine: a lease renewal of the Run owner is not a Run transition
+
+Publication copy: [tasks/ELZ-429-run-engine-fence-change-not-transition.md](../../tasks/ELZ-429-run-engine-fence-change-not-transition.md).
+
+**Product aims:** P09.
+
+**Acceptance:** assembly/run-engine commits no journal record and settles nothing for a revision change that only a lease renewal caused, keeps working across renewals and owner restarts, and journals real transitions as today; single-step settlement with a renewal, negative control; Piece gate, strongest other-family review.
+
+**Secondary contribution:** assembly/run-engine — In-place fix under the same ID: a renewal-only revision change of the Run owner is a fence change, not a Run transition.
+
+**Secondary contribution:** workflow/run-approval-release — Additive change under the same ID: status/2 exposes the durable proof that an interval holds only lease renewals.

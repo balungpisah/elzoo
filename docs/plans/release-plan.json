@@ -11145,7 +11145,8 @@
       "dependencies": [
         "ELZ-420",
         "ELZ-422",
-        "ELZ-423"
+        "ELZ-423",
+        "ELZ-429"
       ],
       "status": "published 2026-11-26",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
@@ -11161,7 +11162,7 @@
       ],
       "issue": 1026,
       "url": "https://github.com/balungpisah/elzoo/issues/1026",
-      "issue_body_sha256": "7c6452161d535b282c2dbc3db6f5b998fd05a3599acb1653602281b2d28b4d35"
+      "issue_body_sha256": "92ed21b2818295294efe21dc55c3fe2f14a2e1db71432067076b304cc23dff32"
     },
     {
       "id": "ELZ-427",
@@ -11224,6 +11225,41 @@
       "issue": 1029,
       "url": "https://github.com/balungpisah/elzoo/issues/1029",
       "issue_body_sha256": "ba24a55ba833cc60036401cf43460defeba5fc24ee6beff8276068c375fcb723"
+    },
+    {
+      "id": "ELZ-429",
+      "title": "ELZ-429 — assembly/run-engine: a lease renewal of the Run owner is not a Run transition",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-420",
+        "ELZ-422",
+        "ELZ-423"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-429-run-engine-fence-change-not-transition.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "assembly/run-engine",
+          "role": "In-place fix under the same ID: a renewal-only revision change of the Run owner is a fence change, not a Run transition."
+        },
+        {
+          "id": "workflow/run-approval-release",
+          "role": "Additive change under the same ID: status/2 exposes the durable proof that an interval holds only lease renewals."
+        }
+      ],
+      "acceptance": "assembly/run-engine commits no journal record and settles nothing for a revision change that only a lease renewal caused, keeps working across renewals and owner restarts, and journals real transitions as today; single-step settlement with a renewal, negative control; Piece gate, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1031,
+      "url": "https://github.com/balungpisah/elzoo/issues/1031",
+      "issue_body_sha256": "43b01868ac0178cc0eacde23576559d69362e0c09e790cb905a2895318c7568d"
     }
   ],
   "entries": [
