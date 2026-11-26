@@ -157,10 +157,11 @@ review history, the ownership decision and the scenario plan.
 
 - ELZ-416 (2026-11-26): on PostgreSQL 18 and later the catalog also lists each
   NOT NULL column as a constraint row (contype `n`) rendered `NOT NULL <column>`
-  and named `<table>_<column>_not_null`, followed by a decimal suffix when that
-  name is already taken in the schema. The OD-1a schema check of
-  `Elzoo.Lease.Postgres` now takes, on such a server, exactly one such row for
-  each NOT NULL column of migration version 1, named with or without the suffix,
+  and named `<table>_<column>_not_null`, followed by the unpadded decimal
+  1 to 2147483647 that PostgreSQL appends when that name is already taken in
+  the schema. The OD-1a schema check of `Elzoo.Lease.Postgres` now takes, on
+  such a server, exactly one such row for each NOT NULL column of migration
+  version 1, named with or without that suffix,
   as part of the pinned shape, and still fails closed on any other name, another
   column or table, a second or a missing row, and on such rows on a server
   before 18. Before this fix every lease operation on PostgreSQL 18 or 19

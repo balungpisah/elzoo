@@ -175,11 +175,13 @@ defmodule Elzoo.Lease.Postgres do
 
   # PostgreSQL 18 and later also store each NOT NULL column as a constraint row (contype n)
   # rendered "NOT NULL <column>" (ELZ-416). Its name is <table>_<column>_not_null, followed by
-  # a decimal suffix when that name is already taken in the schema (ChooseConstraintName). On
-  # such a server migration v1 has exactly one such row for each column it declares NOT NULL;
-  # an older server stores none, so any n row there is unexpected. A missing row is reported
-  # under its unsuffixed name; every n row that is not the one row of a pinned NOT NULL column
-  # of this table (another name, another rendering, a second row) is unexpected.
+  # the unpadded decimal 1..2147483647 that ChooseConstraintName appends when that name is
+  # already taken in the schema; the longest tracked name stays below the 63-byte limit, so
+  # PostgreSQL never truncates it. On such a server migration v1 has exactly one such row for
+  # each column it declares NOT NULL; an older server stores none, so any n row there is
+  # unexpected. A missing row is reported under its unsuffixed name; every n row that is not
+  # the one row of a pinned NOT NULL column of this table (another name or suffix, another
+  # rendering, a second row) is unexpected.
   defp constraint_diff(table, columns, constraints, actual, server_version_num)
        when server_version_num >= 180_000 do
     {not_null, other} = Enum.split_with(actual, &match?({_, "n", _}, &1))
@@ -206,8 +208,19 @@ defmodule Elzoo.Lease.Postgres do
     do: diff(constraints, actual)
 
   defp not_null_row?({name, "n", definition}, table, column) do
-    definition == "NOT NULL #{column}" and
-      Regex.match?(~r/\A#{Regex.escape("#{table}_#{column}_not_null")}[0-9]*\z/, name)
+    base = "#{table}_#{column}_not_null"
+
+    definition == "NOT NULL #{column}" and String.starts_with?(name, base) and
+      generated_suffix?(binary_part(name, byte_size(base), byte_size(name) - byte_size(base)))
+  end
+
+  defp generated_suffix?(""), do: true
+
+  defp generated_suffix?(suffix) do
+    case Integer.parse(suffix) do
+      {n, ""} -> n in 1..2_147_483_647 and Integer.to_string(n) == suffix
+      _ -> false
+    end
   end
 
   defp diff(expected, actual),

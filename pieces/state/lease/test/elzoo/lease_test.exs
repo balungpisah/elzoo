@@ -969,21 +969,26 @@ defmodule Elzoo.LeaseTest do
     without_revision = since_18 -- [revision]
     assert :ok = shape.(columns, without_revision ++ [suffixed], 190_000)
 
-    assert :ok =
-             shape.(
-               columns,
-               without_revision ++
-                 [List.replace_at(suffixed, 1, "elzoo_log_heads_revision_not_null12")],
-               190_000
-             )
+    for name <- [
+          "elzoo_log_heads_revision_not_null12",
+          "elzoo_log_heads_revision_not_null2147483647"
+        ] do
+      assert :ok =
+               shape.(columns, without_revision ++ [List.replace_at(suffixed, 1, name)], 190_000)
+    end
 
-    # any other name for the same definition, including the other table's prefix
+    # any other name for the same definition, including the other table's prefix and a suffix
+    # that PostgreSQL never generates (zero, padded, signed, beyond the int4 range)
     for name <- [
           "elzoo_log_heads_revision_not_null_1",
           "elzoo_log_heads_revision_not_nullx",
           "elzoo_log_heads_revision_notnull1",
           "elzoo_log_records_revision_not_null",
-          "x_elzoo_log_heads_revision_not_null"
+          "x_elzoo_log_heads_revision_not_null",
+          "elzoo_log_heads_revision_not_null0",
+          "elzoo_log_heads_revision_not_null01",
+          "elzoo_log_heads_revision_not_null+1",
+          "elzoo_log_heads_revision_not_null2147483648"
         ] do
       assert {:schema,
               %{
