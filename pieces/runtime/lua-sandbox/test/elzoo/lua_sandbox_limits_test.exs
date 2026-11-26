@@ -626,13 +626,19 @@ defmodule Elzoo.LuaSandboxLimitsTest do
       vararg = "return function(...) return 1 end"
       assert Helper.run(exe, vararg, nil, %{value_bytes: 13}) == {:refused, :value_size}
       assert {:ok, %{value: 1}} = Helper.run(exe, vararg, nil, %{value_bytes: 14})
-      assert {:ok, %{value: 1}} = Helper.run(exe, "return function() return 1 end", nil, %{value_bytes: 13})
+
+      assert {:ok, %{value: 1}} =
+               Helper.run(exe, "return function() return 1 end", nil, %{value_bytes: 13})
 
       # global declarations: an undeclared name inside one's scope is a load error,
       # a declared-but-missing one and a wildcard declaration still reach unlisted_name
       assert Helper.run(exe, "global x return function() return os end") == {:refused, :lua_error}
-      assert Helper.run(exe, "global * return function() return os end") == {:refused, :unlisted_name}
-      assert Helper.run(exe, "global os return function() return os end") == {:refused, :unlisted_name}
+
+      assert Helper.run(exe, "global * return function() return os end") ==
+               {:refused, :unlisted_name}
+
+      assert Helper.run(exe, "global os return function() return os end") ==
+               {:refused, :unlisted_name}
 
       # error(nil) is the string "<no error object>" inside pcall
       assert {:ok, %{value: [false, "string", "<no error object>"]}} =
