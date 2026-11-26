@@ -65,3 +65,8 @@ consumer assumptions are distinct; no disk durability or exactly-once claim.
   retentions left below `low_water` go at the stream's next committed retain;
   to remove them at once, run
   `DELETE FROM <prefix>.elzoo_checkpoints c USING <prefix>.elzoo_log_heads h WHERE c.stream = h.stream AND c.sequence < h.low_water`.
+  Move every copy of the Store that writes to one database to this revision
+  before relying on the rule: an older copy's `put_checkpoint` does not check
+  `low_water`, so during a mixed-version rollout it can still write a
+  checkpoint below `low_water`; the next committed retain of that stream
+  deletes it.
