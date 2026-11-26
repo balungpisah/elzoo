@@ -78,7 +78,7 @@ defmodule Elzoo.LuaSandbox.Descriptor do
       "numeric" => %{
         "float_bits" => 64,
         "float_text" =>
-          "%.15g in the C locale, then %.17g when the first form does not read back as the same number",
+          "%.15g in the C locale, then %.17g when the first form does not read back as the same number; .0 is appended when the text has neither a decimal point nor an exponent",
         "hash_seed" => "fixed at build",
         "integer_bits" => 64,
         "integer_overflow" => "two's complement wrap",

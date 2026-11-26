@@ -371,7 +371,7 @@ estimator_id: "recipe-test-bytes", estimator_version: 1}}`.
   Lua 5.4.9 to PUC Lua 5.5.1, and its capability policy moves from version 3 to
   version 4. The frozen Lua record of this Piece (`lua_module_call.etf`) embeds
   the sandbox runtime identity — the Lua release, the upstream revision, the C
-  host SHA-256, the build options and the policy identity — so the record bytes
-  changed. A consumer that froze an expected Lua record under 5.4.9 must
-  regenerate it under this build; the scripted inputs and the harness itself are
-  unchanged.
+  host SHA-256, the build options and the seed — beside the policy identity —
+  so the record bytes changed. A consumer that froze an expected Lua record
+  under 5.4.9 must regenerate it under this build; the scripted inputs and the
+  harness itself are unchanged.

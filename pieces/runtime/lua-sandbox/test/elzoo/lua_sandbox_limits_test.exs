@@ -407,7 +407,7 @@ defmodule Elzoo.LuaSandboxLimitsTest do
 
       # the exact external-string cutoff: packing sizes its buffer up front, so a
       # 1,025-byte result is charged at adoption even when rep of the same size is
-      # stopped earlier by the scoped allocation cap
+      # stopped earlier by its own length check against value_bytes
       assert {:ok, %{value: 1_025}} =
                Helper.run(exe, "return function() return #string.pack('c1025', 'a') end", nil, %{
                  value_bytes: 1_025
@@ -630,6 +630,14 @@ defmodule Elzoo.LuaSandboxLimitsTest do
       assert {:ok, %{value: 1}} =
                Helper.run(exe, "return function() return 1 end", nil, %{value_bytes: 13})
 
+      # a named vararg interns its own name instead: `...v` loads at 13 and at 4,
+      # like a plain function, because v is shorter than the interned runtime names
+      assert {:ok, %{value: 1}} =
+               Helper.run(exe, "return function(...v) return 1 end", nil, %{value_bytes: 13})
+
+      assert {:ok, %{value: 1}} =
+               Helper.run(exe, "return function(...v) return 1 end", nil, %{value_bytes: 4})
+
       # global declarations: an undeclared name inside one's scope is a load error,
       # a declared-but-missing one and a wildcard declaration still reach unlisted_name
       assert Helper.run(exe, "global x return function() return os end") == {:refused, :lua_error}
@@ -646,6 +654,10 @@ defmodule Elzoo.LuaSandboxLimitsTest do
                  exe,
                  "return function() local ok, e = pcall(error, nil) return {ok, type(e), tostring(e)} end"
                )
+
+      # in a numeric for the control variable is read-only too
+      assert Helper.run(exe, "return function() for i = 1, 1 do i = 2 end return 1 end") ==
+               {:refused, :lua_error}
 
       # in a generic for, only the first control variable is read-only
       assert Helper.run(

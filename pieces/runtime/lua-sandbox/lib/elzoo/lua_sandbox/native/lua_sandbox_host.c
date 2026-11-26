@@ -662,8 +662,9 @@ static void *host_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
     ** offsetof(TString, contents) + length + 1 bytes and a long string as
     ** offsetof(TString, falloc) + length + 1 bytes; the shortest long string
     ** is larger than the longest short-string allocation, so the size belongs
-    ** to exactly one branch (external strings cannot exist here, see the top
-    ** note). The length is exact on either branch. */
+    ** to exactly one branch (external strings exist here only through the
+    ** shimmed buffer path, see the top note). The length is exact on either
+    ** branch. */
     size_t shlen = nsize > offsetof(TString, contents) + 1 ? nsize - offsetof(TString, contents) - 1 : 0;
     size_t len;
     if (shlen <= LUAI_MAXSHORTLEN)

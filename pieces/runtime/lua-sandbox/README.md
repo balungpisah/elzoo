@@ -421,9 +421,7 @@ repair of the test fakes adds two more (groups 25 and 26):
   of the pinned internal `lobject.h`, and `LUAI_MAXSHORTLEN` of the pinned internal
   `lstring.h`. Lua 5.5.1 allocates a short string at the first offset and a long string at
   the second; the guard derives the exact content length from the allocation size along the
-  one branch that the size can belong to. An external string (whose header size falls in the
-  short-string range) cannot exist: the host uses no `lua_pushexternalstring` and accepts no
-  bytecode. A large buffer of the Lua library is finished as an external string whose
+  one branch that the size can belong to. A large buffer of the Lua library is finished as an external string whose
   content allocation the guard cannot see; that shimmed buffer path is the only one
   that can create an external string in this host. The build compiles `lauxlib.c` with
   its one internal `lua_pushexternalstring` call renamed to a host shim that charges
@@ -472,11 +470,11 @@ outside that checkout. `examples/elzoo/lua_sandbox.exs` shows the call and evalu
   `312b9efaa1061c2c4cad08554dbc1351c3270eef`) to PUC Lua 5.5.1 (revision
   `7579fc9d7ed90240487251dfb69168f8e64e9294`). The capability surface, limit
   semantics and refusal atoms are unchanged, and the descriptor carries them at
-  version 4 (below); counted-step costs and
-  refusal atoms are the same. Counted-step and memory costs are the same on the
-  corpus of plain operations measured for 5.4.9, but not everywhere: the parser of
-  5.5.1 emits different bytecode and programs have per-program memory floors, so a
-  consumer with a tight step or memory budget must remeasure it under this build.
+  version 4 (below). The step and depth counts of the 13 measured comparisons are
+  the same, but that says nothing about other programs: the parser of 5.5.1 emits
+  different bytecode (a constructor example below costs 225 steps here instead of
+  206) and programs have per-program memory floors, so a consumer with a tight
+  step or memory budget must remeasure it under this build.
   The policy identity moves to version 4 because the float text of `tostring`
   changed (below). What changes:
   - A runtime identity recorded under 5.4.9 does not replay under this build: the
@@ -539,11 +537,13 @@ outside that checkout. `examples/elzoo/lua_sandbox.exs` shows the call and evalu
     loop starts at 18,663 bytes where the identity function needs 18,821). A
     tight step or memory budget measured under 5.4.9 can now refuse a source it
     used to run: remeasure it against this build.
-  - A vararg function now needs `value_bytes` of at least 14 to load: the parser
-    interns the 14-byte name `(vararg table)` (13 refuses the load as
+  - An unnamed-vararg function now needs `value_bytes` of at least 14 to load:
+    the parser interns the 14-byte name `(vararg table)` (13 refuses the load as
     `value_size`, 14 runs it; a plain function still loads at 13). 5.5.1 also
-    adds a named-vararg syntax `function(...name)`, which compiles like the
-    plain form.
+    adds a named-vararg syntax `function(...name)`; a named vararg interns the
+    given name instead, so `function(...v)` loads already at 13 (at 4, like a
+    plain function, since `v` is shorter than the smallest interned name of
+    initialization).
   - Three granted calls change results: `select('#', table.unpack(false, 2, 1))`
     is a `lua_error` now instead of 0, `table.concat('')` is `""` now instead of
     a `lua_error`, and on 64-bit `string.packsize('c2000000000c2000000000')` is
