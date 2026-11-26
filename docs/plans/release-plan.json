@@ -10749,6 +10749,30 @@
       "issue": 1002,
       "url": "https://github.com/balungpisah/elzoo/issues/1002",
       "issue_body_sha256": "c9d2f1f010d28afb4675a5389b16715f67423b04b338454ca2aaf914fba16890"
+    },
+    {
+      "id": "ELZ-412",
+      "title": "ELZ-412 — Align the Piece ID summary with the first-release mark",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-411"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "coordinator; one-PR path for documents-only work; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-412-align-release-id-summary.md"
+      ],
+      "outputs": [],
+      "acceptance": "Align the ID-rule summary with the first release without changing a Piece or release selector. Documents-only gate and independent review.",
+      "product_aims": [
+        "P10",
+        "P11"
+      ],
+      "issue": 1006,
+      "url": "https://github.com/balungpisah/elzoo/issues/1006",
+      "issue_body_sha256": "38a0269d38f910daa3b2787a904e099029ddfdc3606e47aa456fa26144d4f386"
     }
   ],
   "entries": [
