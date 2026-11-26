@@ -11102,9 +11102,110 @@
       "issue": 1024,
       "url": "https://github.com/balungpisah/elzoo/issues/1024",
       "issue_body_sha256": "7dcc8592cadd0aff91c95bc0230e75dc9e5944379083bf6816d0ff898e08e06d"
+    },
+    {
+      "id": "ELZ-418",
+      "title": "ELZ-418 — assembly/checked-command: no lifetime cap for a tenant",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-416",
+        "ELZ-417",
+        "ELZ-419",
+        "ELZ-427"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-418-checked-command-no-lifetime-cap.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "assembly/checked-command",
+          "role": "In-place breaking change under the same ID: no lifetime cap, versioned rows, checkpoint and retention."
+        }
+      ],
+      "acceptance": "assembly/checked-command keeps one tenant stream with no lifetime cap: versioned rows with a v1 reader, one clock for admission and eviction, issuance bound to the operation, removal with a per-stream removal sequence, a bounded own checkpoint and a retention fence. Affected gate, strongest other-family review.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 1025,
+      "url": "https://github.com/balungpisah/elzoo/issues/1025",
+      "issue_body_sha256": "4baae2a7fe99afcbf6abc1edcf1e0942e367639431dd466d728a07fc6ac694dd"
+    },
+    {
+      "id": "ELZ-421",
+      "title": "ELZ-421 — assembly/run-host: a supervised host for the engine Runs of one node",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-420",
+        "ELZ-422",
+        "ELZ-423"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-421-run-host.md"
+      ],
+      "outputs": [
+        "assembly/run-host"
+      ],
+      "acceptance": "New assembly/run-host: a supervised node host for engine Runs with renewal, reap, text AI bindings, a trusted outcome route, predecessor fencing, recovery and deadline wakes. Small gate including its own copied consumer, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1026,
+      "url": "https://github.com/balungpisah/elzoo/issues/1026",
+      "issue_body_sha256": "7c6452161d535b282c2dbc3db6f5b998fd05a3599acb1653602281b2d28b4d35"
+    },
+    {
+      "id": "ELZ-427",
+      "title": "ELZ-427 — durable log: retention removes the checkpoints it leaves unusable",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-416"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-427-retention-removes-dead-checkpoints.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "state/event-log",
+          "role": "In-place change under the same ID: Memory Store retention deletes checkpoints below low-water."
+        },
+        {
+          "id": "integration/sql",
+          "role": "In-place change under the same ID: PostgreSQL Store retention deletes checkpoints below low-water."
+        }
+      ],
+      "acceptance": "Durable log retention also deletes the stream's checkpoints below its new low-water, and a checkpoint below low-water is refused, on the Memory and PostgreSQL Stores in place; tests on both Stores with a race case and a negative control; Piece gate, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1028,
+      "url": "https://github.com/balungpisah/elzoo/issues/1028",
+      "issue_body_sha256": "ede8fdc355016cdf223df0989741af31ac498be85c126eea8edbf45147a1fda0"
     }
   ],
   "entries": [
+    {
+      "id": "assembly/run-host",
+      "job": "ELZ-421",
+      "note": "Planned Assembly that hosts assembly/run-engine Runs on one node: provisioning with one evidence namespace, serialized lease renewal (ELZ-422), text AI bindings with a trusted outcome route, predecessor fencing before recovery, deadline wakes from committed deadlines (ELZ-423), and reap after terminal reads.",
+      "baseline_status": "not in baseline (new row, ELZ-421)",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
+    },
     {
       "id": "delivery/durable-mailbox",
       "job": "ELZ-344",

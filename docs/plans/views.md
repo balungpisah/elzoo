@@ -473,6 +473,9 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-424](https://github.com/balungpisah/elzoo/issues/1016) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-425](https://github.com/balungpisah/elzoo/issues/1017) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-426](https://github.com/balungpisah/elzoo/issues/1024) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-427](https://github.com/balungpisah/elzoo/issues/1028) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-418](https://github.com/balungpisah/elzoo/issues/1025) | V2 / later | ELZ-416, ELZ-417, ELZ-419, ELZ-427 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-421](https://github.com/balungpisah/elzoo/issues/1026) | V2 / later | ELZ-420, ELZ-422, ELZ-423 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -480,6 +483,7 @@ Baseline status is immutable inventory history, not a current planning status. R
 
 | ID | Baseline | Release / stage | Primary owner / product aims | Disposition and scoped Contract / gap |
 | --- | --- | --- | --- | --- |
+| assembly/run-host | not in baseline (new row, ELZ-421) | V2 / later | ELZ-421 / P09 | planned-contract: Planned Assembly that hosts assembly/run-engine Runs on one node: provisioning with one evidence namespace, serialized lease renewal (ELZ-422), text AI bindings with a trusted outcome route, predecessor fencing before recovery, deadline wakes from committed deadlines (ELZ-423), and reap after terminal reads. |
 | [delivery/durable-mailbox](../../pieces/delivery/durable-mailbox/piece.json) | planned | V1B / pieces | ELZ-344 / P13 | ready-contract: Durable mail and room continuation chains over a consumer-owned Ecto Repo on PostgreSQL 16 in three Piece-owned tables (chains, links, messages) that Migration.install/1 creates and protects with the state/tenant-isolation floor. new/2 binds a declaration of 1..64 message names, each built with core/payload-schema, and its identity {id, version, SHA-256 of the canonical JSON}; verify/1 runs the floor check per table. open/3 creates a chain and its first link (equal bytes and declaration duplicate, else conflict; a held run_id or unit_identity is identity_in_use). put/3 refuses, in order and before any write, a bad shape, an undeclared name, another schema version, a payload that fails the schema, a caller transaction, another isolation level, an unknown chain, another declaration, a stored message_id with other bytes (equal bytes duplicate, wherever addressed) and a chain at max_pending open messages; mail to any link's run_id goes to the chain. Every write after open/3 takes the chain row FOR UPDATE first: claim/3 gives the delivering message again, else stopped, else the oldest pending message to the live tip; settle/3 records applied, not_applied (pending again) or one of four refusals (record_size also stops the link), repeats are duplicate or not_delivering; plan_rollover/3 records the successor's pin on the tip; rollover/3 closes the tip and inserts exactly one successor that keeps the pin unless an explicit change, refusing unknown_link, already_rolled_over (equal bytes repeat the answer), delivery_unsettled, plan_mismatch and identity_in_use. chain/3 pages links (1..256) with the tip and its carry; status/3 reads a message's state. Canonical JSON (compact Jason, keys sorted by bytes) decides every comparison and the 65,536-byte bounds; fixed error atoms, log: false, no telemetry, no Run start, engine call or timer. |
 | [workflow/turn-policy](../../pieces/workflow/turn-policy/piece.json) | planned | V1B / pieces | ELZ-345 / P13 | ready-contract: Pure pattern step in the core/operator shape over PatternStep v1 neutral maps for the root callable of a room Run: the rules addressed (lead-bot and mention-only presets, host-vouched reply-to), round_robin, bounded everyone and decided (one decision action whose untrusted pick falls back to the default member), and a pure host-rule behaviour that fails closed, its context and rule state bounded in bytes and to 30 levels of nesting; every rule keeps one open turn, members only, the max_bot_turns bound (also for bot and peer messages), escalation, handoff, a bounded window, the rollover carry and unique action IDs; check_start/2 (which also refuses a carry whose queue or bot_turns passes the bound), restart_carry/1 and pick_schema/0. No clock, I/O, store, process or model call. |
 | [workflow/delegation](../../pieces/workflow/delegation/piece.json) | planned | V1B / pieces | ELZ-346 / P13 | ready-contract: Pure child-Run grant over trusted parent facts: refuses the whole request in order malformed, revoked (root, parent, child or any lineage bot), stale (an agent parent below the root's auth_epoch), depth over max_depth 1..8, cycle (the root's ID or a lineage bot), escalation past the parent's scopes or spaces, budget (not 1..budget_remaining) and version_change (a change without a recorded-action ref); then delegates the child from the root with domain/principal (one level), passes the parent's validated effective authority as the domain/authorization parent bound, the inherited or explicitly changed pin, depth, the lineage with the child and a parent-close rule (abandon, request_cancel by default, cancel); on_parent_close/1 maps each open child of an ended parent to abandon, one elzoo.delegation.cancel_requested v1 request, or an Attempt cancel. Errors are the fixed atoms malformed, revoked, stale, depth, cycle, escalation, budget and version_change, or {:principal, atom} with domain/principal's reason unchanged; none echoes an ID, scope or space. No I/O, clock, process, store, Run start, cancel or message. |
@@ -5702,3 +5706,39 @@ Publication copy: [tasks/ELZ-426-lua-sandbox-lua-5-5.md](../../tasks/ELZ-426-lua
 **Secondary contribution:** runtime/lua-sandbox — In-place breaking change under the same ID: PUC Lua 5.5.1.
 
 **Secondary contribution:** runtime/recipe-test — Its Lua fixture follows the sandbox's Lua version.
+
+### ELZ-418
+
+ELZ-418 — assembly/checked-command: no lifetime cap for a tenant
+
+Publication copy: [tasks/ELZ-418-checked-command-no-lifetime-cap.md](../../tasks/ELZ-418-checked-command-no-lifetime-cap.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** assembly/checked-command keeps one tenant stream with no lifetime cap: versioned rows with a v1 reader, one clock for admission and eviction, issuance bound to the operation, removal with a per-stream removal sequence, a bounded own checkpoint and a retention fence. Affected gate, strongest other-family review.
+
+**Secondary contribution:** assembly/checked-command — In-place breaking change under the same ID: no lifetime cap, versioned rows, checkpoint and retention.
+
+### ELZ-421
+
+ELZ-421 — assembly/run-host: a supervised host for the engine Runs of one node
+
+Publication copy: [tasks/ELZ-421-run-host.md](../../tasks/ELZ-421-run-host.md).
+
+**Product aims:** P09.
+
+**Acceptance:** New assembly/run-host: a supervised node host for engine Runs with renewal, reap, text AI bindings, a trusted outcome route, predecessor fencing, recovery and deadline wakes. Small gate including its own copied consumer, strongest other-family review.
+
+### ELZ-427
+
+ELZ-427 — durable log: retention removes the checkpoints it leaves unusable
+
+Publication copy: [tasks/ELZ-427-retention-removes-dead-checkpoints.md](../../tasks/ELZ-427-retention-removes-dead-checkpoints.md).
+
+**Product aims:** P09.
+
+**Acceptance:** Durable log retention also deletes the stream's checkpoints below its new low-water, and a checkpoint below low-water is refused, on the Memory and PostgreSQL Stores in place; tests on both Stores with a race case and a negative control; Piece gate, strongest other-family review.
+
+**Secondary contribution:** state/event-log — In-place change under the same ID: Memory Store retention deletes checkpoints below low-water.
+
+**Secondary contribution:** integration/sql — In-place change under the same ID: PostgreSQL Store retention deletes checkpoints below low-water.
