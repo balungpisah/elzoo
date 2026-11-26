@@ -41,6 +41,16 @@ means the named subset is usable. For example, the hashing recipe does not
 implement the whole crypto family, and the HTTP client recipe is not a durable
 HTTP-to-job assembly. Those broader contracts remain explicit tasks.
 
+## The first release
+
+To take the first release rather than the latest green `main`:
+
+1. Open [ELZ-411's implementation PR](https://github.com/balungpisah/elzoo/pull/1004) and copy its **merge commit SHA** on `main`, not the SHA of its branch head.
+2. In [the backend workflow runs](https://github.com/balungpisah/elzoo/actions/workflows/symbolic-check.yml), confirm that the **push** run on `main` for that exact SHA succeeded. A green PR check alone does not count. If the push run is missing, pending or red, do not take the SHA as the first release. A later green repair does not attest the release, even if it carries the same mark.
+3. Run `git checkout --detach <merge-sha>` in the Elzoo checkout. From there, follow [Copy](#copy) to run `mix elzoo.take` for the Pieces you need.
+
+From the release commit on, a changed ready Contract gets a new Piece ID and migration notes; the old ID stays usable. A fix that restores the Contract keeps its ID.
+
 ## Who provides what
 
 The catalogue and the consuming application divide responsibility as follows.

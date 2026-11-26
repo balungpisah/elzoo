@@ -1247,13 +1247,9 @@ of `bot-platform.md`, unless an entry names another.
 
 ### In-place change before the first release (2026-11-14)
 
-- **Chosen.** A ready Piece that lacks something which clearly belongs to it is
-  extended, refactored or cut clean in place, with the same Piece ID.
-- **Why.** Elzoo is not released yet, so no second ID is made for the same job.
-- **For you.** Until the first release, a ready Piece's Contract can change
-  under its ID; check its `piece.json` when you copy it again.
-- **To change.** It ends at the first release, when the new-ID rule of
-  [How a change works](#how-a-change-works) applies.
+- **Chosen.** Before the first release, a ready Piece could change in place so it did not need a second ID for the same job.
+- **Boundary.** The merge commit of [ELZ-411](https://github.com/balungpisah/elzoo/pull/1004) on `main` is the release commit only if the `symbolic-check.yml` push run for that exact SHA succeeds.
+- **For you.** From that commit on, a changed ready Contract gets a new ID and migration notes. A fix that restores the Contract keeps its ID. See [How a change works](#how-a-change-works).
 
 ### Version-1 action kinds, RC-68 (2026-11-12)
 
