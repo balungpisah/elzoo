@@ -12,16 +12,17 @@ non-negative integer (`clock/1`). `transact/3` handles raised errors
 (`rescue`) and exits (`catch :exit`) but not throws, and the Repo's
 transaction re-raises a throw after its rollback. So such a reply crashes the
 calling process (for a Run owner, without a reply) instead of returning an
-error, although nothing was written. The read path `read_attempt/3` already
+error; on a later key of a sweep it also escapes, after earlier keys may have
+entered their writes. The read path `read_attempt/3` already
 returns `{:error, :malformed}` for the same throw. Under the pinned table
 constraints the case is rare, but a fault in a ready Piece's error path is
 fixed in place (the rule of ELZ-415).
 
-- Every write and sweep transaction of `Elzoo.Lease.Postgres` returns
-  `{:error, :malformed}` for a malformed reply met before its first write
-  statement, with the transaction rolled back and nothing written. A
-  malformed reply after the first write statement keeps the existing unknown
-  outcome (`{:indeterminate, info}`, as `failure/1` reports today).
+- Catch `throw(:malformed)` in both transaction wrappers. Before `write!/6`
+  marks a lease-record write attempted, return `{:error, :malformed}` after
+  rollback, including rollback of any provisional head insert. After that
+  marker, return `{:indeterminate, info}` through the existing write-failure
+  path. Other outcomes stay unchanged.
 - No other result changes. The README names `{:error, :malformed}` among the
   write errors, with a `## Changes` entry; a changed `piece.json` gets a new
   `manifest_sha256` in its `entries` row, with `note` equal to a changed
@@ -33,10 +34,13 @@ Paths: `pieces/state/lease/**`, the `entries` row of `state/lease` in
 
 ## Acceptance
 
-- A test forces a malformed head reply and, separately, a malformed clock
-  sample inside a write transaction (through the backend's existing test hook
-  or a test Repo double) and shows `{:error, :malformed}`, the calling process
-  alive, and no row written; the same for one sweep.
+- Force the head and clock checks to throw separately in a single-key
+  transaction and before the first lease-record write of a sweep. Assert the
+  error, caller survival, and no persisted head or record changes. Use a
+  query-level fault fixture for malformed replies; existing phase hooks can
+  inject the throw but cannot replace a query reply. Then inject the throw on
+  a later sweep key after an earlier key enters `write!/6`, and assert an
+  indeterminate result and rollback of the sweep.
 - A negative control: removing the new handling makes the test fail with the
   crash (recorded and reverted).
 - `mix test pieces/state/lease/test` on PostgreSQL 19, and

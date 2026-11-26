@@ -51,15 +51,19 @@ Three calls, each with one exact DTO. The host vouches for every field:
     associate_run(owner, %{input_message_id, run_id})
     append_answer(owner, %{message_id, actor, text, run_id, input_message_id, completed})
 
-and one read-only call, `check(owner, intent)`, where `intent` is
-`{:input, dto}`, `{:association, dto}` or `{:answer, dto}` with the DTO of the
-matching call. It first reads the rows after the owner's head (as an append
-does after a conflict) and folds them, then returns what the matching call
-would return at that state, without writing or reserving anything: `:ok` (the
-record would be appended), `{:ok, :already_present}`, `{:refused, code}`, or
-the errors below. Each owner call has a bounded timeout that the README
-states; a timed-out append is an unknown outcome that the caller resolves by
-retrying the identical operation.
+and one read-only call, `check(owner, intents)`. `intents` is a non-empty
+list, in command sequence order, of `{:input, dto}`, `{:association, dto}` or
+`{:answer, dto}` with the DTO of the matching call: the conversation's
+earlier committed but undelivered intents, then the candidate. The owner first
+reads the rows after its head (as an append does after a conflict) and folds
+them, then applies the intents in order to a copy of that projection with the
+same decision rules, and returns one decision per intent: `:ok` for a new
+admissible record, or the same duplicate or refusal decision as the write
+against the same history (`{:ok, :already_present}` or `{:refused, code}`).
+It never appends or reserves a sequence. Each owner call has a bounded
+timeout that the README states: a timed-out check returns
+`{:error, :timeout}`; a timed-out append returns `{:unknown, :unresolved}` and
+is retried only with the identical operation.
 
 `completed` is the host's boolean fact that the Run completed. Results:
 
@@ -155,10 +159,12 @@ append becomes a delivery after the commit:
 
 - Before command commit, the channel validates the exact Conversation intent
   against the tenant's ordered admitted state, including committed intents
-  not yet visible in Conversation: it asks the conversation owner with
-  `check/2` for the delivered state and checks its own committed but
-  undelivered intents (bounded by the outbox backlog). It keeps no index of a
-  conversation itself. It binds the canonical intent, or its exact
+  not yet visible in Conversation: it calls `check/2` with this
+  conversation's earlier committed, undelivered intents in command sequence
+  order followed by the candidate, and admits the candidate only when every
+  earlier decision is `:ok` or `{:ok, :already_present}` and the candidate's
+  is `:ok` (`{:ok, :already_present}` is not admission for a different
+  command). It keeps no index of a conversation itself. It binds the canonical intent, or its exact
   digest, into the write that Authorization and Approval check (a write of a
   channel-owned resource; a command with no write gets no outbox item). The
   retained response carries that same intent (an input, an association, or an
@@ -232,10 +238,12 @@ regenerated from current `main` and never hand-merged.
     cases: committed (the owner resolves it to `{:ok, _}`, and an identical
     retry gives `{:ok, :already_present}`) and unresolved (`{:unknown,
     :unresolved}`, then an identical retry that is safe either way).
-  - `check/2` returns, for each result case of the three calls, exactly what
-    the call returns, and writes nothing (head unchanged); after an
-    independent owner appends a conflicting record, `check/2` on the first
-    owner sees it.
+  - `check/2`: decision parity with the write for each result case, an
+    unchanged head, a refresh after an independent append, an association
+    after an undelivered input and an answer after an undelivered matching
+    association (both `:ok`), a conflicting candidate refused before commit,
+    and both timeout results, including an append that commits after the
+    caller times out.
   - `page` and `tail` for another tenant or an ungranted conversation:
     `:not_found` with zero Store calls (count them); a malformed scope:
     `{:error, :invalid_scope}` with zero Store calls.

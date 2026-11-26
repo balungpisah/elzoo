@@ -5752,6 +5752,6 @@ Publication copy: [tasks/ELZ-428-lease-malformed-reply-no-crash.md](../../tasks/
 
 **Product aims:** P09.
 
-**Acceptance:** state/lease write and sweep transactions return {:error, :malformed} for a malformed head or clock reply before their first write, nothing written and the caller alive; tests with a negative control; Piece gate, strongest other-family review.
+**Acceptance:** state/lease write and sweep transactions return {:error, :malformed} for a malformed head or clock reply before any lease-record write is attempted, nothing written and the caller alive; after that, the existing indeterminate result; tests with a negative control; Piece gate, strongest other-family review.
 
 **Secondary contribution:** state/lease — In-place fix under the same ID: a malformed reply inside a write transaction returns {:error, :malformed} instead of crashing the caller.
