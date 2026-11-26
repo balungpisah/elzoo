@@ -12,9 +12,10 @@ of the root moves to its latest stable release. Versions checked on
 | --- | --- | --- |
 | OTP | 29.1.2 | 29.1.3 |
 | Elixir | 1.20.4 | 1.20.5 |
-| PostgreSQL with pgvector (CI service image and `.agents/setup`) | 16, pgvector 0.8.7 | 19, pgvector 0.8.7 |
+| PostgreSQL (CI service image and `.agents/setup`) | 16 | 19. The CI image keeps pgvector 0.8.7; `.agents/setup` installs the pgvector package for the selected server major |
 | MinIO | `RELEASE.2025-09-07T16-13-09Z` | Unchanged: the last release, `RELEASE.2025-10-15T17-29-55Z`, has no binary asset, and upstream is archived |
-| Cure | the pinned commit of release 0.35.0 | Unchanged, unless cure-lang has a newer release tag |
+| Cure | the pinned fork commit `20824806`, which adds the source-import fix to `v0.35.0` | Unchanged, unless upstream has a newer release tag |
+| Lua source (`lua_source`) | PUC Lua 5.4.9, revision `312b9efa` | Unchanged here: `runtime/lua-sandbox` states Lua 5.4.9 and checks the pinned revision and its exact source bytes; ELZ-426 moves it to 5.5.1 |
 | GitHub Actions of `symbolic-check.yml` | pinned SHAs | The latest release of each, pinned by full SHA with its version comment |
 | Hex packages | `mix.lock` | The newest release that the dependency graph allows |
 
@@ -45,10 +46,18 @@ named in the pull request:
   section, and each changed `piece.json` a new `manifest_sha256` in its
   `entries` row, with `note` equal to a changed `contract`. A Piece whose only
   change is its provider version in `registry/providers.json` gets no entry.
-- README sentences that name a provider version, `registry/catalogue.json`
-  summaries that name one, the export's toolchain text and its byte fixture,
-  the CI guard scripts that mirror the workflow, and `scripts/worker-services.py`
-  (PostgreSQL 18+ images keep their data under `/var/lib/postgresql`).
+- README sentences and `registry/catalogue.json` summaries that present a
+  moved pin as current; the manifest entries in `docs/plans/release-plan.json`
+  and the regenerated `docs/plans/views.md`. Shared implementation paths:
+  `lib/elzoo/export.ex` (the export's toolchain text),
+  `test/fixtures/install/integration-cure-json.txt` (its byte fixture),
+  `test/examples/elz099_provider_consumer/mix.exs`,
+  `test/wave7_remember_and_know_test.exs`, `test/wave8_bots_talk_test.exs`,
+  `test/wave9_tools_doors_models_money_test.exs`,
+  `scripts/check-ci-runners.py` and `scripts/test-ci-runners.py` (they mirror
+  the workflow), and `scripts/worker-services.py` and
+  `scripts/test-worker-services.py` (PostgreSQL 18+ images keep their data
+  under `/var/lib/postgresql`).
 - `spikes/ash_foundation/mix.exs` and one README line: its exact Elixir
   requirement would refuse the new toolchain. Its own dependency pins move in
   ELZ-424.
@@ -62,7 +71,8 @@ current test suite (the server it runs on now) states PostgreSQL 19.
   `mix deps.update --all`.
 - The pull request lists each package that cannot reach its latest release,
   with the package whose requirement holds it (`mix hex.outdated --all`).
-- `registry/providers.json` records each new version; `mix elzoo.ledger`
+- `registry/providers.json` records each changed registered provider;
+  `mix.lock` records the complete resolved dependency graph. `mix elzoo.ledger`
   regenerates `LEDGER.md`.
 - A code change that a new version forces is allowed, and the pull request
   names it file by file.

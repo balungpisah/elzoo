@@ -33,8 +33,8 @@ none.
   and `mix hex.audit` exit 0, or the pull request records the exact reason a
   command cannot run on the host. `mix hex.outdated --all` shows each package
   up to date or named with its holder.
-- `python3 scripts/check-roadmap.py`, `git diff --check` and
-  `git diff --check origin/main...HEAD` exit 0.
+- `python3 scripts/check-roadmap.py`, `python3 scripts/check-claims.py`,
+  `git diff --check` and `git diff --check origin/main...HEAD` exit 0.
 - The hosted `check-spike` job is green on the exact head.
 - One independent review, and the exact-head automated review with its threads
   answered and resolved, or the authorized replacement review under
