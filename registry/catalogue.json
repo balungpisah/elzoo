@@ -2,6 +2,14 @@
   "schema_version": 1,
   "entries": [
     {
+      "id": "assembly/run-host",
+      "summary": "Supervised host for the engine Runs of one node",
+      "disposition": "own",
+      "phase": "P13",
+      "status": "planned",
+      "reason": "ELZ-421: owner decision of 2026-11-26; hosts assembly/run-engine Runs so that a consumer does not rebuild the host from test helpers."
+    },
+    {
       "id": "assembly/agent-product",
       "summary": "LLM/tool/approval/budgeted loop",
       "disposition": "defer",
