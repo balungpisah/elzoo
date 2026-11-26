@@ -22,10 +22,11 @@ fixed in place (the rule of ELZ-415).
   marks a lease-record write attempted, return `{:error, :malformed}` after
   rollback, including rollback of any provisional head insert. After that
   marker, return `{:indeterminate, info}` through the existing write-failure
-  path. The sweep's head lookup (`lock_or_probe`) treats a reply that is not
-  zero or one valid head row as malformed in the same way, instead of
-  raising (which today reads as `:unavailable`). Other outcomes stay
-  unchanged.
+  path. In both the `SKIP LOCKED` lookup and the `NOWAIT` probe of the sweep,
+  normalize an unexpected successful reply or invalid head row to
+  `throw(:malformed)`. Keep the existing behavior for an empty row set and SQL
+  errors. Apply the before/after lease-record write rule above. Other
+  outcomes stay unchanged.
 - No other result changes. The README names `{:error, :malformed}` among the
   write errors, with a `## Changes` entry; a changed `piece.json` gets a new
   `manifest_sha256` in its `entries` row, with `note` equal to a changed

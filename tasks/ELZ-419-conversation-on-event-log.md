@@ -61,8 +61,9 @@ same decision rules, and returns one decision per intent: `:ok` for a new
 admissible record, or the same duplicate or refusal decision as the write
 against the same history (`{:ok, :already_present}` or `{:refused, code}`).
 It never appends or reserves a sequence. A refresh that cannot read the
-Store returns `{:error, :unavailable}`, and a row that fails validation
-returns `{:error, :damaged}`, as for the calls. Each owner call has a bounded
+Store returns `{:error, :unavailable}`; a row that fails validation returns
+`{:error, :damaged}`. These results apply both to `check/2` and to an
+append's refresh after a compare-and-set conflict. Each owner call has a bounded
 timeout that the README states: a timed-out check returns
 `{:error, :timeout}`; a timed-out append returns `{:unknown, :unresolved}` and
 is retried only with the identical operation.
@@ -174,11 +175,13 @@ append becomes a delivery after the commit:
   `assembly/checked-command` fits the largest), and delivery verifies the
   binding. Idempotent delivery of the same command is not permission for a new
   command to claim an existing message ID.
-- Need (wave 4 README): the channel is the only writer of the conversation
-  streams it delivers to. `check/2` cannot stop another writer from claiming
-  a message ID before delivery; such a write makes the checked intent fail at
-  delivery, and that definite refusal is reported and blocks later
-  deliveries for the tenant (below), so the violation fails closed.
+- Wave 4 Need (document in `pieces/state/conversation/README.md`): the
+  channel is the sole writer of the conversation streams it delivers to.
+  `check/2` does not reserve a message ID. If an outside writer commits the
+  same ID with different content before delivery, delivery is refused and
+  blocks later deliveries for the tenant. An identical outside write is
+  indistinguishable from redelivery, so the exclusivity requirement is not
+  enforced by `check/2`.
 - Every Conversation-writing command, including associations and answers, is
   configured with a delivery notification (today the association and answer
   descriptors have no outbox destination). The channel processes
