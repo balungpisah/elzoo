@@ -1444,3 +1444,8 @@ are negative controls: a `path` without the link to the enclosing parent
 Run not filtered (`earlier_run` fails), no `:actual` entry (`later_actual`
 fails) and the reason taken without the own-effect check
 (`expired_before_its_own_outcome` fails). Listed finite scenarios, not a proof.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the README names the current platform pins, Elixir
+  1.20.5 and OTP 29.1.3 (before 1.20.4 and 29.1.2). No code or API change.

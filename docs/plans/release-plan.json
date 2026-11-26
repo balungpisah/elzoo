@@ -10853,7 +10853,7 @@
       "baseline_status": "planned",
       "disposition": "ready-contract",
       "manifest": "pieces/delivery/durable-mailbox/piece.json",
-      "manifest_sha256": "58f8a81c207293e6998978686d92db1bd7e6613dc7871b18b33d22dd999ae894",
+      "manifest_sha256": "438d92c600eac16b343107f182c1fc33e798150f8390216bbcd37cc17c824e77",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -10927,7 +10927,7 @@
       "baseline_status": "planned",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/knowledge-ingest/piece.json",
-      "manifest_sha256": "e2f15e2fd3213392cb60b0a133be00fc5d41309ce631cccd9cad7c9060211c60",
+      "manifest_sha256": "255cc09dad33828bb57b7eb9b6248a23966b935f4dcca27c260c66d7d3699e20",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -10986,7 +10986,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/assembly/ledger-checkout/piece.json",
-      "manifest_sha256": "ef347574dcfd793c5e6a8858417d6a121637a7216f5869b9f7ef74e0f5819540"
+      "manifest_sha256": "7ce70419cab0f3a164921419060162ca2f9dfad246d3f69cd598c3c783301586"
     },
     {
       "id": "assembly/request-route-retry",
@@ -11160,7 +11160,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/dead-letter-store/piece.json",
-      "manifest_sha256": "d78b8b05819bc15ef729411fa72833e04c70fa8ff03007b3a2d7d006fdce8c08"
+      "manifest_sha256": "e5ce982e450b9068a516af1728da62a194d5ed54f25a6776074544d49074cfc9"
     },
     {
       "id": "workflow/eval",
@@ -11336,7 +11336,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/journal/piece.json",
-      "manifest_sha256": "dcbd70e4a04cc7762c549932a489a82400b2678d0cdbf28cd0c9965dbe9d9c43"
+      "manifest_sha256": "b0a09f6183bdb19c7fc60d97aec0a5966da2dc9ae1623f9ee07e5b352f83bfaf"
     },
     {
       "id": "domain/membership",
@@ -11355,7 +11355,7 @@
       "baseline_status": "deferred",
       "disposition": "ready-contract",
       "manifest": "pieces/domain/metering/piece.json",
-      "manifest_sha256": "7e55e6cbdbf51f1d01eac32d7edf2e8c9393743d0a48a2bfd80a7947fbf4c4de",
+      "manifest_sha256": "ce34160462690045981ca9b74a49b58b90835ca476b4d63d96278cad360a6eb3",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -11376,7 +11376,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/payment-lifecycle/piece.json",
-      "manifest_sha256": "ea4625f1f83d8a0dfdd2021c0b9d66f1870e18d912f94b873cbdb92468988b8c"
+      "manifest_sha256": "8473b3b4ce918a7f68e09cfd3ebff0fed470d878a920b5cb703782b32436933e"
     },
     {
       "id": "domain/policy-rules",
@@ -11414,7 +11414,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/quota/piece.json",
-      "manifest_sha256": "369f94ab540a80d12ce9b3d7941eb8da1661acafa6814d0fb3e7760ec12700fe"
+      "manifest_sha256": "b50e0e222d8ceb350d1dadbe954f358363c6bf928592caf9573c319e3b18cc6b"
     },
     {
       "id": "domain/saas-controls",
@@ -11596,7 +11596,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/tenant-isolation/piece.json",
-      "manifest_sha256": "6ffb777eb1a86fbdaf7def47d3416916f5f644ffda02eff485c3973f64bf9fa2"
+      "manifest_sha256": "515aad3838f0bbacee0903a8719c991b56bcc6cb59207a37da2cb002947ff428"
     },
     {
       "id": "integration/egress-policy",
@@ -11646,7 +11646,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/retention-erasure/piece.json",
-      "manifest_sha256": "f391b91700b0c436cbe5c122c43daef8e5eb63323b077719916909ca5ed7acf3"
+      "manifest_sha256": "c6fb2cee9ae2e82b845bb3ea2b78a911fb74a556a70f532614a1dfb20f4ca5f1"
     },
     {
       "id": "delivery/rate-limit",
@@ -11787,7 +11787,7 @@
       "baseline_status": "deferred",
       "disposition": "ready-contract",
       "manifest": "pieces/integration/search-data/piece.json",
-      "manifest_sha256": "8b1d2e133a1fb04448870b79923472252920bb616498dda806ecf4ae3e39ed1d"
+      "manifest_sha256": "4fad0d7a13b0aac6e110f963d92ffa7473ce6b366698f113a317afdbfee799df"
     },
     {
       "id": "integration/secrets",
@@ -11915,7 +11915,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/memory-record/piece.json",
-      "manifest_sha256": "832f57fe2baf3baeeb6d4812539a6675b8042bfd023802d929482782bc26bdd5"
+      "manifest_sha256": "d1e2494f5b53bfa81cac218386855463737326da4cde36b7522b1648fae485c0"
     },
     {
       "id": "state/artifact",
@@ -11983,7 +11983,7 @@
       "disposition": "ready-contract on task branch; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/lease/piece.json",
-      "manifest_sha256": "c9f757f84b3db2ee961ce3e434669d66f5c44742a68d05342ed6f81ab7b6ca9c"
+      "manifest_sha256": "d539def703c8f85a5354257be6784a60370ccdc4a8ee25e420d321b2a49f16bd"
     },
     {
       "id": "state/outbox",
@@ -12105,7 +12105,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/work-item/piece.json",
-      "manifest_sha256": "3c38d20a7124fcac03031ca2cd53c888ff1435d7e08af2c25e5f02049d8c3b49"
+      "manifest_sha256": "3084d6102639480ffdfded3837acb9b0065c6e98cf6b76e0cf91ef783e4bbd2e"
     },
     {
       "id": "workflow/pattern-step",
@@ -12495,7 +12495,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/oauth-client/piece.json",
-      "manifest_sha256": "4565a6b6a1ce986df562a692646c5db321330b9fc23e5d808b4efd9ba465f76a"
+      "manifest_sha256": "1a6f83c58cc04323af2a78ec47f9ecbee4e66542a792b5b9caf9adea185ae2d3"
     },
     {
       "id": "integration/webhook-out",
@@ -12505,7 +12505,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/webhook-out/piece.json",
-      "manifest_sha256": "5f3b7e0fe964d09b35492ceaeb0c92b75c2b8ece5a34f0b927bfd99d149ec136"
+      "manifest_sha256": "cdeeb4a2b28d3fd78dec1f2c6f2ce110278963146976df8539155a69a11192e2"
     },
     {
       "id": "integration/mcp-server",
@@ -12525,7 +12525,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/plan/piece.json",
-      "manifest_sha256": "63eca1081557d6760056ad741bb0baa801af99c4f95d281ccbdbf2a4d7792834"
+      "manifest_sha256": "a2e7f861ce9b1365894f3add768c3593089f87d10e8b68c3fce28b525fe881a7"
     },
     {
       "id": "domain/invoice",
@@ -12535,7 +12535,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/invoice/piece.json",
-      "manifest_sha256": "c5a682e983b29b2c3813b054c3d8e1e84e13bf48f470f787f21c024fb53a4065"
+      "manifest_sha256": "d14f86bb2e93c7c9a51b59b45bc4ff791ae4649fd14985875b1141e93d896451"
     },
     {
       "id": "integration/ai-text-google",

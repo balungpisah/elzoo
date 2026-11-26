@@ -150,3 +150,9 @@ and crypto, SMTP reply semantics (RFC 5321) as named, not proved. No inbox
 delivery, receipt, bounce, provider-authenticity or exactly-once claim; no
 SMTPUTF8; no implicit TLS (port 465). Apache-2.0 covers this source; Swoosh is
 MIT, gen_smtp BSD-2-Clause, ranch ISC, idna MIT.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the SMTP adapter is Swoosh 1.30.0 (before 1.29.3); the
+  Piece's tests pass on it. A consumer moves its lock to swoosh 1.30.0 with this
+  revision. No code or API change.

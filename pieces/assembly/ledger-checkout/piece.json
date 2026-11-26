@@ -41,7 +41,7 @@
       "kind": "upstream",
       "provider": "postgrex",
       "reference": "https://www.postgresql.org/docs/16/explicit-locking.html#ADVISORY-LOCKS",
-      "claim": "PostgreSQL 19 session advisory locks (pg_try_advisory_lock, pg_advisory_unlock, released when the session ends), row locks (SELECT ... FOR UPDATE), INSERT ... ON CONFLICT DO NOTHING, CHECK and foreign keys, row-level security with SQLSTATE 42501 are upstream server contracts reached through Postgrex 0.22.4."
+      "claim": "PostgreSQL 16 session advisory locks (pg_try_advisory_lock, pg_advisory_unlock, released when the session ends), row locks (SELECT ... FOR UPDATE), INSERT ... ON CONFLICT DO NOTHING, CHECK and foreign keys, row-level security with SQLSTATE 42501 are upstream server contracts reached through Postgrex 0.22.4."
     },
     {
       "kind": "upstream",

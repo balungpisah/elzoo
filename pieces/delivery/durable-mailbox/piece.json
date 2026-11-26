@@ -37,7 +37,7 @@
       "kind": "upstream",
       "provider": "postgrex",
       "reference": "https://www.postgresql.org/docs/16/explicit-locking.html#LOCKING-ROWS",
-      "claim": "PostgreSQL 19 SELECT ... FOR UPDATE row locks queue waiters in order, read-committed statement snapshots read the committed row after a lock wait, INSERT ... ON CONFLICT DO NOTHING waits for a concurrent insert of the same key, unique and primary key indexes refuse a duplicate row, and row-level security and table privileges fail with 42501; upstream server contracts reached through Postgrex 0.22.4."
+      "claim": "PostgreSQL 16 SELECT ... FOR UPDATE row locks queue waiters in order, read-committed statement snapshots read the committed row after a lock wait, INSERT ... ON CONFLICT DO NOTHING waits for a concurrent insert of the same key, unique and primary key indexes refuse a duplicate row, and row-level security and table privileges fail with 42501; upstream server contracts reached through Postgrex 0.22.4."
     },
     {
       "kind": "upstream",

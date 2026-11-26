@@ -128,3 +128,8 @@ inherited, with no pause/drain/resume. Upstream assumptions are OTP GenServer,
 links/monitors, transient supervision, SHA-256 and external-term encoding, plus
 the ready Store CAS, Writer, Checkpoint and Outbox contracts; none is proved by
 these tests. Copied source is Apache-2.0; rerun/adapt evidence after edits.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the README names the current platform pins, Elixir
+  1.20.5 and OTP 29.1.3 (before 1.20.4 and 29.1.2). No code or API change.

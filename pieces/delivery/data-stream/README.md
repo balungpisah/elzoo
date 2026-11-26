@@ -242,3 +242,9 @@ loopback observations establish peer close in those scenarios. TLS/Finch/kernel
 buffers, current receive chunks, decoded term overhead and sink-retained data
 are outside the retained-input bound. Copying/redistributing source still obeys
 the catalogue namespace and provenance rules.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the README names the current platform pins among the
+  direct providers, Elixir 1.20.5 and OTP 29.1.3 (before 1.20.4 and 29.1.2). No
+  code or API change.

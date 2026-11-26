@@ -117,3 +117,8 @@ files, platform-only tests, README, piece.json and the Elzoo license/NOTICE.
 No root Application is required. Application-owned copies use `Elzoo.*`;
 libraries redistributing source must rename modules/MFAs as described in
 the catalogue's consuming guide. Copying evidence does not certify edits.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the README names the current platform pins, Elixir
+  1.20.5 and OTP 29.1.3 (before 1.20.4 and 29.1.2). No code or API change.

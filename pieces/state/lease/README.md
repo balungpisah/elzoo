@@ -156,12 +156,14 @@ review history, the ownership decision and the scenario plan.
 ## Changes
 
 - ELZ-416 (2026-11-26): on PostgreSQL 18 and later the catalog also lists each
-  NOT NULL column as a constraint row (contype `n`). The OD-1a schema check of
-  `Elzoo.Lease.Postgres` now takes, on such a server, exactly the rows that
-  migration version 1 has there (`<table>_<column>_not_null`, `NOT NULL
-  <column>`, one for each NOT NULL column) as part of the pinned shape and still
-  fails closed on any other, missing or changed row. Before this fix every lease
-  operation on PostgreSQL 18 or 19 returned `{:error, {:schema, detail}}`; on
-  PostgreSQL 17 and earlier nothing changes. The check reads
-  `server_version_num` once more per call. No API change; a copy without the fix
-  refuses every lease on PostgreSQL 18 and later.
+  NOT NULL column as a constraint row (contype `n`) rendered `NOT NULL <column>`
+  and named `<table>_<column>_not_null`, followed by a decimal suffix when that
+  name is already taken in the schema. The OD-1a schema check of
+  `Elzoo.Lease.Postgres` now takes, on such a server, exactly one such row for
+  each NOT NULL column of migration version 1, named with or without the suffix,
+  as part of the pinned shape, and still fails closed on any other name, another
+  column or table, a second or a missing row, and on such rows on a server
+  before 18. Before this fix every lease operation on PostgreSQL 18 or 19
+  returned `{:error, {:schema, detail}}`; on PostgreSQL 17 and earlier nothing
+  changes. The check reads `server_version_num` once more per call. No API
+  change; a copy without the fix refuses every lease on PostgreSQL 18 and later.

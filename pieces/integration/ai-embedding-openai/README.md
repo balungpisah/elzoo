@@ -157,6 +157,9 @@ failed/dispatched/retryable and not redispatched by default.
 ## Changes
 
 - ELZ-416 (2026-11-26): the Contract names req_llm 1.31 instead of 1.30
-  (`mix.lock`: req_llm 1.31.0, llm_db 2026.11.6). The code is unchanged and the
+  (`mix.lock`: req_llm 1.31.0, llm_db 2026.11.6). Catalogue change for the two
+  models this Piece admits, `text-embedding-3-small` and
+  `text-embedding-3-large`: only their cost and pricing sources change, which
+  the Piece does not read; both resolve as before. The code is unchanged and the
   Piece's tests pass on the new lock. A consumer moves its lock to req_llm
   1.31.0 and llm_db 2026.11.6 with this revision. No API change.

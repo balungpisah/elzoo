@@ -133,31 +133,29 @@ defmodule Elzoo.Lease.Postgres do
       |> MapSet.new()
     end
 
-    expected_heads =
-      expected_constraints(
-        "elzoo_log_heads",
-        @heads_columns,
-        @heads_constraints,
-        server_version_num
-      )
-
-    expected_records =
-      expected_constraints(
-        "elzoo_log_records",
-        @records_columns,
-        @records_constraints,
-        server_version_num
-      )
-
     detail = %{
       version: 1,
       heads: %{
         columns: diff(@heads_columns, actual_columns.("elzoo_log_heads")),
-        constraints: diff(expected_heads, actual_constraints.("elzoo_log_heads"))
+        constraints:
+          constraint_diff(
+            "elzoo_log_heads",
+            @heads_columns,
+            @heads_constraints,
+            actual_constraints.("elzoo_log_heads"),
+            server_version_num
+          )
       },
       records: %{
         columns: diff(@records_columns, actual_columns.("elzoo_log_records")),
-        constraints: diff(expected_records, actual_constraints.("elzoo_log_records"))
+        constraints:
+          constraint_diff(
+            "elzoo_log_records",
+            @records_columns,
+            @records_constraints,
+            actual_constraints.("elzoo_log_records"),
+            server_version_num
+          )
       }
     }
 
@@ -175,21 +173,42 @@ defmodule Elzoo.Lease.Postgres do
     if clean?, do: :ok, else: {:schema, detail}
   end
 
-  # PostgreSQL 18 and later also store each NOT NULL column as a constraint row (contype n),
-  # named <table>_<column>_not_null and rendered "NOT NULL <column>" (ELZ-416). On such a
-  # server migration v1 has exactly that row for each column it declares NOT NULL; an older
-  # server stores none, so such a row there is unexpected.
-  defp expected_constraints(table, columns, constraints, server_version_num)
+  # PostgreSQL 18 and later also store each NOT NULL column as a constraint row (contype n)
+  # rendered "NOT NULL <column>" (ELZ-416). Its name is <table>_<column>_not_null, followed by
+  # a decimal suffix when that name is already taken in the schema (ChooseConstraintName). On
+  # such a server migration v1 has exactly one such row for each column it declares NOT NULL;
+  # an older server stores none, so any n row there is unexpected. A missing row is reported
+  # under its unsuffixed name; every n row that is not the one row of a pinned NOT NULL column
+  # of this table (another name, another rendering, a second row) is unexpected.
+  defp constraint_diff(table, columns, constraints, actual, server_version_num)
        when server_version_num >= 180_000 do
-    not_null =
-      for {name, _type, "NO", _default} <- columns,
-          into: MapSet.new(),
-          do: {"#{table}_#{name}_not_null", "n", "NOT NULL #{name}"}
+    {not_null, other} = Enum.split_with(actual, &match?({_, "n", _}, &1))
 
-    MapSet.union(constraints, not_null)
+    {missing, unexpected} =
+      for {column, _type, "NO", _default} <- Enum.sort(columns),
+          reduce: {[], Enum.sort(not_null)} do
+        {missing, rows} ->
+          case Enum.find(rows, &not_null_row?(&1, table, column)) do
+            nil -> {[{"#{table}_#{column}_not_null", "n", "NOT NULL #{column}"} | missing], rows}
+            row -> {missing, List.delete(rows, row)}
+          end
+      end
+
+    rest = diff(constraints, MapSet.new(other))
+
+    %{
+      missing: Enum.sort(rest.missing ++ missing),
+      unexpected: Enum.sort(rest.unexpected ++ unexpected)
+    }
   end
 
-  defp expected_constraints(_table, _columns, constraints, _server_version_num), do: constraints
+  defp constraint_diff(_table, _columns, constraints, actual, _server_version_num),
+    do: diff(constraints, actual)
+
+  defp not_null_row?({name, "n", definition}, table, column) do
+    definition == "NOT NULL #{column}" and
+      Regex.match?(~r/\A#{Regex.escape("#{table}_#{column}_not_null")}[0-9]*\z/, name)
+  end
 
   defp diff(expected, actual),
     do: %{

@@ -166,3 +166,9 @@ The mandatory ELZ-252 follow-on acceptance must pass actual
 Memory/PostgreSQL CheckedCommand composition and RunEngine parity before a
 durable Conversation or Wave4 completion claim. This pure Piece and its tests
 do not establish that integration acceptance.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the encoded-state bound is measured with the default
+  external-term encoding of the pinned OTP 29.1.3 (before 29.1.2); the Piece's
+  tests pass on it. No code or API change.

@@ -245,10 +245,19 @@ interface's documentation for how a caller retries with its own ground).
 ## Changes
 
 - ELZ-416 (2026-11-26): the Contract names req_llm 1.31 instead of 1.30
-  (`mix.lock`: req_llm 1.31.0, llm_db 2026.11.6). The code is unchanged and the
-  Piece's tests pass on the new lock. A consumer moves its lock to req_llm
-  1.31.0 and llm_db 2026.11.6 with this revision. The message breakpoint rule
-  was checked again on req_llm 1.31.0 by the captured-request tests of a
-  breakpoint on the last tool result of a run, on the message after a run (also
-  with image parts) and on a tool result inside its run; it holds unchanged, so
-  the limit now names 1.31.0. No API change.
+  (`mix.lock`: req_llm 1.31.0, llm_db 2026.11.6). Catalogue change: llm_db
+  2026.11.6 adds the Anthropic model `claude-fable-5-2` with input modalities
+  text, image and pdf, where req_llm 1.30.0 resolved the same id without
+  modalities. A request with image parts for `claude-fable-5-2`, before
+  `{:refused, :unsupported_feature}`, is now sent; the image test for
+  `claude-fable-5-2` pins it. Its text requests are admitted as before, with the
+  same wire body for a basic request. Every other Anthropic record keeps its
+  input modalities (the six without image input are the same, now 6 of 21
+  records); `claude-sonnet-4-5-20250929` only gains a deprecated status label
+  that the Piece does not read. The code is unchanged and the Piece's tests pass
+  on the new lock. The message breakpoint rule was checked again on req_llm
+  1.31.0 by the captured-request tests of a breakpoint on the last tool result
+  of a run, on the message after a run (also with image parts) and on a tool
+  result inside its run; it holds unchanged, so the limit now names 1.31.0. A
+  consumer moves its lock to req_llm 1.31.0 and llm_db 2026.11.6 with this
+  revision. No API change.

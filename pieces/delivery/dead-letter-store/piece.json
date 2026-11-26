@@ -38,7 +38,7 @@
       "kind": "upstream",
       "provider": "postgrex",
       "reference": "https://www.postgresql.org/docs/16/sql-insert.html#SQL-ON-CONFLICT",
-      "claim": "PostgreSQL 19 INSERT ... ON CONFLICT DO NOTHING waiting for a concurrent inserter, UPDATE re-evaluating its WHERE on the newest row version under read committed, row locks visible in pg_locks, COLLATE \"C\" byte order, row-level security and transaction_isolation are upstream server contracts reached through Postgrex 0.22.4."
+      "claim": "PostgreSQL 16 INSERT ... ON CONFLICT DO NOTHING waiting for a concurrent inserter, UPDATE re-evaluating its WHERE on the newest row version under read committed, row locks visible in pg_locks, COLLATE \"C\" byte order, row-level security and transaction_isolation are upstream server contracts reached through Postgrex 0.22.4."
     },
     {
       "kind": "upstream",

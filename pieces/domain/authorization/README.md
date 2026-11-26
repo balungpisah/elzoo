@@ -466,3 +466,8 @@ input, output or acceptance item.
 | D10 | approval scope "once, run, root" | scope comes from the ASK rule's requirement; evidence scope must equal it (approval Piece) | Q4 |
 | D11 | release / restore | approval adds `revalidate/3` for restored released records and returns the current decision's escrow at release | F7 and restore (approval Piece) |
 | D17 | "whether an action is allowed, denied or needs consent" | an empty write set is `{:invalid_input, :empty_writes}`; every gated effect must be at least one typed write | N1: with zero writes no rule would be consulted, so a gated effect could get ALLOW |
+
+## Changes
+
+- ELZ-416 (2026-11-26): the README names the current platform pins, Elixir
+  1.20.5 and OTP 29.1.3 (before 1.20.4 and 29.1.2). No code or API change.

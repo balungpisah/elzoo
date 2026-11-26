@@ -111,3 +111,8 @@ Monotonic time is local to the runtime, not durable or distributed.
 
 Copied source is Apache-2.0. External providers retain their own licenses.
 Evidence describes this source and these scenarios; rerun/adapt after changes.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the README names the current platform pins, Elixir
+  1.20.5 and OTP 29.1.3 (before 1.20.4 and 29.1.2). No code or API change.

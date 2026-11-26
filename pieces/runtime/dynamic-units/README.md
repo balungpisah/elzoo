@@ -146,3 +146,8 @@ milliseconds, with no live changes. Control is **supported** for start/stop/rout
 with the results above; find is inspection, not monitoring. Inherited OTP crash
 diagnostics remain caller Logger policy and may include payloads. Copied source
 is Apache-2.0; rerun/adapt evidence after customization.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the README names the current platform pins, Elixir
+  1.20.5 and OTP 29.1.3 (before 1.20.4 and 29.1.2). No code or API change.

@@ -610,3 +610,8 @@ own schema id. Providers: pinned Cure, Elixir 1.20.5, OTP 29.1.3.
 | D15 | "a restored pre-dispatch 'approved' action re-enters the reducer" | two restore paths: re-`release` (once: owner-stored evidence) and `revalidate/3` for recorded releases | F11 |
 | D16 | "within its declared maximum age" | `max_age` per-call Config, ms, no default; all approval inputs bounded | F6/F10 |
 | D18 | restore re-enters the reducer | release record stores the full evidence record; `revalidate/3 :: :ok \| {:refused, reason} \| {:error, {class, r}}`, `:not_released` for a missing record | N2 |
+
+## Changes
+
+- ELZ-416 (2026-11-26): the README names the current platform pins, Elixir
+  1.20.5 and OTP 29.1.3 (before 1.20.4 and 29.1.2). No code or API change.

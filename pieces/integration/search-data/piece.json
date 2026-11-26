@@ -24,7 +24,7 @@
   ],
   "contract": "Consumer-Repo PostgreSQL/pgvector exact cosine chunk store: immutable per-index descriptor with an optional pg_catalog text search configuration, atomic serialized source replacement with an optional if_newer version guard and a serialized source delete with delete marks, tenant and allowed-source SQL filtering before bounded cosine or ts_rank_cd lexical ranking, an optional state/tenant-isolation row-security floor with verify/1, non-null provenance and caller-snapshot retrieval candidates for current context-selection recheck; no provider calls or permission decision.",
   "limits": [
-    "Finite PostgreSQL16/vector scenarios, not proofs; storage/transaction, cosine, full-text search and row security remain upstream.",
+    "Finite PostgreSQL19/vector scenarios, not proofs; storage/transaction, cosine, full-text search and row security remain upstream.",
     "Consumer owns Repo/types, installed extension and usable extension-owned type/operator search path, trusted schemas, deployment, credentials and permission snapshots.",
     "No ANN, fusion, rerank, snippets, ranking quality, relevance, language detection or typo tolerance, source authentication, retention/expiry schedule, embedding calls or exactly-once guarantee.",
     "Version guard holds only between guarded writes and deletes under READ COMMITTED (checked, not set); an unguarded put still replaces any version and ignores delete marks.",
@@ -70,7 +70,7 @@
       "kind": "upstream",
       "provider": "postgrex",
       "reference": "https://www.postgresql.org/docs/16/textsearch-controls.html",
-      "claim": "PostgreSQL 19 to_tsvector, websearch_to_tsquery (no syntax errors), ts_rank_cd, the 1MB tsvector limit (54000), pg_advisory_xact_lock, READ COMMITTED statement snapshots and row-level security with 42501 are upstream behavior, not locally proved."
+      "claim": "PostgreSQL 16 to_tsvector, websearch_to_tsquery (no syntax errors), ts_rank_cd, the 1MB tsvector limit (54000), pg_advisory_xact_lock, READ COMMITTED statement snapshots and row-level security with 42501 are upstream behavior, not locally proved."
     },
     {
       "kind": "assumption",

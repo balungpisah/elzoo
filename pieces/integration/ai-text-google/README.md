@@ -260,6 +260,10 @@ seconds (`"1.5s"` gives 2). A value over 86,400 seconds or malformed gives
 ## Changes
 
 - ELZ-416 (2026-11-26): the Contract names req_llm 1.31 instead of 1.30
-  (`mix.lock`: req_llm 1.31.0, llm_db 2026.11.6). The code is unchanged and the
-  Piece's tests pass on the new lock. A consumer moves its lock to req_llm
+  (`mix.lock`: req_llm 1.31.0, llm_db 2026.11.6). Catalogue change for the one
+  model this Piece admits, `gemini-3.8-flash`: llm_db 2026.11.6 adds flex-tier
+  metadata for the interactions API only; its input modalities and the
+  generateContent wire body of a basic request are unchanged. Models that llm_db
+  adds or removes for Google are refused as before. The code is unchanged and
+  the Piece's tests pass on the new lock. A consumer moves its lock to req_llm
   1.31.0 and llm_db 2026.11.6 with this revision. No API change.

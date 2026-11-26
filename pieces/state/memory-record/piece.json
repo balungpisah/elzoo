@@ -69,7 +69,7 @@
       "kind": "upstream",
       "provider": "postgrex",
       "reference": "https://www.postgresql.org/docs/16/explicit-locking.html#ADVISORY-LOCKS",
-      "claim": "PostgreSQL 19 pg_advisory_xact_lock(bigint) waits for and holds a transaction-level lock released at commit or rollback, pg_locks shows a waiting advisory lock as ungranted, READ COMMITTED statements see rows committed before they start, DELETE ... RETURNING in a data-modifying CTE, row-level security with 42501 and table privileges are upstream server contracts reached through Postgrex 0.22.4."
+      "claim": "PostgreSQL 16 pg_advisory_xact_lock(bigint) waits for and holds a transaction-level lock released at commit or rollback, pg_locks shows a waiting advisory lock as ungranted, READ COMMITTED statements see rows committed before they start, DELETE ... RETURNING in a data-modifying CTE, row-level security with 42501 and table privileges are upstream server contracts reached through Postgrex 0.22.4."
     },
     {
       "kind": "upstream",

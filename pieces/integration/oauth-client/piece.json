@@ -74,7 +74,7 @@
       "kind": "upstream",
       "provider": "postgrex",
       "reference": "https://www.postgresql.org/docs/16/explicit-locking.html",
-      "claim": "PostgreSQL 19 row locks (SELECT ... FOR UPDATE), READ COMMITTED re-reads after a lock wait, INSERT ... ON CONFLICT DO NOTHING and row-level security are upstream server contracts reached through Postgrex 0.22.4."
+      "claim": "PostgreSQL 16 row locks (SELECT ... FOR UPDATE), READ COMMITTED re-reads after a lock wait, INSERT ... ON CONFLICT DO NOTHING and row-level security are upstream server contracts reached through Postgrex 0.22.4."
     },
     {
       "kind": "upstream",

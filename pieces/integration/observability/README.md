@@ -112,3 +112,10 @@ Needs are named contracts, not Cure proofs or universal secrecy/delivery proofs.
 Operational applicability: telemetry supported through the two observation
 counters; config supported only at immutable provider/application lifetime;
 control supported through explicit initialization and manual attach/detach.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the providers are telemetry 1.4.3, Elixir 1.20.5 and OTP
+  29.1.3 (before 1.4.2, 1.20.4 and 29.1.2); the copied-consumer example now
+  expects telemetry 1.4.3. A consumer moves its lock to telemetry 1.4.3 with
+  this revision. No code or API change.

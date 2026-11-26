@@ -849,7 +849,7 @@ defmodule Elzoo.LeaseTest do
   # ELZ-416: PostgreSQL 18 and later also list each NOT NULL column as a pg_constraint row
   # (contype n). The pure OD-1a comparison of Elzoo.Lease.Postgres runs here over synthetic
   # catalog rows of migration v1, so no server of either version is needed.
-  test "OD-1a on PostgreSQL 18 and later: the NOT NULL row of each NOT NULL column of migration v1 is part of the pinned shape; another n row, a missing one or one on an older server fails closed" do
+  test "OD-1a on PostgreSQL 18+: one NOT NULL row per NOT NULL column (numeric name suffix allowed); another name, column or table, a second, missing or older-server row fails closed" do
     columns = [
       ["elzoo_log_heads", "stream", "text", "NO", nil],
       ["elzoo_log_heads", "revision", "bigint", "NO", nil],
@@ -963,6 +963,97 @@ defmodule Elzoo.LeaseTest do
 
       assert unexpected == List.to_tuple(tl(other))
     end
+
+    # PostgreSQL appends a number when the name is taken in the schema (ChooseConstraintName)
+    suffixed = ["elzoo_log_heads", "elzoo_log_heads_revision_not_null1", "n", "NOT NULL revision"]
+    without_revision = since_18 -- [revision]
+    assert :ok = shape.(columns, without_revision ++ [suffixed], 190_000)
+
+    assert :ok =
+             shape.(
+               columns,
+               without_revision ++
+                 [List.replace_at(suffixed, 1, "elzoo_log_heads_revision_not_null12")],
+               190_000
+             )
+
+    # any other name for the same definition, including the other table's prefix
+    for name <- [
+          "elzoo_log_heads_revision_not_null_1",
+          "elzoo_log_heads_revision_not_nullx",
+          "elzoo_log_heads_revision_notnull1",
+          "elzoo_log_records_revision_not_null",
+          "x_elzoo_log_heads_revision_not_null"
+        ] do
+      assert {:schema,
+              %{
+                heads: %{
+                  constraints: %{
+                    missing: [{"elzoo_log_heads_revision_not_null", "n", "NOT NULL revision"}],
+                    unexpected: [{^name, "n", "NOT NULL revision"}]
+                  }
+                }
+              }} =
+               shape.(columns, without_revision ++ [List.replace_at(suffixed, 1, name)], 190_000)
+    end
+
+    # the right name over another column, and a second row for one column
+    wrong_column = [
+      "elzoo_log_heads",
+      "elzoo_log_heads_revision_not_null",
+      "n",
+      "NOT NULL low_water"
+    ]
+
+    assert {:schema,
+            %{
+              heads: %{
+                constraints: %{
+                  missing: [{"elzoo_log_heads_revision_not_null", "n", "NOT NULL revision"}],
+                  unexpected: [{"elzoo_log_heads_revision_not_null", "n", "NOT NULL low_water"}]
+                }
+              }
+            }} = shape.(columns, without_revision ++ [wrong_column], 190_000)
+
+    assert {:schema,
+            %{
+              heads: %{
+                constraints: %{
+                  missing: [],
+                  unexpected: [{"elzoo_log_heads_revision_not_null1", "n", "NOT NULL revision"}]
+                }
+              }
+            }} = shape.(columns, since_18 ++ [suffixed], 190_000)
+
+    # a valid row moved to the other tracked table: missing on its own, unexpected on the other
+    moved = ["elzoo_log_records" | tl(revision)]
+
+    assert {:schema,
+            %{
+              heads: %{
+                constraints: %{
+                  missing: [{"elzoo_log_heads_revision_not_null", "n", "NOT NULL revision"}],
+                  unexpected: []
+                }
+              },
+              records: %{
+                constraints: %{
+                  missing: [],
+                  unexpected: [{"elzoo_log_heads_revision_not_null", "n", "NOT NULL revision"}]
+                }
+              }
+            }} = shape.(columns, without_revision ++ [moved], 190_000)
+
+    # a suffixed row on an older server is unexpected like every other n row there
+    assert {:schema,
+            %{
+              heads: %{
+                constraints: %{
+                  missing: [],
+                  unexpected: [{"elzoo_log_heads_revision_not_null1", "n", "NOT NULL revision"}]
+                }
+              }
+            }} = shape.(columns, before_18 ++ [suffixed], 170_011)
 
     # a NOT NULL column outside the pin, another constraint kind, a dropped NOT NULL
     extra = ["elzoo_log_heads", "extra", "integer", "NO", nil]

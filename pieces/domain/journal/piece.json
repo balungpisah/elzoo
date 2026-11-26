@@ -82,7 +82,7 @@
       "kind": "upstream",
       "provider": "postgrex",
       "reference": "https://www.postgresql.org/docs/16/explicit-locking.html",
-      "claim": "PostgreSQL 19 row locks (SELECT ... FOR UPDATE), deadlock detection, READ COMMITTED re-reads after a lock wait, unique-index waits on a concurrent uncommitted insert, INSERT ... ON CONFLICT DO NOTHING without a conflict target (every unique index an arbiter, waiting on a concurrent insert), transaction rollback on a terminated backend and numeric(38,0) are upstream server contracts reached through Postgrex 0.22.4."
+      "claim": "PostgreSQL 16 row locks (SELECT ... FOR UPDATE), deadlock detection, READ COMMITTED re-reads after a lock wait, unique-index waits on a concurrent uncommitted insert, INSERT ... ON CONFLICT DO NOTHING without a conflict target (every unique index an arbiter, waiting on a concurrent insert), transaction rollback on a terminated backend and numeric(38,0) are upstream server contracts reached through Postgrex 0.22.4."
     },
     {
       "kind": "upstream",

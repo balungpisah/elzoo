@@ -37,7 +37,7 @@
       "kind": "upstream",
       "provider": "postgrex",
       "reference": "https://www.postgresql.org/docs/16/transaction-iso.html#XACT-READ-COMMITTED",
-      "claim": "PostgreSQL 19 READ COMMITTED UPDATE waits for a concurrent writer of the same row and then re-evaluates its WHERE on the updated row version, INSERT ... ON CONFLICT DO NOTHING waits for a concurrent insert of the same key, SELECT ... FOR UPDATE row locks shown in pg_locks, row-level security with 42501 and table privileges are upstream server contracts reached through Postgrex 0.22.4."
+      "claim": "PostgreSQL 16 READ COMMITTED UPDATE waits for a concurrent writer of the same row and then re-evaluates its WHERE on the updated row version, INSERT ... ON CONFLICT DO NOTHING waits for a concurrent insert of the same key, SELECT ... FOR UPDATE row locks shown in pg_locks, row-level security with 42501 and table privileges are upstream server contracts reached through Postgrex 0.22.4."
     },
     {
       "kind": "upstream",

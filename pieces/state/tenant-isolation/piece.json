@@ -40,7 +40,7 @@
       "kind": "upstream",
       "provider": "postgrex",
       "reference": "https://www.postgresql.org/docs/16/ddl-rowsecurity.html",
-      "claim": "PostgreSQL 19 row-level security (ENABLE/FORCE, restrictive AND permissive composition, 42501 on WITH CHECK and row_security off), STABLE scalar subqueries planned as InitPlans, transaction-local set_config with savepoint release and rollback, and pg_get_expr deparse are upstream server contracts reached through Postgrex 0.22.4."
+      "claim": "PostgreSQL 16 row-level security (ENABLE/FORCE, restrictive AND permissive composition, 42501 on WITH CHECK and row_security off), STABLE scalar subqueries planned as InitPlans, transaction-local set_config with savepoint release and rollback, and pg_get_expr deparse are upstream server contracts reached through Postgrex 0.22.4."
     },
     {
       "kind": "upstream",

@@ -34,7 +34,7 @@
       "kind": "upstream",
       "provider": "postgrex",
       "reference": "https://www.postgresql.org/docs/16/sql-insert.html#SQL-ON-CONFLICT",
-      "claim": "PostgreSQL 19 INSERT ... ON CONFLICT DO NOTHING waits for a concurrent insert of the same key and then does nothing, SELECT ... FOR UPDATE row locks, read-committed statement snapshots, numeric sum over bigint, row-level security with 42501 and table privileges are upstream server contracts reached through Postgrex 0.22.4."
+      "claim": "PostgreSQL 16 INSERT ... ON CONFLICT DO NOTHING waits for a concurrent insert of the same key and then does nothing, SELECT ... FOR UPDATE row locks, read-committed statement snapshots, numeric sum over bigint, row-level security with 42501 and table privileges are upstream server contracts reached through Postgrex 0.22.4."
     },
     {
       "kind": "upstream",

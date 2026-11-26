@@ -33,7 +33,7 @@
       "kind": "upstream",
       "provider": "postgrex",
       "reference": "https://www.postgresql.org/docs/16/explicit-locking.html#LOCKING-ROWS",
-      "claim": "PostgreSQL 19 row locks (FOR SHARE conflicts with the row lock of INSERT ... ON CONFLICT DO UPDATE), INSERT ... ON CONFLICT DO NOTHING with RETURNING, read-committed snapshots per statement, foreign keys and clock_timestamp() are upstream server contracts reached through Postgrex 0.22.4."
+      "claim": "PostgreSQL 16 row locks (FOR SHARE conflicts with the row lock of INSERT ... ON CONFLICT DO UPDATE), INSERT ... ON CONFLICT DO NOTHING with RETURNING, read-committed snapshots per statement, foreign keys and clock_timestamp() are upstream server contracts reached through Postgrex 0.22.4."
     },
     {
       "kind": "upstream",

@@ -150,7 +150,9 @@ text pattern that was not tried can pass the factor.
 ## Changes
 
 - ELZ-416 (2026-11-26): known models are those of llm_db 2026.11.6 instead of
-  2026.11.0. The code is unchanged and the Piece's tests pass on the new
-  catalogue; a model that the catalogue adds or drops changes which requests are
-  `:unknown_model`. A consumer moves its lock to llm_db 2026.11.6 with this
-  revision. No API change.
+  2026.11.0. Between the two, llm_db adds one Anthropic model,
+  `claude-fable-5-2`, and removes none; every other Anthropic model id and alias
+  resolves as before. A request for `claude-fable-5-2`, before `{:refused,
+  :unknown_model}`, now gets `{:ok, estimate}`; the test `unknown_model_refused`
+  pins it. The code is unchanged. A consumer moves its lock to llm_db 2026.11.6
+  with this revision. No API change.

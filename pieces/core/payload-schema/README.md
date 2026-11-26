@@ -128,3 +128,9 @@ Port modules. Redistributing libraries must rename modules/MFAs and the opaque
 module tag, and deliberately rename/translate Port's erased `:Descriptor` tag.
 No automatic namespace isolation is supplied. Source is Apache-2.0; pins and
 upstream licenses are recorded in the catalogue. See [consuming](../../../docs/consuming.md).
+
+## Changes
+
+- ELZ-416 (2026-11-26): the validator is JSV 0.28.1 (before 0.27.0) with the
+  same options; the Piece's tests pass on it. A consumer moves its lock to jsv
+  0.28.1 with this revision. No code or API change.

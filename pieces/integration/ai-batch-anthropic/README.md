@@ -136,5 +136,9 @@ invariant holds regardless: only the injected key is sent.
 - ELZ-416 (2026-11-26): the lock that the limit names moves from req_llm 1.30.0
   to 1.31.0 (`mix.exs` keeps `~> 1.30`). The drift test over the fixed corpus
   passes on 1.31.0: item params and headers equal the recorded 1.30.0 snapshot.
-  The code is unchanged. A consumer moves its lock to req_llm 1.31.0 and llm_db
-  2026.11.6 with this revision. No API change.
+  Items are translated by `integration/ai-text-anthropic`, so its catalogue
+  change applies here: an item with image parts for `claude-fable-5-2`, which
+  that translation refused `unsupported_feature` before, is now translated,
+  because llm_db 2026.11.6 lists image input for that model. The code is
+  unchanged. A consumer moves its lock to req_llm 1.31.0 and llm_db 2026.11.6
+  with this revision. No API change.
