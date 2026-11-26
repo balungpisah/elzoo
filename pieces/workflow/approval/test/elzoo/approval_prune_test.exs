@@ -7,7 +7,6 @@ defmodule Elzoo.ApprovalPruneTest do
 
   @source File.read!(Path.expand("../../cure/elzoo/approval.cure", __DIR__))
   @roots Mix.Project.config() |> Keyword.get(:cure_paths, ["cure"]) |> Enum.map(&Path.expand/1)
-  @hash :binary.copy(<<9>>, 32)
   @max_time Integer.pow(2, 63) - 1
   @parents %{
     "child-1" => "root-1",
@@ -20,21 +19,26 @@ defmodule Elzoo.ApprovalPruneTest do
 
   defp post, do: %{target: "post:1", field: "state", value: {:text, "published"}}
 
-  defp policy(scope) do
-    %{
+  # Each policy body has its own identity: the content hash is a stable digest
+  # of the body, so one (id, version, content_hash) never names two bodies
+  # (the immutable-policy Need of domain/authorization).
+  defp policy(scope, name \\ "human") do
+    body = %{
       id: "pol",
       version: 1,
-      content_hash: @hash,
       effect_classes: ["publish"],
       rules: [
         %{
           id: "pub",
           effect_class: "publish",
           verdict: :ask,
-          requirement: %{name: "human", version: 1, scope: scope}
+          requirement: %{name: name, version: 1, scope: scope}
         }
       ]
     }
+
+    digest = :crypto.hash(:sha256, :erlang.term_to_binary(body, [:deterministic]))
+    Map.put(body, :content_hash, digest)
   end
 
   defp proposal(action_id, payload) do
@@ -49,9 +53,9 @@ defmodule Elzoo.ApprovalPruneTest do
 
   defp authority, do: %{proposer: "agent-1", effect_class: "publish", own: [post()], parent: :none}
 
-  defp decision(scope, action_id, payload) do
+  defp decision(scope, action_id, payload, name \\ "human") do
     {:ok, %{verdict: :ask} = d} =
-      Auth.decide(policy(scope), proposal(action_id, payload), authority())
+      Auth.decide(policy(scope, name), proposal(action_id, payload), authority())
 
     d
   end
@@ -501,37 +505,30 @@ defmodule Elzoo.ApprovalPruneTest do
 
   test "prune: every entry at the highest revision of a line and every open entry stay (replayed logs)" do
     # Only apply_event/2 builds these: request/3 keeps one open entry per line,
-    # at its highest revision, and never two entries at one revision.
-    {:ok, s, human, requested} =
-      Approval.request(Approval.new(), "run-1", decision(:once, "act-a", "a"))
+    # at its highest revision, and never two entries at one revision. Each
+    # event comes from a public transition on a fresh state (the "legal"
+    # requirement from its own policy); only the open revisions are set here.
+    [{human, req_h, rel_h}, {legal, req_l, rel_l}] =
+      for name <- ["human", "legal"] do
+        {:ok, s, req, requested} =
+          Approval.request(Approval.new(), "run-1", decision(:once, "act-a", "a", name))
 
-    ctx = context(:once, "act-a", "a", "run-1", 2_000)
+        ctx = %{context(:once, "act-a", "a", "run-1", 2_000) | policy: policy(:once, name)}
+        ev = evidence(req.key, "ev-" <> name, :once, 5_000)
+        {:released, _, _, released} = Approval.release(s, req.key, ev, ctx)
+        {req.key, requested, released}
+      end
 
-    {:released, _, _, {:released, rel, nil} = released} =
-      Approval.release(s, human.key, evidence(human.key, "ev-h", :once, 5_000), ctx)
-
-    legal = put_elem(human.key, 2, "legal")
-    legal_binding = put_in(human.binding, [:requirement, :name], "legal")
-    legal_evidence = %{rel.evidence | request: legal, evidence_id: "ev-l"}
-    other = fn rev -> {"run-1", "act-b", "human", 1, rev} end
-    other_binding = put_in(human.binding, [:action, :action_id], "act-b")
-
-    assert {:ok, s} =
-             Approval.replay([
-               requested,
-               {:requested, %{human | key: legal, binding: legal_binding}},
-               released,
-               {:released, %{rel | key: legal, binding: legal_binding, evidence: legal_evidence},
-                nil},
-               {:requested, %{key: other.(3), binding: other_binding, status: :open}},
-               {:requested, %{key: other.(2), binding: other_binding, status: :open}}
-             ])
+    {:ok, _, other, _} = Approval.request(Approval.new(), "run-1", decision(:once, "act-b", "a"))
+    b_key = fn rev -> put_elem(other.key, 4, rev) end
+    open = fn rev -> {:requested, %{other | key: b_key.(rev)}} end
+    assert {:ok, s} = Approval.replay([req_h, req_l, rel_h, rel_l, open.(3), open.(2)])
 
     assert Enum.map(view(s).requests, &{&1.key, &1.status}) == [
-             {human.key, :released},
+             {human, :released},
              {legal, :released},
-             {other.(3), :open},
-             {other.(2), :open}
+             {b_key.(3), :open},
+             {b_key.(2), :open}
            ]
 
     pruned = prune!(s, 5_000)
@@ -594,7 +591,7 @@ defmodule Elzoo.ApprovalPruneTest do
              Approval.request(retired, "run-1", d)
   end
 
-  test "retire accepts 65,536 pairs and refuses 65,537" do
+  test "retire accepts 65,536 pairs and refuses 65,537; a repeated pair is encoded once" do
     s = history()
     line = {"run-1", "act-a"}
     assert {:ok, retired} = Approval.retire(s, List.duplicate(line, 65_536))
@@ -602,6 +599,18 @@ defmodule Elzoo.ApprovalPruneTest do
 
     assert {:error, {:invalid_input, {:bound_exceeded, :lines}}} =
              Approval.retire(s, List.duplicate(line, 65_537))
+
+    # Encoding each of 65,536 copies of one pair of 1,024-byte identities would
+    # take about 2 GiB; the call finishes under a 32 MiB heap limit.
+    long = {String.duplicate("r", 1024), String.duplicate("a", 1024)}
+
+    task =
+      Task.async(fn ->
+        Process.flag(:max_heap_size, %{size: 4_000_000, kill: true, error_logger: false})
+        Approval.retire(s, List.duplicate(long, 65_536))
+      end)
+
+    assert {:ok, ^s} = Task.await(task, 60_000)
   end
 
   test "a malformed now, a malformed pair and a value that is not a state are refused" do
@@ -636,16 +645,21 @@ defmodule Elzoo.ApprovalPruneTest do
 
     assert {:ok, _} = Approval.retire(s, [{String.duplicate("r", 1024), "act-a"}])
 
-    bad = [
-      :state,
-      nil,
-      %{},
-      s.cure,
-      view(s),
-      %State{cure: :bogus},
-      %State{cure: {:ApprState, [], [], [], []}},
-      %State{cure: {:ApprState, :x, [], [], [], []}}
-    ]
+    # Outer shape only: the five list spines must be proper lists.
+    improper =
+      for i <- 1..5, do: %State{cure: put_elem(s.cure, i, elem(s.cure, i) ++ :tail)}
+
+    bad =
+      [
+        :state,
+        nil,
+        %{},
+        s.cure,
+        view(s),
+        %State{cure: :bogus},
+        %State{cure: {:ApprState, [], [], [], []}},
+        %State{cure: {:ApprState, :x, [], [], [], []}}
+      ] ++ improper
 
     for state <- bad do
       assert {:error, {:invalid_input, :state}} = Approval.prune(state, 5_000)
@@ -885,6 +899,39 @@ defmodule Elzoo.ApprovalPruneTest do
     assert {:ok, _, %{key: {"run-1", "act-1", "human", 1, 65_537}},
             {:superseded, {"run-1", "act-1", "human", 1, 65_536}, _}} =
              Approval.request(pruned, "run-1", adds)
+  end
+
+  test "request/3 refuses a revision above 2^31-1 and still returns an unchanged request at it" do
+    max = Integer.pow(2, 31) - 1
+    {s, _} = ask(Approval.new(), "run-1", :once, "act-1", "v1")
+    {:ApprState, [{:ApprRequest, key, binding, :ApprOpen}], [], [], [], []} = s.cure
+    # Superseding and pruning keep a line at one entry while its revision grows;
+    # built directly one revision below the bound.
+    below =
+      {:ApprState, [{:ApprRequest, put_elem(key, 5, max - 1), binding, :ApprOpen}], [], [], [], []}
+
+    below = %State{cure: below}
+    v1 = decision(:once, "act-1", "v1")
+    v2 = decision(:once, "act-1", "v2")
+    top = {"run-1", "act-1", "human", 1, max}
+
+    assert {:ok, s, %{key: ^top}, {:superseded, _, _} = event} =
+             Approval.request(below, "run-1", v2)
+
+    assert {:ok, ^s} = Approval.apply_event(below, event)
+    pruned = prune!(s, 0)
+    assert keys(pruned) == [top]
+
+    assert {:ok, ^pruned, %{key: ^top, status: :open}, nil} =
+             Approval.request(pruned, "run-1", v2)
+
+    assert {:error, {:invalid_input, {:bound_exceeded, :revision}}} =
+             Approval.request(pruned, "run-1", v1)
+
+    released = release!(pruned, top, evidence(top, "ev-top", :once, 100_000), :once, "v2", 2_000)
+
+    assert {:error, {:invalid_input, {:bound_exceeded, :revision}}} =
+             Approval.request(released, "run-1", v2)
   end
 
   test "capacity: 65,536 released lines refuse a new line until all of them are retired" do
