@@ -12232,7 +12232,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/sql/piece.json",
-      "manifest_sha256": "297a33022d3f418474c23f6e4e6dda8af5608635c0231586c11c3b139fe6a2b6"
+      "manifest_sha256": "4ce35e62fe56ff9496e39a12412e738abf10fe8266caa3645bc27b9ce0932b50"
     },
     {
       "id": "integration/text-chunking",
@@ -12370,7 +12370,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/checkpoint/piece.json",
-      "manifest_sha256": "56ef1ba1ccc61f403269110b9270980e93a15ef4ba9b47ef33b8b929796a3c9e"
+      "manifest_sha256": "eb2b69c4cdb8f8f923f8a449ae861846bf589b7f4d63e8a82a2c65455f73b73b"
     },
     {
       "id": "state/conversation",
@@ -12398,7 +12398,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/event-log/piece.json",
-      "manifest_sha256": "00a127bf904f3562ca4bc90f40e4c28f3a7e86e7274219797a0bd98253d19e54"
+      "manifest_sha256": "b921b12d44998f9fbc6e510e0796a6ae2ac022de0c88a3f6a452d6a299e548f0"
     },
     {
       "id": "state/lease",
