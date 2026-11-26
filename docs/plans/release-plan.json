@@ -10749,6 +10749,29 @@
       "issue": 1002,
       "url": "https://github.com/balungpisah/elzoo/issues/1002",
       "issue_body_sha256": "c9d2f1f010d28afb4675a5389b16715f67423b04b338454ca2aaf914fba16890"
+    },
+    {
+      "id": "ELZ-414",
+      "title": "ELZ-414 — integration/mcp-server: isolate the oversized refusal from the valid bearer controls",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-411"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "coordinator; one-PR path for a test-only Piece repair; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-414-mcp-server-bearer-connection.md"
+      ],
+      "outputs": [],
+      "acceptance": "Reproduce #984, isolate the oversized 401 connection in the test, preserve refusal and valid bearer-prefix assertions, pass the loaded repeat and reproduce the failure by restoring reuse. Piece suite, local small gate, full independent review and exact-head hosted Piece check.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1007,
+      "url": "https://github.com/balungpisah/elzoo/issues/1007",
+      "issue_body_sha256": "48c882679225ff5b414f0a50d88c94a14827f474a0cc0840dfcbb93bb3aaad69"
     }
   ],
   "entries": [
