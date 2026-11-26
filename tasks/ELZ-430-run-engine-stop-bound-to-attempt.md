@@ -30,8 +30,18 @@ ELZ-415).
   recorded state. A selected completion or root failure must belong to the
   owner's current Attempt. Plain lifecycle results remain authoritative owner
   outcomes.
-- Histories without a stale pending stop keep their journal, transcripts,
-  frozen fixtures and cold-recovery results unchanged.
+- A pending stop is never replaced by a later lifecycle stop: the first
+  pending stop wins, as the input gate already requires for new work.
+  ELZ-420 keeps a pending root failure. The other pending stops can still be
+  replaced. After a crash before the owner command and a restart past the Run
+  deadline with a local action running, `recover_local` lets the lifecycle's
+  deadline check replace a pending `:completed` with `:out_of_time` through
+  `install_lifecycle/3`. The owner records `:out_of_time` and `result/3`
+  returns `{:terminal, :out_of_time}`. A later lifecycle request can replace
+  an earlier lifecycle stop, such as `:cancelled`, through the same function.
+- Histories without a stale pending stop, and without a later lifecycle
+  request that would replace a pending stop, keep their journal,
+  transcripts, frozen fixtures and cold-recovery results unchanged.
 - The README `## Changes` entry names the change; a changed `piece.json` gets
   a new `manifest_sha256` in its `entries` row, with `note` equal to a changed
   `contract`.
@@ -65,9 +75,20 @@ Paths: `pieces/assembly/run-engine/**`, its `entries` row in
   and leave its paired state unchanged. Assert `transcript/3` returns
   `{:error, :history}` in v1 and v2; disabling the pending-stop replay check
   must make the v1 case fail.
+- First stop wins, in v1 and v2. For a pending `:completed`: crash before the
+  owner command, then restart the same Attempt past the Run deadline with a
+  local action running. The owner records `:completed`, not `:out_of_time`,
+  and `result/3` returns the completion. Separately, from that crashed state,
+  step a wake past the deadline, a cancel and a wake at the request cap; each
+  leaves `:completed` pending. For a pending `:cancelled` (the cancel settles
+  running local work in the same step): from the post-cancel crash state,
+  step a wake past the deadline and a wake at the request cap; each leaves
+  `:cancelled` pending, and the restart past the deadline records
+  `:cancelled`.
 - Negative controls (each recorded and reverted): the Run-view fold keeps the
   stale stop; the owner command uses the owner's current Attempt; the reader
-  accepts an older Attempt's stop.
+  accepts an older Attempt's stop; `install_lifecycle/3` replaces a pending
+  stop.
 - The frozen-row and cold-recovery tests pass unchanged.
 - `mix check --piece "$(git merge-base origin/main HEAD)"` and
   `git diff --check` exit 0, or the pull request records the exact reason a

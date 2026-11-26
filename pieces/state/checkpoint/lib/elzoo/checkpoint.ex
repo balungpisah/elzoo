@@ -53,7 +53,7 @@ defmodule Elzoo.Checkpoint do
     with {:ok, head} <- Store.read(store, :head, [stream]),
          {:ok, latest} <- Store.read(store, :latest_checkpoint, [stream, version]),
          latest = bounded_latest(latest, head),
-         {:ok, seed} <- select_checkpoint(store, stream, version, latest, decode) do
+         {:ok, seed} <- select_checkpoint(store, stream, version, latest, decode, head.low_water) do
       spec = if(seed == nil, do: Map.delete(fold, :resume), else: Map.put(fold, :resume, seed))
       from = if(seed == nil, do: 1, else: elem(seed.cursor, 0) + 1)
 
@@ -83,31 +83,29 @@ defmodule Elzoo.Checkpoint do
 
   defp bounded_latest(latest, _), do: latest
 
-  defp select_checkpoint(_, _, _, :none, _), do: {:ok, nil}
-  defp select_checkpoint(_, _, _, :absent, _), do: {:ok, nil}
+  defp select_checkpoint(_, _, _, :none, _, _), do: {:ok, nil}
+  defp select_checkpoint(_, _, _, :absent, _, _), do: {:ok, nil}
 
-  defp select_checkpoint(store, stream, version, c, decode) do
+  defp select_checkpoint(store, stream, version, c, decode, low_water) do
     seed = decode_checkpoint(c, stream, version, decode)
 
     cond do
       seed != nil -> {:ok, seed}
       not is_map(c) or not Codec.uint?(Map.get(c, :sequence)) -> {:ok, nil}
-      c.sequence == 0 -> {:ok, nil}
-      true -> find_earlier(store, stream, version, c.sequence - 1, decode)
+      true -> find_earlier(store, stream, version, c.sequence - 1, decode, low_water)
     end
   end
 
-  defp find_earlier(store, stream, version, sequence, decode) do
+  # Probes stop below low_water (ELZ-427): retention deletes every checkpoint there,
+  # and a seed below it could not be followed by its pruned tail anyway.
+  defp find_earlier(_, _, _, sequence, _, low_water) when sequence < low_water, do: {:ok, nil}
+
+  defp find_earlier(store, stream, version, sequence, decode, low_water) do
     case Store.read(store, :read_checkpoint, [stream, sequence, version]) do
       {:ok, c} ->
         case decode_checkpoint(c, stream, version, decode) do
-          nil ->
-            if sequence == 0,
-              do: {:ok, nil},
-              else: find_earlier(store, stream, version, sequence - 1, decode)
-
-          seed ->
-            {:ok, seed}
+          nil -> find_earlier(store, stream, version, sequence - 1, decode, low_water)
+          seed -> {:ok, seed}
         end
 
       {:error, reason} ->
