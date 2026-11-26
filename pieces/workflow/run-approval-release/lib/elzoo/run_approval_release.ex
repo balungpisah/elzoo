@@ -149,16 +149,21 @@ defmodule Elzoo.RunApprovalRelease do
   # One renewal between two commands. A token at another revision (rows this
   # model never read), a lost lease, an unknown outcome or an error that may
   # hide a committed renewal stops the owner before it writes again.
-  def handle_call({:renew, ttl_ms}, _, %{stream: stream} = s) do
+  def handle_call({:renew, ttl_ms}, _, %{stream: stream, held: %{owner: owner}} = s) do
     fence = s.held.live.revision
 
-    case Lease.renew(s.lease, s.held.owner, [stream], ttl_ms) do
-      {:renewed, %{held: %{^stream => %{live: %{revision: revision}} = token}}}
-      when revision == fence + 1 ->
-        {:reply, {:ok, revision, %{until: token.live.until}}, %{s | held: token}}
-
+    case Lease.renew(s.lease, owner, [stream], ttl_ms) do
       {:renewed, %{held: %{^stream => token}}} ->
-        stopped(s, {:refused, {:fenced, %{expected: fence, observed: token.live.revision - 1}}})
+        case token_revision(token, owner, stream) do
+          {:ok, revision} when revision == fence + 1 ->
+            {:reply, {:ok, revision, %{until: token.live.until}}, %{s | held: token}}
+
+          {:ok, revision} when revision > fence + 1 ->
+            stopped(s, {:refused, {:fenced, %{expected: fence, observed: revision - 1}}})
+
+          _ ->
+            stopped(s, {:unknown, :no_receipt})
+        end
 
       {:renewed, %{refused: %{^stream => refusal}}} ->
         stopped(s, {:refused, {:lease_lost, refusal}})
@@ -176,6 +181,18 @@ defmodule Elzoo.RunApprovalRelease do
         stopped(s, {:unknown, :no_receipt})
     end
   end
+
+  # The token fields that the owner reads now or installs for its later writes;
+  # any other shape is a malformed reply that may hide a committed renewal.
+  defp token_revision(
+         %{owner: owner, live: %{key: key, revision: revision, at: at, until: until}},
+         owner,
+         key
+       )
+       when is_integer(revision) and is_integer(at) and is_integer(until),
+       do: {:ok, revision}
+
+  defp token_revision(_, _, _), do: :malformed
 
   defp renewal_error(s, reason) do
     if definite?(s.lease.module, reason),

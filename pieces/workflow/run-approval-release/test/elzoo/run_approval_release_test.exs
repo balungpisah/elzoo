@@ -1378,6 +1378,15 @@ defmodule Elzoo.RunApprovalReleaseTest do
     assert snapshot(p).effects == %{}
   end
 
+  # A Lease Adapter double for malformed renewal replies: each lease step and
+  # read runs on the PostgreSQL Adapter, then `mangle` rewrites the step's result.
+  defmodule MalformedRenewal do
+    def single(%{real: backend, mangle: mangle}, key, fun),
+      do: mangle.(Elzoo.Lease.Postgres.single(backend, key, fun))
+
+    def read(%{real: backend}, key), do: Elzoo.Lease.Postgres.read(backend, key)
+  end
+
   @ttl 3_600_000
 
   describe "lease_renewal" do
@@ -1701,32 +1710,63 @@ defmodule Elzoo.RunApprovalReleaseTest do
       assert written == revision + 1
     end
 
+    test "a malformed renewal reply stops the owner without a receipt", c do
+      p = owner(c)
+      create(p, c)
+      GenServer.stop(p)
+
+      for mangle <- [
+            fn {:held, token} -> {:held, %{token | live: Map.delete(token.live, :until)}} end,
+            fn {:held, _} -> {:held, nil} end
+          ] do
+        backend = %{real: c.lease.backend, mangle: mangle}
+
+        p =
+          owner(
+            c,
+            Keyword.put(c.opts, :lease, %{c.lease | module: MalformedRenewal, backend: backend})
+          )
+
+        before = snapshot(p).revision
+        written = history(c)
+        ref = Process.monitor(p)
+        assert {:unknown, :no_receipt} = Run.renew(p, @ttl)
+        assert_receive {:DOWN, ^ref, :process, ^p, {:shutdown, {:unknown, :no_receipt}}}
+        # The renewal itself committed; the owner wrote nothing after it.
+        assert {:ok, %{revision: head}} = Store.read(c.store, :head, ["runs"])
+        assert head == before + 1
+        assert history(c) == written
+      end
+    end
+
     test "commands after status reads never conflict with concurrent renewals", c do
       p = owner(c)
       create(p, c)
       start = snapshot(p).revision
+
+      create_run = fn id, read ->
+        {read,
+         Run.command(p, %{
+           kind: :create,
+           run_id: id,
+           expected_revision: read,
+           operation_id: "operation",
+           provider_refs: %{}
+         })}
+      end
+
+      # Handshake: a status read, then a renewal by another process, then the command.
+      read = snapshot(p).revision
+      assert {:ok, renewal, _} = Task.await(Task.async(fn -> Run.renew(p, @ttl) end))
+      assert {^read, {:ok, write, "run-0"}} = create_run.("run-0", read)
+      assert {renewal, write} == {read + 1, read + 2}
+      # Free running: one process commands after status reads while another renews.
       renewer = Task.async(fn -> renew_until_stopped(p, []) end)
-
-      commands =
-        for i <- 1..30 do
-          read = snapshot(p).revision
-
-          {read,
-           Run.command(p, %{
-             kind: :create,
-             run_id: "run-#{i}",
-             expected_revision: read,
-             operation_id: "operation",
-             provider_refs: %{}
-           })}
-        end
-
+      commands = for i <- 1..30, do: create_run.("run-#{i}", snapshot(p).revision)
       send(renewer.pid, :stop)
       renewals = Task.await(renewer, 30_000)
       assert Enum.all?(commands, &match?({_, {:ok, _, _}}, &1))
       assert renewals != [] and Enum.all?(renewals, &match?({:ok, _, %{until: _}}, &1))
-      # The race of the rule happened: a renewal landed between a read and its command.
-      assert Enum.any?(commands, fn {read, {:ok, written, _}} -> written > read + 1 end)
       # Every Run append reached the Store on the newest token.
       assert Enum.all?(
                for {:append, "runs", t, _, result} <- history(c), do: result == {:committed, t}
@@ -1734,8 +1774,8 @@ defmodule Elzoo.RunApprovalReleaseTest do
 
       assert {:ok, rows, %{revision: head}} = Elzoo.DurableLog.read(c.store, "runs", 1, 1_000)
       assert Enum.map(rows, & &1.sequence) == Enum.to_list(1..head)
-      written = for {_, {:ok, revision, _}} <- commands, do: revision
-      renewed = for {:ok, revision, _} <- renewals, do: revision
+      written = [write | for({_, {:ok, revision, _}} <- commands, do: revision)]
+      renewed = [renewal | for({:ok, revision, _} <- renewals, do: revision)]
       assert Enum.sort(written ++ renewed) == Enum.to_list((start + 1)..head)
 
       for row <- rows, row.sequence > start do
@@ -1744,11 +1784,14 @@ defmodule Elzoo.RunApprovalReleaseTest do
     end
   end
 
+  # Renews at least once, then until it receives :stop.
   defp renew_until_stopped(p, renewals) do
+    renewals = [Run.renew(p, @ttl) | renewals]
+
     receive do
       :stop -> Enum.reverse(renewals)
     after
-      0 -> renew_until_stopped(p, [Run.renew(p, @ttl) | renewals])
+      0 -> renew_until_stopped(p, renewals)
     end
   end
 

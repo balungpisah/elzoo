@@ -128,11 +128,11 @@ timeout is not an outcome, and the host treats that renewal as unconfirmed.
 | Lease result for the stream | Reply | Owner |
 | --- | --- | --- |
 | held, at the held revision + 1 | `{:ok, revision, %{until: until}}` | installs the token before it handles any later call; `until` is the token's `live.until` (lease clock, Unix microseconds) |
-| held, at another revision | `{:refused, {:fenced, %{expected: e, observed: o}}}` | another writer appended rows that the model never read; the renewal committed but its token is not installed; stops with `{:shutdown, {:fenced, %{expected: e, observed: o}}}` |
+| held, at a later revision | `{:refused, {:fenced, %{expected: e, observed: o}}}` | another writer appended rows that the model never read; the renewal committed but its token is not installed; stops with `{:shutdown, {:fenced, %{expected: e, observed: o}}}` |
 | refused, for example `:stale`, `:free`, `:not_holder`, `:ambiguous` or `:regression` | `{:refused, {:lease_lost, refusal}}` | the lease is lost; stops with `{:shutdown, {:lease_lost, refusal}}` |
 | `{:indeterminate, receipt}` | the same | stops with `{:shutdown, {:indeterminate, receipt}}`, as after an uncertain command write; the host confirms the receipt (existing `reconcile:`) and fences before a replacement |
 | a definite no-write error | `{:error, reason}` | keeps its token and keeps working; the lease stays as it was until its `until`, and the host may retry or stop admission |
-| any other error or result | `{:unknown, :no_receipt}` | stops with `{:shutdown, {:unknown, :no_receipt}}` |
+| any other error or result, including a token without the owner's attribution, its stream, or integer `revision`, `at` and `until`, or one at or below the held revision | `{:unknown, :no_receipt}` | stops with `{:shutdown, {:unknown, :no_receipt}}` |
 
 `e` and `o` have the meaning of the fence of `Elzoo.Lease.write/4`: `e` is the
 held revision and `o` is the head that the renewal appended after (the renewed
@@ -156,6 +156,10 @@ revision separated from the current one solely by renewals that this live
 owner installed is accepted. Nothing is normalized across another writer or an
 owner restart. Replies carry the current held revision, which `status/2`
 reports. A renewal does not write kept deaths; they wait for the next command.
+
+Limit: a renewal changes the held revision that `status/2` reports without any
+Run transition. A caller that treats every revision change as a Run transition
+must tell a renewal apart; `assembly/run-engine` does not yet.
 
 ## Resource caller and checked example
 
@@ -207,19 +211,21 @@ groups, then are restored. These finite scenarios are tests,
 not universal no-send/durability/cancellation proofs or production monitoring.
 Approval owns its unchanged pure laws; no new law is claimed here.
 
-Group `lease_renewal` (ELZ-422) adds twelve finite cases: writes after a
+Group `lease_renewal` (ELZ-422) adds thirteen finite cases: writes after a
 renewal; the floor across renewals and Run, child and death writes; another
 writer; an owner restart; a lease lost to another claimant and to expiry; a
 renewal outside the owner; an indeterminate renewal after commit with its
-receipt; definite no-write errors (invalid `ttl_ms`, a changed table shape, a
-PostgreSQL lock timeout); and commands after `status/2` reads concurrent with
-renewals. One case runs on the Memory Lease double: Memory clock and head
+receipt; a malformed renewal reply (a token without `until`, or none) after the
+renewal committed; definite no-write errors (invalid `ttl_ms`, a changed table
+shape, a PostgreSQL lock timeout); and commands after `status/2` reads while
+another process renews, one of them with a renewal coordinated between its read
+and its command. One case runs on the Memory Lease double: Memory clock and head
 faults keep the token, then a renewal's Store append commits while its backend
 is suspended, and the backend is killed before it replies. A temporary mutation
 that keeps the old token after a renewal fails the write-after-renewal case
 with `{:refused, :conflict}`; mutations of the floor reset, of the floor's
-lower bound, of the next-revision check and of the Memory error classification
-each fail their case. All are restored.
+lower bound, of the next-revision check, of the Memory error classification
+and of the token check each fail their case. All are restored.
 
 - **Needs:** authenticated caller/approver evidence and fresh policy/authority;
   canonical arguments and exact descriptor binding; host serialization of
