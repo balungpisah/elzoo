@@ -5,9 +5,11 @@ defmodule Elzoo.Approval do
 
   This module validates and bounds every input, encodes it for the Cure
   module `Cure.Elzoo.Approval` and decodes the result. All release checks,
-  the re-decision and the state transition run in Cure. The only outcome
-  computed here is the control-key refusal for a current proposal, which is
-  test-grounded. No I/O, clock, process, storage or authentication.
+  the re-decision and the state transition run in Cure. `prune/2` and
+  `retire/2` index the state here and take the keep or drop decision of each
+  entry from Cure. The only outcome computed here is the control-key refusal
+  for a current proposal, which is test-grounded. No I/O, clock, process,
+  storage or authentication.
   """
 
   alias Elzoo.Authorization, as: Auth
@@ -19,6 +21,7 @@ defmodule Elzoo.Approval do
   @max_verifiers 64
   @max_events 65_536
   @max_state 65_536
+  @max_lines 65_536
 
   defmodule State do
     @moduledoc "Opaque approval state; build it with `Elzoo.Approval.new/0` or `replay/1`."
@@ -51,7 +54,16 @@ defmodule Elzoo.Approval do
       {:ApprRequestStep, next, req, event} =
         apply(@cure, :request, [state.cure, Auth.bytes(run), encode_binding(binding)])
 
-      {:ok, %State{cure: next}, decode_request(req), decode_event_opt(event)}
+      # After prune/2 a line can reach the revision bound; a revision above it
+      # could never be released or replayed, so the increment is refused. An
+      # unchanged request at the bound is still returned.
+      case req do
+        {:ApprRequest, {:ApprKey, _, _, _, _, revision}, _, _} when revision > @max_revision ->
+          {:error, {:invalid_input, {:bound_exceeded, :revision}}}
+
+        _ ->
+          {:ok, %State{cure: next}, decode_request(req), decode_event_opt(event)}
+      end
     end
   end
 
@@ -228,6 +240,182 @@ defmodule Elzoo.Approval do
   end
 
   def replay(_), do: {:error, {:invalid_input, {:not_a_list, :events}}}
+
+  # ------------------------------------------------------------------ prune and retire
+
+  @doc """
+  Remove the entries whose evidence key is dead at `now` (Unix ms) and the
+  closed request entries that no surviving release record uses. Emits no
+  event, runs no capacity check and keeps the order of the surviving entries.
+  """
+  def prune(state, now) do
+    with {:ok, [rs, cs, rels, consumed, revoked]} <- state_lists(state),
+         :ok <- time(now, 0, :now, :invalid_input) do
+      records = evidence_records(rels, cs)
+
+      keep? = fn ekey ->
+        apply(@cure, :prune_keeps_evidence, [Map.get(records, ekey, :KeyUnnamed), now])
+      end
+
+      rels = Enum.filter(rels, &keep?.(release_ekey(&1)))
+      released = MapSet.new(rels, &elem(&1, 1))
+      newest = newest_revisions(rs)
+
+      rs =
+        Enum.filter(rs, fn {:ApprRequest, {:ApprKey, run, aid, _, _, rev} = key, _, status} ->
+          apply(@cure, :prune_keeps_request, [
+            status,
+            rev == Map.fetch!(newest, {run, aid}),
+            MapSet.member?(released, key)
+          ])
+        end)
+
+      cs = Enum.filter(cs, &keep?.(consent_ekey(&1)))
+
+      {:ok,
+       %State{
+         cure: {:ApprState, rs, cs, rels, Enum.filter(consumed, keep?), Enum.filter(revoked, keep?)}
+       }}
+    end
+  end
+
+  @doc """
+  Remove the request lines `{run, action_id}` in `lines`: every request entry
+  and release record of a line, its `:run` consents, and each consumed or
+  revoked key that only the removed records named. Emits no event, runs no
+  capacity check and keeps the order of the surviving entries.
+  """
+  def retire(state, lines) do
+    with {:ok, [rs, cs, rels, consumed, revoked]} <- state_lists(state),
+         :ok <- Auth.proper_list(lines, :lines, :invalid_input),
+         :ok <- Auth.count_in(lines, 0, @max_lines, :lines, :invalid_input),
+         :ok <- valid_lines(lines) do
+      retired = retired_lines(lines, named_lines(rs, cs, rels))
+
+      keep_entry? = fn {:ApprKey, run, aid, _, _, _} ->
+        apply(@cure, :retire_keeps_entry, [MapSet.member?(retired, {run, aid})])
+      end
+
+      rs = Enum.filter(rs, &keep_entry?.(elem(&1, 1)))
+      {rels, dropped_rels} = Enum.split_with(rels, &keep_entry?.(elem(&1, 1)))
+
+      {cs, dropped_cs} =
+        Enum.split_with(cs, fn {:ApprConsent, evidence, binding, run, _root} ->
+          {:ApprEvidence, _, _, _, _, _, scope, _, _} = evidence
+          line = {run, bound_action_id(binding)}
+          apply(@cure, :retire_keeps_consent, [scope, MapSet.member?(retired, line)])
+        end)
+
+      dropped =
+        MapSet.new(Enum.map(dropped_rels, &release_ekey/1) ++ Enum.map(dropped_cs, &consent_ekey/1))
+
+      surviving = MapSet.new(Enum.map(rels, &release_ekey/1) ++ Enum.map(cs, &consent_ekey/1))
+
+      keep_key? = fn ekey ->
+        apply(@cure, :retire_keeps_key, [
+          MapSet.member?(dropped, ekey),
+          MapSet.member?(surviving, ekey)
+        ])
+      end
+
+      {:ok,
+       %State{
+         cure:
+           {:ApprState, rs, cs, rels, Enum.filter(consumed, keep_key?),
+            Enum.filter(revoked, keep_key?)}
+       }}
+    end
+  end
+
+  # The five lists of a state when each is a proper list; entries are not validated.
+  defp state_lists(%State{cure: {:ApprState, rs, cs, rels, consumed, revoked}}) do
+    lists = [rs, cs, rels, consumed, revoked]
+    if Enum.all?(lists, &proper?/1), do: {:ok, lists}, else: {:error, {:invalid_input, :state}}
+  end
+
+  defp state_lists(_), do: {:error, {:invalid_input, :state}}
+
+  defp proper?([]), do: true
+  defp proper?([_ | tail]), do: proper?(tail)
+  defp proper?(_), do: false
+
+  # Each evidence key that a release record or consent names, with its one
+  # record, or :KeyAmbiguous when two of its records differ in any field.
+  defp evidence_records(rels, cs) do
+    (Enum.map(rels, &elem(&1, 4)) ++ Enum.map(cs, &elem(&1, 1)))
+    |> Enum.reduce(%{}, fn evidence, records ->
+      Map.update(records, ekey(evidence), {:KeyRecord, evidence}, fn
+        {:KeyRecord, ^evidence} = same -> same
+        _ -> :KeyAmbiguous
+      end)
+    end)
+  end
+
+  # The highest revision of each request line {run, action_id}.
+  defp newest_revisions(rs) do
+    Enum.reduce(rs, %{}, fn {:ApprRequest, {:ApprKey, run, aid, _, _, rev}, _, _}, newest ->
+      Map.update(newest, {run, aid}, rev, &max(&1, rev))
+    end)
+  end
+
+  defp release_ekey({:ApprRelease, _key, _binding, _writes, evidence, _run, _root, _at}),
+    do: ekey(evidence)
+
+  defp consent_ekey({:ApprConsent, evidence, _binding, _run, _root}), do: ekey(evidence)
+
+  defp ekey({:ApprEvidence, verifier, id, _, _, _, _, _, _}), do: {:ApprEvidenceKey, verifier, id}
+
+  defp bound_action_id({:ApprBinding, {:AuthAction, _, _, _, action_id, _, _, _}, _, _, _}),
+    do: action_id
+
+  # The lines {run, action_id} that the retire decisions read, keyed by the
+  # byte-list terms that the state already holds.
+  defp named_lines(rs, cs, rels) do
+    requests =
+      Enum.map(rs, fn {:ApprRequest, {:ApprKey, run, aid, _, _, _}, _, _} -> {run, aid} end)
+
+    releases =
+      Enum.map(rels, fn {:ApprRelease, {:ApprKey, run, aid, _, _, _}, _, _, _, _, _, _} ->
+        {run, aid}
+      end)
+
+    consents =
+      Enum.map(cs, fn {:ApprConsent, _, binding, run, _} -> {run, bound_action_id(binding)} end)
+
+    Map.new(requests ++ releases ++ consents, &{&1, &1})
+  end
+
+  # The distinct retired pairs that the state names, as the state's own terms.
+  # Each pair is encoded on its own and dropped unless the state names it, so
+  # absent pairs never accumulate as byte lists.
+  defp retired_lines(lines, named) do
+    lines
+    |> Enum.uniq()
+    |> Enum.reduce(MapSet.new(), fn {run, aid}, retired ->
+      case Map.fetch(named, {b(run), b(aid)}) do
+        {:ok, line} -> MapSet.put(retired, line)
+        :error -> retired
+      end
+    end)
+  end
+
+  # Each part of a line is validated as request/3 validates `run`, in order.
+  defp valid_lines(lines) do
+    Enum.reduce_while(lines, :ok, fn line, :ok ->
+      case valid_line(line) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp valid_line({run, action_id}) do
+    with {:ok, _} <- Auth.identity_field(run, :run, :invalid_input),
+         {:ok, _} <- Auth.identity_field(action_id, :action_id, :invalid_input),
+         do: :ok
+  end
+
+  defp valid_line(_), do: {:error, {:invalid_input, :line}}
 
   @doc "Decoded view of the state (for inspection and tests)."
   def inspect_state(%State{cure: {:ApprState, rs, cs, rels, consumed, revoked}}) do

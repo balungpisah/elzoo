@@ -197,6 +197,9 @@ defmodule Elzoo.DurableLog.Postgres do
           if checkpoint.sequence > h.revision,
             do: opts.repo.rollback({:rejected, :checkpoint_beyond_tail})
 
+          if checkpoint.sequence < h.low_water,
+            do: opts.repo.rollback({:rejected, :checkpoint_below_low_water})
+
           c = checkpoint
 
           query(
@@ -388,6 +391,12 @@ defmodule Elzoo.DurableLog.Postgres do
         query(
           opts,
           "DELETE FROM #{table(opts, "elzoo_log_records")} WHERE stream=$1 AND sequence <= $2",
+          [stream, through]
+        )
+
+        query(
+          opts,
+          "DELETE FROM #{table(opts, "elzoo_checkpoints")} WHERE stream=$1 AND sequence < $2",
           [stream, through]
         )
 
