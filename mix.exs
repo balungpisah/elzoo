@@ -7,7 +7,7 @@ defmodule Elzoo.MixProject do
     [
       app: :elzoo,
       version: "0.1.0",
-      elixir: "== 1.20.4",
+      elixir: "== 1.20.5",
       start_permanent: Mix.env() == :prod,
       # The Cure task module is compiled with the Elixir sources, then Cure
       # runs before Mix's :app compiler so Cure BEAMs are listed in elzoo.app.
@@ -51,7 +51,7 @@ defmodule Elzoo.MixProject do
       # Req (Apache-2.0). Multipart is not used, so ex_aws_s3 is not added.
       {:req_s3, "== 0.2.5"},
       {:ecto_sql, "== 3.14.0"},
-      {:postgrex, "== 0.22.4"},
+      {:postgrex, "== 0.23.0"},
       # ELZ-010 integration/jobs provider (also used by the test/elz010_* probes).
       {:oban, "== 2.24.2"},
       # ELZ-031 domain/money provider (already locked transitively at 3.2.0).
@@ -63,26 +63,26 @@ defmodule Elzoo.MixProject do
       # ELZ-054 integration/notification provider (MIT). runtime: false: only Swoosh.Email and
       # Swoosh.Adapters.SMTP.deliver/2 are called; Swoosh's application (API client, local
       # storage) is never started, so no global :swoosh configuration is needed.
-      {:swoosh, "== 1.29.3", runtime: false},
+      {:swoosh, "== 1.30.0", runtime: false},
       # The SMTP transport Swoosh's SMTP adapter requires (BSD-2-Clause); its server is the
       # in-process test SMTP server of the notification tests.
       {:gen_smtp, "== 1.3.0"},
-      # ELZ-052 runtime/telemetry provider (already locked transitively at 1.4.2
-      # through Oban, Ecto and Req); a direct dependency of the Piece.
-      {:telemetry, "== 1.4.2"},
+      # ELZ-052 runtime/telemetry provider (also a transitive dependency of Oban, Ecto and
+      # Req); a direct dependency of the Piece.
+      {:telemetry, "== 1.4.3"},
       # ELZ-107: public Prometheus counters and formatter; ddskerl is its required closure.
       {:prometheus, "== 6.1.3"},
       # ELZ-055 state/audit-log provider (Apache-2.0): trigger-based change capture.
       {:carbonite, "== 0.17.0"},
-      # ELZ-079 integration/ai-text-anthropic provider (Apache-2.0), locked at 1.30.0 with
-      # llm_db 2026.11.0; used through its documented provider-callback API. Not runtime: false:
+      # ELZ-079 integration/ai-text-anthropic provider (Apache-2.0), locked at 1.31.0 with
+      # llm_db 2026.11.6; used through its documented provider-callback API. Not runtime: false:
       # its application initializes the provider registry. Its .env loading is switched off in
       # config/config.exs (load_dotenv: false).
       {:req_llm, "~> 1.30"},
       # Req.Test stubs for the ELZ-079 provider tests (Apache-2.0), an ordinary provider of the
       # exported Anthropic Piece because the exporter has no test-only form. Not test-only: the
       # ELZ-083 ex_mcp closure (plug_cowboy) needs plug at runtime, so one pin serves both.
-      {:plug, "== 1.20.3"},
+      {:plug, "== 1.20.4"},
       # ELZ-081 integration/text-chunking provider (MIT): the recursive splitter and its byte
       # ranges; its one requirement nimble_options is already locked at 1.2.0.
       {:text_chunker, "== 1.0.1"},

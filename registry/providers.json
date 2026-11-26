@@ -52,8 +52,8 @@
     "postgrex": {
       "source": "hex",
       "package": "postgrex",
-      "version": "0.22.4",
-      "reference": "https://hexdocs.pm/postgrex/0.22.4/Postgrex.html",
+      "version": "0.23.0",
+      "reference": "https://hexdocs.pm/postgrex/0.23.0/Postgrex.html",
       "license": "Apache-2.0"
     },
     "oban": {
@@ -66,14 +66,14 @@
     "elixir": {
       "source": "platform",
       "tool": "elixir",
-      "version": "1.20.4",
-      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "version": "1.20.5",
+      "reference": "https://hexdocs.pm/elixir/1.20.5/",
       "license": "Apache-2.0"
     },
     "otp": {
       "source": "platform",
       "tool": "erlang",
-      "version": "29.1.2",
+      "version": "29.1.3",
       "reference": "https://www.erlang.org/doc/",
       "license": "Apache-2.0"
     },
@@ -95,8 +95,8 @@
     "telemetry": {
       "source": "hex",
       "package": "telemetry",
-      "version": "1.4.2",
-      "reference": "https://hexdocs.pm/telemetry/1.4.2/telemetry.html",
+      "version": "1.4.3",
+      "reference": "https://hexdocs.pm/telemetry/1.4.3/telemetry.html",
       "license": "Apache-2.0"
     },
     "prometheus": {
@@ -116,9 +116,9 @@
     "swoosh": {
       "source": "hex",
       "package": "swoosh",
-      "version": "1.29.3",
+      "version": "1.30.0",
       "runtime": false,
-      "reference": "https://hexdocs.pm/swoosh/1.29.3/Swoosh.Adapters.SMTP.html",
+      "reference": "https://hexdocs.pm/swoosh/1.30.0/Swoosh.Adapters.SMTP.html",
       "license": "MIT"
     },
     "gen_smtp": {
@@ -131,15 +131,15 @@
     "ranch": {
       "source": "hex",
       "package": "ranch",
-      "version": "2.3.0",
-      "reference": "https://hexdocs.pm/ranch/2.3.0/",
+      "version": "2.4.0",
+      "reference": "https://hex.pm/packages/ranch/2.4.0",
       "license": "ISC"
     },
     "idna": {
       "source": "hex",
       "package": "idna",
-      "version": "7.1.0",
-      "reference": "https://hexdocs.pm/idna/7.1.0/",
+      "version": "8.0.0",
+      "reference": "https://hexdocs.pm/idna/8.0.0/",
       "license": "MIT"
     },
     "carbonite": {
@@ -159,22 +159,22 @@
     "req_llm": {
       "source": "hex",
       "package": "req_llm",
-      "version": "1.30.0",
-      "reference": "https://hexdocs.pm/req_llm/1.30.0/readme.html",
+      "version": "1.31.0",
+      "reference": "https://hexdocs.pm/req_llm/1.31.0/ReqLLM.html",
       "license": "Apache-2.0"
     },
     "llm_db": {
       "source": "hex",
       "package": "llm_db",
-      "version": "2026.11.0",
-      "reference": "https://hexdocs.pm/llm_db/2026.11.0/",
+      "version": "2026.11.6",
+      "reference": "https://hexdocs.pm/llm_db/2026.11.6/",
       "license": "Apache-2.0"
     },
     "jsv": {
       "source": "hex",
       "package": "jsv",
-      "version": "0.27.0",
-      "reference": "https://hexdocs.pm/jsv/0.27.0/JSV.html",
+      "version": "0.28.1",
+      "reference": "https://hexdocs.pm/jsv/0.28.1/JSV.html",
       "license": "Apache-2.0"
     },
     "abnf_parsec": {
@@ -229,8 +229,8 @@
     "plug": {
       "source": "hex",
       "package": "plug",
-      "version": "1.20.3",
-      "reference": "https://hexdocs.pm/plug/1.20.3/",
+      "version": "1.20.4",
+      "reference": "https://hexdocs.pm/plug/1.20.4/",
       "license": "Apache-2.0"
     },
     "plug_crypto": {

@@ -15,7 +15,7 @@ The original code here is Apache-2.0. Dependencies retain their own licenses.
 
 ## Run
 
-From the Elzoo root on Elixir 1.20.4 / OTP 29.1.2:
+From the Elzoo root on Elixir 1.20.5 / OTP 29.1.3:
 
 ```sh
 mix setup

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.WebhookOut do
   @moduledoc """
-  Signed outbound events to tenant endpoints over a consumer-owned Ecto Repo on PostgreSQL 16,
+  Signed outbound events to tenant endpoints over a consumer-owned Ecto Repo on PostgreSQL 19,
   under the `state/tenant-isolation` floor (ELZ-362).
 
   A tenant registers HTTPS endpoints for named events (`register/3`, egress-checked); the host

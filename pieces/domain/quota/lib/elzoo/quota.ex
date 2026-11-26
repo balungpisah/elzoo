@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.Quota do
   @moduledoc """
-  A durable tenant allowance over a consumer-owned Ecto Repo on PostgreSQL 16 (ELZ-303).
+  A durable tenant allowance over a consumer-owned Ecto Repo on PostgreSQL 19 (ELZ-303).
 
   Counters are keyed by `(tenant, window, unit)`; a window is `{:period, id}` with an opaque
   host period ID. The amount of a unit is derived at each `reserve/3` from the tenant's current

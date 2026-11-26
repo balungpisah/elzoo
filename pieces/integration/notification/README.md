@@ -1,6 +1,6 @@
 # integration/notification
 
-One email through Swoosh 1.29.3's SMTP adapter and its transport gen_smtp 1.3.0,
+One email through Swoosh 1.30.0's SMTP adapter and its transport gen_smtp 1.3.0,
 as a `delivery/effect-intent` Adapter admitted from a `core/effect`
 declaration. Provider acceptance (`250` after `DATA`) is recorded as
 acceptance, never as inbox delivery. Plain SMTP with STARTTLS is the only

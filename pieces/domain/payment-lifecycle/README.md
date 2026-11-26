@@ -1,7 +1,7 @@
 # Payment lifecycle
 
 `domain/payment-lifecycle` keeps one **payment**'s charge and its **refunds** in plain Ecto and
-Postgrex tables on PostgreSQL 16, under the `state/tenant-isolation` floor. It names no
+Postgrex tables on PostgreSQL 19, under the `state/tenant-isolation` floor. It names no
 provider (owner answer Q9 D). The provider is a host **provider Need**,
 `Elzoo.PaymentLifecycle.Provider`, that a later provider Piece (`integration/payments`)
 implements. Each provider call is one `delivery/effect-intent` intent. Unknown outcomes are
@@ -273,3 +273,11 @@ disputes; the provider Piece under a named provider).
 
 Telemetry: none (`log: false`). Config: the value from `new/1` and the Bindings, fixed. Control:
 none of its own; the host owns the intent owners and their commands.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19; its tests now require a PostgreSQL 19 server.
+  A host on an older server upgrades to PostgreSQL 19 before taking this
+  revision. No code or API change: only the module documentation names the new
+  server.

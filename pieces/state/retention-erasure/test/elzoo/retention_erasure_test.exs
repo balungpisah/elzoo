@@ -26,7 +26,7 @@ defmodule Elzoo.RetentionErasureTest do
   setup_all do
     Harness.start!(AdminRepo, pool_size: 3)
     [[version]] = Harness.query!(AdminRepo, "SELECT current_setting('server_version_num')").rows
-    assert String.to_integer(version) in 160_000..169_999
+    assert String.to_integer(version) in 190_000..199_999
     Harness.start!(TestRepo, pool_size: 4)
     :ok
   end

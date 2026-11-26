@@ -30,7 +30,7 @@ See [consuming pieces](docs/consuming.md) for composition, updates and limits.
 
 ## Start developing
 
-Install Elixir **1.20.4**, Erlang/OTP **29.1.2** (also pinned in
+Install Elixir **1.20.5**, Erlang/OTP **29.1.3** (also pinned in
 `.tool-versions`) and Git. To join from another machine, install GitHub CLI
 and authenticate an account that may push task branches:
 

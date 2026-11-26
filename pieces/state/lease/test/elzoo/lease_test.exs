@@ -845,4 +845,163 @@ defmodule Elzoo.LeaseTest do
     replay = Log.replay(rows, 4, TestHelper.fold())
     assert %{model: 0, cursor: {4, false, []}} = replay
   end
+
+  # ELZ-416: PostgreSQL 18 and later also list each NOT NULL column as a pg_constraint row
+  # (contype n). The pure OD-1a comparison of Elzoo.Lease.Postgres runs here over synthetic
+  # catalog rows of migration v1, so no server of either version is needed.
+  test "OD-1a on PostgreSQL 18 and later: the NOT NULL row of each NOT NULL column of migration v1 is part of the pinned shape; another n row, a missing one or one on an older server fails closed" do
+    columns = [
+      ["elzoo_log_heads", "stream", "text", "NO", nil],
+      ["elzoo_log_heads", "revision", "bigint", "NO", nil],
+      ["elzoo_log_heads", "low_water", "bigint", "NO", "0"],
+      ["elzoo_log_heads", "last_retention_nonce", "bytea", "YES", nil],
+      ["elzoo_log_heads", "last_retention_digest", "bytea", "YES", nil],
+      ["elzoo_log_heads", "last_retention_expected", "bigint", "YES", nil],
+      ["elzoo_log_heads", "last_retention_through", "bigint", "YES", nil],
+      ["elzoo_log_records", "stream", "text", "NO", nil],
+      ["elzoo_log_records", "sequence", "bigint", "NO", nil],
+      ["elzoo_log_records", "kind", "text", "NO", nil],
+      ["elzoo_log_records", "schema_version", "integer", "NO", nil],
+      ["elzoo_log_records", "payload", "bytea", "NO", nil],
+      ["elzoo_log_records", "nonce", "bytea", "NO", nil],
+      ["elzoo_log_records", "digest", "bytea", "NO", nil]
+    ]
+
+    before_18 = [
+      ["elzoo_log_heads", "elzoo_log_heads_pkey", "p", "PRIMARY KEY (stream)"],
+      [
+        "elzoo_log_heads",
+        "elzoo_head_bounds",
+        "c",
+        "CHECK (((revision >= 0) AND (low_water >= 0) AND (low_water <= revision)))"
+      ],
+      ["elzoo_log_records", "elzoo_log_records_pkey", "p", "PRIMARY KEY (stream, sequence)"],
+      [
+        "elzoo_log_records",
+        "elzoo_record_bounds",
+        "c",
+        "CHECK (((sequence > 0) AND (schema_version > 0) AND (octet_length(nonce) = 16) AND (octet_length(digest) = 32)))"
+      ]
+    ]
+
+    not_null = fn table, column ->
+      [table, "#{table}_#{column}_not_null", "n", "NOT NULL #{column}"]
+    end
+
+    since_18 = before_18 ++ for [t, c, _, "NO", _] <- columns, do: not_null.(t, c)
+    assert length(since_18) == length(before_18) + 10
+    shape = &Elzoo.Lease.Postgres.compare_shape/3
+
+    # migration v1 as each server lists it
+    assert :ok = shape.(columns, before_18, 170_011)
+    assert :ok = shape.(columns, since_18, 180_000)
+    assert :ok = shape.(columns, since_18, 190_000)
+
+    # the rows of PostgreSQL 18 on an older server, and the rows of an older server on 19
+    assert {:schema, %{records: %{constraints: %{missing: [], unexpected: unexpected}}}} =
+             shape.(columns, since_18, 179_999)
+
+    assert {"elzoo_log_records_digest_not_null", "n", "NOT NULL digest"} in unexpected
+    assert length(unexpected) == 7
+
+    assert {:schema, %{heads: %{constraints: %{missing: missing, unexpected: []}}}} =
+             shape.(columns, before_18, 190_000)
+
+    assert {"elzoo_log_heads_revision_not_null", "n", "NOT NULL revision"} in missing
+    assert length(missing) == 3
+
+    # one NOT NULL row missing, one on a nullable column, renamed, another rendering
+    revision = not_null.("elzoo_log_heads", "revision")
+    digest = not_null.("elzoo_log_records", "digest")
+
+    assert {:schema,
+            %{
+              heads: %{
+                constraints: %{
+                  missing: [{"elzoo_log_heads_revision_not_null", "n", "NOT NULL revision"}],
+                  unexpected: []
+                }
+              }
+            }} = shape.(columns, since_18 -- [revision], 190_000)
+
+    assert {:schema,
+            %{
+              heads: %{
+                constraints: %{
+                  missing: [],
+                  unexpected: [
+                    {"elzoo_log_heads_last_retention_nonce_not_null", "n",
+                     "NOT NULL last_retention_nonce"}
+                  ]
+                }
+              }
+            }} =
+             shape.(
+               columns,
+               since_18 ++ [not_null.("elzoo_log_heads", "last_retention_nonce")],
+               190_000
+             )
+
+    for other <- [
+          ["elzoo_log_records", "digest_required", "n", "NOT NULL digest"],
+          [
+            "elzoo_log_records",
+            "elzoo_log_records_digest_not_null",
+            "n",
+            "NOT NULL digest NO INHERIT"
+          ]
+        ] do
+      assert {:schema,
+              %{
+                records: %{
+                  constraints: %{
+                    missing: [{"elzoo_log_records_digest_not_null", "n", "NOT NULL digest"}],
+                    unexpected: [unexpected]
+                  }
+                }
+              }} = shape.(columns, (since_18 -- [digest]) ++ [other], 190_000)
+
+      assert unexpected == List.to_tuple(tl(other))
+    end
+
+    # a NOT NULL column outside the pin, another constraint kind, a dropped NOT NULL
+    extra = ["elzoo_log_heads", "extra", "integer", "NO", nil]
+
+    assert {:schema,
+            %{
+              heads: %{
+                columns: %{unexpected: [{"extra", "integer", "NO", nil}]},
+                constraints: %{
+                  missing: [],
+                  unexpected: [{"elzoo_log_heads_extra_not_null", "n", "NOT NULL extra"}]
+                }
+              }
+            }} =
+             shape.(
+               columns ++ [extra],
+               since_18 ++ [not_null.("elzoo_log_heads", "extra")],
+               190_000
+             )
+
+    unique = ["elzoo_log_heads", "elzoo_log_heads_revision_key", "u", "UNIQUE (revision)"]
+
+    assert {:schema, %{heads: %{constraints: %{missing: [], unexpected: [{_, "u", _}]}}}} =
+             shape.(columns, since_18 ++ [unique], 190_000)
+
+    nullable =
+      List.replace_at(columns, 1, ["elzoo_log_heads", "revision", "bigint", "YES", nil])
+
+    assert {:schema,
+            %{
+              heads: %{
+                columns: %{
+                  missing: [{"revision", "bigint", "NO", nil}],
+                  unexpected: [{"revision", "bigint", "YES", nil}]
+                },
+                constraints: %{
+                  missing: [{"elzoo_log_heads_revision_not_null", "n", "NOT NULL revision"}]
+                }
+              }
+            }} = shape.(nullable, since_18 -- [revision], 190_000)
+  end
 end

@@ -262,3 +262,10 @@ failed/dispatched/retryable and not redispatched by default.
 - Telemetry `planned`: no Elzoo event; `req_llm` may emit its request start
   event (payload capture off by default). Config `supported` (construction only).
   Control `not_applicable`.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the Contract names req_llm 1.31 instead of 1.30
+  (`mix.lock`: req_llm 1.31.0, llm_db 2026.11.6). The code is unchanged and the
+  Piece's tests pass on the new lock. A consumer moves its lock to req_llm
+  1.31.0 and llm_db 2026.11.6 with this revision. No API change.

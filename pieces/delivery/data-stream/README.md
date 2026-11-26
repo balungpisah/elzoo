@@ -180,8 +180,8 @@ worker context and usage. Status contains only the eight declared safe fields.
 
 Direct Pieces: core/effect, delivery/backpressure, delivery/effect-intent,
 integration/ai-model. The inherited Store/checkpoint/SQL closure remains real.
-Direct providers: Req 0.7.5, Jason 1.4.5, server_sent_events 1.1.0, Elixir 1.20.4,
-OTP 29.1.2; inherited Cure commit 208248063d64e621782cd26dd30698ee42850a89.
+Direct providers: Req 0.7.5, Jason 1.4.5, server_sent_events 1.1.0, Elixir 1.20.5,
+OTP 29.1.3; inherited Cure commit 208248063d64e621782cd26dd30698ee42850a89.
 Consumer applications include req (starts Finch), jason, server_sent_events,
 crypto, cure and the inherited ecto_sql/postgrex closure. No catalogue Application,
 ReqLLM, fuse, synchronous provider or ambient dotenv is needed.

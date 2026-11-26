@@ -35,7 +35,7 @@ request's `:json` option, is not documented ("intermediate maps ... are not
 contracts by themselves"). It is guarded by a drift test that compares item
 `params` and headers for a fixed corpus with the pinned snapshot
 `test/fixtures/anthropic/req-llm-1.30.0-item-bodies.json` and fails on any change.
-The root `mix.exs` declares `{:req_llm, "~> 1.30"}` and `mix.lock` locks 1.30.0,
+The root `mix.exs` declares `{:req_llm, "~> 1.30"}` and `mix.lock` locks 1.31.0,
 so a lock update could move it to a later 1.x without a `mix.exs` change; the drift
 test is the guard.
 
@@ -130,3 +130,11 @@ invariant holds regardless: only the injected key is sent.
   options and `into:` streaming.
 - Telemetry `planned`; Config `supported` (construction only); Control
   `not_applicable`.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the lock that the limit names moves from req_llm 1.30.0
+  to 1.31.0 (`mix.exs` keeps `~> 1.30`). The drift test over the fixed corpus
+  passes on 1.31.0: item params and headers equal the recorded 1.30.0 snapshot.
+  The code is unchanged. A consumer moves its lock to req_llm 1.31.0 and llm_db
+  2026.11.6 with this revision. No API change.

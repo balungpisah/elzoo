@@ -8,7 +8,7 @@ and committed outbox offers. Ready `runtime/unit` remains volatile and unchanged
 Select `runtime/durable-unit` with `mix elzoo.take`; see
 [consuming](../../../docs/consuming.md). Direct Piece dependencies are
 `core/operator`, `state/event-log`, `state/checkpoint` and `state/outbox`.
-Providers are pinned Elixir 1.20.4 and OTP 29.1.2; the dependency closure uses
+Providers are pinned Elixir 1.20.5 and OTP 29.1.3; the dependency closure uses
 the existing pinned Cure compiler. No new Cure law is supplied for this shell.
 
 `Elzoo.DurableUnit.start_link(opts)` and `child_spec(opts)` use ordinary OTP

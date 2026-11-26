@@ -2,7 +2,7 @@
 defmodule Elzoo.DurableMailbox do
   @moduledoc """
   Durable mail to an address and the continuation chain of the address's Runs, over a
-  consumer-owned Ecto Repo on PostgreSQL 16, in the three tables that
+  consumer-owned Ecto Repo on PostgreSQL 19, in the three tables that
   `Elzoo.DurableMailbox.Migration.install/1` creates under the `state/tenant-isolation` floor.
 
   `new/2` binds a Repo, a schema and a declaration of the accepted message names and their

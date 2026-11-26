@@ -1,7 +1,7 @@
 # runtime/telemetry
 
 One bounded, redacted family of synchronous `telemetry` events for the ready
-job and effect Adapters. The library is `telemetry` 1.4.2 (Apache-2.0);
+job and effect Adapters. The library is `telemetry` 1.4.3 (Apache-2.0);
 Elzoo owns only the event names, the measurement units, the metadata allowlist
 and the redaction function in `Elzoo.Telemetry`. Dispatch, handler attachment
 and detach-on-failure are `telemetry`'s.

@@ -106,7 +106,7 @@ input. Corrupt state is rejected, never repaired or treated as empty.
 
 There are at most 64 messages and 64 associations. The encoded-state bound is
 `byte_size(:erlang.term_to_binary(normalized_portable_state)) <= 65_536`, using
-the pinned OTP 29.1.2 default external-term encoding. The existing
+the pinned OTP 29.1.3 default external-term encoding. The existing
 Authorization limits also apply: depth 16, at most 4,096 portable nodes, and
 at most 4,096 bytes per text or record field name. No eviction or truncation
 occurs. Oversized stored state is `:invalid_snapshot`; an over-capacity

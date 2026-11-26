@@ -2,7 +2,7 @@
 
 The OpenAI embeddings provider of `integration/ai-embedding`
 (`Elzoo.AiEmbedding.OpenAI`, implementing `Elzoo.AiEmbedding.Provider`), through
-`req_llm` 1.30 (Apache-2.0; adopted, not copied; no gateway process). Apache-2.0.
+`req_llm` 1.31 (Apache-2.0; adopted, not copied; no gateway process). Apache-2.0.
 
 ## What the Piece owns and what it adopts
 
@@ -153,3 +153,10 @@ failed/dispatched/retryable and not redispatched by default.
 - Telemetry `planned`: no Elzoo event; because every response is halted, the
   `req_llm` response-side events are not emitted. Config `supported`
   (construction only). Control `not_applicable`.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the Contract names req_llm 1.31 instead of 1.30
+  (`mix.lock`: req_llm 1.31.0, llm_db 2026.11.6). The code is unchanged and the
+  Piece's tests pass on the new lock. A consumer moves its lock to req_llm
+  1.31.0 and llm_db 2026.11.6 with this revision. No API change.

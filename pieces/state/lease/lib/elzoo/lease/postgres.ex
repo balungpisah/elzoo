@@ -109,6 +109,16 @@ defmodule Elzoo.Lease.Postgres do
         [backend.prefix]
       ).rows
 
+    [[server_version_num]] =
+      query(backend, "SELECT current_setting('server_version_num')::integer").rows
+
+    compare_shape(columns, constraints, server_version_num)
+  end
+
+  # The pure OD-1a comparison of the catalog rows that shape/1 reads. Public only so that it
+  # can be tested without a database server of each version; not part of the Piece's API.
+  @doc false
+  def compare_shape(columns, constraints, server_version_num) do
     actual_columns = fn table ->
       columns
       |> Enum.filter(&(hd(&1) == table))
@@ -123,15 +133,31 @@ defmodule Elzoo.Lease.Postgres do
       |> MapSet.new()
     end
 
+    expected_heads =
+      expected_constraints(
+        "elzoo_log_heads",
+        @heads_columns,
+        @heads_constraints,
+        server_version_num
+      )
+
+    expected_records =
+      expected_constraints(
+        "elzoo_log_records",
+        @records_columns,
+        @records_constraints,
+        server_version_num
+      )
+
     detail = %{
       version: 1,
       heads: %{
         columns: diff(@heads_columns, actual_columns.("elzoo_log_heads")),
-        constraints: diff(@heads_constraints, actual_constraints.("elzoo_log_heads"))
+        constraints: diff(expected_heads, actual_constraints.("elzoo_log_heads"))
       },
       records: %{
         columns: diff(@records_columns, actual_columns.("elzoo_log_records")),
-        constraints: diff(@records_constraints, actual_constraints.("elzoo_log_records"))
+        constraints: diff(expected_records, actual_constraints.("elzoo_log_records"))
       }
     }
 
@@ -148,6 +174,22 @@ defmodule Elzoo.Lease.Postgres do
 
     if clean?, do: :ok, else: {:schema, detail}
   end
+
+  # PostgreSQL 18 and later also store each NOT NULL column as a constraint row (contype n),
+  # named <table>_<column>_not_null and rendered "NOT NULL <column>" (ELZ-416). On such a
+  # server migration v1 has exactly that row for each column it declares NOT NULL; an older
+  # server stores none, so such a row there is unexpected.
+  defp expected_constraints(table, columns, constraints, server_version_num)
+       when server_version_num >= 180_000 do
+    not_null =
+      for {name, _type, "NO", _default} <- columns,
+          into: MapSet.new(),
+          do: {"#{table}_#{name}_not_null", "n", "NOT NULL #{name}"}
+
+    MapSet.union(constraints, not_null)
+  end
+
+  defp expected_constraints(_table, _columns, constraints, _server_version_num), do: constraints
 
   defp diff(expected, actual),
     do: %{

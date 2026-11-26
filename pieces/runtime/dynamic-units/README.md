@@ -35,8 +35,8 @@ Direct Piece dependencies are `runtime/durable-unit`, `runtime/registry` and
 `runtime/supervision`. Ready `runtime/host` is a reference, not a modified
 service. Needs include the caller-owned subtree and finite supervisor cap,
 matching options per durable identity, DurableUnit's Store/transition/dispatcher
-Needs, and runtime monotonic timers. Providers are pinned Elixir 1.20.4 and
-OTP 29.1.2. No package/pin change or new Cure law is supplied for this OTP shell.
+Needs, and runtime monotonic timers. Providers are pinned Elixir 1.20.5 and
+OTP 29.1.3. No package/pin change or new Cure law is supplied for this OTP shell.
 
 ## API and idle lifecycle
 

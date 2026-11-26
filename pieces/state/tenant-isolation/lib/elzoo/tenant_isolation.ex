@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.TenantIsolation do
   @moduledoc """
-  A database-enforced tenant floor over a consumer-owned Ecto Repo (PostgreSQL 16).
+  A database-enforced tenant floor over a consumer-owned Ecto Repo (PostgreSQL 19).
 
   `transact/3` runs a function in a transaction whose two transaction-local settings,
   `elzoo.tenant_id` and `elzoo.space_ids`, carry the caller's tenant and exact space list; the

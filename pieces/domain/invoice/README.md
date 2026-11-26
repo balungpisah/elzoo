@@ -1,6 +1,6 @@
 # domain/invoice
 
-Numbered invoices of one currency in PostgreSQL 16 over a consumer-owned Ecto Repo (ELZ-367,
+Numbered invoices of one currency in PostgreSQL 19 over a consumer-owned Ecto Repo (ELZ-367,
 Wave 9 owner answer Q11 A). An **invoice** is a document of usage, fee and adjustment
 **lines** for one billing account. It is drafted, then **finalized** with the next number of
 its **series** (gapless, never reused), then paid by **payment applications** up to its
@@ -19,7 +19,7 @@ See [consuming](../../../docs/consuming.md). Piece dependencies: `state/tenant-i
 consumer can run the tests, which build charges with `Elzoo.Pricing.price/3`; the library code
 reads a charge as data. The fee line of `domain/plan` is taken as data too, and the tests build
 it as a map: no `domain/plan` code is called or copied. Providers: `ecto_sql` 3.14.0 and
-`postgrex` 0.22.4, `elixir` and OTP `crypto` (SHA-256); the tests also use `telemetry`. Exact
+`postgrex` 0.23.0, `elixir` and OTP `crypto` (SHA-256); the tests also use `telemetry`. Exact
 versions and claim-level grounding are in [piece.json](piece.json).
 
 ## Migration
@@ -227,4 +227,12 @@ records what it is given. A gapless number means no gap among committed finaliza
 series. No tax, discount, rendering, delivery to a customer or multi-currency invoice. The
 `state/tenant-isolation` limits apply, and READ COMMITTED is a consumer Need that the Piece
 checks and cannot set. Concurrency and row-security evidence are finite scenarios on one local
-PostgreSQL 16, not proofs. The full list is in [piece.json](piece.json).
+PostgreSQL 19, not proofs. The full list is in [piece.json](piece.json).
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19; its tests now require a PostgreSQL 19 server.
+  A host on an older server upgrades to PostgreSQL 19 before taking this
+  revision. No code or API change: only the module documentation names the new
+  server and the README names the current provider pins.

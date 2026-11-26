@@ -3,7 +3,7 @@
 Retained usage observations with attributable corrections, and bounded totals per period, unit
 and source, or per period, provider, model, unit and source, in which an unknown amount is
 counted apart and never added as zero. One durable Piece in plain Elixir, Ecto and Postgrex
-over a consumer-owned Ecto Repo on PostgreSQL 16; its two tables are protected by the
+over a consumer-owned Ecto Repo on PostgreSQL 19; its two tables are protected by the
 `state/tenant-isolation` floor.
 
 Usage comes from `integration/ai-model` usage values that the host splits into observations,
@@ -20,7 +20,7 @@ Select `domain/metering` with `mix elzoo.take`; the dependency-closed copy is ow
 consuming application. See [consuming](../../../docs/consuming.md). Piece dependencies:
 `state/tenant-isolation` (the floor, its migration helper and `transact/3`) and
 `integration/ai-model` (`Elzoo.AiModel.Usage.units/0` and `ttls/0`). No Cure source.
-Providers: `ecto_sql` 3.14.0 and `postgrex` 0.22.4, `elixir`, `otp` (`:crypto` SHA-256); the
+Providers: `ecto_sql` 3.14.0 and `postgrex` 0.23.0, `elixir`, `otp` (`:crypto` SHA-256); the
 tests also use `telemetry`. Exact versions and claim-level grounding are in
 [piece.json](piece.json).
 
@@ -183,8 +183,16 @@ and the duplicates they decide, stay equal.
 ## Evidence
 
 [test/elzoo/metering_test.exs](test/elzoo/metering_test.exs) runs on the worker's own
-disposable PostgreSQL 16 database (`ELZOO_TEST_DATABASE_URL`) with
+disposable PostgreSQL 19 database (`ELZOO_TEST_DATABASE_URL`) with
 `DBConnection.ConnectionPool` Repos, in random schemas dropped afterwards. Every Piece call
 runs as the ELZ-285 application role (`SET ROLE` to `ELZOO_TEST_APP_ROLE` on every connection)
 with only the grants above; the tests fail, not skip, without that variable. Finite
 scenarios, not proofs.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19; its tests now require a PostgreSQL 19 server.
+  A host on an older server upgrades to PostgreSQL 19 before taking this
+  revision. No code or API change: only the module documentation names the new
+  server and the README names the current provider pins.

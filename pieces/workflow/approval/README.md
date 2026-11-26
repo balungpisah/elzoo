@@ -584,7 +584,7 @@ UI prompting, and the meaning of a reviewer's identity.
 
 Pieces: `domain/authorization`. Consumes `core/envelope`/`core/port`
 unchanged only when a consumer carries events in an opaque payload behind its
-own schema id. Providers: pinned Cure, Elixir 1.20.4, OTP 29.1.2.
+own schema id. Providers: pinned Cure, Elixir 1.20.5, OTP 29.1.3.
 
 ## Limits
 

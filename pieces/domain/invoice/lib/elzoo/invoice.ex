@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.Invoice do
   @moduledoc """
-  Numbered invoices of one currency over a consumer-owned Ecto Repo on PostgreSQL 16 (ELZ-367).
+  Numbered invoices of one currency over a consumer-owned Ecto Repo on PostgreSQL 19 (ELZ-367).
 
   An invoice is a document of usage, fee and adjustment lines for one billing account,
   drafted, then finalized with the next number of its series (gapless among committed

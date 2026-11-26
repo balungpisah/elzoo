@@ -1,7 +1,7 @@
 Code.require_file("support/wave8_bots_talk_helper.exs", __DIR__)
 
 defmodule Elzoo.Wave8.BotsTalkTest do
-  # ELZ-349: the Wave 8 Pieces together on real PostgreSQL 16 and MinIO, every application call
+  # ELZ-349: the Wave 8 Pieces together on real PostgreSQL 19 and MinIO, every application call
   # running as the fixed non-owner, non-bypass role of ELZ-285. Each test names its acceptance
   # group of the ELZ-349 task.
   use ExUnit.Case, async: false

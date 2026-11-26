@@ -266,7 +266,7 @@ The room checks none of these Needs:
 
 ## Evidence
 
-`mix test pieces/delivery/room/test` runs on the worker's disposable PostgreSQL 16
+`mix test pieces/delivery/room/test` runs on the worker's disposable PostgreSQL 19
 (`ELZOO_TEST_DATABASE_URL`): the real engine through the run-engine test helper's `fixture/1`
 (one Run per link, created and begun in its Run owner by the test's `start` Need), the real
 mailbox in random schemas dropped afterwards with every mailbox call as the application role
@@ -276,3 +276,10 @@ indeterminate, exit and halt replies use a stand-in process for the tip's engine
 harness hosts one engine at a time (the fixture routes the Unit's offers to one name), so a
 link's record is read before its successor starts. Finite listed scenarios with negative
 controls (see [piece.json](piece.json)), not a proof.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece is tested on moves from PostgreSQL
+  16 to PostgreSQL 19, with the durable Pieces it composes. A host on an older
+  server upgrades to PostgreSQL 19 before taking this revision. No code or API
+  change.

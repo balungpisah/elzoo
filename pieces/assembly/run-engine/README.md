@@ -8,7 +8,7 @@ this Assembly exclusively uses `RunApprovalRelease` on its allocated Run stream.
 
 ## Host construction
 
-Use pinned Elixir 1.20.4/OTP 29.1.2 and the existing dependency closure. The
+Use pinned Elixir 1.20.5/OTP 29.1.3 and the existing dependency closure. The
 host creates ordinary Registry/DynamicSupervisor/DynamicUnits infrastructure,
 a durable conforming Store, RunApprovalRelease with its exclusive Lease, an
 allocated Run and current execution Attempt, AsyncWork/Task.Supervisor, fixed

@@ -80,7 +80,7 @@ store, key generation policy, destruction, KMS or HSM, wrapping of data keys,
 streaming, ChaCha20-Poly1305, or memory erasure of keys or plaintext. A
 failure inside `:crypto` itself (for example an exhausted entropy source) is
 not translated. OpenSSL behaviour is an upstream contract of the pinned OTP
-29.1.2 (OpenSSL 3.5); this Piece does not prove AES-GCM.
+29.1.3 (OpenSSL 3.5); this Piece does not prove AES-GCM.
 
 Telemetry, Config and Control are `not_applicable`: the algorithm, layout and
 bounds are fixed, the credential and Need are per-call operands, and there is
@@ -118,3 +118,9 @@ version check fails group 5. Tests only: no Cure law is selected.
 `mix elzoo.take integration/encryption --to <consumer>` copies this Piece and
 `integration/secrets`. Add `:crypto` to `extra_applications`. Source is
 Apache-2.0; see [consuming](../../../docs/consuming.md).
+
+## Changes
+
+- ELZ-416 (2026-11-26): the pinned OTP that the limit names moves from 29.1.2 to
+  29.1.3; the OTP drift tests pass on it. A host moves to OTP 29.1.3 with this
+  revision. No code or API change.

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.LedgerCheckout do
   @moduledoc """
-  A durable checkout over a consumer-owned Ecto Repo on PostgreSQL 16 (ELZ-378): pay one
+  A durable checkout over a consumer-owned Ecto Repo on PostgreSQL 19 (ELZ-378): pay one
   invoice or top up one wallet through steps that belong to the ready Pieces
   `domain/payment-lifecycle`, `domain/invoice` and `domain/journal`, plus an optional host
   allowance step for a top-up.

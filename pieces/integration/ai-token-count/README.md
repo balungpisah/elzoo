@@ -8,7 +8,7 @@ The usage that the provider reports after the call stays the only usage fact.
 
 The function is pure: no Effect, credential, network, clock, process or storage
 write. Its one read outside its argument is the model catalogue of pinned
-`llm_db` 2026.11.0, which loads from the snapshot file inside the package on the
+`llm_db` 2026.11.6, which loads from the snapshot file inside the package on the
 first query and contacts no source.
 
 ## Interface
@@ -146,3 +146,11 @@ text pattern that was not tried can pass the factor.
   `estimator_id`.
 - Telemetry, Config and Control are not applicable: a pure function with no
   process, no setting and no state to control.
+
+## Changes
+
+- ELZ-416 (2026-11-26): known models are those of llm_db 2026.11.6 instead of
+  2026.11.0. The code is unchanged and the Piece's tests pass on the new
+  catalogue; a model that the catalogue adds or drops changes which requests are
+  `:unknown_model`. A consumer moves its lock to llm_db 2026.11.6 with this
+  revision. No API change.

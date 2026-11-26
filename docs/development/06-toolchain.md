@@ -11,8 +11,8 @@ The bootstrap uses:
 
 - Cure v0.35.0 at exact commit
   208248063d64e621782cd26dd30698ee42850a89, not a moving same-named ref;
-- Elixir 1.20.4;
-- OTP 29.1.2.
+- Elixir 1.20.5;
+- OTP 29.1.3.
 
 mix setup must be reproducible without a Zoo checkout. mix check must compile
 real Cure, run selected proof checks, meaningful ExUnit/OTP and boundary tests,

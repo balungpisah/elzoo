@@ -100,3 +100,8 @@ execution without reading code. The added Need is the `telemetry` library
   not change a result.
 
 See [ELZ-010](../../../docs/work/ELZ-010.md) for the Contract, result tables, scenarios and limits.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the telemetry Need moves from 1.4.2 to 1.4.3, the root
+  pin. No code or API change.

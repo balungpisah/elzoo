@@ -31,7 +31,7 @@
   "limits": [
     "Stub evidence only (R5): conformance to the pinned documented format, never current live behaviour, turnaround, the batch discount, billing of result types, retention or rate limits.",
     "Create requests are validated against a schema hand-derived from named sections of Anthropic's documentation fetched 2026-11-09; no official machine-readable specification was found; conformance beyond the documented examples is not claimed.",
-    "Upstream risk: the encoded item body is read from the request's :json option after req_llm's documented encode_body/1 callback, an undocumented location; the root mix.exs declares req_llm ~> 1.30 locked at 1.30.0, so a lock update could move it, and the drift test over a fixed corpus is the guard.",
+    "Upstream risk: the encoded item body is read from the request's :json option after req_llm's documented encode_body/1 callback, an undocumented location; the root mix.exs declares req_llm ~> 1.30 locked at 1.31.0, so a lock update could move it, and the drift test over a fixed corpus is the guard.",
     "Body equivalence with the synchronous call is shown over a finite corpus only; a beta value enabled by one item is sent for the whole batch (allowed values only).",
     "The results endpoint has no paging: each page re-reads the stream from the start under the scan bound.",
     "Every consumer must merge config :req_llm, load_dotenv: false by hand (README, Install configuration); the Piece test asserts only that the README carries the exact line."

@@ -98,8 +98,8 @@ observations. Scrape success is not a durable receipt.
 ## Providers, source copying and grounding
 
 Source dependency: runtime/telemetry. prometheus 6.1.3 (MIT), ddskerl 0.4.3
-(Apache-2.0 required closure), telemetry 1.4.2 (Apache-2.0), Elixir 1.20.4 and
-OTP 29.1.2. No provider code copied or modified. Public APIs: counter new/inc/
+(Apache-2.0 required closure), telemetry 1.4.3 (Apache-2.0), Elixir 1.20.5 and
+OTP 29.1.3. No provider code copied or modified. Public APIs: counter new/inc/
 value/deregister, registry collectors/deregister_collector, text format/content
 type and telemetry attach_many/detach/list_handlers. Exact pins remain the
 separate ELZ-107 prerequisite; local stacked work is not its acceptance.

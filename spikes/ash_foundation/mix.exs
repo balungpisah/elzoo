@@ -5,7 +5,7 @@ defmodule ElzooAshSpike.MixProject do
     [
       app: :elzoo_ash_spike,
       version: "0.1.0",
-      elixir: "== 1.20.4",
+      elixir: "== 1.20.5",
       elixirc_options: [warnings_as_errors: true],
       elixirc_paths: if(Mix.env() == :test, do: ["lib", "test/support"], else: ["lib"]),
       test_ignore_filters: [~r/test_helper.exs$/, ~r{/support/}],

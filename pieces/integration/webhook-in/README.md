@@ -129,7 +129,7 @@ pending admission are demonstration fixtures only. The tests and example do
 not establish production authentication, durable admission, Run execution or
 end-to-end delivery guarantees.
 
-The provider closure is Plug 1.20.3, Plug.Crypto 2.2.1, Jason 1.4.5,
+The provider closure is Plug 1.20.4, Plug.Crypto 2.2.1, Jason 1.4.5,
 Telemetry, Elixir, and OTP crypto. Plug supplies its own transitive package
 dependencies. No dependencies or pins are added by this Piece.
 

@@ -1,7 +1,7 @@
 # delivery/durable-mailbox
 
 Durable mail to an address, and the **continuation chain** of the address's Runs. One durable
-Piece in plain Elixir, Ecto and Postgrex over a consumer-owned Ecto Repo on PostgreSQL 16; its
+Piece in plain Elixir, Ecto and Postgrex over a consumer-owned Ecto Repo on PostgreSQL 19; its
 three tables are protected by the `state/tenant-isolation` floor.
 
 - Only declared mail is written: a message whose name the binding's declaration does not list,
@@ -24,7 +24,7 @@ the consuming application. See [consuming](../../../docs/consuming.md). Piece de
 `state/tenant-isolation` (the floor, its migration helper, `transact/3` and `verify/3`) and
 `core/payload-schema` (`build/2` and `check/3`). No Cure source of its own; the copy includes
 the Cure source of `core/port`, a dependency of `core/payload-schema`. Providers: `ecto_sql` 3.14.0 and
-`postgrex` 0.22.4, `jason` 1.4.5 (the canonical encoding), `elixir`, `otp` (`:crypto` SHA-256);
+`postgrex` 0.23.0, `jason` 1.4.5 (the canonical encoding), `elixir`, `otp` (`:crypto` SHA-256);
 the tests also use `telemetry`. Exact versions and claim-level grounding are in
 [piece.json](piece.json).
 
@@ -328,9 +328,17 @@ violation of `rollover/3` to a result: it is `:unavailable`.
 ## Evidence
 
 [test/elzoo/durable_mailbox_test.exs](test/elzoo/durable_mailbox_test.exs) runs on the worker's
-own disposable PostgreSQL 16 database (`ELZOO_TEST_DATABASE_URL`) with
+own disposable PostgreSQL 19 database (`ELZOO_TEST_DATABASE_URL`) with
 `DBConnection.ConnectionPool` Repos, not the Sandbox, in random schemas dropped afterwards.
 Every Piece call runs as the ELZ-285 application role (`SET ROLE` to `ELZOO_TEST_APP_ROLE` on
 every connection) with only the grants above; the tests fail, not skip, without that variable.
 The races hold the chain row (or a table lock) in another connection until each call is seen
 waiting in `pg_locks`. Finite scenarios, not proofs.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19; its tests now require a PostgreSQL 19 server.
+  A host on an older server upgrades to PostgreSQL 19 before taking this
+  revision. No code or API change: only the module documentation names the new
+  server and the README names the current provider pins.

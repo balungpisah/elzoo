@@ -10,7 +10,7 @@ Mix.Project.in_project(:observability_consumer, ".", fn _ ->
   nil = Application.spec(:elzoo)
   ~c"6.1.3" = Application.spec(:prometheus, :vsn)
   ~c"0.4.3" = Application.spec(:ddskerl, :vsn)
-  ~c"1.4.2" = Application.spec(:telemetry, :vsn)
+  ~c"1.4.3" = Application.spec(:telemetry, :vsn)
 
   Mix.Task.run("test", [
     "--no-start",

@@ -1,6 +1,6 @@
 # state/tenant-isolation
 
-A database-enforced tenant floor under consumer tables in PostgreSQL 16. A query that forgets
+A database-enforced tenant floor under consumer tables in PostgreSQL 19. A query that forgets
 its tenant filter returns no other tenant's row, and a write of another tenant's row fails with
 SQLSTATE 42501. It is one Adapter over a consumer-owned Ecto Repo with three parts: a migration
 helper that installs two setting readers and protects a table, a transaction helper that sets
@@ -14,7 +14,7 @@ no recursive SQL, no hierarchy and no membership lookup in a policy.
 
 Select `state/tenant-isolation` with `mix elzoo.take`; the copy is owned by the consuming
 application. See [consuming](../../../docs/consuming.md). No Piece dependencies and no Cure
-source. Providers: `ecto_sql` 3.14.0 and `postgrex` 0.22.4 (the Repo, transactions and
+source. Providers: `ecto_sql` 3.14.0 and `postgrex` 0.23.0 (the Repo, transactions and
 migrations), `elixir`; the tests also use `jason` (Postgrex decodes JSON `EXPLAIN`) and
 `telemetry`. Exact versions and claim-level grounding are in [piece.json](piece.json).
 
@@ -156,7 +156,15 @@ for PUBLIC); without it every query of a protected table fails with 42501 and `v
 ## Evidence
 
 [test/elzoo/tenant_isolation_test.exs](test/elzoo/tenant_isolation_test.exs) runs on the
-worker's own disposable PostgreSQL 16 database (`ELZOO_TEST_DATABASE_URL`) behind a fail-closed
+worker's own disposable PostgreSQL 19 database (`ELZOO_TEST_DATABASE_URL`) behind a fail-closed
 target guard, in random schemas dropped afterwards, connected as the owner with `FORCE`, as a
 role that must not bypass row security. Finite scenarios, not proofs; row-level security,
 `set_config` and savepoint semantics are PostgreSQL's.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19; its tests now require a PostgreSQL 19 server.
+  A host on an older server upgrades to PostgreSQL 19 before taking this
+  revision. No code or API change: only the module documentation names the new
+  server and the README names the current provider pins.

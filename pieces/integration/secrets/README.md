@@ -103,7 +103,7 @@ secure erasure, sandbox or universal secret detection is claimed.
   exact arity/key validation; no global settings or hot updates. Grant is data.
 - Control: `not_applicable`; no owned lifecycle.
 
-Dependencies: no Pieces; only Elixir 1.20.4 and OTP 29.1.2 (Apache-2.0).
+Dependencies: no Pieces; only Elixir 1.20.5 and OTP 29.1.3 (Apache-2.0).
 Local source is Apache-2.0. No new package, provider SDK or Cure law is added.
 Platform contracts: [catch semantics](https://hexdocs.pm/elixir/1.20.4/Kernel.SpecialForms.html#try/1)
 and [system time](https://www.erlang.org/doc/apps/erts/erlang.html#system_time/1).

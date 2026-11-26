@@ -30,7 +30,7 @@ defmodule Elzoo.TenantIsolationTest do
       do: raise("the test role bypasses row security; the cases need a non-bypass owner")
 
     [[version]] = Harness.query!(AdminRepo, "SELECT current_setting('server_version_num')").rows
-    assert String.to_integer(version) in 160_000..169_999
+    assert String.to_integer(version) in 190_000..199_999
     # pool_size 1: every call and every check below runs on the same pooled connection.
     Harness.start!(TestRepo, pool_size: 1)
     Harness.start!(SandboxRepo, pool_size: 1, pool: Sandbox)

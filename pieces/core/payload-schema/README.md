@@ -52,7 +52,7 @@ No logs or telemetry are emitted.
 
 ## Reuse, trust and limits
 
-JSV 0.27.0 is used with `resolver: [], formats: false, atoms: false,
+JSV 0.28.1 is used with `resolver: [], formats: false, atoms: false,
 warnings: :silence` and `cast: false` validation. Default dialect is 2020-12;
 explicit `$schema` must be `https://json-schema.org/draft/2020-12/schema`.
 Local fragment references and the embedded standard meta-schema work.

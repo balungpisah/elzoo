@@ -431,7 +431,7 @@ Pieces: none at runtime. It consumes `core/envelope` and `core/port`
 unchanged only where a consumer carries a decision in an Envelope payload
 (opaque) behind its own schema id; no Envelope/Port field is extended.
 Providers: pinned Cure `208248063d64e621782cd26dd30698ee42850a89`, Elixir
-1.20.4, OTP 29.1.2.
+1.20.5, OTP 29.1.3.
 
 ## Limits
 

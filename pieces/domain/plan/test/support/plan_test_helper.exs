@@ -90,7 +90,7 @@ defmodule Elzoo.PlanTest.Harness do
       do: flunk("effective database differs from configured; refusing")
 
     [[version]] = q!(OwnerRepo, "SELECT current_setting('server_version_num')")
-    assert String.to_integer(version) in 160_000..169_999
+    assert String.to_integer(version) in 190_000..199_999
     role
   end
 

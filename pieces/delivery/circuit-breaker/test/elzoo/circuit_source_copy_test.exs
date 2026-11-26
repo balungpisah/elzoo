@@ -113,7 +113,7 @@ defmodule Elzoo.CircuitSourceCopyTest do
     apps = Enum.reduce([:cure, :fuse, :telemetry], MapSet.new(), &closure.(closure, &1, &2))
     refute MapSet.member?(apps, :elzoo)
     assert Application.spec(:fuse, :vsn) == ~c"2.5.0"
-    assert Application.spec(:telemetry, :vsn) == ~c"1.4.2"
+    assert Application.spec(:telemetry, :vsn) == ~c"1.4.3"
     Enum.flat_map(apps, &["-pa", Application.app_dir(&1, "ebin")])
   end
 

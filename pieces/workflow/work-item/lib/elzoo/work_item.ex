@@ -2,7 +2,7 @@
 defmodule Elzoo.WorkItem do
   @moduledoc """
   The durable record of one item that a parent Run delegated to one child Run, over a
-  consumer-owned Ecto Repo on PostgreSQL 16, in the table that
+  consumer-owned Ecto Repo on PostgreSQL 19, in the table that
   `Elzoo.WorkItem.Migration.install/1` creates under the `state/tenant-isolation` floor.
 
   `create/3` stores an item `open` at revision 1 with its stable intent (a

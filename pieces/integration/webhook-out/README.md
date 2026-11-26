@@ -1,6 +1,6 @@
 # integration/webhook-out
 
-Signed outbound events to tenant endpoints over a consumer-owned Ecto Repo on PostgreSQL 16,
+Signed outbound events to tenant endpoints over a consumer-owned Ecto Repo on PostgreSQL 19,
 under the `state/tenant-isolation` floor. A tenant registers HTTPS **endpoints** for named
 events. The host **enqueues** an event once, and the Piece writes one **delivery** per endpoint
 that listens for that name. Each send is one POST signed with the
@@ -26,7 +26,7 @@ Select `integration/webhook-out` with `mix elzoo.take`. The copy is owned by the
 application. See [consuming](../../../docs/consuming.md). Piece dependencies:
 `state/tenant-isolation`, `delivery/effect-intent`, `delivery/retry-timeout`,
 `delivery/dead-letter`, `delivery/dead-letter-store`, `integration/egress-policy` and
-`integration/secrets`. Providers: `ecto_sql` 3.14.0 and `postgrex` 0.22.4 (the Repo,
+`integration/secrets`. Providers: `ecto_sql` 3.14.0 and `postgrex` 0.23.0 (the Repo,
 transactions and migrations), `req` 0.7.5 (the one POST), `jason` (canonical JSON), `otp`
 (`:crypto` HMAC-SHA-256 and SHA-256, `:rand`, `Task`) and `elixir`. The tests also use `plug`
 (the `Req.Test` receiver) and `telemetry`. Exact versions and claim-level grounding are in
@@ -322,9 +322,17 @@ secret as well as by `webhook-id`.
 ## Evidence
 
 [test/elzoo/webhook_out_test.exs](test/elzoo/webhook_out_test.exs) runs on the worker's own
-disposable PostgreSQL 16 database (`ELZOO_TEST_DATABASE_URL`) behind a fail-closed target guard.
+disposable PostgreSQL 19 database (`ELZOO_TEST_DATABASE_URL`) behind a fail-closed target guard.
 It uses `DBConnection.ConnectionPool` Repos, not the Sandbox, in a random schema dropped
 afterwards. The application connections `SET ROLE` to `ELZOO_TEST_APP_ROLE` with only the grants
 above. The effect-intent owners run on the volatile Memory Store, acknowledged with
 `allow_volatile: true`, as `integration/ai-text`'s tests use it. These are finite scenarios, not
 proofs. Row security, `SKIP LOCKED`, `ON CONFLICT` and read-committed re-reads are PostgreSQL's.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19. A host on an older server upgrades to
+  PostgreSQL 19 before taking this revision. No code or API change: only the
+  module documentation names the new server and the README names the current
+  provider pins.

@@ -61,7 +61,7 @@ This table summarizes the sections below; it adds no Contract or claim.
 | Ready Piece bundles with the applicable source, tests, examples, README Contract and limits, `piece.json` claims, and Apache-2.0 license and NOTICE | Its own Mix project, `mix.exs`, `mix.lock` and dependency resolution, including transitive packages |
 | A receipt per selection under `.elzoo/receipts/`: origin revision when available, dirty-source indicator, original file hashes, selected claims and the provider versions tested in Elzoo | Pinning recorded versions for exact reproduction and rerunning boundary tests after any update |
 | Install snippets under `.elzoo/install/*.md`: dependency and configuration text to merge by hand | Its Application, supervisor tree, test helper and configuration; the copier rewrites none of them |
-| For Cure Pieces: the small Mix compiler source and instructions to register it before `:app`; Cure stays a pinned build/test dependency | The recorded Elixir 1.20.4 / OTP 29.1.2 baseline for the recorded proof results |
+| For Cure Pieces: the small Mix compiler source and instructions to register it before `:app`; Cure stays a pinned build/test dependency | The recorded Elixir 1.20.5 / OTP 29.1.3 baseline for the recorded proof results |
 | Claim-level grounding and limits, including selected laws, tests, upstream contracts or assumptions where recorded in the README and `piece.json` | Evidence for its own edits and composition; copied evidence does not survive edits automatically |
 | Explicit Needs where declared by a Piece | Supplying the external capabilities a selected Piece declares it needs |
 | Pure Operators and explicit Effect and Adapter boundaries where provided | Its effects, delivery policy and persistence, and an OTP shell where a lifecycle needs a process |
@@ -131,7 +131,7 @@ The copier does not perform or certify this renaming. Loading two different
 revisions with unchanged names is unsupported; the second module can replace
 the first in the VM. Applications also must not mix conflicting copies.
 This first copier does not merge concurrent edits. The Cure compiler requires the recorded
-Elixir 1.20.4 / OTP 29.1.2 baseline for the recorded proof results.
+Elixir 1.20.5 / OTP 29.1.3 baseline for the recorded proof results.
 
 ## Weave
 

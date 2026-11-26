@@ -1,7 +1,7 @@
 # assembly/knowledge-ingest
 
 One durable Assembly in plain Elixir, Ecto and Postgrex over a consumer-owned Ecto Repo on
-PostgreSQL 16. It takes one pinned `state/artifact` version of a tenant's document and runs it
+PostgreSQL 19. It takes one pinned `state/artifact` version of a tenant's document and runs it
 through `integration/document-parse`, `integration/text-chunking`, `integration/ai-embedding`
 (through the `delivery/effect-intent` owner) and `integration/search-data` as bounded Oban jobs
 over `integration/jobs`. It keeps a durable ingest record, staged chunks and counted embedding
@@ -15,7 +15,7 @@ not mark it; the host marks retrieved chunks with `workflow/untrusted-content`.
 
 Select `assembly/knowledge-ingest` with `mix elzoo.take`; the dependency-closed copy is owned by
 the consuming application. Piece dependencies and claim-level grounding are in
-[piece.json](piece.json). Providers: `oban` 2.24.2, `ecto_sql` 3.14.0, `postgrex` 0.22.4,
+[piece.json](piece.json). Providers: `oban` 2.24.2, `ecto_sql` 3.14.0, `postgrex` 0.23.0,
 `elixir`, `otp`.
 
 ## Host composition
@@ -260,7 +260,7 @@ a superuser or `BYPASSRLS` role ignores them.
 
 ## Grounding, operations and limits
 
-- Tests (`test/elzoo/*.exs`) on a disposable PostgreSQL 16 with pgvector, a real Oban 2.24.2
+- Tests (`test/elzoo/*.exs`) on a disposable PostgreSQL 19 with pgvector, a real Oban 2.24.2
   instance (drained, so no real backoff, snooze or wait runs, except group 6, which runs the
   queue and a short Lifeline), a scripted provider that counts its calls and a real
   `state/artifact` store over the disposable MinIO; the intent Store on `integration/sql` except
@@ -301,3 +301,11 @@ that share one effect-intent Store and one embedding binding must not also reuse
 prefix and index identity: their equal submissions get one ingest ID and so one intent per
 attempt. The actor and the caller are host-vouched, not authenticated. Ingesting grants no
 authority and prevents no injection.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19. A host on an older server upgrades to
+  PostgreSQL 19 before taking this revision. No code or API change: only the
+  module documentation names the new server and the README names the current
+  provider pins.

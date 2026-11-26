@@ -179,7 +179,7 @@ Evolution note: observation added through `runtime/telemetry` (ELZ-052,
 observer; inputs, outputs, state, delivery and failure guarantees are
 unchanged; **no Contract change**, so the Piece ID is kept. Reason: operators
 need consistent observations of job and effect execution without reading
-code. The added Need is the `telemetry` library (1.4.2), already loaded by Oban,
+code. The added Need is the `telemetry` library (1.4.3), already loaded by Oban,
 Req and Ecto.
 
 - `[:elzoo, :job, :start | :stop | :exception]` with `operation: :perform`
@@ -199,3 +199,8 @@ Req and Ecto.
   another process. A handler that fails is detached by `telemetry` and does
   not change a result. Root Elzoo.Application is
 not required; the consumer supplies Repo/Oban and explicit bounded supervisors.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the telemetry Need moves from 1.4.2 to 1.4.3, the root
+  pin. No code or API change.
