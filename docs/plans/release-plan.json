@@ -12497,7 +12497,7 @@
       "disposition": "merged-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/approval/piece.json",
-      "manifest_sha256": "d2a2847225b48e40f0f9f9e74810e98b65d7189c4232b3acb26d4013a179e55b"
+      "manifest_sha256": "338f0a8edeba75c3aa6906b20f3650038a1fcb8ff1d9eed1170a2b7c695e54e4"
     },
     {
       "id": "workflow/budget",
