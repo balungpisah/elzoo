@@ -11288,13 +11288,13 @@
           "role": "In-place fix under the same ID: every pending stop is bound to its Attempt, as ELZ-420 does for a root failure."
         }
       ],
-      "acceptance": "assembly/run-engine binds a completed stop and each lifecycle stop, its evidence row and the owner command to the Attempt that produced it; a restart after a new Attempt drops the stale stop; the reader replays every record that ends a pending stop or changes the Attempt; crash tests in both orders and negative controls; Piece gate, strongest other-family review.",
+      "acceptance": "assembly/run-engine binds a completed stop and each lifecycle stop, its evidence row where written and the owner command to the Attempt that produced it; a stale owner answer or a restart after a new Attempt drops the stale stop without resetting Run-wide limits; during a retained-history read with a stop pending, records that end it or change the Attempt replay exactly; two crash cuts per stop, a transcript tamper case and negative controls; Piece gate, strongest other-family review.",
       "product_aims": [
         "P09"
       ],
       "issue": 1036,
       "url": "https://github.com/balungpisah/elzoo/issues/1036",
-      "issue_body_sha256": "6a182c85414dc79c01e1ec5fde2a3558ba353d60bc8db46798a5f2fd60147986"
+      "issue_body_sha256": "bae685541420486d85619b9a37a979d29e54af056a0046d401809a0bbd9df222"
     }
   ],
   "entries": [

@@ -5782,6 +5782,6 @@ Publication copy: [tasks/ELZ-430-run-engine-stop-bound-to-attempt.md](../../task
 
 **Product aims:** P09.
 
-**Acceptance:** assembly/run-engine binds a completed stop and each lifecycle stop, its evidence row and the owner command to the Attempt that produced it; a restart after a new Attempt drops the stale stop; the reader replays every record that ends a pending stop or changes the Attempt; crash tests in both orders and negative controls; Piece gate, strongest other-family review.
+**Acceptance:** assembly/run-engine binds a completed stop and each lifecycle stop, its evidence row where written and the owner command to the Attempt that produced it; a stale owner answer or a restart after a new Attempt drops the stale stop without resetting Run-wide limits; during a retained-history read with a stop pending, records that end it or change the Attempt replay exactly; two crash cuts per stop, a transcript tamper case and negative controls; Piece gate, strongest other-family review.
 
 **Secondary contribution:** assembly/run-engine — In-place fix under the same ID: every pending stop is bound to its Attempt, as ELZ-420 does for a root failure.
