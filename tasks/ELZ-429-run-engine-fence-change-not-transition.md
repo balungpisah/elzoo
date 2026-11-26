@@ -18,26 +18,33 @@ record follows instead of the single-step settlement that the test pins. The
 independent review of ELZ-422 found this; it is fixed in place under the same
 ID (the rule of ELZ-415).
 
-- A status view that differs from the engine's recorded Run only in
-  `revision` (equal `id`, `operation_id`, `current_attempt` and `outcome`) is
-  a fence change, not a Run transition: the engine commits no journal record
-  for it and settles nothing because of it.
-- The engine keeps working across renewals and across an owner restart whose
-  startup fence includes earlier renewals: its next owner command applies (the
+- Suppress `:run_view` only when the owner's durable history establishes that
+  every revision after the engine's recorded `run_revision` is a lease
+  renewal. Preserve the existing journal behavior when the interval includes
+  a Run record, including Approval requests and evidence, which advance the
+  revision without changing `id`, `operation_id`, `current_attempt` or
+  `outcome` (the publication fixture of `run_engine_test.exs` expects their
+  `:run_view` records). The proof must survive an owner restart; the live
+  owner's revision floor alone is not sufficient. `RunApprovalRelease`
+  exposes it, derived from its durable stream (for example the revision of
+  its newest Run record in `status/2`), as an additive change with a
+  `## Changes` entry in its own README.
+- For a renewal-only interval the engine commits no journal record and
+  settles nothing because of it, and its next owner command applies (the
   owner accepts a revision from before its own renewals while it lives,
-  ELZ-422), and after a restart a conflict that a fresh status read explains
-  as a fence change only does not fail the Run. The README states how the
-  engine learns the fenced revision and what it journals for it.
-- A view whose `current_attempt`, `operation_id` or `outcome` changed is a Run
-  transition exactly as today. Histories without renewals keep their journal,
-  transcripts, frozen fixtures and cold-recovery results unchanged.
+  ELZ-422). The README states how the engine learns the fenced revision and
+  what it journals for it.
+- A view whose interval includes a Run record is a Run transition exactly as
+  today. Histories without renewals keep their journal, transcripts, frozen
+  fixtures and cold-recovery results unchanged.
 - The README `## Changes` entry names the change; a changed `piece.json` gets
   a new `manifest_sha256` in its `entries` row, with `note` equal to a changed
   `contract`.
 
-Paths: `pieces/assembly/run-engine/**`, the `entries` row of
-`assembly/run-engine` in `docs/plans/release-plan.json`, and the generated
-`LEDGER.md` and `docs/plans/views.md`. New external dependencies: none.
+Paths: `pieces/assembly/run-engine/**`, `pieces/workflow/run-approval-release/**`
+(only for the durable proof above), the `entries` rows of both Pieces in
+`docs/plans/release-plan.json`, and the generated `LEDGER.md` and
+`docs/plans/views.md`. New external dependencies: none.
 
 ## Acceptance
 
@@ -47,8 +54,14 @@ Paths: `pieces/assembly/run-engine/**`, the `entries` row of
   no journal record for the renewal.
 - Several renewals between commands of a live Run: no journal record per
   renewal, and every command applies.
-- An owner restart after renewals: the engine's next command applies without
-  failing the Run, and the journal shows no settlement change.
+- An Approval request or evidence write interleaved with renewals: its
+  `:run_view` record is journaled as today, and the renewals around it add
+  none.
+- After renewals, stop the owner and start a replacement using the current
+  held token. Reopen the engine against the replacement owner and the
+  existing Unit journal. Startup adds no renewal-only record, and a new owner
+  command using a freshly read revision applies. Explicit stale-revision
+  commands stay subject to the existing conflict rule.
 - A real transition (a new Attempt, an outcome) after renewals is journaled
   with today's effects.
 - A negative control: committing a `:run_view` for a fence-only change makes

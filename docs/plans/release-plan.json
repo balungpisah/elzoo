@@ -11162,7 +11162,7 @@
       ],
       "issue": 1026,
       "url": "https://github.com/balungpisah/elzoo/issues/1026",
-      "issue_body_sha256": "19f29717521a202eeb76182b672e0bbd3d78c57c01ee74126a147722314a74b8"
+      "issue_body_sha256": "92ed21b2818295294efe21dc55c3fe2f14a2e1db71432067076b304cc23dff32"
     },
     {
       "id": "ELZ-427",
@@ -11247,6 +11247,10 @@
         {
           "id": "assembly/run-engine",
           "role": "In-place fix under the same ID: a renewal-only revision change of the Run owner is a fence change, not a Run transition."
+        },
+        {
+          "id": "workflow/run-approval-release",
+          "role": "Additive change under the same ID: status/2 exposes the durable proof that an interval holds only lease renewals."
         }
       ],
       "acceptance": "assembly/run-engine commits no journal record and settles nothing for a revision change that only a lease renewal caused, keeps working across renewals and owner restarts, and journals real transitions as today; single-step settlement with a renewal, negative control; Piece gate, strongest other-family review.",
@@ -11255,7 +11259,7 @@
       ],
       "issue": 1031,
       "url": "https://github.com/balungpisah/elzoo/issues/1031",
-      "issue_body_sha256": "3006ca66a910cb9fd853b6ef2e1ed4b78806326c3077c509e84ba7573fe185e4"
+      "issue_body_sha256": "b49ba9b9842e7891af3db39f0440c4b973bc44df1b1ec2e38f04478a6ddf57e6"
     }
   ],
   "entries": [

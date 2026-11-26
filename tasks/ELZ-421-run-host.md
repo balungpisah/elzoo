@@ -201,8 +201,12 @@ and fences its processes on `{:refused, {:lease_lost, refusal}}`,
 `{:unknown, :no_receipt}` (each of these stops the owner), and calls
 `on_lost.(run_ref, reason)`. A `renew/2` call that exits on its caller
 timeout is an unconfirmed renewal: the host treats it like
-`{:unknown, :no_receipt}` (stops admission for that Run and fences). The
-engine treats a renewal as a fence change, not a Run transition (ELZ-429).
+`{:unknown, :no_receipt}` (stops admission for that Run and fences). Test:
+delay a renewal reply until after the caller timeout; the host stays alive,
+stops admission, calls `on_lost` and confirms the old owner is fenced before
+any replacement, and a late successful renewal neither reopens admission nor
+supplies a `reconcile:` receipt. The engine treats a renewal as a fence
+change, not a Run transition (ELZ-429).
 Only the indeterminate result supplies a receipt
 for `reconcile:` at a later start. A host that tries to start or wake a Run
 whose lease another live owner holds is refused and starts no engine.

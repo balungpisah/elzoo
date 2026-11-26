@@ -5768,3 +5768,5 @@ Publication copy: [tasks/ELZ-429-run-engine-fence-change-not-transition.md](../.
 **Acceptance:** assembly/run-engine commits no journal record and settles nothing for a revision change that only a lease renewal caused, keeps working across renewals and owner restarts, and journals real transitions as today; single-step settlement with a renewal, negative control; Piece gate, strongest other-family review.
 
 **Secondary contribution:** assembly/run-engine — In-place fix under the same ID: a renewal-only revision change of the Run owner is a fence change, not a Run transition.
+
+**Secondary contribution:** workflow/run-approval-release — Additive change under the same ID: status/2 exposes the durable proof that an interval holds only lease renewals.
