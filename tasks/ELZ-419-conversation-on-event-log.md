@@ -86,6 +86,9 @@ is retried only with the identical operation.
 - `{:error, :contended}`: the Store's compare-and-set on the head lost more
   times than the bound that the README states. On each conflict the owner
   reads only the new rows, folds them and decides again.
+- `{:error, :unavailable}` or `{:error, :damaged}`: that refresh could not
+  read the Store, or found a row that fails validation; nothing was appended
+  by this call.
 - `{:unknown, :unresolved}`: an append was indeterminate and could not be
   resolved. The owner resolves an indeterminate append by the proposed row's
   nonce and bytes (`Elzoo.DurableLog` confirmation) or by finding the
