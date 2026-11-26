@@ -60,7 +60,9 @@ them, then applies the intents in order to a copy of that projection with the
 same decision rules, and returns one decision per intent: `:ok` for a new
 admissible record, or the same duplicate or refusal decision as the write
 against the same history (`{:ok, :already_present}` or `{:refused, code}`).
-It never appends or reserves a sequence. Each owner call has a bounded
+It never appends or reserves a sequence. A refresh that cannot read the
+Store returns `{:error, :unavailable}`, and a row that fails validation
+returns `{:error, :damaged}`, as for the calls. Each owner call has a bounded
 timeout that the README states: a timed-out check returns
 `{:error, :timeout}`; a timed-out append returns `{:unknown, :unresolved}` and
 is retried only with the identical operation.
