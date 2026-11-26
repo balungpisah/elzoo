@@ -660,6 +660,87 @@ defmodule Elzoo.RunEngineFailedFinishTest do
       assert decode(row).attempt_id == "attempt"
       assert_second_attempt_open(c, engine, [row])
     end
+
+    test "a restart past the Run deadline with local work running completes the owner failed, in v1 and v2" do
+      for version <- [1, 2] do
+        v2? = version == 2
+        frame = if v2?, do: &request_v2/1, else: &request/1
+        version_opts = if v2?, do: [protocol_version: 2], else: []
+        parent = self()
+        finish = finish_action("finish", @null, "stopped-null")
+
+        c =
+          fixture([pattern: pattern([frame.([action("slow"), finish])])] ++ version_opts)
+          |> with_schemas()
+
+        bindings =
+          Map.update!(
+            c.opts[:bindings],
+            "local_work",
+            &Map.put(&1, :work, fn a -> {TestPattern, :blocked, [parent, a["payload"]]} end)
+          )
+
+        # The finish is dispatched while `slow` runs; the engine dies at its owner command,
+        # after the failure and its evidence row.
+        forwarder = forwarder(c, :kill)
+        engine = start(c, bindings: bindings, run_owner: forwarder, result_reader: reader(c))
+        monitor = Process.monitor(engine)
+        input = if v2?, do: start_input_v2(), else: start_input()
+        catch_exit(RunEngine.input(engine, "start", input, verified()))
+        assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+        assert_receive {:local_started, _}
+        state = unit_state(c)
+        assert %{stop_pending: :failed} = state.control
+        assert {_, %{phase: :running}} = slot_of(state, "slow")
+        assert [orphan] = evidence_rows(c)
+
+        # The restart is past the Run deadline: recovery records the loss of `slow` at that
+        # time, and the lifecycle asks for out_of_time in its step. The failure stays.
+        Agent.update(c.clock, fn _ -> 61_000 end)
+        engine = start(c, bindings: bindings, result_reader: reader(c))
+        assert %{phase: :terminal, outcome: :failed} = wait_for(engine, &(&1.outcome != nil))
+
+        assert [_] =
+                 for(
+                   %{kind: :protocol, input: %{"at_ms" => 61_000}, correlation: %{loss: _}} <-
+                     records(c),
+                   do: :loss
+                 )
+
+        assert [^orphan, named] = evidence_rows(c)
+        ref = %{stream: "evidence", sequence: named.sequence}
+        assert [{:terminal, "run", :failed, "pattern", ^ref, _}] = terminal_rows(c)
+
+        assert {:failed, %{evidence_ref: ^ref, action_id: "finish", payload: @null}} =
+                 result(engine)
+      end
+    end
+
+    test "the fold of a later input that asks the lifecycle for a stop leaves the failure pending" do
+      finish = finish_action("finish", @null, "stopped-null")
+      c = with_schemas(fixture(pattern: pattern([request([finish])])))
+      engine = start(c, run_owner: forwarder(c, :kill), result_reader: reader(c))
+      monitor = Process.monitor(engine)
+      catch_exit(send_input(engine))
+      assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+      state = unit_state(c)
+      assert %{stop_pending: :failed, completion: key} = state.control
+
+      # A wake past the Run deadline asks for out_of_time, a cancel for cancelled and a
+      # wake at the request cap for out_of_budget; each step keeps the failure.
+      cancel = %{"type" => "input", "version" => 1, "kind" => "cancel", "attempt_id" => "attempt"}
+      at_cap = put_in(state.control.count, state.control.cap)
+
+      for {from, input, asked} <- [
+            {state, Map.put(wake(), "at_ms", 61_000), :out_of_time},
+            {state, cancel, :cancelled},
+            {at_cap, wake(), :out_of_budget}
+          ] do
+        assert {:Transition, next, :none} = RunEngine.step(from, protocol_record("later", input))
+        assert next.control.classification == {:request_outcome, asked}
+        assert %{stop_pending: :failed, completion: ^key} = next.control
+      end
+    end
   end
 
   describe "native_v2_failed_finish" do

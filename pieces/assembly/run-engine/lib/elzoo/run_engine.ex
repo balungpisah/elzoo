@@ -1644,10 +1644,15 @@ defmodule Elzoo.RunEngine do
     })
   end
 
+  # A lifecycle stop asked for while a root failure is pending (the Run deadline, a
+  # cancel or a Budget stop, also in the step of a loss that recovery records past the
+  # deadline) does not replace it: the failure stays the stop that finish_run/3
+  # completes. Any other pending stop is replaced as before.
   defp install_lifecycle(state, life, decision) do
     state = put_in(state.control.lifecycle, %{life | tracker: tracker(state.version, %{})})
 
     case decision do
+      {:request_outcome, _} when state.control.stop_pending == :failed -> state
       {:request_outcome, outcome} -> put_in(state.control.stop_pending, outcome)
       _ -> state
     end

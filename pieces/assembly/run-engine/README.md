@@ -426,13 +426,14 @@ evidence Store and the same retention count used by the Unit.
 The authoritative Run owner is read first. A nonterminal Run, including paused
 or waiting-for-person ASK, returns `{:pending, :not_completed}`; a terminal Run
 with outcome `:cancelled`, `:out_of_budget` or `:out_of_time` returns
-`{:terminal, outcome}` and reads no history. A `completed` or `failed` Run causes
-history reads (a `failed` Run below). For v2, the selected completion source
-may be a directly completed `wait_event` or later `local_work` after an outside
-event. In either case, the reader cross-checks the activation record and
-accepted event receipt against the paired input/result history and completion
-evidence. Existing v1 pending/terminal early returns remain unchanged. The
-reader scans committed Unit rows from sequence 1 one row per Store page, folds
+`{:terminal, outcome}` and reads no history, in v1 and v2 alike. A `completed` or
+`failed` Run causes history reads in both versions (a `failed` Run below; before
+ELZ-420 a `failed` Run returned `{:terminal, :failed}` with no read). For v2, the
+selected completion source may be a directly completed `wait_event` or later
+`local_work` after an outside event. In either case, the reader cross-checks the
+activation record and accepted event receipt against the paired input/result
+history and completion evidence. The reader scans committed Unit rows from
+sequence 1 one row per Store page, folds
 recorded input/result pairs with
 `DurableUnit.fold/1`, and cross-checks the first accepted settlement of the
 exact completion source occurrence, Run, Attempt, operation, action, slot and
@@ -590,17 +591,20 @@ and completes the Run owner for that Attempt with `:failed`, reason `"pattern"` 
 that row's reference. The reason describes; `result/3` proves the failure from the
 Unit history. A crash between the evidence row and the owner command leaves the row
 unreferenced: the restart replays to the same state, appends an equal row and
-completes the owner once, naming the new row. A change of Attempt that the engine
-takes before the owner records the failure (a host that begins an Attempt on the
-owner while the engine is down, or between the row and the command, which the owner
-then answers `stale` and the engine follows with the new Run view) drops it in the
-fold of that Run view: the pending stop, the completion and the closed generation
-of the finish go (a request-cap stop keeps its own), the row stays unreferenced,
-the new Attempt is not failed, and its inputs reach the root again. A nested
-finish never ends a Run (above). Records carry the decision, so a Run recorded
-before this rule replays as recorded: a root finish refused there stays refused,
-and one admitted but not yet dispatched when the engine stopped is dispatched by
-this rule at the restart.
+completes the owner once, naming the new row. The failure, once pending, is the
+stop that the owner gets: a lifecycle stop asked for in a later step (the Run
+deadline, a cancel or a Budget stop) does not replace it, also when a restart past
+the Run deadline records the loss of local work that was running. A change of
+Attempt that the engine takes before the owner records the failure (a host that
+begins an Attempt on the owner while the engine is down, or between the row and
+the command, which the owner then answers `stale` and the engine follows with the
+new Run view) drops it in the fold of that Run view: the pending stop, the
+completion and the closed generation of the finish go (a request-cap stop keeps
+its own), the row stays unreferenced, the new Attempt is not failed, and its
+inputs reach the root again. A nested finish never ends a Run (above). Records
+carry the decision, so a Run recorded before this rule replays as recorded: a
+root finish refused there stays refused, and one admitted but not yet dispatched
+when the engine stopped is dispatched by this rule at the restart.
 
 Each callable has a state bound. A pattern state over the bound of its callable is
 not stored (`invalid_pattern_state`; for an output over the request cap the answer
@@ -1549,7 +1553,12 @@ Attempt begun on the owner before the restart, and one begun between the evidenc
 row and the owner command, which the owner answers `stale`, leave the Run open in
 the new Attempt with no failure pending, no terminal owner record and no other
 evidence row, its wake reaches the root and the next request completes; a later
-plain failure of the new Attempt is `{:terminal, :failed}`) and
+plain failure of the new Attempt is `{:terminal, :failed}`. A restart past the Run
+deadline while local work runs, whose recorded loss makes the lifecycle ask for
+`out_of_time`, still completes the owner `:failed` with reason `"pattern"`, naming
+the retried row, and reads `{:failed, record}`, in v1 and v2; from the crashed
+state, the fold of a later wake past the deadline, a cancel and a wake at the
+request cap each keep the failure pending) and
 `native_v2_failed_finish` (a v2 Run failed this way reads through the v2 replay
 validation, `event_waits/3` and `transcript/3`, also after a restart, with no new
 record). Temporary edits are negative controls: the old dispatch rule (every
@@ -1569,7 +1578,9 @@ command that takes the owner's current Attempt (the engine halts with
 (`completion_mismatch`), no check of the steps into a pending failure (v1 gives
 `{:terminal, :failed}`), no replay of the steps out of one (v1 gives
 `{:terminal, :failed}` for the changed Run view; v2 alone still gives `history`
-from its own replay), loose equality of the admitted and the request-frame action
+from its own replay), a lifecycle stop that replaces a pending failure (the
+restart past the deadline ends the Run `:out_of_time`; the fold keeps
+`out_of_time`), loose equality of the admitted and the request-frame action
 (`{:failed, record}` with payload `1.0`) and the evidence row read without its
 stream check (the moved row gives `{:failed, record}`). Listed finite scenarios,
 not a proof.
@@ -1586,8 +1597,10 @@ not a proof.
   settles the finish slot `completed` with the finish's own schema and payload at
   actual 0; the engine appends a completion evidence row naming the finish and its
   Attempt and completes the Run owner `:failed` for that Attempt with reason
-  `"pattern"`; a change of Attempt before the owner records it drops the failure,
-  so a new Attempt is never failed by an older finish. `result/3` for an
+  `"pattern"`; a lifecycle stop asked for while the failure is pending (the Run
+  deadline, also at a restart, a cancel or a Budget stop) does not replace it, and
+  a change of Attempt before the owner records it drops the failure, so a new
+  Attempt is never failed by an older finish. `result/3` for an
   owner `:failed` now reads the history: `{:failed, record}` (the keys of the
   completed record, the finish payload) for this Run's root failure,
   `{:terminal, :failed}` for a verified history without one, and a bounded error
