@@ -339,9 +339,11 @@ Memory and PostgreSQL Stores unless a case says otherwise:
   are the same. With a clock that has not passed their expiry, no marker is
   appended and the command stays `:capacity`.
 - Checkpoints after retention: hold a pending outbox item across several
-  maintenance cycles and show that checkpoints above the pinned floor remain.
-  Acknowledge the item, advance retention, and on both Stores verify that
-  checkpoints below the new `low_water` are gone and recovery still works.
+  maintenance cycles, each at a distinct anchor (a committed command between
+  cycles, so no cycle reuses the previous checkpoint), and show that
+  checkpoints above the pinned floor remain. Acknowledge the item, advance
+  retention, and on both Stores verify that checkpoints below the new
+  `low_water` are gone and recovery still works.
 - Checkpoint use: an incompatible checkpoint (another version, or the stock
   checkpoint that the existing test installs) is never used, and a pruned
   stream with no usable checkpoint is `{:unknown, :unresolved}`.
