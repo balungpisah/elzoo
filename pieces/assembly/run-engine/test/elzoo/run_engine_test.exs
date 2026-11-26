@@ -4711,6 +4711,14 @@ defmodule Elzoo.RunEngineTest do
         engine = start(c, store: store, directory: directory, bindings: bindings)
         assert {:error, :storage_unknown} = send_input(engine)
         GenServer.stop(engine)
+
+        # Stopping the engine doesn't wait for the indeterminate Unit to leave the directory.
+        assert bounded(fn ->
+                 Enum.any?(Stream.interval(1), fn _ ->
+                   DynamicUnits.find(directory, c.prefix) == :not_found
+                 end)
+               end)
+
         assert :ok = DynamicUnits.stop(directory, c.prefix)
 
         engine = start(c, store: store, directory: directory, bindings: bindings)
