@@ -12492,12 +12492,12 @@
     {
       "id": "workflow/approval",
       "job": "ELZ-024",
-      "note": "Pure consent record over a caller-held state: request/3 opens, keeps or supersedes (revision + 1) a request bound structurally to the ASK action, escrow, policy identity and requirement; release/4 accepts host-verified evidence or a retained run/root consent, runs gates 0-21 in Cure (run, request, verifier allowlist, revocation, consumption, binding-only reuse, decision, Unix-ms issue/age/expiry, scope, approver, self-approval, re-decide, DENY, policy, payload, requirement, approver authority) and emits only the current decision's escrow within approver authority, once. select_retained/3, revalidate/3, revoke/2, apply_event/2 and replay/1 complete the Contract; replay returns state only.",
+      "note": "Pure consent record over a caller-held state: request/3 opens, keeps or supersedes (revision + 1, at most 2^31-1) a request bound structurally to the ASK action, escrow, policy identity and requirement; release/4 accepts host-verified evidence or a retained run/root consent, runs gates 0-21 in Cure (run, request, verifier allowlist, revocation, consumption, binding-only reuse, decision, Unix-ms issue/age/expiry, scope, approver, self-approval, re-decide, DENY, policy, payload, requirement, approver authority) and emits only the current decision's escrow within approver authority, once. select_retained/3, revalidate/3, revoke/2, apply_event/2 and replay/1 complete the Contract; replay returns state only. prune/2 removes the entries whose evidence key is dead at a supplied Unix-ms time and the closed request entries that no surviving release record uses; retire/2 removes the request lines that the owner names; both are pure, emit no event, skip the capacity check and keep the order of the surviving entries. Under the opt-in Verifier, Clock and Retirement Needs they change only refusal reasons, for every input on which both states pass the capacity check and whose request key or line is not retired.",
       "baseline_status": "deferred",
-      "disposition": "merged-ready-contract; task acceptance separate",
+      "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/approval/piece.json",
-      "manifest_sha256": "d76e1f16ea28ad0040de37becd3d62efafe008c5f4f6bf34f500cab8311ab82b"
+      "manifest_sha256": "da50bb6b0a2243cba8c9062c9fe08dd4365d0053faf183984a924730618a5198"
     },
     {
       "id": "workflow/budget",
