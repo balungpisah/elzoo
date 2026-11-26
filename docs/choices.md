@@ -12,12 +12,11 @@ their choices to this page.
   change your copy without an Elzoo task.
 - A change of a Piece in Elzoo is a published task; the coordinator sizes and
   publishes tasks ([AGENTS.md section 9](../AGENTS.md#9-coordinator)).
-- The ID rule ([AGENTS.md section 4](../AGENTS.md#4-build)): Elzoo is not
-  released yet, and before the first release a ready Piece is changed in place
-  under its ID. From the first release, a change of a ready Piece's accepted
-  inputs, outputs, state, delivery, failure guarantees or Needs gets a new
-  Piece ID, and the old ID stays usable. A fix that restores the Contract
-  keeps the ID. "Under the ID rule" below means this rule.
+- The ID rule ([AGENTS.md section 4](../AGENTS.md#4-build)): From the
+  [first release commit](consuming.md#the-first-release) on, a change of a ready
+  Piece's accepted inputs, outputs, state, delivery, failure guarantees or Needs
+  gets a new Piece ID and migration notes. The old ID stays usable. A fix that
+  restores the Contract keeps its ID. "Under the ID rule" below means this rule.
 - A new dependency or a changed pin is always its own task, and it merges
   first ([AGENTS.md section 3](../AGENTS.md#3-lanes-how-many-workers-stay-safe)).
 
