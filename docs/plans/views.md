@@ -464,6 +464,15 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-413](https://github.com/balungpisah/elzoo/issues/1008) | V2 / later | ELZ-411 | published 2026-11-26 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
 | [ELZ-414](https://github.com/balungpisah/elzoo/issues/1007) | V2 / later | ELZ-411 | published 2026-11-26 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
 | [ELZ-415](https://github.com/balungpisah/elzoo/issues/1012) | V2 / later | ELZ-411 | published 2026-11-26 | coordinator; one-PR path for documents and docs/consuming.md; independent review and merge queue |
+| [ELZ-416](https://github.com/balungpisah/elzoo/issues/1013) | V2 / later | ELZ-415 | published 2026-11-26 | coordinator; root dependency change published before its implementation; independent review and merge queue |
+| [ELZ-417](https://github.com/balungpisah/elzoo/issues/1019) | V2 / later | ELZ-415, ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-419](https://github.com/balungpisah/elzoo/issues/1020) | V2 / later | ELZ-415, ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-420](https://github.com/balungpisah/elzoo/issues/1021) | V2 / later | ELZ-415, ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-422](https://github.com/balungpisah/elzoo/issues/1022) | V2 / later | ELZ-415, ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-423](https://github.com/balungpisah/elzoo/issues/1023) | V2 / later | ELZ-420 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-424](https://github.com/balungpisah/elzoo/issues/1016) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-425](https://github.com/balungpisah/elzoo/issues/1017) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-426](https://github.com/balungpisah/elzoo/issues/1024) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -5587,3 +5596,109 @@ Publication copy: [tasks/ELZ-415-ready-piece-improves-in-place.md](../../tasks/E
 **Product aims:** P10, P11.
 
 **Acceptance:** State the owner's rule of 2026-11-26 (a ready Piece keeps its ID when it improves; a breaking change records a README Changes entry; a new ID only for a new capability or a split) in AGENTS.md, docs/consuming.md, docs/choices.md, docs/catalogue.md and each Piece README or manifest limit that stated the old rule (wording only). Roadmap and claims checks, full hosted check, independent review.
+
+### ELZ-416
+
+ELZ-416 — Every pin to its latest stable release
+
+Publication copy: [tasks/ELZ-416-latest-stable-pins.md](../../tasks/ELZ-416-latest-stable-pins.md).
+
+**Product aims:** P09, P10, P11, P12.
+
+**Acceptance:** Move OTP, Elixir, the PostgreSQL service (19), the action pins and every Hex package to its latest stable release; name each held package and its holder; state moved versions in the Pieces that state them, each with a README Changes entry; the state/lease PostgreSQL 18+ catalog fix. Full gate, full hosted check on PostgreSQL 19, independent review.
+
+### ELZ-417
+
+ELZ-417 — workflow/approval: prune expired evidence and retire closed request lines
+
+Publication copy: [tasks/ELZ-417-approval-prune.md](../../tasks/ELZ-417-approval-prune.md).
+
+**Product aims:** P09, P10.
+
+**Acceptance:** workflow/approval gains a pure prune of entries whose evidence expired (verifier and clock Needs) and an explicit retirement of closed request lines, with capacity-excluded equivalence, Cure survivor laws and tests. Piece gate, strongest other-family review.
+
+**Secondary contribution:** workflow/approval — In-place improvement under the same ID: prune of dead entries and retirement of closed request lines.
+
+### ELZ-419
+
+ELZ-419 — state/conversation: an unbounded conversation on its own event-log stream
+
+Publication copy: [tasks/ELZ-419-conversation-on-event-log.md](../../tasks/ELZ-419-conversation-on-event-log.md).
+
+**Product aims:** P09.
+
+**Acceptance:** state/conversation moves to one event-log stream per conversation with no message cap: three record kinds with their own retry identities, an owner process, owner-free page and tail reads, an offline v1 import, and the wave 4 channel delivering through its outbox. Affected gate, strongest other-family review.
+
+**Secondary contribution:** state/conversation — In-place breaking change under the same ID: one event-log stream per conversation.
+
+### ELZ-420
+
+ELZ-420 — assembly/run-engine: a root finish that names no action fails its Run
+
+Publication copy: [tasks/ELZ-420-run-engine-failed-finish.md](../../tasks/ELZ-420-run-engine-failed-finish.md).
+
+**Product aims:** P09.
+
+**Acceptance:** assembly/run-engine closes a Run as failed on a root finish that names no action, with result/3 returning {:failed, record} from journaled evidence; the wave 9 test, AgentLoop and GraphRun texts follow. Affected gate, strongest other-family review.
+
+**Secondary contribution:** assembly/run-engine — In-place breaking change under the same ID: a root finish that names no action fails its Run.
+
+**Secondary contribution:** workflow/agent-loop — In-place text change under the same ID: its finish rule follows the engine's failed root finish.
+
+### ELZ-422
+
+ELZ-422 — workflow/run-approval-release: renew the held lease inside the live owner
+
+Publication copy: [tasks/ELZ-422-run-owner-lease-renewal.md](../../tasks/ELZ-422-run-owner-lease-renewal.md).
+
+**Product aims:** P09.
+
+**Acceptance:** workflow/run-approval-release gains serialized lease renewal that installs the new held token only on its own next revision, and stops on a lost renewal. Piece gate, strongest other-family review.
+
+**Secondary contribution:** workflow/run-approval-release — In-place improvement under the same ID: serialized lease renewal in the live owner.
+
+### ELZ-423
+
+ELZ-423 — assembly/run-engine: read the committed Run and pause deadlines
+
+Publication copy: [tasks/ELZ-423-run-engine-deadline-read.md](../../tasks/ELZ-423-run-engine-deadline-read.md).
+
+**Product aims:** P09.
+
+**Acceptance:** assembly/run-engine gains a read of the committed Run and pause deadlines, correct after internal pause, continue and recovery. Piece gate, strongest other-family review.
+
+**Secondary contribution:** assembly/run-engine — In-place improvement under the same ID: a read of the committed deadlines.
+
+### ELZ-424
+
+ELZ-424 — spikes/ash_foundation: every pin to its latest stable release
+
+Publication copy: [tasks/ELZ-424-ash-spike-latest-pins.md](../../tasks/ELZ-424-ash-spike-latest-pins.md).
+
+**Product aims:** P09.
+
+**Acceptance:** spikes/ash_foundation: every direct pin and the lock to the latest stable release, clearing the advisories in its lock; spike checks and the hosted check-spike job, independent review.
+
+### ELZ-425
+
+ELZ-425 — spikes/gleam_ui: every pin to its latest stable release
+
+Publication copy: [tasks/ELZ-425-gleam-spike-latest-pins.md](../../tasks/ELZ-425-gleam-spike-latest-pins.md).
+
+**Product aims:** P09.
+
+**Acceptance:** Update the Gleam spike, Node, npm, OTP and workflow action pins; run the spike scripts, CI guard tests and full local gate; require full check-hosted and gleam-hosted on the exact head, plus independent review.
+
+### ELZ-426
+
+ELZ-426 — runtime/lua-sandbox: PUC Lua 5.5.1
+
+Publication copy: [tasks/ELZ-426-lua-sandbox-lua-5-5.md](../../tasks/ELZ-426-lua-sandbox-lua-5-5.md).
+
+**Product aims:** P09.
+
+**Acceptance:** Move lua_source and runtime/lua-sandbox to PUC Lua 5.5.1 in place: recomputed source identity, every policy statement rechecked against 5.5.1 with tests and a negative control, 5.4.9 records documented as replay-incompatible, with a test showing the runtime identity changed; full gate and hosted check, strongest other-family review.
+
+**Secondary contribution:** runtime/lua-sandbox — In-place breaking change under the same ID: PUC Lua 5.5.1.
+
+**Secondary contribution:** runtime/recipe-test — Its Lua fixture follows the sandbox's Lua version.

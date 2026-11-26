@@ -10843,6 +10843,265 @@
       "issue": 1012,
       "url": "https://github.com/balungpisah/elzoo/issues/1012",
       "issue_body_sha256": "9b2e1be2776a4598a87ede33446113fe7aa575108a463000d5013b0daf63cc31"
+    },
+    {
+      "id": "ELZ-416",
+      "title": "ELZ-416 — Every pin to its latest stable release",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-415"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "coordinator; root dependency change published before its implementation; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-416-latest-stable-pins.md"
+      ],
+      "outputs": [],
+      "acceptance": "Move OTP, Elixir, the PostgreSQL service (19), the action pins and every Hex package to its latest stable release; name each held package and its holder; state moved versions in the Pieces that state them, each with a README Changes entry; the state/lease PostgreSQL 18+ catalog fix. Full gate, full hosted check on PostgreSQL 19, independent review.",
+      "product_aims": [
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ],
+      "issue": 1013,
+      "url": "https://github.com/balungpisah/elzoo/issues/1013",
+      "issue_body_sha256": "5cee3a1e1e920d80ac3e2acb18973c0b31031b1b86f81ff6f8c49638b7357d4f"
+    },
+    {
+      "id": "ELZ-417",
+      "title": "ELZ-417 — workflow/approval: prune expired evidence and retire closed request lines",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-415",
+        "ELZ-416"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-417-approval-prune.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "workflow/approval",
+          "role": "In-place improvement under the same ID: prune of dead entries and retirement of closed request lines."
+        }
+      ],
+      "acceptance": "workflow/approval gains a pure prune of entries whose evidence expired (verifier and clock Needs) and an explicit retirement of closed request lines, with capacity-excluded equivalence, Cure survivor laws and tests. Piece gate, strongest other-family review.",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "issue": 1019,
+      "url": "https://github.com/balungpisah/elzoo/issues/1019",
+      "issue_body_sha256": "21a5dd9a41b869f2c324a98ed922933573c75fa6b471a60123753f71d33fa47f"
+    },
+    {
+      "id": "ELZ-419",
+      "title": "ELZ-419 — state/conversation: an unbounded conversation on its own event-log stream",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-415",
+        "ELZ-416"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-419-conversation-on-event-log.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "state/conversation",
+          "role": "In-place breaking change under the same ID: one event-log stream per conversation."
+        }
+      ],
+      "acceptance": "state/conversation moves to one event-log stream per conversation with no message cap: three record kinds with their own retry identities, an owner process, owner-free page and tail reads, an offline v1 import, and the wave 4 channel delivering through its outbox. Affected gate, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1020,
+      "url": "https://github.com/balungpisah/elzoo/issues/1020",
+      "issue_body_sha256": "719508447619f3af7054c803f11037ccddeefd6d3f8bc451a8fa632e0d577ee1"
+    },
+    {
+      "id": "ELZ-420",
+      "title": "ELZ-420 — assembly/run-engine: a root finish that names no action fails its Run",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-415",
+        "ELZ-416"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-420-run-engine-failed-finish.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "assembly/run-engine",
+          "role": "In-place breaking change under the same ID: a root finish that names no action fails its Run."
+        },
+        {
+          "id": "workflow/agent-loop",
+          "role": "In-place text change under the same ID: its finish rule follows the engine's failed root finish."
+        }
+      ],
+      "acceptance": "assembly/run-engine closes a Run as failed on a root finish that names no action, with result/3 returning {:failed, record} from journaled evidence; the wave 9 test, AgentLoop and GraphRun texts follow. Affected gate, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1021,
+      "url": "https://github.com/balungpisah/elzoo/issues/1021",
+      "issue_body_sha256": "0c6e092fafa2ad9782645c31d5bde5ccc2000371024ee0fb937d6311861f28cb"
+    },
+    {
+      "id": "ELZ-422",
+      "title": "ELZ-422 — workflow/run-approval-release: renew the held lease inside the live owner",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-415",
+        "ELZ-416"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-422-run-owner-lease-renewal.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "workflow/run-approval-release",
+          "role": "In-place improvement under the same ID: serialized lease renewal in the live owner."
+        }
+      ],
+      "acceptance": "workflow/run-approval-release gains serialized lease renewal that installs the new held token only on its own next revision, and stops on a lost renewal. Piece gate, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1022,
+      "url": "https://github.com/balungpisah/elzoo/issues/1022",
+      "issue_body_sha256": "77e191beb65c002d30d45090f8d5914cdc95632e4e7b1af580f64112b5fe59f4"
+    },
+    {
+      "id": "ELZ-423",
+      "title": "ELZ-423 — assembly/run-engine: read the committed Run and pause deadlines",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-420"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-423-run-engine-deadline-read.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "assembly/run-engine",
+          "role": "In-place improvement under the same ID: a read of the committed deadlines."
+        }
+      ],
+      "acceptance": "assembly/run-engine gains a read of the committed Run and pause deadlines, correct after internal pause, continue and recovery. Piece gate, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1023,
+      "url": "https://github.com/balungpisah/elzoo/issues/1023",
+      "issue_body_sha256": "081ffb9046d3707112366795e6ea0fe54e8443803c1b65b613d52743a5ae2458"
+    },
+    {
+      "id": "ELZ-424",
+      "title": "ELZ-424 — spikes/ash_foundation: every pin to its latest stable release",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-416"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-424-ash-spike-latest-pins.md"
+      ],
+      "outputs": [],
+      "acceptance": "spikes/ash_foundation: every direct pin and the lock to the latest stable release, clearing the advisories in its lock; spike checks and the hosted check-spike job, independent review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1016,
+      "url": "https://github.com/balungpisah/elzoo/issues/1016",
+      "issue_body_sha256": "617419205e773932d02c00daae74be11edb66fff21cf7efa1666cca058f28e54"
+    },
+    {
+      "id": "ELZ-425",
+      "title": "ELZ-425 — spikes/gleam_ui: every pin to its latest stable release",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-416"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-425-gleam-spike-latest-pins.md"
+      ],
+      "outputs": [],
+      "acceptance": "Update the Gleam spike, Node, npm, OTP and workflow action pins; run the spike scripts, CI guard tests and full local gate; require full check-hosted and gleam-hosted on the exact head, plus independent review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1017,
+      "url": "https://github.com/balungpisah/elzoo/issues/1017",
+      "issue_body_sha256": "2562f955caab8528868cd5fc5d58527fdc100d05e2c9cdde13c35cd41b2ead6f"
+    },
+    {
+      "id": "ELZ-426",
+      "title": "ELZ-426 — runtime/lua-sandbox: PUC Lua 5.5.1",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-416"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-426-lua-sandbox-lua-5-5.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "runtime/lua-sandbox",
+          "role": "In-place breaking change under the same ID: PUC Lua 5.5.1."
+        },
+        {
+          "id": "runtime/recipe-test",
+          "role": "Its Lua fixture follows the sandbox's Lua version."
+        }
+      ],
+      "acceptance": "Move lua_source and runtime/lua-sandbox to PUC Lua 5.5.1 in place: recomputed source identity, every policy statement rechecked against 5.5.1 with tests and a negative control, 5.4.9 records documented as replay-incompatible, with a test showing the runtime identity changed; full gate and hosted check, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1024,
+      "url": "https://github.com/balungpisah/elzoo/issues/1024",
+      "issue_body_sha256": "7dcc8592cadd0aff91c95bc0230e75dc9e5944379083bf6816d0ff898e08e06d"
     }
   ],
   "entries": [
