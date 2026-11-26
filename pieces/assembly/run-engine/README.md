@@ -444,25 +444,28 @@ record and canonical-byte budgets; the 16,777,216-byte per-record limit still
 applies.
 
 A `failed` Run is read in the same way; the owner's `reason` is not read, since
-it describes and proves nothing. The reader looks in the folded history for this
-Run's root failure: a `:finish` record with no source (see "Recorded cycle and
-obligations") whose pure fold, replayed on the state before it, gives the
-recorded state, for a root `finish` of the Attempt whose admitted action equals
-the action of its request frame and names no action. With one, the Run, Attempt
-and operation, the finish slot (settled `completed`, the Run's completion), the
-terminal `failed` state and the canonical evidence row that the owner names (in
-the configured stream, its four keys naming the finish action) must agree, and
-the reply is `{:failed, %{run_id, attempt_id, operation_id, action_id,
-schema_id, schema_version, payload, evidence_ref}}` with the finish's own action
-ID, schema identity and payload. Any disagreement is
-`{:error, :completion_mismatch}` or `{:error, :history}`, never
-`{:terminal, :failed}`. With none, a history that reads whole and whose state is
-the owner's Run, operation and current Attempt gives `{:terminal, :failed}`: a
-failure that the owner recorded without the pattern. A history that cannot show
-which (damaged, unavailable or over the limits) gives its bounded error, never
-`{:terminal, :failed}`; so does a Unit that lags an Attempt that a host began
-directly on the owner (`{:error, :history}`). The evidence row and the Unit rows
-share the budgets as above.
+it describes and proves nothing. The reader looks in the folded history for the
+root failure of the owner's current Attempt: a `:finish` record with no source
+(see "Recorded cycle and obligations") whose pure fold, replayed on the state
+before it, gives exactly the recorded state, for a root `finish` of that Attempt
+whose admitted action is exactly the action of its request frame (as terms, so
+`1` and `1.0` differ) and names no action. Every other step of the history into
+a pending failure (a record changed to name an action, for example) is
+`{:error, :history}`. With one, the Run, Attempt and operation, the finish slot
+(settled `completed`, the Run's completion), the terminal `failed` state and the
+canonical evidence row that the owner names (in the configured stream, its four
+keys naming the finish action) must agree, and the reply is
+`{:failed, %{run_id, attempt_id, operation_id, action_id, schema_id,
+schema_version, payload, evidence_ref}}` with the finish's own action ID, schema
+identity and payload. Any disagreement is `{:error, :completion_mismatch}` or
+`{:error, :history}`, never `{:terminal, :failed}`. With none (a failure of an
+older Attempt, dropped at the change of Attempt, does not count), a history that
+reads whole and whose state is the owner's Run, operation and current Attempt
+gives `{:terminal, :failed}`: a failure that the owner recorded without the
+pattern. A history that cannot show which (damaged, unavailable or over the
+limits) gives its bounded error, never `{:terminal, :failed}`; so does a Unit that
+lags an Attempt that a host began directly on the owner (`{:error, :history}`).
+The evidence row and the Unit rows share the budgets as above.
 
 This is a read-only audit path: it does not call the Operator, pattern, gate,
 schema-validation, clock, binding, work or resource callbacks, use checkpoints
@@ -576,13 +579,20 @@ action (`"action_id": null`, no `action_id` key, or a payload that is not an
 object) ends the Run `failed`: its `:finish` record has no source, and its fold
 settles the finish slot `completed` with the finish's own schema, version and
 payload (the failure record), its Budget entry at actual 0, at the time of the
-record. The engine then appends the completion evidence row as for a completed
-Run (kind `completion`, exactly `run_id`, `attempt_id`, `operation_id` and the
-finish's `action_id`) and completes the Run owner with `:failed`, reason
-`"pattern"` and that row's reference. The reason describes; `result/3` proves the
-failure from the Unit history. A crash between the evidence row and the owner
-command leaves the row unreferenced: the restart replays to the same state,
-appends an equal row and completes the owner once, naming the new row. A nested
+record. The failure belongs to the Attempt of that finish. The engine then appends
+the completion evidence row as for a completed Run (kind `completion`, exactly
+`run_id`, the finish's `attempt_id`, `operation_id` and the finish's `action_id`)
+and completes the Run owner for that Attempt with `:failed`, reason `"pattern"` and
+that row's reference. The reason describes; `result/3` proves the failure from the
+Unit history. A crash between the evidence row and the owner command leaves the row
+unreferenced: the restart replays to the same state, appends an equal row and
+completes the owner once, naming the new row. A change of Attempt that the engine
+takes before the owner records the failure (a host that begins an Attempt on the
+owner while the engine is down, or between the row and the command, which the owner
+then answers `stale` and the engine follows with the new Run view) drops it in the
+fold of that Run view: the pending stop, the completion and the closed generation
+of the finish go (a request-cap stop keeps its own), the row stays unreferenced,
+the new Attempt is not failed, and its inputs reach the root again. A nested
 finish never ends a Run (above). Records carry the decision, so a Run recorded
 before this rule replays as recorded: a root finish refused there stays refused,
 and one admitted but not yet dispatched when the engine stopped is dispatched by
@@ -1514,16 +1524,24 @@ after the engine takes the terminal view; one in an Attempt that the host began 
 the owner alone is `{:error, :history}` until the engine takes it),
 `failed_result_fails_closed` (a referenced row with another Run, Attempt,
 operation or action ID, or a fifth key, is `completion_mismatch`; a damaged digest
-or another stream field is `history`; an owner reference to an equal row in
-another stream, to another action's row, or no reference is
-`completion_mismatch`; for a plain and a journaled failure, exact limits read, one
-record or byte less is `read_limit`, a damaged row, a raised low-water or an
-unpaired tail is `history` and an unavailable Store is `unavailable`),
+is `history`, and so is the row moved to another stream with its digest made
+valid; an owner reference to an equal row in another stream, to another action's
+row, or no reference is `completion_mismatch`; for a plain and a journaled
+failure, exact limits read, one record or byte less is `read_limit`, a damaged row,
+a raised low-water or an unpaired tail is `history` and an unavailable Store is
+`unavailable`; the failure record changed to name the completed action, its digest
+made valid, is `history` in v1 and v2; a request frame whose finish payload `1`
+became `1.0` before the failure record, its digest made valid, is `history`),
 `crash_before_the_owner_command` (the engine killed at its owner command after the
 failure and its evidence row: the restart appends an equal row, the owner stream
 holds one terminal record naming it, the journal one failure record, and
 `result/3` reads the named row: an altered unreferenced row changes nothing, an
-altered named row is `completion_mismatch`; the restarts change no record) and
+altered named row is `completion_mismatch`; the restarts change no record. A new
+Attempt begun on the owner before the restart, and one begun between the evidence
+row and the owner command, which the owner answers `stale`, leave the Run open in
+the new Attempt with no failure pending, no terminal owner record and no other
+evidence row, its wake reaches the root and the next request completes; a later
+plain failure of the new Attempt is `{:terminal, :failed}`) and
 `native_v2_failed_finish` (a v2 Run failed this way reads through the v2 replay
 validation, `event_waits/3` and `transcript/3`, also after a restart, with no new
 record). Temporary edits are negative controls: the old dispatch rule (every
@@ -1535,9 +1553,16 @@ read instead of the named one (`crash_before_the_owner_command` fails), reason
 `"engine"`, no evidence row for `:failed`, the replayed fold skipping the failure
 record (the reads give `history`, v1 and v2), the history read without its check
 against the owner's Run, operation and Attempt (the test of the Attempt begun on
-the owner alone gets `{:terminal, :failed}`) and the old payload read that raises
-(the text-payload test fails: the engine process exits). Listed finite scenarios,
-not a proof.
+the owner alone gets `{:terminal, :failed}`), the old payload read that raises
+(the text-payload test fails: the engine process exits), the Run view that keeps
+a pending failure at a change of Attempt (both new-Attempt tests fail), the owner
+command that takes the owner's current Attempt (the engine halts with
+`terminal_commit_pending`), the reader that also takes an older Attempt's failure
+(`completion_mismatch`), no check of the steps into a pending failure (v1 gives
+`{:terminal, :failed}`), loose equality of the admitted and the request-frame
+action (`{:failed, record}` with payload `1.0`) and the evidence row read without
+its stream check (the moved row gives `{:failed, record}`). Listed finite
+scenarios, not a proof.
 
 ## Changes
 
@@ -1549,8 +1574,10 @@ not a proof.
   `completion_evidence` and the Run stayed open (and a payload that is not an
   object stopped the engine process). Its `:finish` record has no source and
   settles the finish slot `completed` with the finish's own schema and payload at
-  actual 0; the engine appends a completion evidence row naming the finish and
-  completes the Run owner `:failed` with reason `"pattern"`. `result/3` for an
+  actual 0; the engine appends a completion evidence row naming the finish and its
+  Attempt and completes the Run owner `:failed` for that Attempt with reason
+  `"pattern"`; a change of Attempt before the owner records it drops the failure,
+  so a new Attempt is never failed by an older finish. `result/3` for an
   owner `:failed` now reads the history: `{:failed, record}` (the keys of the
   completed record, the finish payload) for this Run's root failure,
   `{:terminal, :failed}` for a verified history without one, and a bounded error

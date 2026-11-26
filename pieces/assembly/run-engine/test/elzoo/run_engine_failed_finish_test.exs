@@ -3,22 +3,44 @@ Code.require_file("../support/run_engine_test_helper.exs", __DIR__)
 
 defmodule Elzoo.RunEngineFailedFinishTest.CompleteForwarder do
   # A seam between the engine and its Run owner: every call goes to the owner, except
-  # the engine's first `:complete` command, which `mode` decides. `:kill` kills the
-  # engine before the owner sees the command (a crash after the evidence row);
-  # `{:rewrite, fun}` sends `fun.(command)` to the owner instead.
+  # what `mode` decides, once. `:kill` kills the engine at its `:complete` command,
+  # before the owner sees it (a crash after the evidence row); `{:rewrite, fun}` sends
+  # `fun.(command)` to the owner instead; `{:begin_after_evidence, store, attempt}`
+  # begins `attempt` on the owner at the first status read after an evidence row is in
+  # `store`, which is the read just before the engine's `:complete` command.
   use GenServer
 
   def init(arg), do: {:ok, arg}
 
-  def handle_call({:command, %{kind: :complete} = command}, {caller, _}, {run, mode})
-      when mode != :spent do
-    case mode do
-      :kill ->
-        Process.exit(caller, :kill)
-        {:noreply, {run, :spent}}
+  def handle_call({:command, %{kind: :complete}}, {caller, _}, {run, :kill}) do
+    Process.exit(caller, :kill)
+    {:noreply, {run, :spent}}
+  end
 
-      {:rewrite, fun} ->
-        {:reply, GenServer.call(run, {:command, fun.(command)}, 60_000), {run, :spent}}
+  def handle_call({:command, %{kind: :complete} = command}, _from, {run, {:rewrite, fun}}),
+    do: {:reply, GenServer.call(run, {:command, fun.(command)}, 60_000), {run, :spent}}
+
+  def handle_call(
+        {:status, _} = status,
+        _from,
+        {run, {:begin_after_evidence, store, attempt}} = state
+      ) do
+    case Elzoo.DurableLog.read(store, "evidence", 1, 1) do
+      {:ok, [_], _} ->
+        {:ok, view} = GenServer.call(run, status, 60_000)
+
+        begin = %{
+          kind: :begin_attempt,
+          run_id: view.id,
+          attempt_id: attempt,
+          expected_revision: view.revision
+        }
+
+        {:ok, _, _} = GenServer.call(run, {:command, begin}, 60_000)
+        {:reply, GenServer.call(run, status, 60_000), {run, :spent}}
+
+      _ ->
+        {:reply, GenServer.call(run, status, 60_000), state}
     end
   end
 
@@ -56,7 +78,7 @@ defmodule Elzoo.RunEngineFailedFinishTest do
   end
 
   # Finish schemas that admit each form: `action_id` null, no `action_id` key (the
-  # schema forbids one), and a text payload.
+  # schema forbids one), a text payload and a number payload.
   @schemas %{
     "stopped-null" => %{
       "type" => "object",
@@ -70,7 +92,8 @@ defmodule Elzoo.RunEngineFailedFinishTest do
       "properties" => %{"status" => %{"const" => "stopped"}, "reason" => %{"type" => "string"}},
       "additionalProperties" => false
     },
-    "stopped-text" => %{"type" => "string"}
+    "stopped-text" => %{"type" => "string"},
+    "stopped-number" => %{"type" => "number"}
   }
 
   @null %{"status" => "stopped", "action_id" => nil}
@@ -362,8 +385,12 @@ defmodule Elzoo.RunEngineFailedFinishTest do
       assert :ok = DurableLog.Memory.corrupt(memory, :records, key, %{restore | digest: <<0::256>>})
       assert {:error, :history} = RunEngine.result(engine, scope(), limits())
 
-      assert :ok =
-               DurableLog.Memory.corrupt(memory, :records, key, Map.put(restore, :stream, "other"))
+      # The row in another stream with its digest made valid: only the stream check sees it.
+      moved = %{row | stream: "other"}
+      moved = %{moved | digest: DurableLog.digest(moved)}
+
+      changes = %{stream: "other", payload: row.payload, digest: moved.digest}
+      assert :ok = DurableLog.Memory.corrupt(memory, :records, key, changes)
 
       assert {:error, :history} = RunEngine.result(engine, scope(), limits())
 
@@ -460,6 +487,61 @@ defmodule Elzoo.RunEngineFailedFinishTest do
       {:failed, _} = failed = RunEngine.result(engine, scope(), limits())
       assert_damage_fails_closed(c, engine, evidence, failed)
     end
+
+    test "a failure record changed to name a completed action is damaged history, in v1 and v2" do
+      for version <- [1, 2] do
+        v2? = version == 2
+        frame = if v2?, do: &request_v2/1, else: &request/1
+        finish = finish_action("finish", @null, "stopped-null")
+        requests = [frame.([action("work")]), frame.([finish])]
+        version_opts = if v2?, do: [protocol_version: 2], else: []
+
+        c =
+          fixture(
+            [unit_store: memory_unit_store(version), pattern: pattern(requests)] ++ version_opts
+          )
+          |> with_schemas()
+
+        engine = start(c, result_reader: reader(c))
+        input = if v2?, do: start_input_v2(), else: start_input()
+        assert {:ok, :applied} = RunEngine.input(engine, "start", input, verified())
+        wait_for(engine, &(&1.outcome == :failed))
+        assert {:failed, _} = result(engine)
+
+        # The :finish record with no source now names the completed `work`, its row
+        # digest made valid; the recorded step into the failure is left as it was.
+        {work, _} = slot_of(view(engine), "work")
+        {row, id, record} = failure_input_row(c)
+        corrupt_row(c, row, {1, {id, %{record | source: work}}})
+        assert {:error, :history} = result(engine)
+      end
+    end
+
+    test "a request frame whose finish payload is 1.0 where the admitted finish has 1 is damaged history" do
+      finish = finish_action("finish", 1, "stopped-number")
+
+      c =
+        fixture(unit_store: memory_unit_store(1), pattern: pattern([request([finish])]))
+        |> with_schemas()
+
+      engine = start(c, result_reader: reader(c))
+      assert {:ok, :applied} = send_input(engine)
+      wait_for(engine, &(&1.outcome == :failed))
+      assert {:failed, %{payload: 1}} = result(engine)
+
+      # The state before the failure record holds the request frame of the finish: its
+      # payload 1 becomes 1.0 there, the row digest made valid. The admitted finish and
+      # the fold keep 1.
+      {failure_row, _, %{occurrence: {ordinal, _}}} = failure_input_row(c)
+      [before_row] = Enum.filter(rows(c), &(&1.sequence == failure_row.sequence - 1))
+      assert before_row.kind == "result"
+      {1, {id, state}} = decode(before_row)
+      frame = state.requests[ordinal]
+      changed = String.replace(frame, ~s("payload":1,), ~s("payload":1.0,))
+      assert changed != frame
+      corrupt_row(c, before_row, {1, {id, put_in(state.requests[ordinal], changed)}})
+      assert {:error, :history} = result(engine)
+    end
   end
 
   describe "crash_before_the_owner_command" do
@@ -502,6 +584,55 @@ defmodule Elzoo.RunEngineFailedFinishTest do
       assert {:failed, %{evidence_ref: ^ref}} = result(engine)
       assert {rows(c), evidence_rows(c), terminal_rows(c), Run.status(c.run, "run")} == before
       assert unit_state(c).control.completion == key
+    end
+
+    test "a new Attempt begun on the owner between the evidence row and the restart is not failed" do
+      finish = finish_action("finish", @null, "stopped-null")
+      c = with_schemas(fixture(pattern: pattern([request([finish]), request([action("work")])])))
+      engine = start(c, run_owner: forwarder(c, :kill), result_reader: reader(c))
+      monitor = Process.monitor(engine)
+      catch_exit(send_input(engine))
+      assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+      assert %{stop_pending: :failed} = unit_state(c).control
+      assert [orphan] = evidence_rows(c)
+      assert decode(orphan).attempt_id == "attempt"
+      begin_attempt(c, "second")
+
+      # The restart takes the new Attempt: the failure of the older one is dropped, with
+      # no owner command and no new evidence row, and the new Attempt generates.
+      engine = start(c, result_reader: reader(c))
+      assert_second_attempt_open(c, engine, [orphan])
+      assert [_] = failure_records(c)
+
+      # A later plain failure of the new Attempt reads as one: the older failure is not read.
+      {:ok, owner} = Run.status(c.run, "run")
+
+      assert {:ok, _, _} =
+               Run.command(c.run, %{
+                 kind: :complete,
+                 run_id: "run",
+                 attempt_id: "second",
+                 outcome: :failed,
+                 reason: "engine",
+                 evidence_ref: nil,
+                 expected_revision: owner.revision
+               })
+
+      assert {:terminal, :failed} = result(engine)
+    end
+
+    test "a new Attempt begun on the owner between the evidence row and the owner command answers it stale" do
+      finish = finish_action("finish", @null, "stopped-null")
+      c = with_schemas(fixture(pattern: pattern([request([finish]), request([action("work")])])))
+      owner = forwarder(c, {:begin_after_evidence, c.evidence_store, "second"})
+      engine = start(c, run_owner: owner, result_reader: reader(c))
+
+      # The command carries the Attempt of the finish, so the owner answers it stale; the
+      # engine takes the new Run view, which drops the failure, before the input replies.
+      assert {:ok, :applied} = send_input(engine)
+      assert [row] = evidence_rows(c)
+      assert decode(row).attempt_id == "attempt"
+      assert_second_attempt_open(c, engine, [row])
     end
   end
 
@@ -693,6 +824,40 @@ defmodule Elzoo.RunEngineFailedFinishTest do
     start(c, overrides)
   end
 
+  # The host begins `attempt` on the Run owner alone, with no engine command.
+  defp begin_attempt(c, attempt) do
+    {:ok, owner} = Run.status(c.run, "run")
+
+    assert {:ok, _, _} =
+             Run.command(c.run, %{
+               kind: :begin_attempt,
+               run_id: "run",
+               attempt_id: attempt,
+               expected_revision: owner.revision
+             })
+  end
+
+  # The Run of the test pattern is open in Attempt "second" with no failure pending,
+  # the owner has no terminal record and the evidence rows are `evidence`; then a wake
+  # of the new Attempt reaches the root, whose next request (`work`) completes.
+  defp assert_second_attempt_open(c, engine, evidence) do
+    assert {:ok, %{outcome: nil, current_attempt: "second"}} = Run.status(c.run, "run")
+    assert terminal_rows(c) == []
+    assert evidence_rows(c) == evidence
+    view = view(engine)
+
+    assert %{attempt_id: "second", outcome: nil, stop_pending: nil, generation_closed: false} =
+             view
+
+    assert view.phase != :terminal and view.reconciliation == nil
+    assert %{stop_pending: nil, completion: nil} = unit_state(c).control
+    assert {:pending, :not_completed} = result(engine)
+    reply = RunEngine.input(engine, "second-wake", wake(), verified(%{attempt_id: "second"}))
+    assert {:ok, :applied} = reply
+    wait_for(engine, &match?({_, %{phase: :settled, outcome: "completed"}}, slot_of(&1, "work")))
+    assert {:ok, %{outcome: nil}} = Run.status(c.run, "run")
+  end
+
   defp unit_state(c) do
     {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
     DurableUnit.snapshot(unit)
@@ -730,6 +895,26 @@ defmodule Elzoo.RunEngineFailedFinishTest do
 
   defp decode(row), do: :erlang.binary_to_term(row.payload, [:safe])
 
+  # The Unit row that holds the :finish record with no source, its input ID and record.
+  defp failure_input_row(c) do
+    [found] =
+      for %{kind: "input", payload: payload} = row <- rows(c),
+          {1, {id, %{kind: :finish, source: nil} = record}} <- [
+            :erlang.binary_to_term(payload, [:safe])
+          ],
+          do: {row, id, record}
+
+    found
+  end
+
+  # A Unit row of the in-memory Store with `term` as its payload, its digest made valid.
+  defp corrupt_row(c, row, term) do
+    changed = %{row | payload: binary(term)}
+    changed = %{changed | digest: DurableLog.digest(changed)}
+    changes = Map.take(changed, [:payload, :digest])
+    assert :ok = DurableLog.Memory.corrupt(c.store, :records, {row.stream, row.sequence}, changes)
+  end
+
   # The row with another action ID, its digest made valid again.
   defp altered(row) do
     altered = %{row | payload: binary(%{decode(row) | action_id: "other-action"})}
@@ -750,9 +935,9 @@ defmodule Elzoo.RunEngineFailedFinishTest do
     %{evidence_store: memory, retention_count: 1_024}
   end
 
-  defp memory_unit_store do
+  defp memory_unit_store(version \\ 1) do
     options = [
-      operator: {RunEngine, :step, %{version: 1, control: nil, slots: %{}, requests: %{}}},
+      operator: {RunEngine, :step, %{version: version, control: nil, slots: %{}, requests: %{}}},
       retention_count: 1_024,
       max_record_bytes: 16_777_216,
       max_checkpoint_bytes: 33_554_432
