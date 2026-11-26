@@ -16,7 +16,7 @@ Cure is a build-time compiler; the compiled replay runs without Cure.Compiler.
 - Size grows O(applied) with the seen index; oversize snapshots are refused, not truncated.
 - Storage guarantees are inherited from the supplied Store; no disk durability, exactly-once or universal refold-equivalence proof.
 - Readers never repair or mutate storage. A damaged snapshot cannot anchor retention; pruned recovery without an anchor fails closed.
-- Fallback after an invalid latest checkpoint probes earlier sequences one read at a time; cost grows with the gap (no indexed predecessor lookup). The probes stop below the stream's low_water read with the head (ELZ-427): a checkpoint exactly at low_water stays eligible, and with none from the failed checkpoint down to low_water recovery returns the pruned result, so the probes are bounded by that distance, not by the pruned sequences.
+- Fallback after an invalid latest checkpoint probes earlier sequences one read at a time; cost grows with the gap (no indexed predecessor lookup). The probes stop below the stream's low_water read with the head (ELZ-427): a checkpoint exactly at low_water stays eligible, and on a pruned stream (low_water > 0) with none from the failed checkpoint down to low_water recovery returns the pruned result, so the probes are bounded by that distance, not by the pruned sequences; an unpruned stream still replays from sequence 1.
 
 ## Evidence and operations
 
