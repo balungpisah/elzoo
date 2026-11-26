@@ -11264,6 +11264,37 @@
       "issue": 1031,
       "url": "https://github.com/balungpisah/elzoo/issues/1031",
       "issue_body_sha256": "43b01868ac0178cc0eacde23576559d69362e0c09e790cb905a2895318c7568d"
+    },
+    {
+      "id": "ELZ-430",
+      "title": "ELZ-430 — assembly/run-engine: a pending stop is bound to its Attempt",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-420",
+        "ELZ-423",
+        "ELZ-429"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-430-run-engine-stop-bound-to-attempt.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "assembly/run-engine",
+          "role": "In-place fix under the same ID: every pending stop is bound to its Attempt, as ELZ-420 does for a root failure."
+        }
+      ],
+      "acceptance": "assembly/run-engine binds a completed stop and each lifecycle stop, its evidence row and the owner command to the Attempt that produced it; a restart after a new Attempt drops the stale stop; the reader replays every record that ends a pending stop or changes the Attempt; crash tests in both orders and negative controls; Piece gate, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1036,
+      "url": "https://github.com/balungpisah/elzoo/issues/1036",
+      "issue_body_sha256": "6a182c85414dc79c01e1ec5fde2a3558ba353d60bc8db46798a5f2fd60147986"
     }
   ],
   "entries": [
