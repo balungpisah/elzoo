@@ -37,8 +37,8 @@ No Cure source; nothing here needs the Cure compiler.
   `refund.request`), not the action of each later command: every audited change made through
   the binding, including a settlement the effect-intent owner appends after an asynchronous
   provider result, carries it. `actor` and `action`: 1..256 bytes of UTF-8 without control
-  characters; `reason`: 0..1024 bytes of the same shape. Per-command attribution would need
-  new IDs of the ready Pieces and is not offered.
+  characters; `reason`: 0..1024 bytes of the same shape. Per-command attribution is not
+  offered; it would be a later change of the ready Pieces it touches, under the same IDs.
 - `Elzoo.AuditLog.Migration.up(store_prefix:, carbonite_prefix:, excluded_columns:)` inside a
   consumer-owned Ecto migration, run by the audit owner role, without a migrator `prefix:` or
   with `prefix:` equal to `carbonite_prefix`. `Elzoo.AuditLog.Migration.secure(carbonite_prefix)`

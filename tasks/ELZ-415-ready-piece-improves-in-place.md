@@ -44,7 +44,8 @@ State the new rule in each place that states the old one:
   that Piece: `core/assembly` (line 84), `core/envelope` (74), `core/port`
   (83), `core/edge` (58), `workflow/approval` (592, 594), `workflow/budget`
   (380), `assembly/http-job` (102), `delivery/effect-intent` (113),
-  `domain/authorization` (109, 439, 459) and `integration/text-chunking` (38).
+  `domain/authorization` (109, 439, 459), `integration/text-chunking` (38) and
+  `state/audit-log` (40-41).
   Each says instead that such a change is a later change of the same Piece
   under the rule above, or a new Piece only where the capability model calls
   it a new capability. A README is not in its manifest's `files`, so no
