@@ -12,9 +12,10 @@ Copied from repository baseline `2b3c3fc763eb8eef0d4d4cfbe694098ea83de217`:
 `test/support/run_test_helper.exs` and `examples/run.exs` under that Piece.
 The owner runtime last changed in `d4320d49f3a66e23c8b3adc9941df295bec748bd`;
 the copied helper includes the later sibling-first SQL-helper repair. Public
-owner and test namespaces are renamed. The only runtime addition is
+owner and test namespaces are renamed. The runtime additions are
 `release_approved`, with a minimal private waiting-result translation that
-preserves `dispatch_approved`. No Cure source or ready dependency is changed.
+preserves `dispatch_approved`, and `renew/2` with its `expected_revision` rule
+(ELZ-422, see Lease renewal). No Cure source or ready dependency is changed.
 
 Construct the guarded Store with this variant's `fold/0` and `limits/0`, create
 its ready Lease, claim the stream, and start:
@@ -32,9 +33,9 @@ Retained Run-owned dispatch needs its original Store/binding/clock/host/task
 options. No new construction option or runtime binding lookup is introduced.
 
 Inherited public functions are `start_link/1`, `command/2`, `status/2`, `fold/0`,
-`limits/0`, `classify_attempt/2` and `outcome?/1`. `command/2` accepts exact
-atom-keyed maps with `kind`, `run_id`, `expected_revision` and, except `create`,
-`attempt_id`:
+`limits/0`, `classify_attempt/2` and `outcome?/1`; `renew/2` is new (see Lease
+renewal). `command/2` accepts exact atom-keyed maps with `kind`, `run_id`,
+`expected_revision` and, except `create`, `attempt_id`:
 
 | Kind | Other fields |
 | --- | --- |
@@ -93,10 +94,11 @@ There is no new state field, event, consent format, store or outbox.
 
 Every existing release calls `Approval.revalidate/3` with current trusted
 context. There is no cached duplicate-success path; `already_released` is never
-success. A previous released reply is not a reusable permit. An old expected
-revision conflicts; read current status and supply fresh context. Stale Attempt
-and terminal classification precede revision conflict. Unknown/wrong-Attempt
-requests refuse `unknown_request`; malformed commands retain `invalid_command`.
+success. A previous released reply is not a reusable permit. An expected
+revision outside the accepted range (see Lease renewal) conflicts; read current
+status and supply fresh context. Stale Attempt and terminal classification
+precede revision conflict. Unknown/wrong-Attempt requests refuse
+`unknown_request`; malformed commands retain `invalid_command`.
 Ready Approval refusal/error reasons remain intact, including revocation and
 authority failures. Genuine ALLOW is not an ASK request.
 
@@ -106,12 +108,58 @@ append stops ownership. Host confirms/fences outstanding writes before
 replacement, passing the receipt as existing `reconcile:`. Missing rows alone
 cannot prove non-commit. Recovery replays events, then revalidates any existing
 release; it never consumes again or dispatches. Rejected appends grant nothing.
+`renew/2` has its own results, listed under Lease renewal.
 
 Release invokes no EffectIntent startup/admission/advance/observe/rearm, host
 activation, Adapter, Task.Supervisor, provider operation or send. It does not
 claim that no earlier/delayed send exists. Explicit `dispatch_approved` retains
 its original send behavior: trusted callers must choose the correct dispatch
 owner. This is not a BEAM security boundary against invoking the wrong API.
+
+## Lease renewal
+
+`Elzoo.RunApprovalRelease.renew(owner, ttl_ms)` (ELZ-422) renews the held lease
+inside the live owner, between two commands and never during one. The owner
+calls `Elzoo.Lease.renew(lease, held.owner, [stream], ttl_ms)` with its own
+Lease, owner attribution and stream; `ttl_ms` has the Lease bounds
+`1..86_400_000`. Like `command/2`, the call waits at most 5,000 ms; a caller
+timeout is not an outcome, and the host treats that renewal as unconfirmed.
+
+| Lease result for the stream | Reply | Owner |
+| --- | --- | --- |
+| held, at the held revision + 1 | `{:ok, revision, %{until: until}}` | installs the token before it handles any later call; `until` is the token's `live.until` (lease clock, Unix microseconds) |
+| held, at a later revision | `{:refused, {:fenced, %{expected: e, observed: o}}}` | another writer appended rows that the model never read; the renewal committed but its token is not installed; stops with `{:shutdown, {:fenced, %{expected: e, observed: o}}}` |
+| refused, for example `:stale`, `:free`, `:not_holder`, `:ambiguous` or `:regression` | `{:refused, {:lease_lost, refusal}}` | the lease is lost; stops with `{:shutdown, {:lease_lost, refusal}}` |
+| `{:indeterminate, receipt}` | the same | stops with `{:shutdown, {:indeterminate, receipt}}`, as after an uncertain command write; the host confirms the receipt (existing `reconcile:`) and fences before a replacement |
+| a definite no-write error | `{:error, reason}` | keeps its token and keeps working; the lease stays as it was until its `until`, and the host may retry or stop admission |
+| any other error or result, including a token without the owner's attribution, its stream, or integer `revision`, `at` and `until`, or one at or below the held revision | `{:unknown, :no_receipt}` | stops with `{:shutdown, {:unknown, :no_receipt}}` |
+
+`e` and `o` have the meaning of the fence of `Elzoo.Lease.write/4`: `e` is the
+held revision and `o` is the head that the renewal appended after (the renewed
+revision - 1). The definite no-write errors are `{:invalid, _}` (for example
+`ttl_ms`), `:caller_transaction`, `{:schema, _}`, `{:rejected, _}`, PostgreSQL
+`:contended` and `:unavailable` (that adapter reports them only before its
+first write statement) and Memory `:clock_unavailable` and `:malformed` (before
+its append). No other error proves that no renewal committed: the Memory
+`{:error, :unavailable}` can follow a committed append whose reply was lost, and
+it carries no nonce. The owner invents no receipt; after
+`{:unknown, :no_receipt}` the host confirms backend and predecessor fencing and
+reads the durable head before it opens a replacement. After any stop the owner
+writes nothing more.
+
+A renewal moves the head between a caller's `status/2` and its next command.
+A command that reaches write admission (after the duplicate, stale-Attempt and
+terminal classifications) accepts an `expected_revision` from the floor up to
+the held revision. The floor is the held revision at startup and after every
+successful Run append, including child, death and recovery writes, so only a
+revision separated from the current one solely by renewals that this live
+owner installed is accepted. Nothing is normalized across another writer or an
+owner restart. Replies carry the current held revision, which `status/2`
+reports. A renewal does not write kept deaths; they wait for the next command.
+
+Limit: a renewal changes the held revision that `status/2` reports without any
+Run transition. A caller that treats every revision change as a Run transition
+must tell a renewal apart; `assembly/run-engine` does not yet.
 
 ## Resource caller and checked example
 
@@ -163,15 +211,32 @@ groups, then are restored. These finite scenarios are tests,
 not universal no-send/durability/cancellation proofs or production monitoring.
 Approval owns its unchanged pure laws; no new law is claimed here.
 
+Group `lease_renewal` (ELZ-422) adds thirteen finite cases: writes after a
+renewal; the floor across renewals and Run, child and death writes; another
+writer; an owner restart; a lease lost to another claimant and to expiry; a
+renewal outside the owner; an indeterminate renewal after commit with its
+receipt; a malformed renewal reply (a token without `until`, or none) after the
+renewal committed; definite no-write errors (invalid `ttl_ms`, a changed table
+shape, a PostgreSQL lock timeout); and commands after `status/2` reads while
+another process renews, one of them with a renewal coordinated between its read
+and its command. One case runs on the Memory Lease double: Memory clock and head
+faults keep the token, then a renewal's Store append commits while its backend
+is suspended, and the backend is killed before it replies. A temporary mutation
+that keeps the old token after a renewal fails the write-after-renewal case
+with `{:refused, :conflict}`; mutations of the floor reset, of the floor's
+lower bound, of the next-revision check, of the Memory error classification
+and of the token check each fail their case. All are restored.
+
 - **Needs:** authenticated caller/approver evidence and fresh policy/authority;
   canonical arguments and exact descriptor binding; host serialization of
-  cancellation/admission/dispatch; exclusive owners, trusted clocks, supervision,
-  durable PostgreSQL settings, full history retention, confirmation and physical
-  fencing of old owners/outstanding writes/providers; authenticated settlement.
+  cancellation/admission/dispatch; exclusive owners, renewal through `renew/2`
+  before the lease `until`, trusted clocks, supervision, durable PostgreSQL
+  settings, full history retention, confirmation and physical fencing of old
+  owners/outstanding writes/providers; authenticated settlement.
 - **Telemetry:** inherited OTP diagnostics; consumer redacts, no exporter or
   payload telemetry. **Config:** retained construction-only bindings, no new
   options/hot changes. **Control:** inherited commands plus release-only, with
-  the precise commit/no-send meaning above.
+  the precise commit/no-send meaning above, and `renew/2` (Lease renewal).
 - **Upstream:** pinned Elixir 1.20.4 / OTP 29.1.2 serialization, monitoring,
   deterministic safe ETF and crypto; unchanged ready dependency Contracts.
 - **Bounds:** individual events at most 128 KiB; Run identifiers at most 200 UTF-8
@@ -181,3 +246,15 @@ Approval owns its unchanged pure laws; no new law is claimed here.
 - **Not supplied:** an engine, scheduler, provider authentication, physical
   cancellation, exactly-once send, generic dispatcher, audit/outbox composition,
   universal proofs, cross-stream transaction or transferable authorization.
+
+## Changes
+
+- ELZ-422: new `renew/2` renews the held lease inside the live owner (Lease
+  renewal); before it, a host could renew only outside the owner, which moved
+  the head so that the owner's next write failed with `{:refused, :conflict}`.
+  New `expected_revision` rule: a command that reaches write admission accepts
+  the current held revision or one separated from it solely by renewals that
+  this live owner installed since its startup or its last successful Run
+  append; every other revision is still `{:refused, :conflict}`. Nothing
+  breaks: without `renew/2` the floor is always the held revision, so every
+  existing call behaves as before. No event, fold or stored format changes.
