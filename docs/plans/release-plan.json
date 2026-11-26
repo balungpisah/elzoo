@@ -12262,12 +12262,12 @@
     {
       "id": "integration/sql",
       "job": "ELZ-009",
-      "note": "Store-only PostgreSQL translation using a consumer-owned Ecto Repo and optional prefix: atomic append CAS, immutable records/checkpoints, outbox ack and bounded retention. Migration helper only; no shipped Repo/config/Application.",
+      "note": "Store-only PostgreSQL translation using a consumer-owned Ecto Repo and optional prefix: atomic append CAS, immutable records/checkpoints, outbox ack and bounded retention, which also removes the stream's checkpoints below its new low-water. Migration helper only; no shipped Repo/config/Application.",
       "baseline_status": "ready",
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/sql/piece.json",
-      "manifest_sha256": "03b15dd1d10ba95a986a5497e05ad40ca267eb3924150d6289ec20d1248c1195"
+      "manifest_sha256": "4ce35e62fe56ff9496e39a12412e738abf10fe8266caa3645bc27b9ce0932b50"
     },
     {
       "id": "integration/text-chunking",
@@ -12405,7 +12405,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/checkpoint/piece.json",
-      "manifest_sha256": "56ef1ba1ccc61f403269110b9270980e93a15ef4ba9b47ef33b8b929796a3c9e"
+      "manifest_sha256": "0ae1ab4ff2fdbb8f3fdd56175c16d48d860751108bb3f24580db211796dee8ca"
     },
     {
       "id": "state/conversation",
@@ -12433,7 +12433,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/event-log/piece.json",
-      "manifest_sha256": "d367b3ff5f7b45b699a523a36e009a0a081156134e8c2107e1146668b75b03de"
+      "manifest_sha256": "b921b12d44998f9fbc6e510e0796a6ae2ac022de0c88a3f6a452d6a299e548f0"
     },
     {
       "id": "state/lease",

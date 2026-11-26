@@ -456,6 +456,9 @@ defmodule Elzoo.DurableLog.Memory do
       c.sequence > h.revision ->
         {{:rejected, :checkpoint_beyond_tail}, state}
 
+      c.sequence < h.low_water ->
+        {{:rejected, :checkpoint_below_low_water}, state}
+
       Map.has_key?(state.checkpoints, key) ->
         {conflict(c.sequence, c.sequence), state}
 
@@ -541,12 +544,17 @@ defmodule Elzoo.DurableLog.Memory do
           end)
 
         records = Map.reject(state.records, fn {{s, seq}, _} -> s == stream and seq <= through end)
+
+        checkpoints =
+          Map.reject(state.checkpoints, fn {{s, seq, _}, _} -> s == stream and seq < through end)
+
         receipt = Codec.receipt(:retain, stream, expected, through, nonce)
 
         next = %{
           state
           | items: items,
             records: records,
+            checkpoints: checkpoints,
             heads:
               Map.put(
                 state.heads,
