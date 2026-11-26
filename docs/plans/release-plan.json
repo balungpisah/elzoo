@@ -10819,6 +10819,30 @@
       "issue": 1007,
       "url": "https://github.com/balungpisah/elzoo/issues/1007",
       "issue_body_sha256": "48c882679225ff5b414f0a50d88c94a14827f474a0cc0840dfcbb93bb3aaad69"
+    },
+    {
+      "id": "ELZ-415",
+      "title": "ELZ-415 — A ready Piece improves in place under its Piece ID",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-411"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "coordinator; one-PR path for documents and docs/consuming.md; independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-415-ready-piece-improves-in-place.md"
+      ],
+      "outputs": [],
+      "acceptance": "State the owner's rule of 2026-11-26 (a ready Piece keeps its ID when it improves; a breaking change records a README Changes entry; a new ID only for a new capability or a split) in AGENTS.md, docs/consuming.md, docs/choices.md and docs/catalogue.md. Roadmap and claims checks, full hosted check, independent review.",
+      "product_aims": [
+        "P10",
+        "P11"
+      ],
+      "issue": 1012,
+      "url": "https://github.com/balungpisah/elzoo/issues/1012",
+      "issue_body_sha256": "d957cecd2d8d140210f347363de869a610b28bfe494d828c7589895fce3eee14"
     }
   ],
   "entries": [
