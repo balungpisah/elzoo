@@ -31,7 +31,8 @@ mix test --warnings-as-errors
 ```
 
 The lockfile records transitive versions/checksums. Direct upstream pins are
-Ash 3.38.1, AshAi 1.5.6, AshStateMachine 0.3.1 and SimpleSat 0.1.4. SimpleSat
+Ash 3.38.1, AshPostgres 2.16.0, AshAi 1.5.6, AshStateMachine 0.3.1, SimpleSat
+0.1.4, AshOban 0.10.3, Oban 2.24.2 and `:telemetry` 1.4.3. SimpleSat
 is the supported pure-Elixir SAT solver used by Ash policies; it avoids a
 native build dependency in this small experiment. No solver-performance or
 upstream theorem-proving claim follows from choosing it.
