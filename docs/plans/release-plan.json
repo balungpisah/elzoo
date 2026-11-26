@@ -12544,7 +12544,7 @@
       "baseline_status": "not in baseline (new row, ELZ-126)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/run-approval-release/piece.json",
-      "manifest_sha256": "f1fc970cfd4eb95c20ae88c3194b750897344d0e7069b62403e4e9d2ad06fc09",
+      "manifest_sha256": "a9c1d13666177f40524122ff5f1126bd36a767387104e0184484974154d0929d",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
