@@ -155,6 +155,17 @@ review history, the ownership decision and the scenario plan.
 
 ## Changes
 
+- ELZ-428 (2026-11-26): a malformed head or clock reply inside the write
+  transaction of `Elzoo.Lease.Postgres` or inside its sweep transaction no
+  longer crashes the caller. Before the first lease-record write both
+  transactions return `{:error, :malformed}` after rollback, including
+  rollback of the provisional head insert; after the write marker they return
+  `{:indeterminate, info}` through the existing write-failure path. The
+  sweep's `FOR UPDATE SKIP LOCKED` lookup and its `FOR UPDATE NOWAIT` probe
+  now treat any unexpected successful reply shape (row count or row shape) as
+  malformed instead of raising a match error. No other outcome changes; the
+  pinned table shape makes such replies unreachable through stored data.
+
 - ELZ-416 (2026-11-26): on PostgreSQL 18 and later the catalog also lists each
   NOT NULL column as a constraint row (contype `n`) rendered `NOT NULL <column>`
   and named `<table>_<column>_not_null`, followed by the unpadded decimal

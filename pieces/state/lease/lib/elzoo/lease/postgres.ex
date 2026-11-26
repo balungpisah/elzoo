@@ -305,6 +305,7 @@ defmodule Elzoo.Lease.Postgres do
     rescue
       e -> failure(e)
     catch
+      :throw, :malformed -> malformed_failure()
       :exit, reason -> failure(reason)
     end
   end
@@ -382,6 +383,7 @@ defmodule Elzoo.Lease.Postgres do
     rescue
       e -> failure(e)
     catch
+      :throw, :malformed -> malformed_failure()
       :exit, reason -> failure(reason)
     end
   end
@@ -415,7 +417,15 @@ defmodule Elzoo.Lease.Postgres do
 
           {:error, error} ->
             raise error
+
+          # Any other successful reply shape is not a valid probe outcome.
+          {:ok, _} ->
+            throw(:malformed)
         end
+
+      # Any other row count of the locked lookup is not a valid head outcome.
+      _ ->
+        throw(:malformed)
     end
   end
 
@@ -507,6 +517,16 @@ defmodule Elzoo.Lease.Postgres do
     end
   end
 
+  # A malformed reply thrown inside the transaction reaches these wrappers after
+  # the Repo's rollback: before the first write statement nothing was written, so
+  # it is a clean error; after it the outcome is unknown, exactly as any failure
+  # past the write marker.
+  defp malformed_failure do
+    if match?(%{}, Process.get({__MODULE__, :wrote})),
+      do: failure(:malformed),
+      else: {:error, :malformed}
+  end
+
   defp contention?(%Postgrex.Error{postgres: %{code: :lock_not_available}}), do: true
   defp contention?({:shutdown, reason}), do: contention?(reason)
   defp contention?({:error, reason}), do: contention?(reason)
@@ -567,6 +587,9 @@ defmodule Elzoo.Lease.Postgres do
 
     %{revision: revision, low_water: low_water}
   end
+
+  # A head row of any other shape is not a valid reply either.
+  defp head(_row), do: throw(:malformed)
 
   defp clock(backend) do
     case query(backend, Clock.postgres_sql()).rows do
