@@ -37,6 +37,15 @@ Both Pieces improve in place under their IDs (the rule of ELZ-415):
   `low_water`, no later than the head and with an unused key, still commits.
 - `latest_checkpoint` and `read_checkpoint` never return a deleted
   checkpoint (`read_checkpoint` gives `{:ok, :absent}`).
+- `Elzoo.Checkpoint`'s fallback to an earlier checkpoint (`find_earlier/5` in
+  `pieces/state/checkpoint/lib/elzoo/checkpoint.ex`) probes one sequence at a
+  time down to 0 when the newest checkpoint does not decode. With the
+  checkpoints below `low_water` gone, that path would probe every pruned
+  sequence with one Store call each. The fallback stops below the stream's
+  `low_water` (read with the head) and returns the existing pruned result,
+  so its Store calls are bounded by the distance from the failed checkpoint
+  down to `low_water`. The `state/checkpoint` README states the bound in a
+  `## Changes` entry.
 - Both READMEs document that retention deletes records through `low_water`
   and checkpoints strictly below it. A checkpoint receipt needed for Writer
   reconciliation must be resolved before retaining past its anchor: after
@@ -46,12 +55,13 @@ Both Pieces improve in place under their IDs (the rule of ELZ-415):
   `manifest_sha256` in its `entries` row, with `note` equal to a changed
   `contract`.
 
-Paths: `pieces/state/event-log/**`, `pieces/integration/sql/**`, the
-`entries` rows of these two Pieces in `docs/plans/release-plan.json`, and the
-generated `LEDGER.md` and `docs/plans/views.md`. The tests of the ready
-Pieces that use these Stores must pass unchanged, except an assertion that a
-checkpoint below `low_water` survives retention (name each such change in the
-pull request). New external dependencies: none.
+Paths: `pieces/state/event-log/**`, `pieces/integration/sql/**`,
+`pieces/state/checkpoint/**` (only for the fallback bound), the `entries` rows
+of these Pieces in `docs/plans/release-plan.json`, and the generated
+`LEDGER.md` and `docs/plans/views.md`. The tests of the ready Pieces that use
+these Stores must pass unchanged, except an assertion that a checkpoint below
+`low_water` survives retention (name each such change in the pull request).
+New external dependencies: none.
 
 ## Acceptance
 
@@ -74,6 +84,12 @@ On both Stores:
   either commits first and is then deleted by it, or is refused after it;
   never a surviving checkpoint below `low_water` (lock order shown in the
   test).
+- For `N > 1`, write valid same-version checkpoints at `N - 1` and `N`, then
+  retain through `N`. Recover with a decoder that rejects the model at `N`.
+  Assert `{:error, {:pruned, N}}` and zero `read_checkpoint` fallback calls on
+  both Stores. Separately, retain through `N - 1` instead: recovery falls back
+  to the checkpoint at `N - 1`, exactly at `low_water`, with one fallback read
+  (a fallback that skips an anchor at `low_water` fails this case).
 - A negative control: a temporary edit that skips the delete makes the first
   case fail (recorded and reverted).
 - `mix check --piece "$(git merge-base origin/main HEAD)"` and
