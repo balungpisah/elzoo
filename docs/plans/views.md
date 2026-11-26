@@ -478,6 +478,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-429](https://github.com/balungpisah/elzoo/issues/1031) | V2 / later | ELZ-420, ELZ-422, ELZ-423 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-421](https://github.com/balungpisah/elzoo/issues/1026) | V2 / later | ELZ-420, ELZ-422, ELZ-423, ELZ-429 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-428](https://github.com/balungpisah/elzoo/issues/1029) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-430](https://github.com/balungpisah/elzoo/issues/1036) | V2 / later | ELZ-420, ELZ-423, ELZ-429 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -5772,3 +5773,15 @@ Publication copy: [tasks/ELZ-429-run-engine-fence-change-not-transition.md](../.
 **Secondary contribution:** assembly/run-engine — In-place fix under the same ID: a renewal-only revision change of the Run owner is a fence change, not a Run transition.
 
 **Secondary contribution:** workflow/run-approval-release — Additive change under the same ID: status/2 exposes the durable proof that an interval holds only lease renewals.
+
+### ELZ-430
+
+ELZ-430 — assembly/run-engine: a pending stop is bound to its Attempt
+
+Publication copy: [tasks/ELZ-430-run-engine-stop-bound-to-attempt.md](../../tasks/ELZ-430-run-engine-stop-bound-to-attempt.md).
+
+**Product aims:** P09.
+
+**Acceptance:** assembly/run-engine binds a completed stop and each lifecycle stop, its evidence row where written and the owner command to the Attempt that produced it; a stale owner answer or a restart after a new Attempt drops the stale stop without resetting Run-wide limits; during a retained-history read with a stop pending, records that end it or change the Attempt replay exactly; two crash cuts per stop, a transcript tamper case and negative controls; Piece gate, strongest other-family review.
+
+**Secondary contribution:** assembly/run-engine — In-place fix under the same ID: every pending stop is bound to its Attempt, as ELZ-420 does for a root failure.
