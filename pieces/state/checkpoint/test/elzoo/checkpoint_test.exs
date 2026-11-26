@@ -234,4 +234,76 @@ defmodule Elzoo.CheckpointTest do
     assert Checkpoint.recover(s, "s", fold(), 1, &decode/1) == beyond
     assert {:rejected, :retention_beyond_checkpoint} = Memory.retain(s, "s", 0, 1, <<7::128>>)
   end
+
+  defmodule CountingStore do
+    @moduledoc false
+    # Records each Store callback that recovery makes, then delegates to Memory.
+    alias Elzoo.DurableLog.Memory
+    def capabilities({__MODULE__, o}), do: call(o, :capabilities, [])
+    def head({__MODULE__, o}, stream), do: call(o, :head, [stream])
+    def read({__MODULE__, o}, stream, from, limit), do: call(o, :read, [stream, from, limit])
+
+    def latest_checkpoint({__MODULE__, o}, stream, version),
+      do: call(o, :latest_checkpoint, [stream, version])
+
+    def read_checkpoint({__MODULE__, o}, stream, sequence, version),
+      do: call(o, :read_checkpoint, [stream, sequence, version])
+
+    defp call(o, operation, args) do
+      Agent.update(o.calls, &[{operation, args} | &1])
+      apply(Memory, operation, [o.inner | args])
+    end
+  end
+
+  # Records 1..6, valid checkpoints of fold version 1 at `checkpoints` (the model at
+  # n is 2n), a retention through `through`, then recovery through a counting Store
+  # with a decoder that rejects the models of the sequences in `rejected`.
+  defp fallback(store, checkpoints, through, rejected) do
+    rows = Enum.map(1..6, &row/1)
+    assert {:committed, 6} = Memory.append(store, "s", 0, rows, [])
+
+    for n <- checkpoints,
+        do: assert({:committed, n} == take(store, Log.replay(Enum.take(rows, n), n, fold())))
+
+    assert {:committed, ^through} = Memory.retain(store, "s", 0, through, <<9::128>>)
+    calls = start_supervised!({Agent, fn -> [] end}, id: make_ref())
+    counting = {CountingStore, %{inner: store, calls: calls}}
+    refused = Enum.map(rejected, &Integer.to_string(2 * &1))
+    reject = fn bytes -> if bytes in refused, do: {:error, :rejected}, else: decode(bytes) end
+    result = Checkpoint.recover(counting, "s", fold(), 1, reject)
+    {result, rows, Agent.get(calls, &Enum.reverse/1)}
+  end
+
+  defp probes(calls), do: for({:read_checkpoint, args} <- calls, do: args)
+
+  test "ELZ-427 fallback after an undecodable latest checkpoint stops below low-water", %{
+    store: s
+  } do
+    # Valid checkpoints at N - 1 and N, retained through N, the model at N rejected:
+    # the pruned result with no read_checkpoint fallback call.
+    {result, _, calls} = fallback(s, [5, 6], 6, [6])
+    assert result == {:error, {:pruned, 6}}
+    assert probes(calls) == []
+
+    assert calls == [
+             {:head, ["s"]},
+             {:latest_checkpoint, ["s", 1]},
+             {:capabilities, []},
+             {:read, ["s", 1, 1_000]}
+           ]
+
+    # The same checkpoints retained through N - 1 instead: the fallback makes one
+    # read, of the checkpoint at N - 1, exactly at low-water, and it seeds recovery.
+    pid = start_supervised!({Memory, fold: fold(), limits: @limits}, id: :one_fallback)
+    {result, rows, calls} = fallback(Memory.store(pid, %{fold: fold()}), [5, 6], 5, [6])
+    assert result == Log.replay(rows, 6, fold())
+    assert probes(calls) == [["s", 5, 1]]
+
+    # A gap between the rejected checkpoint and low-water: the probes run down to
+    # the checkpoint exactly at low-water and stop there.
+    pid = start_supervised!({Memory, fold: fold(), limits: @limits}, id: :bounded_fallback)
+    {result, rows, calls} = fallback(Memory.store(pid, %{fold: fold()}), [4, 6], 4, [6])
+    assert result == Log.replay(rows, 6, fold())
+    assert probes(calls) == [["s", 5, 1], ["s", 4, 1]]
+  end
 end

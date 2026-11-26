@@ -35,7 +35,7 @@ defmodule Elzoo.DurableLog.Store do
   @callback read_maintenance(store(), binary(), atom()) :: {:ok, map() | :absent} | {:error, term()}
   @callback repair_torn_tail(store(), binary(), non_neg_integer(), binary(), binary()) ::
               write_result()
-  @rejections ~w(empty_batch batch_too_large record_too_large invalid_stream invalid_revision unknown_kind unsupported_version invalid_outbox_item checkpoint_too_large checkpoint_beyond_tail invalid_retention_range retention_beyond_checkpoint retention_beyond_pending_outbox torn_repair_unsupported unfenced_tail caller_transaction)a
+  @rejections ~w(empty_batch batch_too_large record_too_large invalid_stream invalid_revision unknown_kind unsupported_version invalid_outbox_item checkpoint_too_large checkpoint_beyond_tail checkpoint_below_low_water invalid_retention_range retention_beyond_checkpoint retention_beyond_pending_outbox torn_repair_unsupported unfenced_tail caller_transaction)a
 
   def read(store, operation, args) do
     case invoke(store, operation, args) do
