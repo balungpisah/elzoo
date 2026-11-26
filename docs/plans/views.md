@@ -480,6 +480,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-428](https://github.com/balungpisah/elzoo/issues/1029) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-430](https://github.com/balungpisah/elzoo/issues/1036) | V2 / later | ELZ-420, ELZ-423, ELZ-429 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-431](https://github.com/balungpisah/elzoo/issues/1039) | V2 / later | none | published 2026-11-26 | coordinator-owned CI repair; one PR carries publication and implementation; coordinator owns independent review and merge queue |
+| [ELZ-432](https://github.com/balungpisah/elzoo/issues/1046) | V2 / later | ELZ-425 | published 2026-11-27 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -5783,7 +5784,7 @@ Publication copy: [tasks/ELZ-430-run-engine-stop-bound-to-attempt.md](../../task
 
 **Product aims:** P09.
 
-**Acceptance:** assembly/run-engine binds a completed stop and each lifecycle stop, its evidence row where written and the owner command to the Attempt that produced it; a stale owner answer or a restart after a new Attempt drops the stale stop without resetting Run-wide limits; during a retained-history read with a stop pending, records that end it or change the Attempt replay exactly; two crash cuts per stop, a transcript tamper case and negative controls; Piece gate, strongest other-family review.
+**Acceptance:** assembly/run-engine binds a completed stop and each lifecycle stop, its evidence row where written and the owner command to the Attempt that produced it; a stale owner answer or a restart after a new Attempt drops the stale stop without resetting Run-wide limits; during a retained-history read with a stop pending, records that end it or change the Attempt replay exactly; two crash cuts per stop, a transcript tamper case; the first pending stop wins over a later lifecycle stop (completed and cancelled cases, v1 and v2); negative controls; Piece gate, strongest other-family review.
 
 **Secondary contribution:** assembly/run-engine — In-place fix under the same ID: every pending stop is bound to its Attempt, as ELZ-420 does for a root failure.
 
@@ -5796,3 +5797,13 @@ Publication copy: [tasks/ELZ-431-check-spike-database-and-root-build.md](../../t
 **Product aims:** P09.
 
 **Acceptance:** check-spike gets the work jobs' PostgreSQL service and database step, restores the check-piece dependency cache, runs mix setup and then the Ash spike; the CI guard pins the shape and refuses a check-spike without the service or the database step; guard tests, negative control, full local gate and full hosted check; ELZ-424's next exact head shows check-spike green.
+
+### ELZ-432
+
+ELZ-432 — CI guard: pin the OTP version of the Gleam job
+
+Publication copy: [tasks/ELZ-432-ci-guard-gleam-otp-pin.md](../../tasks/ELZ-432-ci-guard-gleam-otp-pin.md).
+
+**Product aims:** P09.
+
+**Acceptance:** check-ci-runners pins the Gleam job's setup-beam step and its otp-version to the root jobs' OTP pin; refusal cases for a changed, removed or extended otp-version block; negative control; full local gate and full hosted check; independent review.
