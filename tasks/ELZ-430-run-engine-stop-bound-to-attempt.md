@@ -56,7 +56,9 @@ Paths: `pieces/assembly/run-engine/**`, its `entries` row in
 - A current-Attempt wake reaches the root after completion, cancellation, and
   expiry of an old pause deadline while the Run deadline is still in the
   future. After Run-deadline or budget exhaustion, a fresh wake requests a
-  stop for the new Attempt under the unchanged limit.
+  stop for the new Attempt under the unchanged limit; separately, after the
+  request cap is reached with deadline and Budget still available, a fresh
+  wake in the new Attempt requests a stop under the unchanged cap.
 - With the new Attempt open, first assert `transcript/3` succeeds. Then change
   only the Run-view input to name the old Attempt, recompute its row digest,
   and leave its paired state unchanged. Assert `transcript/3` returns
