@@ -2,8 +2,9 @@
 defmodule Elzoo.RunApprovalRelease do
   @moduledoc """
   Serialized durable Run/Attempt owner. The consumer supplies a held lease,
-  trusted commands and existing EffectIntent startup bindings. No restoration
-  sends an effect, creates an Attempt, or grants approval.
+  trusted commands and existing EffectIntent startup bindings; `renew/2`
+  renews that lease inside the live owner. No restoration sends an effect,
+  creates an Attempt, or grants approval.
   """
   use GenServer
   alias Elzoo.{Approval, EffectIntent, Lease}
@@ -29,6 +30,14 @@ defmodule Elzoo.RunApprovalRelease do
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
   def command(owner, command), do: GenServer.call(owner, {:command, command})
   def status(owner, run_id), do: GenServer.call(owner, {:status, run_id})
+
+  @doc """
+  Renew the held lease between two commands. Only a token one revision above
+  the held revision is installed; the README section "Lease renewal" lists
+  every result.
+  """
+  def renew(owner, ttl_ms), do: GenServer.call(owner, {:renew, ttl_ms})
+
   def outcome?(value), do: value in @outcomes
 
   def classify_attempt(current, supplied),
@@ -67,6 +76,7 @@ defmodule Elzoo.RunApprovalRelease do
         store: lease.store,
         lease: lease,
         held: held,
+        floor: held.live.revision,
         stream: stream,
         model: snapshot.model,
         bindings: opts[:effect_intent],
@@ -135,6 +145,73 @@ defmodule Elzoo.RunApprovalRelease do
       _ -> flush_deaths(reply, next)
     end
   end
+
+  # One renewal between two commands. A token at another revision (rows this
+  # model never read), a lost lease, an unknown outcome or an error that may
+  # hide a committed renewal stops the owner before it writes again.
+  def handle_call({:renew, ttl_ms}, _, %{stream: stream, held: %{owner: owner}} = s) do
+    fence = s.held.live.revision
+
+    case Lease.renew(s.lease, owner, [stream], ttl_ms) do
+      {:renewed, %{held: %{^stream => token}}} ->
+        case token_revision(token, owner, stream) do
+          {:ok, revision} when revision == fence + 1 ->
+            {:reply, {:ok, revision, %{until: token.live.until}}, %{s | held: token}}
+
+          {:ok, revision} when revision > fence + 1 ->
+            stopped(s, {:refused, {:fenced, %{expected: fence, observed: revision - 1}}})
+
+          _ ->
+            stopped(s, {:unknown, :no_receipt})
+        end
+
+      {:renewed, %{refused: %{^stream => refusal}}} ->
+        stopped(s, {:refused, {:lease_lost, refusal}})
+
+      {:renewed, %{errors: %{^stream => {:indeterminate, _} = unknown}}} ->
+        stopped(s, unknown)
+
+      {:renewed, %{errors: %{^stream => {:error, reason}}}} ->
+        renewal_error(s, reason)
+
+      {:error, reason} ->
+        renewal_error(s, reason)
+
+      _ ->
+        stopped(s, {:unknown, :no_receipt})
+    end
+  end
+
+  # The token fields that the owner reads now or installs for its later writes;
+  # any other shape is a malformed reply that may hide a committed renewal.
+  defp token_revision(
+         %{owner: owner, live: %{key: key, revision: revision, at: at, until: until}},
+         owner,
+         key
+       )
+       when is_integer(revision) and is_integer(at) and is_integer(until),
+       do: {:ok, revision}
+
+  defp token_revision(_, _, _), do: :malformed
+
+  defp renewal_error(s, reason) do
+    if definite?(s.lease.module, reason),
+      do: {:reply, {:error, reason}, s},
+      else: stopped(s, {:unknown, :no_receipt})
+  end
+
+  # Errors that prove that no renewal record was written. PostgreSQL reports
+  # :contended and :unavailable only before its first write statement; Memory
+  # :clock_unavailable and :malformed come before its append, while its
+  # :unavailable can follow a committed append whose reply was lost.
+  defp definite?(_, {tag, _}) when tag in [:invalid, :schema, :rejected], do: true
+  defp definite?(_, :caller_transaction), do: true
+  defp definite?(Lease.Postgres, reason), do: reason in [:contended, :unavailable]
+  defp definite?(Lease.Memory, reason), do: reason in [:clock_unavailable, :malformed]
+  defp definite?(_, _), do: false
+
+  defp stopped(s, {:refused, reason} = reply), do: {:stop, {:shutdown, reason}, reply, s}
+  defp stopped(s, reply), do: {:stop, {:shutdown, reply}, reply, s}
 
   # A death whose write failed with an error waits in the process state and is
   # written after the next command, whether that command is applied, unchanged
@@ -270,9 +347,15 @@ defmodule Elzoo.RunApprovalRelease do
     end
   end
 
+  # Write admission: the current held revision, or one separated from it solely
+  # by renewals that this live owner installed since its startup or its last
+  # successful Run append (the floor).
   defp at_revision(s, c, fun),
     do:
-      if(c.expected_revision == s.held.live.revision, do: fun.(), else: {{:refused, :conflict}, s})
+      if(c.expected_revision >= s.floor and c.expected_revision <= s.held.live.revision,
+        do: fun.(),
+        else: {{:refused, :conflict}, s}
+      )
 
   defp unchanged(s, reason), do: {{:unchanged, reason, s.held.live.revision}, s}
 
@@ -675,7 +758,7 @@ defmodule Elzoo.RunApprovalRelease do
 
     case Lease.write(s.lease, s.held, [{"run", 1, payload}]) do
       {:held, held} ->
-        next = %{s | held: held, model: apply_event(s.model, event)}
+        next = %{s | held: held, floor: held.live.revision, model: apply_event(s.model, event)}
         {{:ok, held.live.revision, result}, next}
 
       {:fenced, _} ->
