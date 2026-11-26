@@ -323,7 +323,7 @@ class RunnerPolicyTest(unittest.TestCase):
 
 
     # ELZ-043 controls: split cache actions and every other action stay SHA-pinned.
-    CACHE_SHA = "0057852bfaa89a56745cba8c7296529d2fc39830"
+    CACHE_SHA = "55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
 
     def test_tag_pinned_cache_save_rejected(self):
         self.change("symbolic-check.yml", "actions/cache/save@" + self.CACHE_SHA, "actions/cache/save@v4")
@@ -379,7 +379,7 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertIn("approved runner identity gate is missing or changed", self.check(1).stderr)
 
     def test_uses_plain_continuation_rejected(self):
-        pinned = "actions/cache/restore@" + self.CACHE_SHA + " # v4.3.0\n"
+        pinned = "actions/cache/restore@" + self.CACHE_SHA + " # v6.1.0\n"
         self.change("symbolic-check.yml", pinned, pinned + "          actions/cache@v4\n")
         self.assertIn("plain-scalar continuation lines are outside", self.check(1).stderr)
 
@@ -644,8 +644,8 @@ class RunnerPolicyTest(unittest.TestCase):
         for job, old, new in (("check-root", "      - name: Install runtime libraries\n", "      - name: Install runtime libraries\n        if: ${{ false }}\n"),
                               ("check-plan", "      - run: python3 scripts/check-claims.py\n", "      - run: python3 scripts/check-claims.py\n        if: ${{ false }}\n"),
                               ("check-root", "      - run: mix setup\n", "      - run: mix setup\n        if: ${{ false }}\n"),
-                              ("check-consumers", "      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1\n",
-                               "      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1\n        if: ${{ needs.check-plan.outputs.run == 'true' }}\n"),
+                              ("check-consumers", "      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1\n",
+                               "      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1\n        if: ${{ needs.check-plan.outputs.run == 'true' }}\n"),
                               ("check-root", "        if: always()\n", "        if: ${{ success() }}\n"),
                               ("check-consumers-db", "        if: always()\n", "        if: ${{ success() }}\n"),
                               ("check-root", "        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}\n", ""),
@@ -658,7 +658,7 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.tearDown()
                 self.setUp()
 
-    CHECKOUT = """      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+    CHECKOUT = """      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -760,7 +760,7 @@ class RunnerPolicyTest(unittest.TestCase):
                 ("symbolic-check.yml", "check-consumers", "      contents: read\n", "      contents: write\n"),
                 ("symbolic-check.yml", "check-root", "      contents: read\n", "      contents: read\n      actions: read\n"),
                 ("symbolic-check.yml", "check-root", "ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'", "ERL_FLAGS: '+S 8:8'"),
-                ("symbolic-check.yml", "check-consumers", "pgvector/pgvector:0.8.7-pg16-bookworm@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f", "pgvector/pgvector:0.8.7-pg16-bookworm"),
+                ("symbolic-check.yml", "check-consumers", "pgvector/pgvector:0.8.7-pg19-trixie@sha256:ace863afa68a13560603dc7366fad0adb4f5ddd0a21c8f06418195f32e03fa08", "pgvector/pgvector:0.8.7-pg19-trixie"),
                 ("symbolic-check.yml", "check-root", "          - 5432:5432\n", "          - 5432:5432\n          - 22:22\n"),
                 ("symbolic-check.yml", "check-consumers-db", "    services:\n", "    outputs:\n      x: y\n    services:\n"),
                 # the plan job: the token permissions (actions: read, pull-requests: read) are its own, with the output and the time limit
@@ -883,9 +883,9 @@ class RunnerPolicyTest(unittest.TestCase):
     def test_no_cache_save_outside_the_root_job_and_exactly_two_in_it(self):
         # Review of PR #144, should-fix 2: a save step without an `if:` is invisible to the step-level comparison.
         message = "only the root job saves caches, with exactly two save steps"
-        save = ("      - name: Another save\n        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n"
+        save = ("      - name: Another save\n        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0\n"
                 "        with:\n          path: deps\n          key: k\n")
-        plain = ("      - name: Another cache\n        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n"
+        plain = ("      - name: Another cache\n        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0\n"
                  "        with:\n          path: deps\n          key: k\n")
         # ELZ-078: the same steps written with capitals (the pinned-action check allows them; GitHub ignores case).
         save_caps = save.replace("uses: actions/cache/save@", "uses: Actions/Cache/Save@")
@@ -1142,7 +1142,7 @@ class RunnerPolicyTest(unittest.TestCase):
                       "        run: |\n          python3 scripts/check-claims.py\n          python3 scripts/check-roadmap.py\n"
                       '          echo "ELZOO DOCS-ONLY CHECK PASSED"\n')
     HEAVY_STEPS = ("      - name: Restore the pinned S3 test server binary\n", "      - name: Start the disposable S3 test server\n",
-                   "      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1\n",
+                   "      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1\n",
                    "      - name: Report BEAM capacity\n", "      - name: Restore dependency cache\n",
                    "      - run: mix local.hex --force\n", "      - run: mix local.rebar --force\n", "      - run: mix setup\n",
                    "      - name: Run mix check\n", "      - name: Check the roadmap views\n")
@@ -1417,7 +1417,7 @@ class RunnerPolicyTest(unittest.TestCase):
                          ("        run: python3 scripts/ci-minio.py\n", "        run: true\n"),
                          ("        run: sudo python3 scripts/ci-install-runtime.py\n", "        run: true\n"),
                          ("      - name: Report BEAM capacity\n",
-                          "      - name: Save\n        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n"
+                          "      - name: Save\n        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0\n"
                           "        with:\n          path: deps\n          key: k\n      - name: Report BEAM capacity\n")):
             with self.subTest(new=new.strip()[:60]):
                 self.change_in_job("symbolic-check.yml", "check-piece", old, new)

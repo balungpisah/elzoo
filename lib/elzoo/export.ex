@@ -261,7 +261,7 @@ defmodule Elzoo.Export do
 
             compilers: (Mix.compilers() -- [:app]) ++ [:cure, :app]
 
-        Keep the exact Cure SHA above and Elixir 1.20.4 / OTP 29.1.2 for the recorded
+        Keep the exact Cure SHA above and Elixir 1.20.5 / OTP 29.1.3 for the recorded
         proof results. Cure is an exact-revision build/test dependency; runtime: false
         excludes its automatic startup in the consuming application. The compiler
         task still starts Cure during compilation. No Elzoo runtime is required.

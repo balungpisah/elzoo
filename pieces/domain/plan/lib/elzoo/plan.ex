@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.Plan do
   @moduledoc """
-  A tenant's subscription to one plan version over a consumer-owned Ecto Repo on PostgreSQL 16
+  A tenant's subscription to one plan version over a consumer-owned Ecto Repo on PostgreSQL 19
   (ELZ-366).
 
   Periods are UTC calendar months or years counted from an anchor and clamped to the month's

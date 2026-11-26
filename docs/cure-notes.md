@@ -11,7 +11,7 @@ Use the exact Cure commit
 [`208248063d64e621782cd26dd30698ee42850a89`](https://github.com/balungpisah/cure-lang/commit/208248063d64e621782cd26dd30698ee42850a89)
 from `mix.exs`. The upstream repository has both a branch and a tag named
 `v0.35.0`; a bare branch/tag selection is not reproducible. The target
-toolchain is Elixir 1.20.4 / OTP 29.1.2.
+toolchain is Elixir 1.20.5 / OTP 29.1.3.
 
 The pinned Cure README describes dependent types, records, effects, typed
 actors/supervisors and compilation to BEAM. The Elzoo bootstrap deliberately

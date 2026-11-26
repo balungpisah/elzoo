@@ -2,7 +2,7 @@
 defmodule Elzoo.AiText.Google do
   @moduledoc """
   The Gemini API `generateContent` provider of `integration/ai-text`, with an
-  API key, through `req_llm` 1.30's documented provider-callback API
+  API key, through `req_llm` 1.31's documented provider-callback API
   (`ReqLLM.Providers.Google.prepare_request/4`, its `encode_body/1`, then
   `Req.request/1`).
 

@@ -2,7 +2,7 @@
 defmodule Elzoo.AiText.Anthropic do
   @moduledoc """
   The Anthropic Messages API provider of `integration/ai-text`, through
-  `req_llm` 1.30's documented provider-callback API
+  `req_llm` 1.31's documented provider-callback API
   (`ReqLLM.Providers.Anthropic.prepare_request/4` then `Req.request/1`).
 
   `req_llm` resolves the model, encodes the request body (messages, tools,
@@ -162,7 +162,7 @@ defmodule Elzoo.AiText.Anthropic do
     end
   end
 
-  # The non-system messages as req_llm 1.30 encodes them: it merges each run of
+  # The non-system messages as req_llm 1.31 encodes them: it merges each run of
   # consecutive tool results into one user message.
   defp wire(conversation) do
     conversation

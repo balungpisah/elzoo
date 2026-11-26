@@ -37,9 +37,10 @@ defmodule Elzoo.SearchDataTest do
                log: false
              )
 
-    assert String.to_integer(server) in 160_000..169_999
+    assert String.to_integer(server) in 190_000..199_999
     assert String.starts_with?(extension, "0.8.")
-    IO.puts("SearchData boundary: PostgreSQL16, vector " <> extension)
+    major = div(String.to_integer(server), 10_000)
+    IO.puts("SearchData boundary: PostgreSQL#{major}, vector " <> extension)
     restricted = "elz082_restricted_" <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
     SQL.query!(TestRepo, "CREATE SCHEMA #{Store.identifier(restricted)}", [], log: false)
 

@@ -2,7 +2,7 @@
 defmodule Elzoo.DeadLetterStore do
   @moduledoc """
   Retained `delivery/dead-letter` records in one table under the `state/tenant-isolation` floor,
-  over a consumer-owned Ecto Repo on PostgreSQL 16.
+  over a consumer-owned Ecto Repo on PostgreSQL 19.
 
   A record is stored once per `(tenant, source, message_id)` and stays open until `resolve/3`
   sets it once as `:replayed` or `:discarded`. `list/3` pages the open records of one source,

@@ -139,7 +139,8 @@ stamp (clock regression) refuses every operation except `seize`.
 - `cure/elzoo/lease.cure`: 48 laws (C1–C9, R1–R5, G1–G9, D1–D19, S1–S6),
   audit clean, seven negative controls rejected in the named law.
 - `test/elzoo/lease_test.exs`: Memory scenarios LS1–LS21, LS25, LS27, the
-  adapter-routed `confirm/2` owner seam and the law test;
+  adapter-routed `confirm/2` owner seam, the law test and the OD-1a comparison
+  over synthetic catalog rows of PostgreSQL 17 and of 18 and later (ELZ-416);
   `test/elzoo/lease_postgres_test.exs`: PostgreSQL scenarios incl. LS22
   (guard), LS23 (OD-1a, including post-mutation `confirm/2`), LS24 (OD-1b
   conformance K1–K11 over lease records on both harnesses), LS26, LS28.
@@ -151,3 +152,19 @@ stamp (clock regression) refuses every operation except `seize`.
 
 See [ELZ-028](../../../docs/work/ELZ-028.md) for the Contract reading, the
 review history, the ownership decision and the scenario plan.
+
+## Changes
+
+- ELZ-416 (2026-11-26): on PostgreSQL 18 and later the catalog also lists each
+  NOT NULL column as a constraint row (contype `n`) rendered `NOT NULL <column>`
+  and named `<table>_<column>_not_null`, followed by the unpadded decimal
+  1 to 2147483647 that PostgreSQL appends when that name is already taken in
+  the schema. The OD-1a schema check of `Elzoo.Lease.Postgres` now takes, on
+  such a server, exactly one such row for each NOT NULL column of migration
+  version 1, named with or without that suffix,
+  as part of the pinned shape, and still fails closed on any other name, another
+  column or table, a second or a missing row, and on such rows on a server
+  before 18. Before this fix every lease operation on PostgreSQL 18 or 19
+  returned `{:error, {:schema, detail}}`; on PostgreSQL 17 and earlier nothing
+  changes. The check reads `server_version_num` once more per call. No API
+  change; a copy without the fix refuses every lease on PostgreSQL 18 and later.

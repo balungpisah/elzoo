@@ -12,7 +12,7 @@ This is a one-time bootstrap plan, not a mandatory development lifecycle.
 - Use the vocabulary in CONTEXT.md. Claims carry appropriate grounding; proofs
   are optional per claim, and external implementations remain upstream's work.
 - Toolchain: Cure v0.35.0 exact commit
-  `a004c335cc4e9f2203ba6f51fc31e8540b66378d`, Elixir 1.20.4, OTP 29.1.2.
+  `a004c335cc4e9f2203ba6f51fc31e8540b66378d`, Elixir 1.20.5, OTP 29.1.3.
   Cure has a same-named branch and tag: use the SHA, not a bare version ref.
 - One Mix application initially. `mix setup` and `mix check` are the public
   development commands. `mix check` must compile real Cure, check selected proofs

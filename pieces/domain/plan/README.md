@@ -1,6 +1,6 @@
 # domain/plan
 
-A tenant's subscription to one plan version in PostgreSQL 16 over a consumer-owned Ecto Repo:
+A tenant's subscription to one plan version in PostgreSQL 19 over a consumer-owned Ecto Repo:
 a fee of one `domain/money` amount per period, periods that are UTC calendar months or years
 counted from an anchor and clamped to the month's last day, an optional trial, a renewal that
 advances exactly one period when it is due and returns that period's fee line and its
@@ -21,7 +21,7 @@ Select `domain/plan` with `mix elzoo.take`; the copy is owned by the consuming a
 floor and `transact/3`), `domain/money` (the fee, stored as its `Elzoo.Money.Codec` bytes) and
 `domain/entitlement` (the consumer of the grant shape; the tests resolve the returned grants
 with `Elzoo.Entitlement.resolve/3`, and the library code does not call it). Providers:
-`ecto_sql` 3.14.0 and `postgrex` 0.22.4, `cure` (the period rule), `elixir` and OTP (`:calendar`
+`ecto_sql` 3.14.0 and `postgrex` 0.23.0, `cure` (the period rule), `elixir` and OTP (`:calendar`
 for the UTC civil date of a time); the tests also use `telemetry`. Exact versions and
 claim-level grounding are in [piece.json](piece.json).
 
@@ -243,7 +243,7 @@ with the old revision is `:stale_revision`, after which `get/3` shows the commit
 
 ## Consumer Needs
 
-- PostgreSQL 16 and READ COMMITTED, the server default. The Piece checks the level and refuses
+- PostgreSQL 19 and READ COMMITTED, the server default. The Piece checks the level and refuses
   every write with `:isolation` under another level, but cannot set it.
 - The migration runs as the table owner; the application connects as a non-owner role without
   `BYPASSRLS` or superuser, with the grants above.
@@ -282,6 +282,14 @@ with the old revision is `:stale_revision`, after which `get/3` shows the commit
   whose indices are numerals.
 - Type: the pinned Cure checks the module with a clean audit (no axioms, holes, unresolved,
   unaudited, opaque or unproven-total items).
-- Test: `test/elzoo/plan_test.exs` on a disposable PostgreSQL 16 database as the ELZ-285
+- Test: `test/elzoo/plan_test.exs` on a disposable PostgreSQL 19 database as the ELZ-285
   application role with only the grants above (piece.json lists the scenarios and the negative
   controls).
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19; its tests now require a PostgreSQL 19 server.
+  A host on an older server upgrades to PostgreSQL 19 before taking this
+  revision. No code or API change: only the module documentation names the new
+  server and the README names the current provider pins.

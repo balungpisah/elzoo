@@ -4,7 +4,7 @@ Facts, preferences and summaries about a tenant, a space, an end user or a bot, 
 immutable scoped records with provenance, written only through a host policy, recalled within
 bounds in the candidate shape of `workflow/context-selection`, and forgotten or erased on
 request. One durable Piece in plain Elixir, Ecto and Postgrex over a consumer-owned Ecto Repo on
-PostgreSQL 16; its two tables are protected by the `state/tenant-isolation` floor.
+PostgreSQL 19; its two tables are protected by the `state/tenant-isolation` floor.
 
 A scope is a tagged value of the record, and the write policy is the pure `check_write/2` of
 this Piece, which `write/4` runs before every write (they absorb the plan's handles
@@ -23,7 +23,7 @@ consuming application. See [consuming](../../../docs/consuming.md). Piece depend
 `workflow/context-selection`, which is declared only so that the copied consumer can run the
 tests: they pass the recall candidates through `Elzoo.ContextSelection.select/2`, and the
 library code does not call it. Cure source: [cure/elzoo/memory_record.cure](cure/elzoo/memory_record.cure)
-owns the policy decision. Providers: `cure`, `ecto_sql` 3.14.0 and `postgrex` 0.22.4, `elixir`,
+owns the policy decision. Providers: `cure`, `ecto_sql` 3.14.0 and `postgrex` 0.23.0, `elixir`,
 `otp` (`:crypto` SHA-256); the tests also use `telemetry` and `jason`. Exact versions and claim-level
 grounding are in [piece.json](piece.json).
 
@@ -293,8 +293,16 @@ duplicates they decide and the approvals that name them stay equal.
 ## Evidence
 
 [test/elzoo/memory_record_test.exs](test/elzoo/memory_record_test.exs) runs on the worker's own
-disposable PostgreSQL 16 database (`ELZOO_TEST_DATABASE_URL`) with
+disposable PostgreSQL 19 database (`ELZOO_TEST_DATABASE_URL`) with
 `DBConnection.ConnectionPool` Repos, not the Sandbox, in random schemas dropped afterwards.
 Every Piece call runs as the ELZ-285 application role (`SET ROLE` to `ELZOO_TEST_APP_ROLE` on
 every connection) with only the grants above; the tests fail, not skip, without that variable.
 The Cure laws are listed in [piece.json](piece.json). Finite scenarios, not proofs.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19; its tests now require a PostgreSQL 19 server.
+  A host on an older server upgrades to PostgreSQL 19 before taking this
+  revision. No code or API change: only the module documentation names the new
+  server and the README names the current provider pins.

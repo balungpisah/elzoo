@@ -153,7 +153,7 @@ defmodule Elzoo.AiTokenCount.AnthropicTest do
   end
 
   describe "unknown_model_refused" do
-    test "an unknown Anthropic model and another provider's model are refused; an alias is accepted" do
+    test "an unknown Anthropic model and another provider's model are refused; an alias and a model that the pinned llm_db added are accepted" do
       for model <- ["claude-no-such-model-9", "gpt-4o-mini", "anthropic:claude-haiku-5-5"] do
         payload = Jason.encode!(request(%{"model" => model}))
         assert Estimator.estimate(payload) == {:refused, :unknown_model}, model
@@ -165,6 +165,11 @@ defmodule Elzoo.AiTokenCount.AnthropicTest do
 
       payload = Jason.encode!(request(%{"model" => "claude-sonnet-4-5"}))
       assert {:ok, %{model_id: "claude-sonnet-4-5"}} = Estimator.estimate(payload)
+
+      # ELZ-416: llm_db 2026.11.6 adds claude-fable-5-2; at 2026.11.0 it was unknown_model.
+      assert {:ok, %{id: "claude-fable-5-2"}} = LLMDB.model(:anthropic, "claude-fable-5-2")
+      payload = Jason.encode!(request(%{"model" => "claude-fable-5-2"}))
+      assert {:ok, %{model_id: "claude-fable-5-2"}} = Estimator.estimate(payload)
     end
   end
 

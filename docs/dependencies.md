@@ -35,13 +35,13 @@ time; they are observations, not lockfile choices.
 | Dependency | Exact baseline | Status | What was actually exercised | Boundary/limit |
 | --- | --- | --- | --- | --- |
 | [Cure](https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89) | commit `208248063d64e621782cd26dd30698ee42850a89` on the `balungpisah/cure-lang` fork = upstream `a004c335` (release line v0.35.0) + one import-resolution fix; record in [forks/cure.md](dependencies/forks/cure.md) | adopted; maintained fork (ELZ-047) | Elzoo compiles the selected source modules through `compile_file/2`; runtime tests check selected laws, typed negatives, independent imports and model traces | Cure compiler/kernel/runtime remain trusted infrastructure; the spike is not an independent soundness audit |
-| [Elixir](https://github.com/elixir-lang/elixir) | 1.20.4 | adopted platform baseline | Elzoo runs the GenServer shell, Supervisor and ExUnit on the matching toolchain | Elzoo owns only its shell callbacks and contracts |
-| [Erlang/OTP](https://www.erlang.org/doc/system/design_principles.html) | OTP 29.1.2 (BEAM reports OTP 29 in the spike) | adopted platform baseline for ordinary supervision | Elzoo tests `GenServer`, `Supervisor`, process messaging and restart behavior | OTP process isolation is not an OS/security sandbox; no distributed/crash theorem |
+| [Elixir](https://github.com/elixir-lang/elixir) | 1.20.5 | adopted platform baseline | Elzoo runs the GenServer shell, Supervisor and ExUnit on the matching toolchain | Elzoo owns only its shell callbacks and contracts |
+| [Erlang/OTP](https://www.erlang.org/doc/system/design_principles.html) | OTP 29.1.3 (BEAM reports OTP 29 in the spike) | adopted platform baseline for ordinary supervision | Elzoo tests `GenServer`, `Supervisor`, process messaging and restart behavior | OTP process isolation is not an OS/security sandbox; no distributed/crash theorem |
 | [Jason](https://hexdocs.pm/jason/Jason.html) / [source](https://github.com/michalmuskala/jason) | 1.4.5 in `mix.lock` | adopted adapter dependency | Real `Jason.encode!` calls round-tripped strings, quotes, Unicode and empty input; invalid input and a failing stand-in became explicit errors | Jason encoding/decoding is upstream-owned; Cure `@extern` signature is a foreign assumption |
 
 Elzoo now adopts Req 0.7.5 for a narrow direct HTTP client recipe. Finch is its
 transitive implementation, not a separate Elzoo abstraction. ELZ-009 adopts
-Ecto SQL 3.14.0 and Postgrex 0.22.4 (Ecto 3.14.3 and DBConnection 2.10.2
+Ecto SQL 3.14.0 and Postgrex 0.23.0 (Ecto 3.14.3 and DBConnection 2.10.3
 transitive) for the narrow `integration/sql` PostgreSQL Store translation.
 ELZ-010 adopts Oban 2.24.2 for `integration/jobs`. ELZ-029 adopts erlexec
 2.6.0 (BSD-2-Clause; the upstream copyright and permission notice is retained
@@ -50,7 +50,7 @@ its port program spawns the command, creates its process group, enforces the
 deadline and the SIGTERM→SIGKILL escalation, and stops the group when the
 linked owner or the VM exits; Elzoo owns admission, deadline conversion, the
 observation and the result schema. OpenTelemetry is not a dependency; it
-remains a candidate. Telemetry 1.4.2 is a direct, pinned dependency, the
+remains a candidate. Telemetry 1.4.3 is a direct, pinned dependency, the
 provider of `runtime/telemetry`; Prometheus 6.1.3 is the provider of
 `integration/observability`. See the table. Cure's transitive dependency graph
 remains in `mix.lock`; “not adopted” means Elzoo does not rely on that
@@ -74,17 +74,17 @@ names it. "Use" is a short phrase taken from the `mix.exs` comment or the
 | `req` | `== 0.7.5` | Apache-2.0 | `assembly/http-job`, `delivery/data-stream`, `delivery/provider-stream`, `integration/ai-batch-anthropic`, `integration/ai-embedding-openai`, `integration/ai-text-anthropic`, `integration/ai-text-openai`, `integration/http`, `integration/object-store`, `state/artifact`, `state/recipe-store` | HTTP client requests (`integration/http`: Req is used directly) |
 | `req_s3` | `== 0.2.5` | Apache-2.0 | `integration/object-store`, `state/artifact`, `state/recipe-store` | S3 URL handling and SigV4 presign on the pinned Req |
 | `ecto_sql` | `== 3.14.0` | Apache-2.0 | `assembly/durable-job`, `integration/jobs`, `integration/search-data`, `integration/sql`, `state/artifact`, `state/audit-log`, `state/lease`, `state/recipe-store`, `state/scheduler` | PostgreSQL Store translation (`integration/sql`) |
-| `postgrex` | `== 0.22.4` | Apache-2.0 | `assembly/durable-job`, `integration/jobs`, `integration/search-data`, `integration/sql`, `state/artifact`, `state/audit-log`, `state/lease`, `state/recipe-store`, `state/scheduler` | PostgreSQL Store translation (`integration/sql`) |
+| `postgrex` | `== 0.23.0` | Apache-2.0 | `assembly/durable-job`, `integration/jobs`, `integration/search-data`, `integration/sql`, `state/artifact`, `state/audit-log`, `state/lease`, `state/recipe-store`, `state/scheduler` | PostgreSQL Store translation (`integration/sql`) |
 | `oban` | `== 2.24.2` | Apache-2.0 | `assembly/durable-job`, `assembly/http-job`, `integration/jobs`, `state/scheduler` | Jobs (`integration/jobs`); also used by the `test/elz010_*` probes |
 | `decimal` | `== 3.2.0` | Apache-2.0 | `domain/money` | Exact currency amounts (`domain/money`) |
 | `erlexec` | `== 2.6.0` | BSD-2-Clause | `runtime/os-isolation` | OS-process spawn, group, deadline and reaping through its port program; `runtime: false` |
-| `swoosh` | `== 1.29.3` | MIT | `integration/notification` | Email through its SMTP adapter; `runtime: false` |
+| `swoosh` | `== 1.30.0` | MIT | `integration/notification` | Email through its SMTP adapter; `runtime: false` |
 | `gen_smtp` | `== 1.3.0` | BSD-2-Clause | `integration/notification` | SMTP transport that Swoosh's SMTP adapter requires |
-| `telemetry` | `== 1.4.2` | Apache-2.0 | `assembly/durable-job`, `assembly/http-job`, `core/payload-schema`, `delivery/circuit-breaker`, `domain/recipe-config`, `domain/recipe-graph`, `domain/recipe-package`, `integration/observability`, `integration/search-data`, `runtime/telemetry`, `state/artifact`, `state/recipe-store`, `state/scheduler` | Direct and pinned; the provider of `runtime/telemetry` |
+| `telemetry` | `== 1.4.3` | Apache-2.0 | `assembly/durable-job`, `assembly/http-job`, `core/payload-schema`, `delivery/circuit-breaker`, `domain/recipe-config`, `domain/recipe-graph`, `domain/recipe-package`, `integration/observability`, `integration/search-data`, `runtime/telemetry`, `state/artifact`, `state/recipe-store`, `state/scheduler` | Direct and pinned; the provider of `runtime/telemetry` |
 | `prometheus` | `== 6.1.3` | MIT | `integration/observability` | Public Prometheus counters and formatter; the provider of `integration/observability` |
 | `carbonite` | `== 0.17.0` | Apache-2.0 | `state/audit-log` | Trigger-based change capture for the audit log |
-| `req_llm` | `~> 1.30` (locked 1.30.0 in `mix.lock`) | Apache-2.0 | `integration/ai-batch-anthropic`, `integration/ai-embedding-openai`, `integration/ai-text-anthropic`, `integration/ai-text-openai` | Used through its documented provider-callback API |
-| `plug` | `== 1.20.3` | Apache-2.0 | `integration/ai-batch-anthropic`, `integration/ai-embedding-openai`, `integration/ai-text-anthropic`, `integration/ai-text-openai`, `integration/ai-token-count`, `integration/mcp-client` | `Req.Test` stubs for the provider tests of the Anthropic Pieces; the `ex_mcp` closure needs it at runtime |
+| `req_llm` | `~> 1.30` (locked 1.31.0 in `mix.lock`) | Apache-2.0 | `integration/ai-batch-anthropic`, `integration/ai-embedding-openai`, `integration/ai-text-anthropic`, `integration/ai-text-openai` | Used through its documented provider-callback API |
+| `plug` | `== 1.20.4` | Apache-2.0 | `integration/ai-batch-anthropic`, `integration/ai-embedding-openai`, `integration/ai-text-anthropic`, `integration/ai-text-openai`, `integration/ai-token-count`, `integration/mcp-client` | `Req.Test` stubs for the provider tests of the Anthropic Pieces; the `ex_mcp` closure needs it at runtime |
 | `text_chunker` | `== 1.0.1` | MIT | `integration/text-chunking` | Recursive splitter and its byte ranges |
 | `ex_mcp` | `== 1.8.1` | MIT | `integration/mcp-client`, `integration/mcp-multi` | MCP protocol, era negotiation and Streamable HTTP client transport |
 | `pgvector` | `== 0.4.2` | MIT | `integration/search-data` | Vector encoding and consumer Postgrex/Ecto types |
@@ -262,17 +262,17 @@ made yet.
 
 | API | Authoritative API | Status | Intended Elzoo use |
 | --- | --- | --- | --- |
-| `GenServer` | [Elixir GenServer docs](https://hexdocs.pm/elixir/1.20.4/GenServer.html) | bootstrap-tested reuse | Unit shell serialises a unit's state transition and replies |
-| `Supervisor` | [Elixir Supervisor docs](https://hexdocs.pm/elixir/1.20.4/Supervisor.html) | bootstrap-tested reuse | Unit restart policy and lifecycle boundary |
-| `Application` | [Elixir Application docs](https://hexdocs.pm/elixir/1.20.4/Application.html) | bootstrap-tested reuse | Start one host supervision tree from the Mix app |
-| `DynamicSupervisor` | [Elixir DynamicSupervisor docs](https://hexdocs.pm/elixir/1.20.4/DynamicSupervisor.html) | planned reuse | Bounded dynamic units only when an assembly needs them |
-| `Registry` | [Elixir Registry docs](https://hexdocs.pm/elixir/1.20.4/Registry.html) | recipe-tested reuse | Local name lookup; never the durable message identity |
+| `GenServer` | [Elixir GenServer docs](https://hexdocs.pm/elixir/1.20.5/GenServer.html) | bootstrap-tested reuse | Unit shell serialises a unit's state transition and replies |
+| `Supervisor` | [Elixir Supervisor docs](https://hexdocs.pm/elixir/1.20.5/Supervisor.html) | bootstrap-tested reuse | Unit restart policy and lifecycle boundary |
+| `Application` | [Elixir Application docs](https://hexdocs.pm/elixir/1.20.5/Application.html) | bootstrap-tested reuse | Start one host supervision tree from the Mix app |
+| `DynamicSupervisor` | [Elixir DynamicSupervisor docs](https://hexdocs.pm/elixir/1.20.5/DynamicSupervisor.html) | planned reuse | Bounded dynamic units only when an assembly needs them |
+| `Registry` | [Elixir Registry docs](https://hexdocs.pm/elixir/1.20.5/Registry.html) | recipe-tested reuse | Local name lookup; never the durable message identity |
 | `:pg` | [Erlang process groups docs](https://www.erlang.org/doc/apps/kernel/pg.html) | planned reuse | Local broadcast/group membership only; subscriber loss and replay are not implied |
-| `Task` | [Elixir Task docs](https://hexdocs.pm/elixir/1.20.4/Task.html) | planned reuse | Bounded adapter work with an explicit caller/result |
+| `Task` | [Elixir Task docs](https://hexdocs.pm/elixir/1.20.5/Task.html) | planned reuse | Bounded adapter work with an explicit caller/result |
 | `gen_statem` | [Erlang state machine docs](https://www.erlang.org/doc/system/statem.html) | planned reuse | Circuit-breaker/workflow lifecycle shell when a pure state transition is not enough |
-| `:timer`/`Process.send_after` | [Elixir Process docs](https://hexdocs.pm/elixir/1.20.4/Process.html) | recipe-tested reuse | Clock adapter for time messages and deadlines |
+| `:timer`/`Process.send_after` | [Elixir Process docs](https://hexdocs.pm/elixir/1.20.5/Process.html) | recipe-tested reuse | Clock adapter for time messages and deadlines |
 | `:disk_log` | [Erlang disk_log docs](https://www.erlang.org/doc/apps/kernel/disk_log.html) | evaluated by ELZ-009, not adopted | Negative comparison on OTP 29.1.2: two writers on one log both appended sequence 1, duplicate identities persisted and a killed multi-call commit left a partial unit. Bare `disk_log` supplies no store CAS, uniqueness or atomic multi-record commit |
-| `Enum` / `Stream` | [Elixir Enum docs](https://hexdocs.pm/elixir/1.20.4/Enum.html) and [Stream docs](https://hexdocs.pm/elixir/1.20.4/Stream.html) | recipe-tested reuse | Ordinary finite/lazy transformations should use the platform; own only a missing domain/state policy rather than rebuilding Rx's long tail |
+| `Enum` / `Stream` | [Elixir Enum docs](https://hexdocs.pm/elixir/1.20.5/Enum.html) and [Stream docs](https://hexdocs.pm/elixir/1.20.5/Stream.html) | recipe-tested reuse | Ordinary finite/lazy transformations should use the platform; own only a missing domain/state policy rather than rebuilding Rx's long tail |
 | `:crypto` | [Erlang crypto docs](https://www.erlang.org/doc/apps/crypto/crypto.html) | recipe-tested reuse | SHA-256 known-vector recipe only; other hashes, HMAC, key/secrets and TLS contracts are not adopted by this recipe |
 
 ## External library candidates
@@ -284,7 +284,7 @@ evidence described above; other rows retain their stated candidate status.
 | Candidate | Observed API/docs | Why it may fit | Contract risk and adoption test |
 | --- | --- | --- | --- |
 | [Req](https://hexdocs.pm/req/Req.html) · [source](https://github.com/wojtekmach/req) | docs page showed `Req.request/2` and `Req.request!/2` (v0.7.5 page) | High-level HTTP client with request/response conveniences for the P3 edge assembly | Adopted narrow client recipe at 0.7.5; local 200/503 and injected transport failure are checked. Effect/job policy remains ELZ-011 |
-| [Finch](https://hexdocs.pm/finch/Finch.html) · [source](https://github.com/sneako/finch) | docs page showed `Finch.start_link/1`, `request/2-3`, `async_request/2-3` (v0.24.0 page) | Supervised, pool-oriented HTTP client when explicit connection ownership/backpressure matters | Transitive Req dependency at 0.24.0; its direct API is not adopted as a second abstraction. Application-specific pool policy remains future work |
+| [Finch](https://hexdocs.pm/finch/Finch.html) · [source](https://github.com/sneako/finch) | docs page showed `Finch.start_link/1`, `request/2-3`, `async_request/2-3` (v0.24.0 page) | Supervised, pool-oriented HTTP client when explicit connection ownership/backpressure matters | Transitive Req dependency at 0.25.0; its direct API is not adopted as a second abstraction. Application-specific pool policy remains future work |
 | [Ecto SQL](https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html) · [source](https://github.com/elixir-ecto/ecto_sql) | `Ecto.Adapters.SQL`, `Repo.transaction/2`, `Ecto.Migrator` (3.14.0, Ecto 3.14.3 transitive) | Transaction boundary for the `integration/sql` Store translation over a consumer-owned Repo | Adopted at 3.14.0 by ELZ-009: K1–K11 and D11/D15/D17/D19 pass on a disposable local PostgreSQL, including backend termination and unreachable server. Ecto does not make an Elzoo hop durable; consumer owns Repo, schema and server configuration |
 | [Postgrex](https://hexdocs.pm/postgrex/0.22.4/Postgrex.html) · [source](https://github.com/elixir-ecto/postgrex) | PostgreSQL driver under Ecto SQL (0.22.4) | Wire protocol and error translation for the Store adapter | Adopted at 0.22.4 with Ecto SQL, not as a second direct abstraction. PostgreSQL atomicity, locking and durability remain upstream server contracts |
 | [Oban](https://hexdocs.pm/oban/Oban.html) · [source](https://github.com/oban-bg/oban) | docs page showed `Oban.start_link/1`, `insert/1-3`, `insert_all/1-3` (v2.24.2 page) | PostgreSQL-backed jobs and retry/scheduling for `assembly/durable-job` | Adopted at 2.24.2 by ELZ-010 (`integration/jobs`, `adapt`): uniqueness (incl. the held-lock `id: nil` case), retry staging, snooze, cancellation, disjoint claim, Lifeline rescue after a real SIGKILL and stale-ack fencing exercised on a disposable PostgreSQL. Oban's retry is not the Elzoo outbox and its ownership contract is not a lease; pruning, queue backpressure and Pro features are not exercised |

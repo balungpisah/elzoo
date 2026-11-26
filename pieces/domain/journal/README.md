@@ -1,6 +1,6 @@
 # domain/journal
 
-A balanced money journal in PostgreSQL 16 over a consumer-owned Ecto Repo. Accounts keep a
+A balanced money journal in PostgreSQL 19 over a consumer-owned Ecto Repo. Accounts keep a
 stored balance in their own currency. An operation posts 2..64 postings in one currency whose
 sum is zero, all or nothing, under one operation identity. A reversal posts the negation of an
 earlier operation once, linked to it. An account opened with `allow_negative: false` is a
@@ -18,7 +18,7 @@ invoice or settlement claim.
 
 Select `domain/journal` with `mix elzoo.take`; the copy is owned by the consuming application.
 See [consuming](../../../docs/consuming.md). Piece dependencies: `domain/money` and
-`state/tenant-isolation`. Providers: `ecto_sql` 3.14.0 and `postgrex` 0.22.4, `cure` (the pure
+`state/tenant-isolation`. Providers: `ecto_sql` 3.14.0 and `postgrex` 0.23.0, `cure` (the pure
 zero-sum and balance decisions), `elixir` and OTP `crypto` (SHA-256); the tests also use
 `telemetry`. Exact versions and claim-level grounding are in [piece.json](piece.json).
 
@@ -173,7 +173,7 @@ only when present, so existing digests, and the duplicates they decide, stay equ
 
 ## Consumer Needs
 
-- PostgreSQL 16 and READ COMMITTED, the server default. `transact/3` takes no isolation option
+- PostgreSQL 19 and READ COMMITTED, the server default. `transact/3` takes no isolation option
   and runs `set_config` first, so the Piece cannot set the level: it checks it and refuses
   every write with `:isolation` under another level (for example a role or database whose
   `default_transaction_isolation` is `repeatable read`).
@@ -209,3 +209,11 @@ only when present, so existing digests, and the duplicates they decide, stay equ
   registry from untrusted bytes.
 - The Piece emits no telemetry event and has no process; the consumer owns the Repo, the
   migrations and the roles.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19; its tests now require a PostgreSQL 19 server.
+  A host on an older server upgrades to PostgreSQL 19 before taking this
+  revision. No code or API change: only the module documentation names the new
+  server and the README names the current provider pins.

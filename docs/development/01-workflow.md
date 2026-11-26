@@ -85,7 +85,7 @@ On a new checkout or after dependency/config changes:
     mix check
 
 The project runtime/tooling path owns these public commands. They must use Cure commit
-208248063d64e621782cd26dd30698ee42850a89, Elixir 1.20.4 and OTP 29.1.2.
+208248063d64e621782cd26dd30698ee42850a89, Elixir 1.20.5 and OTP 29.1.3.
 
 mix check also needs a disposable PostgreSQL database for the
 `integration/sql` tests (ELZ-009). Point `ELZOO_TEST_DATABASE_URL` at a
@@ -101,7 +101,7 @@ skipped.
 
 Since ELZ-084 the test server must also provide the PostgreSQL `vector`
 extension (pgvector), for the vector slice of `integration/search-data`
-(ELZ-082). CI uses `pgvector/pgvector:0.8.7-pg16-bookworm` pinned by digest
+(ELZ-082). CI uses `pgvector/pgvector:0.8.7-pg19-trixie` pinned by digest
 (see docs/development/10-symbolic-ci.md). `vector` is not a trusted extension,
 so the throwaway role cannot create it: a superuser runs, once per disposable
 test database,
@@ -109,14 +109,15 @@ test database,
     psql -d <test database> -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector'
 
 and checks `SELECT extversion FROM pg_extension WHERE extname = 'vector'`.
-For a local test server that runs the official `postgres:16` image on Debian
-trixie, the owner or the main coordinator (not a worker in the repository)
-recreates the container from the pgvector variant with the same Debian base,
-`pgvector/pgvector:0.8.7-pg16-trixie` (index digest
-`sha256:9cf8b511f0e9a2c209b61430fc139f1ab9c75edbb31fb1751db6617b246a897a`,
-observed 2026-11-09; re-verify before use), keeping the data volume, then
-creates the extension as above. The same Debian base keeps the C library
-collation of the existing data directory unchanged.
+For a local test server, the owner or the main coordinator (not a worker in
+the repository) runs the pgvector variant of CI's PostgreSQL major on Debian
+trixie, `pgvector/pgvector:0.8.7-pg19-trixie` (index digest
+`sha256:ace863afa68a13560603dc7366fad0adb4f5ddd0a21c8f06418195f32e03fa08`,
+observed 2026-11-26; re-verify before use), then creates the extension as
+above. The data directory of an earlier major (for example of `postgres:16`)
+does not start on PostgreSQL 19: give the container a new volume at
+`/var/lib/postgresql`, where PostgreSQL 18 and later images keep the data
+(`/var/lib/postgresql/19/docker`).
 
 Since ELZ-285 the superuser also creates, in every setup that creates
 `elzoo_test` (the CI step, `.agents/setup`, `scripts/worker-services.py`), one
@@ -218,7 +219,7 @@ verified binary stays in a cache under `~/.cache/elzoo-worker-services/` for
 the next worktree.
 
 Expected to be equal to the job `check-root` (same pinned image, no server
-options in the job); observed on a developer host: PostgreSQL 16.15,
+options in the job); observed on a developer host with the former PostgreSQL 16 image: PostgreSQL 16.15,
 `max_connections` 100, time zone UTC (`Etc/UTC`), encoding UTF8, `vector`
 0.8.7, a test role that is not a superuser.
 Different on an arm64 host: the arm64 variant of the image and the arm64

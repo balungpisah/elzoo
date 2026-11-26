@@ -4,7 +4,7 @@
 wallet through steps that each belong to a ready Piece, `domain/payment-lifecycle` (the charge),
 `domain/invoice` (the invoice payment) and `domain/journal` (the posts), plus an optional host
 **allowance** step for a top-up. It keeps its own durable log in plain Ecto and Postgrex tables
-on PostgreSQL 16 under the `state/tenant-isolation` floor (owner answer Q10 A: there is no
+on PostgreSQL 19 under the `state/tenant-isolation` floor (owner answer Q10 A: there is no
 `workflow/saga` Piece). It names no payment provider (Q9 D): the charge's provider is
 payment-lifecycle's provider Need, which the host gives.
 
@@ -263,3 +263,11 @@ first step failed, with none to run). All steps succeeded makes it `:completed`.
 
 Telemetry: none (`log: false`). Config: the binding from `new/1`, fixed. Control: none of its
 own; the host owns the intents, the Needs and when to resume.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19; its tests now require a PostgreSQL 19 server.
+  A host on an older server upgrades to PostgreSQL 19 before taking this
+  revision. No code or API change: only the module documentation names the new
+  server.

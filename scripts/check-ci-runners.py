@@ -47,7 +47,7 @@ HOSTED_BACKEND_HEADER = """    permissions:
       ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'
     services:
       postgres:
-        image: pgvector/pgvector:0.8.7-pg16-bookworm@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f
+        image: pgvector/pgvector:0.8.7-pg19-trixie@sha256:ace863afa68a13560603dc7366fad0adb4f5ddd0a21c8f06418195f32e03fa08
         env:
           POSTGRES_PASSWORD: postgres
         ports:
@@ -91,23 +91,23 @@ SPIKE_JOB = '''  check-spike:
           test "$VERSION_ID" = 24.04
           echo "Hosted runner: $RUNNER_NAME"
           free -h || true
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: Install runtime libraries
         run: sudo python3 scripts/ci-install-runtime.py
-      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
         with:
-          elixir-version: '1.20.4'
-          otp-version: '29.1.2'
+          elixir-version: '1.20.5'
+          otp-version: '29.1.3'
       - name: Restore dependency cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             spikes/ash_foundation/deps
             spikes/ash_foundation/_build
-          key: elzoo-spike-v1-${{ runner.os }}-${{ env.ImageOS }}-otp29.1.2-elixir1.20.4-${{ hashFiles('spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
+          key: elzoo-spike-v1-${{ runner.os }}-${{ env.ImageOS }}-otp29.1.3-elixir1.20.5-${{ hashFiles('spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
       - run: mix local.hex --force
       - run: mix local.rebar --force
       - name: Check the Ash spike
@@ -159,20 +159,20 @@ MINIO_SAVE_IF = "        if: ${{ steps.minio.outputs.source != 'cache' }}"
 DEPS_SAVE_IF = "        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}"
 MINIO_CACHE_STEPS = [
     """      - name: Restore the pinned S3 test server binary
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/elzoo-minio-cache
           key: """ + MINIO_KEY,
     """      - name: Save the pinned S3 test server binary
 """ + MINIO_SAVE_IF + """
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/elzoo-minio-cache
           key: """ + MINIO_KEY,
 ]
 # The checkout must not persist the job token in .git/config, where every later step (mix setup, mix check,
 # dependency code) could read it; with ELZ-058 that token carries actions: read on check-plan.
-CHECKOUT_STEP = """      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+CHECKOUT_STEP = """      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false"""

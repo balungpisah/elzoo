@@ -129,7 +129,7 @@ pending admission are demonstration fixtures only. The tests and example do
 not establish production authentication, durable admission, Run execution or
 end-to-end delivery guarantees.
 
-The provider closure is Plug 1.20.3, Plug.Crypto 2.2.1, Jason 1.4.5,
+The provider closure is Plug 1.20.4, Plug.Crypto 2.2.1, Jason 1.4.5,
 Telemetry, Elixir, and OTP crypto. Plug supplies its own transitive package
 dependencies. No dependencies or pins are added by this Piece.
 
@@ -139,3 +139,9 @@ test/elzoo/webhook_in_test.exs exercises the named request, boundary, failure,
 scope and callback cases with Plug's test connection and a controlled body
 adapter. This finite evidence is not a proof of the host's key, principal,
 admission, server ordering or listener lifetime.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the provider closure is Plug 1.20.4 (before 1.20.3). A
+  consumer moves its lock to plug 1.20.4 with this revision. No code or API
+  change.

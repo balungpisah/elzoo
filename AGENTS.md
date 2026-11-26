@@ -266,7 +266,7 @@ database server (section 3). After a change of `mix.exs`, `mix.lock`,
 `config/` or a toolchain pin, run `mix check` with no flag. On a new checkout,
 run `mix setup` first.
 
-If a required local command cannot run on the host (for example PostgreSQL 16
+If a required local command cannot run on the host (for example PostgreSQL 19
 with pgvector or MinIO is unavailable), record the command and exact reason
 in `Local gate:`. The hosted check is the evidence for that command.
 

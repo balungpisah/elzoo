@@ -109,6 +109,16 @@ defmodule Elzoo.Lease.Postgres do
         [backend.prefix]
       ).rows
 
+    [[server_version_num]] =
+      query(backend, "SELECT current_setting('server_version_num')::integer").rows
+
+    compare_shape(columns, constraints, server_version_num)
+  end
+
+  # The pure OD-1a comparison of the catalog rows that shape/1 reads. Public only so that it
+  # can be tested without a database server of each version; not part of the Piece's API.
+  @doc false
+  def compare_shape(columns, constraints, server_version_num) do
     actual_columns = fn table ->
       columns
       |> Enum.filter(&(hd(&1) == table))
@@ -127,11 +137,25 @@ defmodule Elzoo.Lease.Postgres do
       version: 1,
       heads: %{
         columns: diff(@heads_columns, actual_columns.("elzoo_log_heads")),
-        constraints: diff(@heads_constraints, actual_constraints.("elzoo_log_heads"))
+        constraints:
+          constraint_diff(
+            "elzoo_log_heads",
+            @heads_columns,
+            @heads_constraints,
+            actual_constraints.("elzoo_log_heads"),
+            server_version_num
+          )
       },
       records: %{
         columns: diff(@records_columns, actual_columns.("elzoo_log_records")),
-        constraints: diff(@records_constraints, actual_constraints.("elzoo_log_records"))
+        constraints:
+          constraint_diff(
+            "elzoo_log_records",
+            @records_columns,
+            @records_constraints,
+            actual_constraints.("elzoo_log_records"),
+            server_version_num
+          )
       }
     }
 
@@ -147,6 +171,56 @@ defmodule Elzoo.Lease.Postgres do
       )
 
     if clean?, do: :ok, else: {:schema, detail}
+  end
+
+  # PostgreSQL 18 and later also store each NOT NULL column as a constraint row (contype n)
+  # rendered "NOT NULL <column>" (ELZ-416). Its name is <table>_<column>_not_null, followed by
+  # the unpadded decimal 1..2147483647 that ChooseConstraintName appends when that name is
+  # already taken in the schema; the longest tracked name stays below the 63-byte limit, so
+  # PostgreSQL never truncates it. On such a server migration v1 has exactly one such row for
+  # each column it declares NOT NULL; an older server stores none, so any n row there is
+  # unexpected. A missing row is reported under its unsuffixed name; every n row that is not
+  # the one row of a pinned NOT NULL column of this table (another name or suffix, another
+  # rendering, a second row) is unexpected.
+  defp constraint_diff(table, columns, constraints, actual, server_version_num)
+       when server_version_num >= 180_000 do
+    {not_null, other} = Enum.split_with(actual, &match?({_, "n", _}, &1))
+
+    {missing, unexpected} =
+      for {column, _type, "NO", _default} <- Enum.sort(columns),
+          reduce: {[], Enum.sort(not_null)} do
+        {missing, rows} ->
+          case Enum.find(rows, &not_null_row?(&1, table, column)) do
+            nil -> {[{"#{table}_#{column}_not_null", "n", "NOT NULL #{column}"} | missing], rows}
+            row -> {missing, List.delete(rows, row)}
+          end
+      end
+
+    rest = diff(constraints, MapSet.new(other))
+
+    %{
+      missing: Enum.sort(rest.missing ++ missing),
+      unexpected: Enum.sort(rest.unexpected ++ unexpected)
+    }
+  end
+
+  defp constraint_diff(_table, _columns, constraints, actual, _server_version_num),
+    do: diff(constraints, actual)
+
+  defp not_null_row?({name, "n", definition}, table, column) do
+    base = "#{table}_#{column}_not_null"
+
+    definition == "NOT NULL #{column}" and String.starts_with?(name, base) and
+      generated_suffix?(binary_part(name, byte_size(base), byte_size(name) - byte_size(base)))
+  end
+
+  defp generated_suffix?(""), do: true
+
+  defp generated_suffix?(suffix) do
+    case Integer.parse(suffix) do
+      {n, ""} -> n in 1..2_147_483_647 and Integer.to_string(n) == suffix
+      _ -> false
+    end
   end
 
   defp diff(expected, actual),

@@ -1,6 +1,6 @@
 # integration/notification
 
-One email through Swoosh 1.29.3's SMTP adapter and its transport gen_smtp 1.3.0,
+One email through Swoosh 1.30.0's SMTP adapter and its transport gen_smtp 1.3.0,
 as a `delivery/effect-intent` Adapter admitted from a `core/effect`
 declaration. Provider acceptance (`250` after `DATA`) is recorded as
 acceptance, never as inbox delivery. Plain SMTP with STARTTLS is the only
@@ -150,3 +150,9 @@ and crypto, SMTP reply semantics (RFC 5321) as named, not proved. No inbox
 delivery, receipt, bounce, provider-authenticity or exactly-once claim; no
 SMTPUTF8; no implicit TLS (port 465). Apache-2.0 covers this source; Swoosh is
 MIT, gen_smtp BSD-2-Clause, ranch ISC, idna MIT.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the SMTP adapter is Swoosh 1.30.0 (before 1.29.3); the
+  Piece's tests pass on it. A consumer moves its lock to swoosh 1.30.0 with this
+  revision. No code or API change.

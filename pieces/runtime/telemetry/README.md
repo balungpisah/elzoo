@@ -1,7 +1,7 @@
 # runtime/telemetry
 
 One bounded, redacted family of synchronous `telemetry` events for the ready
-job and effect Adapters. The library is `telemetry` 1.4.2 (Apache-2.0);
+job and effect Adapters. The library is `telemetry` 1.4.3 (Apache-2.0);
 Elzoo owns only the event names, the measurement units, the metadata allowlist
 and the redaction function in `Elzoo.Telemetry`. Dispatch, handler attachment
 and detach-on-failure are `telemetry`'s.
@@ -124,3 +124,10 @@ Telemetry contract).
 Telemetry supported (this is the event family). Config not applicable: the
 allowlist is fixed data and the mode is a compile-time build property. Control
 not applicable.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the library is telemetry 1.4.3 (before 1.4.2), as the
+  README and the module documentation now say; the upstream handler tests
+  (T6/T8) pass on it. A consumer moves its lock to telemetry 1.4.3 with this
+  revision. No code or API change.

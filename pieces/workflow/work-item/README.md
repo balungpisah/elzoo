@@ -4,7 +4,7 @@ The durable record of one item that a parent Run delegated to one child Run: its
 the child Run it is assigned to, its parent-close rule, an explicit lifecycle with a revision,
 the child's result offered as evidence, and acceptance or rejection by the parent Run's
 principal. A Run result is evidence offered for acceptance, never completion. One durable Piece
-in plain Elixir, Ecto and Postgrex over a consumer-owned Ecto Repo on PostgreSQL 16; its table
+in plain Elixir, Ecto and Postgrex over a consumer-owned Ecto Repo on PostgreSQL 19; its table
 is protected by the `state/tenant-isolation` floor.
 
 This Piece narrows the catalogue proposal RC-11 ("Work Item has stable intent, acceptance
@@ -21,7 +21,7 @@ Select `workflow/work-item` with `mix elzoo.take`; the dependency-closed copy is
 consuming application. See [consuming](../../../docs/consuming.md). Piece dependencies:
 `state/tenant-isolation` (the floor, its migration helper, `transact/3` and `verify/3`) and
 `workflow/untrusted-content` (the marked intent). No Cure source. Providers: `ecto_sql` 3.14.0
-and `postgrex` 0.22.4, `elixir`, `otp` (`:crypto` SHA-256); the tests also use `telemetry`.
+and `postgrex` 0.23.0, `elixir`, `otp` (`:crypto` SHA-256); the tests also use `telemetry`.
 Exact versions and claim-level grounding are in [piece.json](piece.json).
 
 ## Migration
@@ -233,9 +233,17 @@ present. Match on the members and keys you use.
 ## Evidence
 
 [test/elzoo/work_item_test.exs](test/elzoo/work_item_test.exs) runs on the worker's own
-disposable PostgreSQL 16 database (`ELZOO_TEST_DATABASE_URL`) with
+disposable PostgreSQL 19 database (`ELZOO_TEST_DATABASE_URL`) with
 `DBConnection.ConnectionPool` Repos, not the Sandbox, in random schemas dropped afterwards.
 Every Piece call runs as the ELZ-285 application role (`SET ROLE` to `ELZOO_TEST_APP_ROLE` on
 every connection) with only the grants above; the tests fail, not skip, without that variable.
 The scenarios and negative controls are listed in [piece.json](piece.json). Finite scenarios,
 not proofs.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19; its tests now require a PostgreSQL 19 server.
+  A host on an older server upgrades to PostgreSQL 19 before taking this
+  revision. No code or API change: only the module documentation names the new
+  server and the README names the current provider pins.

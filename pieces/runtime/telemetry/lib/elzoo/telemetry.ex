@@ -3,7 +3,7 @@ defmodule Elzoo.Telemetry do
   @moduledoc """
   `runtime/telemetry`: the one Elzoo event family, its measurement units and
   its metadata allowlist, emitted through `:telemetry.execute/3` (telemetry
-  1.4.2). See the Piece README for the tables; `schema/0` returns them as data.
+  1.4.3). See the Piece README for the tables; `schema/0` returns them as data.
 
   Observation only: an event may be missing; it is not audit, metering,
   billing input or a control receipt. Handlers are synchronous and may be

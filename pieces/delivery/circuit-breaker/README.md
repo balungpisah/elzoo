@@ -215,3 +215,9 @@ time. A later API or monitor operation samples time and checks expiry; no automa
 clock-health polling is supplied. An applied trip still emits its transition when
 the post-melt sample fails; remaining time is zero until a valid cooldown target
 can be established, not permission to admit a probe.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the copied-source test now expects telemetry 1.4.3
+  (before 1.4.2), the root pin. A consumer moves its lock to telemetry 1.4.3
+  with this revision. No code or API change.

@@ -3,7 +3,7 @@
 An OpenAI-compatible Chat Completions provider of `integration/ai-text`
 (`Elzoo.AiText.Compatible`, implementing `Elzoo.AiText.Provider`), for one HTTPS
 base URL per endpoint that the host or a tenant gives (a self-hosted or
-regional model), through `req_llm` 1.30 (Apache-2.0; adopted, not copied).
+regional model), through `req_llm` 1.31 (Apache-2.0; adopted, not copied).
 Apache-2.0.
 
 Because the base URL may be a tenant's, it is admitted through
@@ -246,3 +246,14 @@ source `:unknown`. `total_tokens` is not used.
   one endpoint.
 - Telemetry `planned`: no Elzoo event; `req_llm` may emit its request start
   event. Config `supported` (construction only). Control `not_applicable`.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the Contract names req_llm 1.31 instead of 1.30
+  (`mix.lock`: req_llm 1.31.0). The Piece builds its LM Studio model from the
+  endpoint declaration and reads no llm_db record: a model built that way
+  carries no llm_db metadata (its input modalities stay unset even for an id
+  that llm_db lists). llm_db 2026.11.6 changes two LM Studio records (an output
+  limit and a family label); neither reaches this Piece. The code is unchanged
+  and the Piece's tests pass on the new lock. A consumer moves its lock to
+  req_llm 1.31.0 with this revision. No API change.

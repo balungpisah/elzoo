@@ -21,7 +21,7 @@ Postgrex.Types.define(MyApp.Types,
 # Consumer Repo configuration: types: MyApp.Types
 ```
 
-PostgreSQL 16 with pgvector 0.8.x is an operator-provided Need. Its extension-owned
+PostgreSQL 19 with pgvector 0.8.x is an operator-provided Need. Its extension-owned
 `vector` type and cosine operator must be visible through every Repo connection's
 search_path. A catalog entry alone does not establish availability. The helper
 checks the visible type's extension ownership and the extension-owned visible
@@ -332,3 +332,11 @@ integration-tested; the namespace capability boundary is the claimed scenario.
 PostgreSQL transactions/storage and pgvector distance/encoding are upstream
 contracts, not local proofs. No Cure proof, disk/fsync guarantee, cross-index
 search, permissions authority, embedding quality or source authenticity is claimed.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19 (pgvector stays 0.8.x); its tests now require a
+  PostgreSQL 19 server. A host on an older server upgrades to PostgreSQL 19
+  before taking this revision. No code or API change; the tsquery error codes
+  named for 16.15 and 16.16 stay as recorded observations.

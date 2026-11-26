@@ -282,7 +282,7 @@ defmodule Elzoo.TelemetryTest do
     end
   end
 
-  describe "T6/T8 upstream handler behaviour (telemetry 1.4.2)" do
+  describe "T6/T8 upstream handler behaviour (telemetry 1.4.3)" do
     test "a raising, throwing or exiting handler is detached after its first failure; a healthy handler keeps receiving" do
       event = [:elzoo, :job, :start]
       capture([event])

@@ -529,7 +529,7 @@
     },
     {
       "id": "integration/ai-embedding-openai",
-      "summary": "OpenAI embeddings provider of integration/ai-embedding through req_llm 1.30 (text-embedding-3-small and -large): usage and failure mapping, documented-format stubs validated against the pinned OpenAPI document",
+      "summary": "OpenAI embeddings provider of integration/ai-embedding through req_llm 1.31 (text-embedding-3-small and -large): usage and failure mapping, documented-format stubs validated against the pinned OpenAPI document",
       "disposition": "adapt",
       "phase": "demand-led",
       "status": "ready",
@@ -553,7 +553,7 @@
     },
     {
       "id": "integration/ai-text-anthropic",
-      "summary": "Anthropic Messages API provider of integration/ai-text through req_llm 1.30 (anthropic-version 2026-10-21): usage and cache counters, failure mapping, documented-format stubs",
+      "summary": "Anthropic Messages API provider of integration/ai-text through req_llm 1.31 (anthropic-version 2026-10-21): usage and cache counters, failure mapping, documented-format stubs",
       "disposition": "adapt",
       "phase": "P4",
       "status": "ready",
@@ -561,7 +561,7 @@
     },
     {
       "id": "integration/ai-text-openai",
-      "summary": "OpenAI Responses API provider of integration/ai-text through req_llm 1.30 (gpt-6.1-terra): usage and cache counters from the pinned OpenAPI schema, derived cache key, failure mapping, documented-format stubs",
+      "summary": "OpenAI Responses API provider of integration/ai-text through req_llm 1.31 (gpt-6.1-terra): usage and cache counters from the pinned OpenAPI schema, derived cache key, failure mapping, documented-format stubs",
       "disposition": "adapt",
       "phase": "P4",
       "status": "ready",
@@ -641,7 +641,7 @@
     },
     {
       "id": "integration/notification",
-      "summary": "One email through Swoosh's SMTP adapter (swoosh 1.29.3, gen_smtp 1.3.0): accepted, refused or unknown; acceptance is not delivery",
+      "summary": "One email through Swoosh's SMTP adapter (swoosh 1.30.0, gen_smtp 1.3.0): accepted, refused or unknown; acceptance is not delivery",
       "disposition": "adapt",
       "phase": "demand-led",
       "status": "ready",
@@ -879,7 +879,7 @@
     },
     {
       "id": "runtime/telemetry",
-      "summary": "One bounded, redacted telemetry event family for the ready job and effect Adapters (telemetry 1.4.2); no exporter, aggregation or audit",
+      "summary": "One bounded, redacted telemetry event family for the ready job and effect Adapters (telemetry 1.4.3); no exporter, aggregation or audit",
       "disposition": "adapt",
       "phase": "P3",
       "status": "ready",

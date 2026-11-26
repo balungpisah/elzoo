@@ -2,7 +2,7 @@
 Code.require_file("../support/webhook_out_test_helper.exs", __DIR__)
 
 defmodule Elzoo.WebhookOutTest do
-  # Scenarios 1-13 of the ELZ-362 Contract on the worker's own PostgreSQL 16 database. The
+  # Scenarios 1-13 of the ELZ-362 Contract on the worker's own PostgreSQL 19 database. The
   # receiver is a Req.Test function plug given through the transport Need behind a resolver
   # double; no socket is opened. Effect-intent owners run on the volatile Memory Store.
   use ExUnit.Case, async: false

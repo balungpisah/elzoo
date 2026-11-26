@@ -3,7 +3,7 @@ defmodule Elzoo.AiText.Compatible do
   @moduledoc """
   The OpenAI-compatible Chat Completions provider of `integration/ai-text`, for
   one HTTPS base URL per endpoint that the host or a tenant gives (a self-hosted
-  or regional model), through `req_llm` 1.30's documented provider-callback API
+  or regional model), through `req_llm` 1.31's documented provider-callback API
   (`ReqLLM.Providers.LMStudio.prepare_request/4` then `Req.request/1`).
 
   `endpoint/1` builds the `provider_config` term: it checks the base URL's shape,

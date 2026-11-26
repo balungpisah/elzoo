@@ -652,11 +652,13 @@ class Services:
 
         must_create = lambda argv: lambda path: must(self.runner, argv(path), "docker create")  # noqa: E731
         # No TCP rule without a password (the image's initdb otherwise trusts 127.0.0.1 inside the container).
+        # The volume is the image's VOLUME /var/lib/postgresql: PostgreSQL 18 and later images keep the data in
+        # /var/lib/postgresql/<major>/docker below it and refuse to start with a mount at /var/lib/postgresql/data.
         with_env_file(self.state, {"POSTGRES_PASSWORD_FILE": f"{SECRETS_DIR}/postgres-password",
                                    "POSTGRES_INITDB_ARGS": "--auth-host=scram-sha-256"}, must_create(lambda path: [
             "docker", "create", "--name", self.n["pg"], *labels(self.ident, "pg"), "--env-file", path,
             "--network", self.n["network"], "--publish", f"127.0.0.1::{PG_PORT}",
-            "--volume", f"{self.n['pg_volume']}:/var/lib/postgresql/data", image]))
+            "--volume", f"{self.n['pg_volume']}:/var/lib/postgresql", image]))
         must(self.runner, ["docker", "cp", "-", f"{self.n['pg']}:{os.path.dirname(SECRETS_DIR)}"], "docker cp",
              input=secrets_tar({"postgres-password": superuser}))
         must(self.runner, ["docker", "start", self.n["pg"]], "docker start pg")
@@ -673,7 +675,7 @@ class Services:
             "docker", "create", "--name", self.n["s3"], *labels(self.ident, "s3"), "--env-file", path,
             "--network", self.n["network"], "--publish", f"127.0.0.1::{S3_PORT}",
             "--volume", f"{self.n['s3_volume']}:/data",
-            "--mount", "type=tmpfs,destination=/var/lib/postgresql/data",
+            "--mount", "type=tmpfs,destination=/var/lib/postgresql",
             "--entrypoint", "/bin/sh", image, "-c", command]))
         must(self.runner, ["docker", "cp", "-", f"{self.n['s3']}:{os.path.dirname(S3_BINARY)}"], "docker cp",
              input=tar_of(data, os.path.basename(S3_BINARY)))

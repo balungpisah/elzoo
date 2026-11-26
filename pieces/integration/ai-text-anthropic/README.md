@@ -2,7 +2,7 @@
 
 The Anthropic Messages API provider of `integration/ai-text`
 (`Elzoo.AiText.Anthropic`, implementing `Elzoo.AiText.Provider`), through
-`req_llm` 1.30 (Apache-2.0; adopted, not copied; no gateway process). Apache-2.0.
+`req_llm` 1.31 (Apache-2.0; adopted, not copied; no gateway process). Apache-2.0.
 
 ## What the Piece owns and what it adopts
 
@@ -92,7 +92,7 @@ environment or a `.env` file.
   other set or TTL is refused `unsupported_feature`, more than four breakpoints
   `invalid_request`, all before any request. A message breakpoint names the
   `i`-th non-system message; an index past them is `invalid_request`.
-  `req_llm` 1.30.0 applies the position to its wire list, in which each run of
+  `req_llm` 1.31.0 applies the position to its wire list, in which each run of
   consecutive tool results is one message whose last block it marks. So the
   named message is sent at its own wire index and marked exactly: a message that
   is not a tool result, or the last tool result of its run (its `tool_result`
@@ -241,3 +241,23 @@ interface's documentation for how a caller retries with its own ground).
   `req_llm` response-side events of these calls are not emitted; its request
   start event may be, with payload capture off by default. Config `supported`
   (construction only). Control `not_applicable`.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the Contract names req_llm 1.31 instead of 1.30
+  (`mix.lock`: req_llm 1.31.0, llm_db 2026.11.6). Catalogue change: llm_db
+  2026.11.6 adds the Anthropic model `claude-fable-5-2` with input modalities
+  text, image and pdf, where req_llm 1.30.0 resolved the same id without
+  modalities. A request with image parts for `claude-fable-5-2`, before
+  `{:refused, :unsupported_feature}`, is now sent; the image test for
+  `claude-fable-5-2` pins it. Its text requests are admitted as before, with the
+  same wire body for a basic request. Every other Anthropic record keeps its
+  input modalities (the six without image input are the same, now 6 of 21
+  records); `claude-sonnet-4-5-20250929` only gains a deprecated status label
+  that the Piece does not read. The code is unchanged and the Piece's tests pass
+  on the new lock. The message breakpoint rule was checked again on req_llm
+  1.31.0 by the captured-request tests of a breakpoint on the last tool result
+  of a run, on the message after a run (also with image parts) and on a tool
+  result inside its run; it holds unchanged, so the limit now names 1.31.0. A
+  consumer moves its lock to req_llm 1.31.0 and llm_db 2026.11.6 with this
+  revision. No API change.

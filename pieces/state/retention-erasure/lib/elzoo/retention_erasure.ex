@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.RetentionErasure do
   @moduledoc """
-  A per-subject personal-data vault over a consumer-owned Ecto Repo (PostgreSQL 16).
+  A per-subject personal-data vault over a consumer-owned Ecto Repo (PostgreSQL 19).
 
   Each entry is sealed with `Elzoo.Encryption` under its subject's key (key ID = subject, `aad` =
   the entry's ref). The subject key is stored only sealed under the host's key-encryption key

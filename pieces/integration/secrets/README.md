@@ -103,7 +103,7 @@ secure erasure, sandbox or universal secret detection is claimed.
   exact arity/key validation; no global settings or hot updates. Grant is data.
 - Control: `not_applicable`; no owned lifecycle.
 
-Dependencies: no Pieces; only Elixir 1.20.4 and OTP 29.1.2 (Apache-2.0).
+Dependencies: no Pieces; only Elixir 1.20.5 and OTP 29.1.3 (Apache-2.0).
 Local source is Apache-2.0. No new package, provider SDK or Cure law is added.
 Platform contracts: [catch semantics](https://hexdocs.pm/elixir/1.20.4/Kernel.SpecialForms.html#try/1)
 and [system time](https://www.erlang.org/doc/apps/erts/erlang.html#system_time/1).
@@ -117,3 +117,8 @@ files, platform-only tests, README, piece.json and the Elzoo license/NOTICE.
 No root Application is required. Application-owned copies use `Elzoo.*`;
 libraries redistributing source must rename modules/MFAs as described in
 the catalogue's consuming guide. Copying evidence does not certify edits.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the README names the current platform pins, Elixir
+  1.20.5 and OTP 29.1.3 (before 1.20.4 and 29.1.2). No code or API change.

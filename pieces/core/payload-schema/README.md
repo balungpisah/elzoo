@@ -52,7 +52,7 @@ No logs or telemetry are emitted.
 
 ## Reuse, trust and limits
 
-JSV 0.27.0 is used with `resolver: [], formats: false, atoms: false,
+JSV 0.28.1 is used with `resolver: [], formats: false, atoms: false,
 warnings: :silence` and `cast: false` validation. Default dialect is 2020-12;
 explicit `$schema` must be `https://json-schema.org/draft/2020-12/schema`.
 Local fragment references and the embedded standard meta-schema work.
@@ -128,3 +128,9 @@ Port modules. Redistributing libraries must rename modules/MFAs and the opaque
 module tag, and deliberately rename/translate Port's erased `:Descriptor` tag.
 No automatic namespace isolation is supplied. Source is Apache-2.0; pins and
 upstream licenses are recorded in the catalogue. See [consuming](../../../docs/consuming.md).
+
+## Changes
+
+- ELZ-416 (2026-11-26): the validator is JSV 0.28.1 (before 0.27.0) with the
+  same options; the Piece's tests pass on it. A consumer moves its lock to jsv
+  0.28.1 with this revision. No code or API change.

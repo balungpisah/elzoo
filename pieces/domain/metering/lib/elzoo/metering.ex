@@ -2,7 +2,7 @@
 defmodule Elzoo.Metering do
   @moduledoc """
   Retained usage observations with attributable corrections over a consumer-owned Ecto Repo
-  on PostgreSQL 16, in the two tables that `Elzoo.Metering.Migration.install/1` creates under
+  on PostgreSQL 19, in the two tables that `Elzoo.Metering.Migration.install/1` creates under
   the `state/tenant-isolation` floor.
 
   `record/3` stores one observation per `{tenant, usage_id}`; `correct/3` appends a

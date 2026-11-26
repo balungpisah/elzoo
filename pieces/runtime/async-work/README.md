@@ -21,8 +21,8 @@ bundle implements no engine, Lua runtime or durable Unit protocol.
 
 Run `mix run pieces/runtime/async-work/examples/elzoo/async_work.exs` for local
 work, ordinary owner input and cancellation. Copy the bundle following
-[consuming](../../../docs/consuming.md). Providers are Elixir 1.20.4 / OTP
-29.1.2; direct Piece dependencies are runtime/registry and delivery/time.
+[consuming](../../../docs/consuming.md). Providers are Elixir 1.20.5 / OTP
+29.1.3; direct Piece dependencies are runtime/registry and delivery/time.
 
 `Elzoo.AsyncWork.start_link(opts)` returns ordinary OTP startup results.
 Required settings are `owner: {:via, Registry, {registry, key}}`, an injected
@@ -111,3 +111,8 @@ Monotonic time is local to the runtime, not durable or distributed.
 
 Copied source is Apache-2.0. External providers retain their own licenses.
 Evidence describes this source and these scenarios; rerun/adapt after changes.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the README names the current platform pins, Elixir
+  1.20.5 and OTP 29.1.3 (before 1.20.4 and 29.1.2). No code or API change.

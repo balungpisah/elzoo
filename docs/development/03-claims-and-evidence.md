@@ -21,7 +21,7 @@ Use a table like this in reports:
     Proof: selected Cure law window_duplicate_idempotence, command: ...
     Test: same key, boundary key and out-of-window key, command: ...
     Monitor: none in this task.
-    Upstream: OTP ordering for one sender, OTP 29.1.2.
+    Upstream: OTP ordering for one sender, OTP 29.1.3.
     Limit: no cross-sender ordering or replicated-storage claim.
 
 Do not use verified as a blanket badge. Say selected law passes, listed

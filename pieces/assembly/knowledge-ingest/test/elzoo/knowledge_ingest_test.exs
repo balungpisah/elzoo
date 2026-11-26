@@ -2,7 +2,7 @@
 Code.require_file("../support/knowledge_ingest_test_helper.exs", __DIR__)
 
 defmodule Elzoo.KnowledgeIngestTest do
-  # Groups 1-5, 7 and 9 of the task Contract on the worker's own PostgreSQL 16 with pgvector,
+  # Groups 1-5, 7 and 9 of the task Contract on the worker's own PostgreSQL 19 with pgvector,
   # a real Oban 2.24.2 instance (drained, so no real backoff, snooze or wait runs), a scripted
   # provider and a real state/artifact store over the disposable MinIO. Groups 3 and 6 run the
   # intent Store on integration/sql, except the one Memory case. Expected values are written

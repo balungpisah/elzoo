@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.Journal do
   @moduledoc """
-  A balanced money journal over a consumer-owned Ecto Repo on PostgreSQL 16 (ELZ-297).
+  A balanced money journal over a consumer-owned Ecto Repo on PostgreSQL 19 (ELZ-297).
 
   Accounts keep a stored balance in their own currency, any `domain/money` registry currency with
   an integer numeric code and minor unit. An operation posts 2..64 same-currency postings whose

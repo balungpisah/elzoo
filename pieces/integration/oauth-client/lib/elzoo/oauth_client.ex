@@ -2,7 +2,7 @@
 defmodule Elzoo.OauthClient do
   @moduledoc """
   A tenant's OAuth 2.0 connections to host-declared authorization servers, over a
-  consumer-owned Ecto Repo on PostgreSQL 16 (ELZ-361).
+  consumer-owned Ecto Repo on PostgreSQL 19 (ELZ-361).
 
   A connection is made by an authorization code grant with PKCE S256 that a tenant admin
   consents to once, or by a client credentials grant. Its access and refresh tokens are stored

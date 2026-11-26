@@ -1,6 +1,6 @@
 # domain/quota
 
-A durable tenant allowance in PostgreSQL 16 over a consumer-owned Ecto Repo. Counters are kept
+A durable tenant allowance in PostgreSQL 19 over a consumer-owned Ecto Repo. Counters are kept
 per tenant, window and unit. The amount of a unit is derived at each reservation from the
 tenant's current `domain/entitlement` resolution and is not stored as authority. A Run
 reservation reserves all of its units or none and is idempotent by `run_id`. A settlement
@@ -19,7 +19,7 @@ See [consuming](../../../docs/consuming.md). Piece dependencies: `state/tenant-i
 `integration/ai-model` (the unit set, `Elzoo.AiModel.Usage.units/0` and `ttls/0`).
 `domain/entitlement` is declared only so that the copied consumer can run the tests, which
 build resolutions with `Elzoo.Entitlement.resolve/3`; the library code does not call it.
-Providers: `ecto_sql` 3.14.0 and `postgrex` 0.22.4, `cure` (the per-unit counter decisions),
+Providers: `ecto_sql` 3.14.0 and `postgrex` 0.23.0, `cure` (the per-unit counter decisions),
 `elixir` and OTP `crypto` (SHA-256); the tests also use `telemetry`. Exact versions and
 claim-level grounding are in [piece.json](piece.json).
 
@@ -207,7 +207,7 @@ decide, stay equal.
 
 ## Consumer Needs
 
-- PostgreSQL 16 and READ COMMITTED, the server default. The Piece checks the level and refuses
+- PostgreSQL 19 and READ COMMITTED, the server default. The Piece checks the level and refuses
   every write with `:isolation` under another level, but cannot set it.
 - The migration runs as the table owner; the application connects as a non-owner role without
   `BYPASSRLS` or superuser, with the grants above.
@@ -234,3 +234,11 @@ decide, stay equal.
 - No audit capture of the quota tables (`state/audit-log` does not capture them).
 - The Piece emits no telemetry event and has no process; the consumer owns the Repo, the
   migrations and the roles.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19; its tests now require a PostgreSQL 19 server.
+  A host on an older server upgrades to PostgreSQL 19 before taking this
+  revision. No code or API change: only the module documentation names the new
+  server and the README names the current provider pins.

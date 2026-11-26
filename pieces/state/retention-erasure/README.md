@@ -1,6 +1,6 @@
 # state/retention-erasure
 
-A per-subject personal-data vault in PostgreSQL 16 whose erasure makes the subject's data
+A per-subject personal-data vault in PostgreSQL 19 whose erasure makes the subject's data
 unreadable (ELZ-279, [issue #643](https://github.com/balungpisah/elzoo/issues/643)). Personal
 data lives in the vault, sealed under one key per subject; command, event and audit logs carry
 only the vault's opaque references. Erasing a subject destroys its key and its entries in one
@@ -17,7 +17,7 @@ acceptance (ELZ-286) proves that composition, and this Piece's tests do not use 
 `mix elzoo.take state/retention-erasure --to <consumer>` copies this Piece with
 `integration/encryption` (every seal and open) and `integration/secrets`
 (`%Elzoo.Secrets.Credential{}` for the KEK). Add `:crypto` to `extra_applications`. Providers:
-`ecto_sql` 3.14.0 and `postgrex` 0.22.4, `elixir` 1.20.4 and `otp` 29.1.2
+`ecto_sql` 3.14.0 and `postgrex` 0.23.0, `elixir` 1.20.5 and `otp` 29.1.3
 (`:crypto.strong_rand_bytes/1`). Source is Apache-2.0; see
 [consuming](../../../docs/consuming.md). Grounding per claim is in [piece.json](piece.json).
 
@@ -128,7 +128,7 @@ and KEK Need are vault operands, and there is no process.
 ## Evidence
 
 [test/elzoo/retention_erasure_test.exs](test/elzoo/retention_erasure_test.exs) runs on the
-worker's own disposable PostgreSQL 16 database (`ELZOO_TEST_DATABASE_URL`) behind a fail-closed
+worker's own disposable PostgreSQL 19 database (`ELZOO_TEST_DATABASE_URL`) behind a fail-closed
 target guard, in random schemas dropped afterwards, one `describe` per acceptance group:
 
 1. Round trip of 0-, 1- and 65,536-byte plaintexts for 1- and 128-byte subjects and two
@@ -162,3 +162,11 @@ groups 2 and 4; erasing keys but not the subject state fails groups 2 and 4; a f
 the Piece's transactions fails group 7. Finite
 scenarios, not proofs; row locks, `ON CONFLICT` and transactions are PostgreSQL's, AES-GCM is
 OTP's via `integration/encryption`. No Cure law is selected.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19; its tests now require a PostgreSQL 19 server.
+  A host on an older server upgrades to PostgreSQL 19 before taking this
+  revision. No code or API change: only the module documentation names the new
+  server and the README names the current provider pins.

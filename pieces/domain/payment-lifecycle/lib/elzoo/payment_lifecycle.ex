@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.PaymentLifecycle do
   @moduledoc """
-  One payment's charge and refunds over a consumer-owned Ecto Repo on PostgreSQL 16 (ELZ-365),
+  One payment's charge and refunds over a consumer-owned Ecto Repo on PostgreSQL 19 (ELZ-365),
   provider-neutral behind the `Elzoo.PaymentLifecycle.Provider` Need.
 
   Each provider call is one `delivery/effect-intent` intent that the host starts from the

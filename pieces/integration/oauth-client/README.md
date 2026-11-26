@@ -1,7 +1,7 @@
 # integration/oauth-client
 
 A tenant's OAuth 2.0 **connections** to authorization servers that the host declares, in
-PostgreSQL 16 over a consumer-owned Ecto Repo. A connection is made by an authorization code
+PostgreSQL 19 over a consumer-owned Ecto Repo. A connection is made by an authorization code
 grant with PKCE S256 that a tenant admin consents to once, or by a client credentials grant.
 Its access and refresh tokens are stored only as
 [`integration/encryption`](../encryption/README.md) envelopes. `access_token/3` hands out a
@@ -25,7 +25,7 @@ Select `integration/oauth-client` with `mix elzoo.take`; the copy is owned by th
 application. See [consuming](../../../docs/consuming.md). Piece dependencies:
 `state/tenant-isolation`, `integration/secrets`, `integration/egress-policy` and
 `integration/encryption`. Providers: `req` 0.7.5, `jason` 1.4.5, `ecto_sql` 3.14.0, `postgrex`
-0.22.4, `elixir` and OTP `crypto`; the tests also use `plug` (the local authorization server is
+0.23.0, `elixir` and OTP `crypto`; the tests also use `plug` (the local authorization server is
 a Req function plug) and `telemetry`. Exact versions and claim-level grounding are in
 [piece.json](piece.json).
 
@@ -233,7 +233,7 @@ failure is `:unavailable` and says nothing about whether a write committed.
 
 ## Consumer Needs
 
-- PostgreSQL 16 and READ COMMITTED, the server default; the Piece checks the level but cannot set
+- PostgreSQL 19 and READ COMMITTED, the server default; the Piece checks the level but cannot set
   it. The migration runs as the table owner; the application connects as a non-owner role
   without `BYPASSRLS` or superuser, with the grants above.
 - Without `refresh_deadline`, and for operations other than `access_token/3`, the existing
@@ -300,3 +300,11 @@ private-key JWT client authentication; the device code grant.
   public connect.
 - No discovery, dynamic registration, JWT client authentication, device code, per-person
   connection, telemetry or log.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the server this Piece states and is tested on moves from
+  PostgreSQL 16 to PostgreSQL 19; its tests now require a PostgreSQL 19 server.
+  A host on an older server upgrades to PostgreSQL 19 before taking this
+  revision. No code or API change: only the module documentation names the new
+  server and the README names the current provider pins.

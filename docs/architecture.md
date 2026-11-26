@@ -75,7 +75,7 @@ The bootstrap is deliberately small and observable:
 
 * One Mix application, pinned to Cure commit
   [`208248063d64e621782cd26dd30698ee42850a89`](https://github.com/balungpisah/cure-lang/commit/208248063d64e621782cd26dd30698ee42850a89),
-  Elixir 1.20.4 and OTP 29.1.2.
+  Elixir 1.20.5 and OTP 29.1.3.
 * A Cure operator/assembly with a typed transition and zero-or-one output.
   The same decision code is called directly and from a supervised OTP unit.
 * A small ingest → idempotency → accumulation assembly. It demonstrates
@@ -448,11 +448,11 @@ not invent an untracked `ELZ-ARCH-*` backlog.
 
 * [Cure pinned source and README](https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89)
 * [Erlang/OTP design principles](https://www.erlang.org/doc/system/design_principles.html)
-* [Elixir GenServer](https://hexdocs.pm/elixir/1.20.4/GenServer.html),
-  [Supervisor](https://hexdocs.pm/elixir/1.20.4/Supervisor.html),
-  [DynamicSupervisor](https://hexdocs.pm/elixir/1.20.4/DynamicSupervisor.html),
-  [Registry](https://hexdocs.pm/elixir/1.20.4/Registry.html), and
-  [Application](https://hexdocs.pm/elixir/1.20.4/Application.html)
+* [Elixir GenServer](https://hexdocs.pm/elixir/1.20.5/GenServer.html),
+  [Supervisor](https://hexdocs.pm/elixir/1.20.5/Supervisor.html),
+  [DynamicSupervisor](https://hexdocs.pm/elixir/1.20.5/DynamicSupervisor.html),
+  [Registry](https://hexdocs.pm/elixir/1.20.5/Registry.html), and
+  [Application](https://hexdocs.pm/elixir/1.20.5/Application.html)
 * [Jason API](https://hexdocs.pm/jason/Jason.html)
 * [Req API](https://hexdocs.pm/req/Req.html),
   [Finch API](https://hexdocs.pm/finch/Finch.html),

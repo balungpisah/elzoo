@@ -262,3 +262,15 @@ failed/dispatched/retryable and not redispatched by default.
 - Telemetry `planned`: no Elzoo event; `req_llm` may emit its request start
   event (payload capture off by default). Config `supported` (construction only).
   Control `not_applicable`.
+
+## Changes
+
+- ELZ-416 (2026-11-26): the Contract names req_llm 1.31 instead of 1.30
+  (`mix.lock`: req_llm 1.31.0, llm_db 2026.11.6). Catalogue change for the one
+  model this Piece admits, `gpt-6.1-terra`: llm_db 2026.11.6 adds flex-tier
+  metadata and marks temperature as supported. The Piece declares no sampling
+  and selects no tier, so what it reads (the record and its Responses route) is
+  unchanged, and the wire body of a basic request is identical. Models that
+  llm_db adds or removes for OpenAI are refused as before. The code is unchanged
+  and the Piece's tests pass on the new lock. A consumer moves its lock to
+  req_llm 1.31.0 and llm_db 2026.11.6 with this revision. No API change.

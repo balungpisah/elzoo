@@ -3,7 +3,7 @@ defmodule Elzoo.KnowledgeIngest do
   @moduledoc """
   Durable ingest of one `state/artifact` version of a tenant's document: parse, chunk, embed and
   index it as bounded Oban jobs (`integration/jobs`) over a consumer-owned Ecto Repo on
-  PostgreSQL 16, with a durable ingest record, staged chunks and counted embedding attempts in
+  PostgreSQL 19, with a durable ingest record, staged chunks and counted embedding attempts in
   the Piece tables under the `state/tenant-isolation` floor.
 
   `new/1` builds the config, `runner/1` the map the host registers with

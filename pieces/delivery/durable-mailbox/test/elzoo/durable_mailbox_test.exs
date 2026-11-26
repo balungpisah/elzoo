@@ -35,7 +35,7 @@ defmodule Elzoo.DurableMailboxTest do
     role = Harness.app_role!()
     Harness.start!(AdminRepo, pool_size: 3)
     [[version]] = Harness.query!(AdminRepo, "SELECT current_setting('server_version_num')").rows
-    assert String.to_integer(version) in 160_000..169_999
+    assert String.to_integer(version) in 190_000..199_999
     Harness.start!(AppRepo, pool_size: 6, after_connect: {Harness, :connect, [role, []]})
 
     Harness.start!(RepeatableRepo,

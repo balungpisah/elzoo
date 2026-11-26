@@ -1084,6 +1084,27 @@ defmodule Elzoo.AiText.AnthropicTest do
     assert marked(req) == [{2, "tool_result", "toolu_01B"}]
   end
 
+  # ELZ-416: llm_db 2026.11.6 adds claude-fable-5-2 with image input. At 2026.11.0 req_llm
+  # resolved the same id without modalities, so this parts request was unsupported_feature.
+  test "image: claude-fable-5-2 has image input in the pinned llm_db, so a parts request for it is sent with its image block (translate + captured request)",
+       ctx do
+    {:ok, model} = ReqLLM.model("anthropic:claude-fable-5-2")
+    assert :image in model.modalities[:input]
+    json = Map.put(parts_request([image_part("one", "image/png")]), "model", "claude-fable-5-2")
+    assert {:ok, _} = Anthropic.translate(resolved(json, Conformance.image()), nil)
+
+    {{:outcome, _, {:completed, _}}, [req], _, _} =
+      run(ctx, json, fn _ -> ok_text() end,
+        artifacts: need(%{"one" => {"fable png bytes", "image/png"}}),
+        models: ["claude-fable-5-2"]
+      )
+
+    conforms([req], ctx.schema)
+    assert wire(req)["model"] == "claude-fable-5-2"
+    assert [%{"source" => %{"media_type" => "image/png"}} = block] = user_blocks(req)
+    assert image_data(block) == "fable png bytes"
+  end
+
   test "image: a cache breakpoint on the text message after a run of tool results in a request with image parts marks that message at its wire index; on the parts message it stays unsupported_feature with no request (translate + captured request)",
        ctx do
     opts = [artifacts: need(%{"one" => {Conformance.image(), "image/png"}})]

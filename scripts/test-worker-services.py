@@ -26,8 +26,8 @@ spec = importlib.util.spec_from_file_location("worker_services", ROOT / "scripts
 ws = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ws)
 
-IMAGE = ("pgvector/pgvector:0.8.7-pg16-bookworm@sha256:"
-         "0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f")
+IMAGE = ("pgvector/pgvector:0.8.7-pg19-trixie@sha256:"
+         "ace863afa68a13560603dc7366fad0adb4f5ddd0a21c8f06418195f32e03fa08")
 DIGEST = IMAGE.rsplit("@", 1)[1]
 BINARY = b"\x7fELF fake minio\n" * 64
 
@@ -231,7 +231,7 @@ class IdentityAndPins(unittest.TestCase):
 
     def test_an_unpinned_missing_or_ambiguous_image_fails_closed(self):
         job = "jobs:\n  check-root:\n    services:\n      postgres:\n        image: {}\n  check-next:\n    x: 1\n"
-        for text in (job.format("pgvector/pgvector:0.8.7-pg16-bookworm"),
+        for text in (job.format("pgvector/pgvector:0.8.7-pg19-trixie"),
                      job.format("pgvector/pgvector@sha256:" + "a" * 64),
                      "jobs:\n  check-other:\n    services: {}\n",
                      job.format(IMAGE) .replace("    services:", "    services:\n      a:\n        image: x:1@sha256:"
@@ -381,7 +381,7 @@ class Up(ServicesCase):
         for setting in ("MINIO_BROWSER=off", "MINIO_CI_CD=1", "MINIO_UPDATE=off", "MINIO_API_REQUESTS_MAX=0"):
             self.assertIn(setting, s3["env"])
         self.assertIn("mkdir -p /data/elzoo-test && exec /opt/elzoo-minio server /data", s3["argv"][-1])
-        self.assertIn("type=tmpfs,destination=/var/lib/postgresql/data", s3["argv"])
+        self.assertIn("type=tmpfs,destination=/var/lib/postgresql", s3["argv"])
 
     def test_the_secret_files_are_read_only(self):
         root = self.worktree()

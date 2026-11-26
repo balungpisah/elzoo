@@ -30,7 +30,7 @@ defmodule Elzoo.TenantIsolationTest do
       do: raise("the test role bypasses row security; the cases need a non-bypass owner")
 
     [[version]] = Harness.query!(AdminRepo, "SELECT current_setting('server_version_num')").rows
-    assert String.to_integer(version) in 160_000..169_999
+    assert String.to_integer(version) in 190_000..199_999
     # pool_size 1: every call and every check below runs on the same pooled connection.
     Harness.start!(TestRepo, pool_size: 1)
     Harness.start!(SandboxRepo, pool_size: 1, pool: Sandbox)
@@ -394,8 +394,11 @@ defmodule Elzoo.TenantIsolationTest do
       refute plan["Filter"] =~ "current_setting"
       refute plan["Filter"] =~ "elzoo_"
       names = init |> Enum.map(& &1["Subplan Name"]) |> Enum.sort()
-      assert names == ["InitPlan 1 (returns $0)", "InitPlan 2 (returns $1)"]
-      assert plan["Filter"] == "((notes.tenant = $0) AND (notes.space = ANY ($1)))"
+      # PostgreSQL 19 names each InitPlan by its output and the filter reads that output.
+      assert names == ["InitPlan expr_1", "InitPlan expr_2"]
+
+      assert plan["Filter"] ==
+               "((notes.tenant = (InitPlan expr_1).col1) AND (notes.space = ANY ((InitPlan expr_2).col1)))"
     end
   end
 

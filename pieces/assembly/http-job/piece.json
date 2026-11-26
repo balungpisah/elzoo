@@ -29,7 +29,7 @@
     "Host owns stable origin/identity, truthful preflight, authenticated receipts, bounded task pools, clock, Store durability, recovery grants and continuing expiry after job termination.",
     "Finite grace/poll ratio does not bound concurrent wakes or pre-deadline polling; capacity saturation fails closed.",
     "Loopback protocol evidence, not a live vendor integration; no HTTP physical rollback, hot configuration or business drain.",
-    "ELZ-052 evolution note: observation added through runtime/telemetry ([:elzoo, :job | :effect, :start | :stop | :exception] events); inputs, outputs, state, delivery and failure guarantees are unchanged; no Contract change, so the Piece ID is kept. The added Need is the telemetry library (1.4.2), already in the dependency closure.",
+    "ELZ-052 evolution note: observation added through runtime/telemetry ([:elzoo, :job | :effect, :start | :stop | :exception] events); inputs, outputs, state, delivery and failure guarantees are unchanged; no Contract change, so the Piece ID is kept. The added Need is the telemetry library (1.4.3), already in the dependency closure.",
     "Telemetry handlers run synchronously in the emitting process: a handler's run time is elapsed time; a handler slower than the remaining deadline makes the operation expire exactly as any other delay would. Handlers must be fast and non-blocking (offload work); effect events delay a result's arrival at the owner. Events are observations, not audit; an event may be missing."
   ],
   "files": [

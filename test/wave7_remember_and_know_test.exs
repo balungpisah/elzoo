@@ -1,7 +1,7 @@
 Code.require_file("support/wave7_remember_and_know_helper.exs", __DIR__)
 
 defmodule Elzoo.Wave7.RememberAndKnowTest do
-  # ELZ-338: the Wave 7 Pieces together on real PostgreSQL 16 with pgvector and MinIO, every
+  # ELZ-338: the Wave 7 Pieces together on real PostgreSQL 19 with pgvector and MinIO, every
   # application call running as the fixed non-owner, non-bypass role of ELZ-285. Each test
   # names its acceptance group.
   use ExUnit.Case, async: false

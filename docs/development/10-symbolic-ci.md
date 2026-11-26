@@ -829,8 +829,8 @@ saves a new cache. Later runs are warm. Compare consumer timings only between wa
 ### Dependency cache (ELZ-043, ELZ-066)
 
 The backend job restores with `actions/cache/restore` and saves with
-`actions/cache/save`, both pinned at `0057852bfaa89a56745cba8c7296529d2fc39830`
-(tag v4.3.0). The key is `elzoo-hosted-v1-<OS>-<ImageOS>-otp29.1.2-elixir1.20.4-<hash of the two
+`actions/cache/save`, both pinned at `55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
+(tag v6.1.0). The key is `elzoo-hosted-v1-<OS>-<ImageOS>-otp29.1.3-elixir1.20.5-<hash of the two
 mix.lock/mix.exs pairs>`; the restore-keys prefix is the same without the hash. The key has no runner name: hosted
 runners are interchangeable. The save step runs immediately after `mix setup`
 succeeds and before `mix check`, only when the restore had no exact
@@ -1192,12 +1192,13 @@ Limit: the step duration on a hosted runner is not measured yet.
 
 The three work jobs (`check-root`, `check-consumers-db`, `check-consumers`) run one service image, pinned in the
 guard header by its index digest:
-`pgvector/pgvector:0.8.7-pg16-bookworm@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f`
-(linux/amd64 manifest `sha256:c0cd736fe8b8b5d408db56b780570bac404fe518e66e39de624aa46f9aabc60a`). It is the
-official PostgreSQL 16 bookworm image plus the pgvector extension, published by the pgvector project. A read-only
-pull and run of that digest on 2026-11-09 showed `PG_VERSION=16.15-1.pgdg12+2` (the same server build as the
-former pin `postgres:16-bookworm@sha256:5264710b...`), Debian 12, server version
-`16.15 (Debian 16.15-1.pgdg12+2)` and `vector.control` `default_version = '0.8.7'` with no `trusted` line. The
+`pgvector/pgvector:0.8.7-pg19-trixie@sha256:ace863afa68a13560603dc7366fad0adb4f5ddd0a21c8f06418195f32e03fa08`
+(linux/amd64 manifest `sha256:454ef8175fbb888961034dd4fa3a5334a138b277176052d32ab081ddc4d9f722`). It is the
+official PostgreSQL 19 trixie image plus the pgvector extension, published by the pgvector project; ELZ-416 moved the
+pin from `0.8.7-pg16-bookworm` to the newest major on the newest Debian base that the project publishes. A read of
+that digest from the registry on 2026-11-26 (image configuration and layers, not a run) showed
+`PG_VERSION=19.0-1.pgdg13+1`, Debian 13, `PGDATA=/var/lib/postgresql/19/docker` and `vector.control`
+`default_version = '0.8.7'` with no `trusted` line. The
 index digest is pinned, like the former pin: it fixes every platform manifest it lists (an index is content
 addressed), GitHub-hosted runners are amd64 and resolve the amd64 manifest from it, and the guard keeps one form for
 all pinned images; the amd64 manifest digest is recorded here so a reviewer can check the image the runner pulls.

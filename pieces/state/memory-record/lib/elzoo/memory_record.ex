@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.MemoryRecord do
   @moduledoc """
-  Scoped memory records over a consumer-owned Ecto Repo on PostgreSQL 16, in the two tables
+  Scoped memory records over a consumer-owned Ecto Repo on PostgreSQL 19, in the two tables
   that `Elzoo.MemoryRecord.Migration.install/1` creates under the `state/tenant-isolation`
   floor.
 
