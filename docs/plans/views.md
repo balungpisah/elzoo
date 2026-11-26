@@ -459,6 +459,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-408](https://github.com/balungpisah/elzoo/issues/992) | V2 / release | ELZ-127, ELZ-387, ELZ-403 | published 2026-11-25 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-409](https://github.com/balungpisah/elzoo/issues/996) | V2 / release | ELZ-408 | published 2026-11-25 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
 | [ELZ-410](https://github.com/balungpisah/elzoo/issues/999) | V2 / release | ELZ-408, ELZ-409 | published 2026-11-26 | coordinator; one-PR path for documents-only work; independent review and merge queue |
+| [ELZ-411](https://github.com/balungpisah/elzoo/issues/1002) | V2 / release | ELZ-405, ELZ-406, ELZ-407 | published 2026-11-26 | one claimed task worker; coordinator owns independent review, merge queue and exact-SHA push confirmation |
 
 ## Catalogue accounting
 
@@ -5532,3 +5533,13 @@ Publication copy: [tasks/ELZ-410-first-release-refreeze.md](../../tasks/ELZ-410-
 **Product aims:** P09.
 
 **Acceptance:** Record 71e5f2b9 as the X1–X3 record-writing baseline, admit both run-engine repairs without changing F's job set, and synchronize all three fixture guards and live issue hashes. Documents-only gate and independent review.
+
+### ELZ-411
+
+ELZ-411 — Mark Elzoo's first release
+
+Publication copy: [tasks/ELZ-411-first-release-mark.md](../../tasks/ELZ-411-first-release-mark.md).
+
+**Product aims:** P10, P11.
+
+**Acceptance:** Mark the first release without changing a Piece. Check post-acceptance Piece history and the three post-fixture manifest hashes; require the full hosted check and one independent review. The release is accepted only if M's exact merge SHA has a green main push run.

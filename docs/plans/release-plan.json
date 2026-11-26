@@ -10723,6 +10723,32 @@
       "issue": 999,
       "url": "https://github.com/balungpisah/elzoo/issues/999",
       "issue_body_sha256": "b8b31b37e70dfe00142a58e6197ebee7eeed026ad63cc699edbcc1be3cc06a2d"
+    },
+    {
+      "id": "ELZ-411",
+      "title": "ELZ-411 — Mark Elzoo's first release",
+      "kind": "published",
+      "release": "V2",
+      "stage": "release",
+      "dependencies": [
+        "ELZ-405",
+        "ELZ-406",
+        "ELZ-407"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review, merge queue and exact-SHA push confirmation",
+      "paths": [
+        "tasks/ELZ-411-first-release-mark.md"
+      ],
+      "outputs": [],
+      "acceptance": "Mark the first release without changing a Piece. Check post-acceptance Piece history and the three post-fixture manifest hashes; require the full hosted check and one independent review. The release is accepted only if M's exact merge SHA has a green main push run.",
+      "product_aims": [
+        "P10",
+        "P11"
+      ],
+      "issue": 1002,
+      "url": "https://github.com/balungpisah/elzoo/issues/1002",
+      "issue_body_sha256": "c9d2f1f010d28afb4675a5389b16715f67423b04b338454ca2aaf914fba16890"
     }
   ],
   "entries": [
