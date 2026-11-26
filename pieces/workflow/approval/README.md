@@ -171,9 +171,12 @@ Elzoo.Approval.request(state, run, decision)
   `latest revision + 1`; event `{:requested, request}` (F5c). A released
   request is never reopened or released twice;
 - a new revision would exceed `2^31-1` → `{:error, {:invalid_input,
-  {:bound_exceeded, :revision}}}` and no change. Only `prune/2` lets one line
-  reach that revision, by dropping its older entries; an unchanged open
-  request at revision `2^31-1` is still returned.
+  {:bound_exceeded, :revision}}}` and no change; an unchanged open request at
+  revision `2^31-1` is still returned. A line reaches that revision when
+  `prune/2` has dropped its older entries, or when `apply_event/2` or
+  `replay/1` folds a `:requested` or `:superseded` event at it (they do not
+  require the earlier revisions); the state bound keeps live requests of an
+  unpruned line below it.
 
 A non-ASK decision is `{:invalid_input, :not_ask}`. The decision is
 validated fully before evaluation with the `domain/authorization` validators
@@ -433,17 +436,18 @@ A pair that the state does not hold changes nothing; duplicates are allowed.
   pending ASK line is never retired" is the owner's Retirement Need, not a
   refusal of `retire/2`.
 
-**Replay handoff.** Neither operation emits an event. A full replay from an
-empty state folds the whole uncompacted history: where it completes, it
-rebuilds the state without pruning or retirement, and it completes only
-while that history fits the bounds (65 536 events in one `replay/1` call,
-65 536 entries in each state list). Re-applying an event from before a prune
+**Replay handoff.** Neither operation emits an event, so a full replay from an
+empty state folds the whole uncompacted history and rebuilds the state
+without pruning or retirement. The 65 536-event limit of one `replay/1` call
+does not stop that fold (an owner can fold more events with `apply_event/2`;
+for example 65 537 revocations of one key leave one marker); the state bound
+can: the fold is refused once a list of the uncompacted state is full, which
+pruning or retirement had avoided. Re-applying an event from before a prune
 or retirement can fail (`:release_without_request`) or bring an old record
 back. So an owner that prunes or retires stores the result, with its clock
 floor (the highest `now` it passed to `prune/2`), together with the exact
 position of the last event that the result covers, and replays only later
-events onto it; once the history outgrows the bounds, that stored result is
-needed even to finish the fold.
+events onto it; only that stored result preserves the compaction.
 
 **Equivalence.** Under the Needs, comparing only inputs for which both states
 pass the capacity check:
@@ -465,11 +469,14 @@ pass the capacity check:
 | `retire/2` | `release/4` or `select_retained/3` on a retired line | the line's outcome | `:unknown_request` |
 | `retire/2` | `revalidate/3` on a retired line | the line's outcome | `:not_released` |
 
-For `release/4` with evidence that keeps the Verifier Need, `:revoked`,
-`:consumed` and `:evidence_reused` are not reachable as changed reasons:
-checks 1 to 4 refuse first. A restore (`revalidate/3`) does not run checks 1
-to 4, so a revoked or expired restore whose release record was dropped
-changes to `:not_released` (table above).
+For `release/4` with evidence that keeps the Verifier Need and a request key
+that is not on a retired line, `:revoked`, `:consumed` and `:evidence_reused`
+are not reachable as changed reasons: checks 1 to 4 refuse first. On a
+retired line every earlier outcome becomes `:unknown_request`, `:revoked`
+included (an open request whose evidence key was revoked before its first
+release; table above). A restore (`revalidate/3`) does not run checks 1 to 4,
+so a revoked or expired restore whose release record was dropped changes to
+`:not_released`.
 
 Capacity is outside this comparison. A full state refuses with
 `{:invalid_input, {:bound_exceeded, :state}}`; the pruned or retired state
@@ -843,8 +850,13 @@ own schema id. Providers: pinned Cure, Elixir 1.20.5, OTP 29.1.3.
   calls either takes the Verifier, Clock and Retirement Needs and the replay
   handoff. Events and `replay/1` do not change. `request/3` now refuses a new
   revision above `2^31-1` with `{:invalid_input, {:bound_exceeded, :revision}}`
-  (only a pruned line can reach it; an unchanged request at that revision is
-  still returned), so a copy that calls neither new operation sees no change.
+  where it returned a request whose key `release/4` and `apply_event/2`
+  reject; an unchanged request at that revision is still returned. Without
+  the new operations only a replayed or applied `:requested` or `:superseded`
+  event at `2^31-1` reaches that revision (the state bound keeps live requests
+  below it); a copy that calls neither new operation and folds no such event
+  sees no change, and one that does handles the refusal like the other
+  `{:invalid_input, r}` results of `request/3`.
   On a pruned state a release or retained selection for a dropped superseded
   request gives `:unknown_request` instead of `:superseded`, for a dropped
   non-newest released request `:unknown_request` instead of
