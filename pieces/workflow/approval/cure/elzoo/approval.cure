@@ -100,6 +100,11 @@ mod Elzoo.Approval
     request: ApprRequest
     event: Option(ApprEvent)
 
+  # What the release records and consents of a state hold for one evidence
+  # key, as the Elixir index of prune/2 found it: no record, records that
+  # differ in some field, or one record (all of them equal in every field).
+  type ApprKeyRecords = KeyUnnamed | KeyAmbiguous | KeyRecord(ApprEvidence)
+
   # Accessors: law types cannot contain field projections.
   @total true
   @reducible
@@ -128,6 +133,10 @@ mod Elzoo.Approval
   @total true
   @reducible
   fn approver_authority_of(ctx: ApprContext) -> List(Elzoo.Authorization.AuthWrite) = ctx.approver_authority
+
+  @total true
+  @reducible
+  fn expiry_of(e: ApprEvidence) -> Int = e.expiry
 
   # ---------------------------------------------------------------- basics
 
@@ -833,6 +842,54 @@ mod Elzoo.Approval
   fn with_decision(e: ApprEvidence, d: ApprDecision) -> ApprEvidence =
     ApprEvidence{verifier: e.verifier, evidence_id: e.evidence_id, reviewer: e.reviewer, request: e.request, decision: d, scope: e.scope, issued_at: e.issued_at, expiry: e.expiry}
 
+  # ---------------------------------------------------------------- prune and retire
+
+  # Each function decides whether one entry stays (True) or leaves (False).
+  # Elixir computes the Bool and ApprKeyRecords facts from its index of the
+  # state and filters every list with these decisions, keeping the order.
+
+  # prune/2, request entries: an open entry, the newest entry of its line
+  # (the highest revision) and an entry whose key a surviving release record
+  # has stay.
+  @total true
+  @reducible
+  fn prune_keeps_request(st: ApprStatus, newest: Bool, released: Bool) -> Bool =
+    match st
+      ApprOpen() -> True()
+      _ -> either(newest, released)
+
+  # prune/2, release records, consents, consumed and revoked keys: a key with
+  # one record is dead unless now < expiry (gate 12 compares the same way);
+  # a key that no record names, or whose records differ, stays.
+  @total true
+  @reducible
+  fn prune_keeps_evidence(f: ApprKeyRecords, now: Int) -> Bool =
+    match f
+      KeyUnnamed() -> True()
+      KeyAmbiguous() -> True()
+      KeyRecord(e) -> lt_int(now, expiry_of(e))
+
+  # retire/2, request entries and release records: an entry on a retired line leaves.
+  @total true
+  @reducible
+  fn retire_keeps_entry(on_line: Bool) -> Bool = not_b(on_line)
+
+  # retire/2, consents: only a :run consent belongs to one line; a :root
+  # consent can serve other lines.
+  @total true
+  @reducible
+  fn retire_keeps_consent(sc: Elzoo.Authorization.AuthScope, on_line: Bool) -> Bool =
+    match sc
+      ScopeRun() -> not_b(on_line)
+      _ -> True()
+
+  # retire/2, consumed and revoked keys: a key leaves only when a record that
+  # this call dropped named it and no surviving record names it.
+  @total true
+  @reducible
+  fn retire_keeps_key(named_by_dropped: Bool, named_by_survivor: Bool) -> Bool =
+    either(not_b(named_by_dropped), named_by_survivor)
+
   # ---------------------------------------------------------------- laws
 
   # A refused or failed check emits nothing and keeps state.
@@ -984,4 +1041,108 @@ mod Elzoo.Approval
   @total true
   fn self_approval_refused(s: ApprState, k: ApprKey, e: ApprEvidence, ctx: ApprContext, h: Equivalent(Bool, eq_ints(reviewer_of(e), proposer_of(ctx)), True())) -> Equivalent(List(Elzoo.Authorization.AuthWrite), writes_of(release(s, k, ApprFresh(e), ctx)), no_writes()) =
     refused_emits_nothing(s, k, ApprFresh(e), ctx, blocked_anywhere(append_gates(pre_gates(s, k, ctx), append_gates(evidence_gates(s, k, e, binding_of(find_request(s.requests, k)), ctx), [g_approver(e, ctx)])), g_self(e, ctx), [g_decide(current(ctx)), g_deny(current(ctx)), g_policy(ctx, binding_of(find_request(s.requests, k))), g_payload(ctx, binding_of(find_request(s.requests, k))), g_requirement(current(ctx), binding_of(find_request(s.requests, k))), g_approver_authority(current(ctx), ctx)], final_for(e, find_request(s.requests, k), ctx.run_id, ctx.run_root), self_gate_blocks(e, ctx, h)))
+
+  # ---------------------------------------------------------------- prune and retire laws
+
+  # Decision-split form: each law fixes the decision for the facts that
+  # Elixir supplies; the expiry comparison is a hypothesis (native < is
+  # neutral on symbolic values).
+
+  # prune/2: an open request entry stays.
+  @total true
+  fn prune_keeps_open(newest: Bool, released: Bool) -> Equivalent(Bool, prune_keeps_request(ApprOpen(), newest, released), True()) =
+    reflexive(True())
+
+  # prune/2: the newest request entry of a line stays, whatever its status.
+  @total true
+  fn prune_keeps_newest(st: ApprStatus, released: Bool) -> Equivalent(Bool, prune_keeps_request(st, True(), released), True()) =
+    match st
+      ApprOpen() -> reflexive(True())
+      ApprReleased() -> reflexive(True())
+      ApprSuperseded() -> reflexive(True())
+
+  # prune/2: a request entry whose key a surviving release record has stays.
+  @total true
+  fn prune_keeps_released_key(st: ApprStatus, newest: Bool) -> Equivalent(Bool, prune_keeps_request(st, newest, True()), True()) =
+    match st
+      ApprOpen() -> reflexive(True())
+      ApprReleased() ->
+        match newest
+          True() -> reflexive(True())
+          False() -> reflexive(True())
+      ApprSuperseded() ->
+        match newest
+          True() -> reflexive(True())
+          False() -> reflexive(True())
+
+  # prune/2: a superseded or released entry that is not the newest of its
+  # line and has no surviving release record leaves.
+  @total true
+  fn prune_drops_unused_superseded() -> Equivalent(Bool, prune_keeps_request(ApprSuperseded(), False(), False()), False()) =
+    reflexive(False())
+
+  @total true
+  fn prune_drops_unused_released() -> Equivalent(Bool, prune_keeps_request(ApprReleased(), False(), False()), False()) =
+    reflexive(False())
+
+  # prune/2: a consumed or revoked key that no record names stays.
+  @total true
+  fn prune_keeps_unnamed(now: Int) -> Equivalent(Bool, prune_keeps_evidence(KeyUnnamed(), now), True()) =
+    reflexive(True())
+
+  # prune/2: a key whose records differ is never dead.
+  @total true
+  fn prune_keeps_ambiguous(now: Int) -> Equivalent(Bool, prune_keeps_evidence(KeyAmbiguous(), now), True()) =
+    reflexive(True())
+
+  # prune/2: a key with one record that is live at now stays.
+  @total true
+  fn prune_keeps_live(e: ApprEvidence, now: Int, h: Equivalent(Bool, lt_int(now, expiry_of(e)), True())) -> Equivalent(Bool, prune_keeps_evidence(KeyRecord(e), now), True()) =
+    rewrite h in reflexive(True())
+
+  # prune/2: a release record, consent, consumed key or revoked key whose key
+  # is dead (one record, expiry <= now) leaves.
+  @total true
+  fn prune_drops_dead(e: ApprEvidence, now: Int, h: Equivalent(Bool, lt_int(now, expiry_of(e)), False())) -> Equivalent(Bool, prune_keeps_evidence(KeyRecord(e), now), False()) =
+    rewrite h in reflexive(False())
+
+  # retire/2: each request entry and release record of a retired line leaves.
+  @total true
+  fn retire_drops_line_entry() -> Equivalent(Bool, retire_keeps_entry(True()), False()) =
+    reflexive(False())
+
+  # retire/2: an entry of another line stays.
+  @total true
+  fn retire_keeps_other_entry() -> Equivalent(Bool, retire_keeps_entry(False()), True()) =
+    reflexive(True())
+
+  # retire/2: a :run consent of a retired line leaves; one of another line stays.
+  @total true
+  fn retire_drops_run_consent() -> Equivalent(Bool, retire_keeps_consent(ScopeRun(), True()), False()) =
+    reflexive(False())
+
+  @total true
+  fn retire_keeps_other_run_consent() -> Equivalent(Bool, retire_keeps_consent(ScopeRun(), False()), True()) =
+    reflexive(True())
+
+  # retire/2: a :root consent stays, also on a retired line.
+  @total true
+  fn retire_keeps_root_consent(on_line: Bool) -> Equivalent(Bool, retire_keeps_consent(ScopeRoot(), on_line), True()) =
+    reflexive(True())
+
+  # retire/2: a key that only dropped records named leaves; a key that a
+  # surviving record names, or that no dropped record named, stays.
+  @total true
+  fn retire_drops_orphaned_key() -> Equivalent(Bool, retire_keeps_key(True(), False()), False()) =
+    reflexive(False())
+
+  @total true
+  fn retire_keeps_named_key(named_by_dropped: Bool) -> Equivalent(Bool, retire_keeps_key(named_by_dropped, True()), True()) =
+    match named_by_dropped
+      True() -> reflexive(True())
+      False() -> reflexive(True())
+
+  @total true
+  fn retire_keeps_untouched_key(named_by_survivor: Bool) -> Equivalent(Bool, retire_keeps_key(False(), named_by_survivor), True()) =
+    reflexive(True())
 end
