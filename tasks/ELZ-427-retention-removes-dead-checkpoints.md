@@ -87,7 +87,9 @@ On both Stores:
 - For `N > 1`, write valid same-version checkpoints at `N - 1` and `N`, then
   retain through `N`. Recover with a decoder that rejects the model at `N`.
   Assert `{:error, {:pruned, N}}` and zero `read_checkpoint` fallback calls on
-  both Stores.
+  both Stores. Separately, retain through `N - 1` instead: recovery falls back
+  to the checkpoint at `N - 1`, exactly at `low_water`, with one fallback read
+  (a fallback that skips an anchor at `low_water` fails this case).
 - A negative control: a temporary edit that skips the delete makes the first
   case fail (recorded and reverted).
 - `mix check --piece "$(git merge-base origin/main HEAD)"` and
