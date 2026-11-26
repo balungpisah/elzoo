@@ -10929,7 +10929,7 @@
       ],
       "issue": 1020,
       "url": "https://github.com/balungpisah/elzoo/issues/1020",
-      "issue_body_sha256": "719508447619f3af7054c803f11037ccddeefd6d3f8bc451a8fa632e0d577ee1"
+      "issue_body_sha256": "7f852fe8c4735f8be5d512b30d0683edf20c6a82cb7fcc47d6f7f9524f42fb4d"
     },
     {
       "id": "ELZ-420",
@@ -11195,6 +11195,35 @@
       "issue": 1028,
       "url": "https://github.com/balungpisah/elzoo/issues/1028",
       "issue_body_sha256": "ede8fdc355016cdf223df0989741af31ac498be85c126eea8edbf45147a1fda0"
+    },
+    {
+      "id": "ELZ-428",
+      "title": "ELZ-428 — state/lease: a malformed reply inside a write transaction returns an error",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-416"
+      ],
+      "status": "published 2026-11-26",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-428-lease-malformed-reply-no-crash.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "state/lease",
+          "role": "In-place fix under the same ID: a malformed reply inside a write transaction returns {:error, :malformed} instead of crashing the caller."
+        }
+      ],
+      "acceptance": "state/lease write and sweep transactions return {:error, :malformed} for a malformed head or clock reply before their first write, nothing written and the caller alive; tests with a negative control; Piece gate, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1029,
+      "url": "https://github.com/balungpisah/elzoo/issues/1029",
+      "issue_body_sha256": "e09a897bb6118ade345dde46c1168afecf590ab6a7892bf82fbbdf834e9b683c"
     }
   ],
   "entries": [

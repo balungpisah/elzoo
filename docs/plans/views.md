@@ -476,6 +476,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-427](https://github.com/balungpisah/elzoo/issues/1028) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-418](https://github.com/balungpisah/elzoo/issues/1025) | V2 / later | ELZ-416, ELZ-417, ELZ-419, ELZ-427 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-421](https://github.com/balungpisah/elzoo/issues/1026) | V2 / later | ELZ-420, ELZ-422, ELZ-423 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-428](https://github.com/balungpisah/elzoo/issues/1029) | V2 / later | ELZ-416 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -5742,3 +5743,15 @@ Publication copy: [tasks/ELZ-427-retention-removes-dead-checkpoints.md](../../ta
 **Secondary contribution:** state/event-log — In-place change under the same ID: Memory Store retention deletes checkpoints below low-water.
 
 **Secondary contribution:** integration/sql — In-place change under the same ID: PostgreSQL Store retention deletes checkpoints below low-water.
+
+### ELZ-428
+
+ELZ-428 — state/lease: a malformed reply inside a write transaction returns an error
+
+Publication copy: [tasks/ELZ-428-lease-malformed-reply-no-crash.md](../../tasks/ELZ-428-lease-malformed-reply-no-crash.md).
+
+**Product aims:** P09.
+
+**Acceptance:** state/lease write and sweep transactions return {:error, :malformed} for a malformed head or clock reply before their first write, nothing written and the caller alive; tests with a negative control; Piece gate, strongest other-family review.
+
+**Secondary contribution:** state/lease — In-place fix under the same ID: a malformed reply inside a write transaction returns {:error, :malformed} instead of crashing the caller.

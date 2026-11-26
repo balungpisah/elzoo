@@ -51,6 +51,16 @@ Three calls, each with one exact DTO. The host vouches for every field:
     associate_run(owner, %{input_message_id, run_id})
     append_answer(owner, %{message_id, actor, text, run_id, input_message_id, completed})
 
+and one read-only call, `check(owner, intent)`, where `intent` is
+`{:input, dto}`, `{:association, dto}` or `{:answer, dto}` with the DTO of the
+matching call. It first reads the rows after the owner's head (as an append
+does after a conflict) and folds them, then returns what the matching call
+would return at that state, without writing or reserving anything: `:ok` (the
+record would be appended), `{:ok, :already_present}`, `{:refused, code}`, or
+the errors below. Each owner call has a bounded timeout that the README
+states; a timed-out append is an unknown outcome that the caller resolves by
+retrying the identical operation.
+
 `completed` is the host's boolean fact that the Run completed. Results:
 
 - `{:ok, %{sequence: s}}`: this call committed its record at `s`.
@@ -145,7 +155,10 @@ append becomes a delivery after the commit:
 
 - Before command commit, the channel validates the exact Conversation intent
   against the tenant's ordered admitted state, including committed intents
-  not yet visible in Conversation. It binds the canonical intent, or its exact
+  not yet visible in Conversation: it asks the conversation owner with
+  `check/2` for the delivered state and checks its own committed but
+  undelivered intents (bounded by the outbox backlog). It keeps no index of a
+  conversation itself. It binds the canonical intent, or its exact
   digest, into the write that Authorization and Approval check (a write of a
   channel-owned resource; a command with no write gets no outbox item). The
   retained response carries that same intent (an input, an association, or an
@@ -219,6 +232,10 @@ regenerated from current `main` and never hand-merged.
     cases: committed (the owner resolves it to `{:ok, _}`, and an identical
     retry gives `{:ok, :already_present}`) and unresolved (`{:unknown,
     :unresolved}`, then an identical retry that is safe either way).
+  - `check/2` returns, for each result case of the three calls, exactly what
+    the call returns, and writes nothing (head unchanged); after an
+    independent owner appends a conflicting record, `check/2` on the first
+    owner sees it.
   - `page` and `tail` for another tenant or an ungranted conversation:
     `:not_found` with zero Store calls (count them); a malformed scope:
     `{:error, :invalid_scope}` with zero Store calls.
