@@ -11187,6 +11187,10 @@
         {
           "id": "integration/sql",
           "role": "In-place change under the same ID: PostgreSQL Store retention deletes checkpoints below low-water."
+        },
+        {
+          "id": "state/checkpoint",
+          "role": "In-place fix under the same ID: the fallback to an earlier checkpoint stops below the stream's low-water."
         }
       ],
       "acceptance": "Durable log retention also deletes the stream's checkpoints below its new low-water, and a checkpoint below low-water is refused, on the Memory and PostgreSQL Stores in place; tests on both Stores with a race case and a negative control; Piece gate, strongest other-family review.",
@@ -11195,7 +11199,7 @@
       ],
       "issue": 1028,
       "url": "https://github.com/balungpisah/elzoo/issues/1028",
-      "issue_body_sha256": "ede8fdc355016cdf223df0989741af31ac498be85c126eea8edbf45147a1fda0"
+      "issue_body_sha256": "5f9d51941a0eeea880b1b326b65a84cc1f88000c65f0da14b4a5c62e5922d69f"
     },
     {
       "id": "ELZ-428",

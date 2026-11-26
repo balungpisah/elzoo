@@ -5745,6 +5745,8 @@ Publication copy: [tasks/ELZ-427-retention-removes-dead-checkpoints.md](../../ta
 
 **Secondary contribution:** integration/sql — In-place change under the same ID: PostgreSQL Store retention deletes checkpoints below low-water.
 
+**Secondary contribution:** state/checkpoint — In-place fix under the same ID: the fallback to an earlier checkpoint stops below the stream's low-water.
+
 ### ELZ-428
 
 ELZ-428 — state/lease: a malformed reply inside a write transaction returns an error
