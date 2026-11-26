@@ -44,7 +44,7 @@ Separate publication PRs keep the coordinator merge path (section 9).
 
 | Change | Publication and claim | Local gate → hosted check |
 | --- | --- | --- |
-| New or changed Piece Contract | New capability: coordinator publishes the new Piece ID first; then claim (sections 2–4, 9). Changed Contract of a ready Piece before the first release: a published task on the same ID (section 4) | Piece gate below; from the first release never reuse an old ID for a new Contract |
+| New or changed Piece Contract | New capability or split: coordinator publishes the new Piece ID first; then claim (sections 2–4, 9). Changed Contract of a ready Piece: a published task on the same ID (section 4) | Piece gate below; full ID rule in section 4: a breaking change keeps the ID and adds an entry to the `## Changes` section of the Piece README; a consumer's copy changes only when it takes again, and its receipt names the revision that `## Changes` is read from |
 | Piece-only implementation | Published task, claim, implementation PR (sections 2–3); a test-only Piece repair may use the coordinator one-PR path below | Small gate (section 5) → `check-piece`; full check on main covers omitted tests |
 | Documents only | Published task or coordinator one-PR path below; claim | Roadmap/claims checks and diff check → docs-only check; no executable inputs changed |
 | Spike only, including dependencies or pins confined to the spike's own files (`mix.exs`, `mix.lock`, etc.) | Own task; published or coordinator one-PR path; claim | Changed spike's own checks and roadmap/diff checks → `check-spike` and Gleam when applicable; root tests do not consume spike contents, full check on main |
@@ -180,10 +180,20 @@ agent writes in a worktree at a time.
   dependencies, the grounding of each claim and the Telemetry, Config and
   Control declarations.
 - The release commit is the merge of [ELZ-411](https://github.com/balungpisah/elzoo/pull/1004) on `main` only if the `symbolic-check.yml` push run for that exact SHA succeeds. Jobs published after the release commit take stage `later` until the owner plans the next release.
-- From the release commit on, a ready Piece ID is a stable Contract. A change of
-  accepted inputs, outputs, state, delivery, failure guarantees or Needs gets
-  a **new Piece ID** and migration notes. The old ID stays usable. A bug fix that restores the
-  Contract keeps the ID.
+- A Piece ID names one capability. From the release commit on, a ready Piece
+  keeps its ID when it improves: a raised or removed limit, a new optional
+  input or output, a new operation, a new storage design, a faster path or a
+  fix. A change that a copy would notice is a breaking change: an accepted
+  input is refused; an output, a stored format, a delivery guarantee or a
+  failure guarantee changes; or a required Need is added. A breaking change
+  keeps the ID too. Its pull request adds an entry to the `## Changes` section
+  of the Piece README: the task, what breaks and how to move. A changed stored
+  format comes with a reader of the old format or a stated migration step. A
+  new Piece ID is only for a new capability or a split; the
+  [capability model](docs/capability-model.md#admission-and-splitting-rules)
+  decides which. A consumer is safe because it owns a copy: the copy changes
+  only when the consumer takes again, its receipt names the revision, and
+  `## Changes` lists what moved since that revision.
 - The toolchain pins are in `.tool-versions` and `mix.exs`. Do not change them
   in a Piece task.
 - The repository is public. Standard Git author, committer and co-author

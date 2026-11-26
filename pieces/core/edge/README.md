@@ -55,4 +55,6 @@ rewiring. Edges and operand IDs themselves are data.
 Per-port required kinds/metadata are deliberately deferred. The generic shape
 checker accepts each documented optional Envelope field as absent; products
 must enforce stronger requirements separately. Adding such a policy to this
-exact binding Contract requires a new Piece ID and explicit consumer migration.
+exact binding Contract is a later change of this Piece under the same ID; if a
+copy would notice it, it adds an entry to the `## Changes` section of this
+README that says how consumers migrate.

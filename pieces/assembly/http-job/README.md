@@ -99,8 +99,10 @@ Error-class labels never authorize a send. Poll 404/HTTP errors/transport loss
 are unavailable; ack=false pending. Both `no_effect` and `unknown_to_provider`
 are rejected by authentication. Replay is none; this subset has no provider
 no-effect certificate. Absent evidence cannot rearm. Adding those semantics
-later requires a new Piece ID. A late authenticated completion may confirm or
-quarantine under the existing owner's history rules.
+later is a change of this Piece under the same ID; if a copy would notice it,
+it adds an entry to the `## Changes` section of this README. A late
+authenticated completion may confirm or quarantine under the existing owner's
+history rules.
 
 ## Runner and limits
 

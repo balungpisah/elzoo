@@ -12,11 +12,22 @@ their choices to this page.
   change your copy without an Elzoo task.
 - A change of a Piece in Elzoo is a published task; the coordinator sizes and
   publishes tasks ([AGENTS.md section 9](../AGENTS.md#9-coordinator)).
-- The ID rule ([AGENTS.md section 4](../AGENTS.md#4-build)): From the
-  [first release commit](consuming.md#the-first-release) on, a change of a ready
-  Piece's accepted inputs, outputs, state, delivery, failure guarantees or Needs
-  gets a new Piece ID and migration notes. The old ID stays usable. A fix that
-  restores the Contract keeps its ID. "Under the ID rule" below means this rule.
+- The ID rule ([AGENTS.md section 4](../AGENTS.md#4-build)): A Piece ID names
+  one capability. From the
+  [first release commit](consuming.md#the-first-release) on, a ready Piece
+  keeps its ID when it improves: a raised or removed limit, a new optional
+  input or output, a new operation, a new storage design, a faster path or a
+  fix. A change that a copy would notice is a breaking change: an accepted
+  input is refused; an output, a stored format, a delivery guarantee or a
+  failure guarantee changes; or a required Need is added. A breaking change
+  keeps the ID too. Its pull request adds an entry to the `## Changes` section
+  of the Piece README: the task, what breaks and how to move. A changed stored
+  format comes with a reader of the old format or a stated migration step. A
+  new Piece ID is only for a new capability or a split; the
+  [capability model](capability-model.md#admission-and-splitting-rules)
+  decides which. Your copy changes only when you take again: your receipt
+  names the revision, and `## Changes` lists what moved since that revision.
+  "Under the ID rule" below means this rule.
 - A new dependency or a changed pin is always its own task, and it merges
   first ([AGENTS.md section 3](../AGENTS.md#3-lanes-how-many-workers-stay-safe)).
 
@@ -587,19 +598,23 @@ These are set in the published task texts
 
 ## Deferred options
 
-Each option below is open by design. "Additive" means an in-place change before
-the first release that leaves existing callers working; from the first release
-an addition that changes a ready Piece's accepted inputs, outputs, state,
-delivery, failure guarantees or Needs gets a new Piece ID, and the old ID stays
-usable (the ID rule above).
+Each option below is open by design. "Additive" means a change of a ready
+Piece that an existing copy would not notice: it keeps the Piece ID and needs
+no `## Changes` entry. A change that a copy would notice is a breaking change:
+it keeps the ID too and adds a `## Changes` entry. A changed stored format is
+always breaking: it needs that entry and also a reader of the old format or a
+stated migration step. Only a new capability or a split gets a new ID, as the
+capability model decides. A copy changes only when its owner takes again; the
+receipt names the revision, and `## Changes` lists what moved since then (the
+ID rule above).
 
 | Option | Piece | How it is added | Additive |
 | --- | --- | --- | --- |
 | Volume tiers | `domain/pricing` ([ELZ-304](../tasks/ELZ-304-pricing.md)) | An optional `tiers` field on a rate-card line; each line stands alone, so a card without tiers prices as before | Yes |
-| Tenant-local month, rolling window | `domain/entitlement`, `domain/quota`, `domain/metering` | Entitlement gains a `period_kind` member; quota keys its allowance by a tagged window (`{:period, id}`) and gains a rolling window beside it; metering already takes an opaque period ID and keeps `observed_at_ms`, so a time-range total is a new read | Yes |
-| A reusable `assembly/tenant-edge` | new Assembly (RC-40) | Composes the public interfaces of verify, membership, authorization, kill-switch, entitlement, quota, Run, metering, pricing and journal; no Piece needs a private path for it | Yes (new ID) |
+| Tenant-local month, rolling window | `domain/entitlement`, `domain/quota`, `domain/metering` | Entitlement gains a `period_kind` member; quota keys its allowance by a tagged window (`{:period, id}`) and gains a rolling window beside it; metering already takes an opaque period ID and keeps `observed_at_ms`, so a time-range total is a new read | Yes, while the stored `{:period, id}` encoding (its `window_tag` and `window_id`) stays as it is; a change to that encoding is breaking |
+| A reusable `assembly/tenant-edge` | new Assembly (RC-40) | Composes the public interfaces of verify, membership, authorization, kill-switch, entitlement, quota, Run, metering, pricing and journal; no Piece needs a private path for it | Not a change of a ready Piece: a new Piece ID for a new capability |
 | Run and model metrics | `runtime/telemetry`, `integration/observability`, `assembly/run-engine`, `integration/ai-text` | A new event family emitted in place; the transcript and metering stay as they are | Yes |
-| More than one active plan per tenant | `domain/entitlement` | Drop the version 1 `overlap` refusal for a declared stacking rule; a resolution already lists its grants and plans, and allowances are a list tagged by grant; `domain/quota` checks each allowance against the listed grants and sums the amounts of one unit | Yes (accepted inputs widen) |
+| More than one active plan per tenant | `domain/entitlement` | Drop the version 1 `overlap` refusal for a declared stacking rule; a resolution already lists its grants and plans, and allowances are a list tagged by grant; `domain/quota` checks each allowance against the listed grants and sums the amounts of one unit | No: the `overlap` refusal is a failure guarantee that goes, so a `## Changes` entry (same ID) |
 | A host unit such as `runs` | `domain/metering`, `domain/entitlement` | A new member of the unit set | Yes |
 | Live-model eval | `workflow/eval` | An optional dataset `mode` member, default scripted | Yes |
 | A runtime turn-rule switch | `workflow/turn-policy`, `workflow/delegation` | An optional `set_rule` key of `elzoo.room.answer`, handled like `handoff_to` and allowed only through a policy key `rule_change: %{allowed, by}`; an `allowed_patterns` key of the delegation grant, narrowed per child like scopes | Yes |
@@ -1217,6 +1232,28 @@ Source: the
 [owner decisions](plans/bot-platform.md#owner-decisions-that-are-still-open)
 of `bot-platform.md`, unless an entry names another.
 
+### A ready Piece improves in place (2026-11-26)
+
+- **Chosen.** A Piece ID names one capability. From the release commit on, a
+  ready Piece keeps its ID when it improves, and also through a breaking
+  change, which adds an entry to the `## Changes` section of the Piece README;
+  a changed stored format also comes with a reader of the old format or a
+  stated migration step. A new Piece ID is only for a new capability or a
+  split; the
+  [capability model](capability-model.md#admission-and-splitting-rules)
+  decides which ([ELZ-415](../tasks/ELZ-415-ready-piece-improves-in-place.md)).
+  This replaces the rule that a changed ready Contract gets a new Piece ID.
+- **Why.** A consumer is safe because it owns a copy, not because the ID
+  changes: the copy changes only when the consumer takes again, the receipt
+  names the revision, and `## Changes` lists what moved since that revision.
+  One capability keeps one ID.
+- **For you.** Before you take a Piece again, read the `## Changes` entries
+  since the revision in your receipt and make the moves they name. A changed
+  stored format comes with a reader of the old format or a stated migration
+  step. See [How a change works](#how-a-change-works).
+- **To change.** It is a rule in `AGENTS.md` section 4: an owner decision and
+  its own documents task.
+
 ### Plain Elixir, no Ash wrapper in core (2026-11-20)
 
 - **Chosen.** Core Pieces are plain Elixir, Cure, Ecto and Postgrex, with the
@@ -1248,7 +1285,7 @@ of `bot-platform.md`, unless an entry names another.
 
 - **Chosen.** Before the first release, a ready Piece could change in place so it did not need a second ID for the same job.
 - **Boundary.** The merge commit of [ELZ-411](https://github.com/balungpisah/elzoo/pull/1004) on `main` is the release commit only if the `symbolic-check.yml` push run for that exact SHA succeeds.
-- **For you.** From that commit on, a changed ready Contract gets a new ID and migration notes. A fix that restores the Contract keeps its ID. See [How a change works](#how-a-change-works).
+- **For you.** Replaced on 2026-11-26: from that commit on, a ready Piece keeps its ID when it improves and through a breaking change, which adds a `## Changes` entry (a changed stored format also comes with a reader of the old format or a stated migration step); a new Piece ID is only for a new capability or a split, as the capability model decides. Your copy changes only when you take again: your receipt names the revision you took, and the `## Changes` entries since that revision are the ones to read. See [A ready Piece improves in place (2026-11-26)](#a-ready-piece-improves-in-place-2026-11-26).
 
 ### Version-1 action kinds, RC-68 (2026-11-12)
 

@@ -1,7 +1,7 @@
 # Elzoo curated catalogue
 
 This is a deliberately curated catalogue, not a port of Zoo's 402-row
-inventory. An entry is a stable contract ID and a delivery plan. It may be
+inventory. An entry is a stable capability ID and a delivery plan. It may be
 implemented by Elzoo, reused from OTP/a library, wrapped by a thin adapter, or
 deferred until a working assembly needs it. The old Zoo names remain useful
 research aliases, but aliases do not create duplicate implementation tasks.
