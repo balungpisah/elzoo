@@ -395,8 +395,8 @@ whose five lists are not proper lists, gives `{:error, {:invalid_input,
 :state}}` (the entries themselves are not validated, as for the other
 operations); malformed input changes nothing. The work is close to linear in
 the size of the state: Elixir indexes the state in a few passes, encodes each
-distinct retired pair once and asks Cure for the keep or drop decision of
-each entry.
+distinct retired pair on its own and keeps it only when the state names that
+line, and asks Cure for the keep or drop decision of each entry.
 
 `prune(state, now)`, with `now` an integer Unix time in ms, `0..2^63-1`
 (otherwise `{:invalid_input, {:bound_exceeded, :now}}`):
@@ -466,17 +466,21 @@ pass the capacity check:
 | `prune/2` | `release/4` or `select_retained/3` for a dropped superseded request | `:superseded` | `:unknown_request` |
 | `prune/2` | `release/4` or `select_retained/3` for a dropped non-newest released request | `:already_released` | `:unknown_request` |
 | `prune/2` | `revalidate/3` (restore) of a key whose release record was dropped | the refusal it reached, for example `:expired` or `:revoked` | `:not_released` |
-| `retire/2` | `release/4` or `select_retained/3` on a retired line | the line's outcome | `:unknown_request` |
+| `retire/2` | `release/4` or `select_retained/3` on a retired line, with a context of the key's Run | the line's outcome | `:unknown_request` |
 | `retire/2` | `revalidate/3` on a retired line | the line's outcome | `:not_released` |
+
+A context that names another Run still gets `:run_mismatch` from
+`release/4` and `select_retained/3` on a retired line, as before retirement:
+check 0 runs before the request lookup.
 
 For `release/4` with evidence that keeps the Verifier Need and a request key
 that is not on a retired line, `:revoked`, `:consumed` and `:evidence_reused`
 are not reachable as changed reasons: checks 1 to 4 refuse first. On a
-retired line every earlier outcome becomes `:unknown_request`, `:revoked`
-included (an open request whose evidence key was revoked before its first
-release; table above). A restore (`revalidate/3`) does not run checks 1 to 4,
-so a revoked or expired restore whose release record was dropped changes to
-`:not_released`.
+retired line every earlier outcome past check 0 becomes `:unknown_request`,
+`:revoked` included (an open request whose evidence key was revoked before
+its first release; table above). A restore (`revalidate/3`) does not run
+checks 1 to 4, so a revoked or expired restore whose release record was
+dropped changes to `:not_released`.
 
 Capacity is outside this comparison. A full state refuses with
 `{:invalid_input, {:bound_exceeded, :state}}`; the pruned or retired state
@@ -733,9 +737,10 @@ work on large states.
   the Contract; this is its sampled evidence;
 - `request/3` refuses a revision above `2^31-1` and still returns an unchanged
   open request at it; a state whose list spine is not a proper list gives
-  `{:invalid_input, :state}`; 65 536 copies of one pair of 1 024-byte
-  identities are retired under a 32 MiB heap limit (each distinct pair is
-  encoded once);
+  `{:invalid_input, :state}`; 65 536 copies of one pair, and 65 536 distinct
+  absent pairs, of 1 024-byte identities are retired under heap limits (only
+  the pairs that the state names are kept); a context of another Run still
+  gets `:run_mismatch` on a retired line;
 - each changed refusal in its own test, with the earlier checks passing; at
   `now' < now` a consent that the unpruned state selects is gone (Clock Need);
 - capacity recovery from directly built states: a 65 536-entry superseded
@@ -862,7 +867,8 @@ own schema id. Providers: pinned Cure, Elixir 1.20.5, OTP 29.1.3.
   non-newest released request `:unknown_request` instead of
   `:already_released`, and a restore whose release record was dropped gives
   `:not_released` instead of its earlier refusal; on a retired line
-  `release/4` and `select_retained/3` give `:unknown_request` and
+  `release/4` and `select_retained/3` give `:unknown_request` (a context of
+  another Run still gets `:run_mismatch`: check 0 runs first) and
   `revalidate/3` gives `:not_released`. Neither operation emits an event: to
   move, an owner that prunes or retires stores the result with its clock floor
   and the position of the last event it covers, and replays only later events

@@ -290,8 +290,7 @@ defmodule Elzoo.Approval do
          :ok <- Auth.proper_list(lines, :lines, :invalid_input),
          :ok <- Auth.count_in(lines, 0, @max_lines, :lines, :invalid_input),
          :ok <- valid_lines(lines) do
-      # Each distinct pair is encoded once: a byte list is far larger than its text.
-      retired = lines |> Enum.uniq() |> MapSet.new(fn {run, aid} -> {b(run), b(aid)} end)
+      retired = retired_lines(lines, named_lines(rs, cs, rels))
 
       keep_entry? = fn {:ApprKey, run, aid, _, _, _} ->
         apply(@cure, :retire_keeps_entry, [MapSet.member?(retired, {run, aid})])
@@ -368,6 +367,37 @@ defmodule Elzoo.Approval do
 
   defp bound_action_id({:ApprBinding, {:AuthAction, _, _, _, action_id, _, _, _}, _, _, _}),
     do: action_id
+
+  # The lines {run, action_id} that the retire decisions read, keyed by the
+  # byte-list terms that the state already holds.
+  defp named_lines(rs, cs, rels) do
+    requests =
+      Enum.map(rs, fn {:ApprRequest, {:ApprKey, run, aid, _, _, _}, _, _} -> {run, aid} end)
+
+    releases =
+      Enum.map(rels, fn {:ApprRelease, {:ApprKey, run, aid, _, _, _}, _, _, _, _, _, _} ->
+        {run, aid}
+      end)
+
+    consents =
+      Enum.map(cs, fn {:ApprConsent, _, binding, run, _} -> {run, bound_action_id(binding)} end)
+
+    Map.new(requests ++ releases ++ consents, &{&1, &1})
+  end
+
+  # The distinct retired pairs that the state names, as the state's own terms.
+  # Each pair is encoded on its own and dropped unless the state names it, so
+  # absent pairs never accumulate as byte lists.
+  defp retired_lines(lines, named) do
+    lines
+    |> Enum.uniq()
+    |> Enum.reduce(MapSet.new(), fn {run, aid}, retired ->
+      case Map.fetch(named, {b(run), b(aid)}) do
+        {:ok, line} -> MapSet.put(retired, line)
+        :error -> retired
+      end
+    end)
+  end
 
   # Each part of a line is validated as request/3 validates `run`, in order.
   defp valid_lines(lines) do

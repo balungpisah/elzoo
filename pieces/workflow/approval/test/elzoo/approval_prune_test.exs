@@ -613,6 +613,24 @@ defmodule Elzoo.ApprovalPruneTest do
     assert {:ok, ^s} = Task.await(task, 60_000)
   end
 
+  test "retire encodes only the pairs that the state names: 65,536 distinct absent pairs fit a heap limit" do
+    s = history()
+    present = {"run-1", "act-a"}
+    long = fn prefix, i -> String.pad_trailing(prefix <> Integer.to_string(i), 1024, "x") end
+
+    task =
+      Task.async(fn ->
+        Process.flag(:max_heap_size, %{size: 16_000_000, kill: true, error_logger: false})
+        # Encoding each distinct pair of 1,024-byte identities would take about
+        # 2 GiB; only the pairs that the state names are kept, under 128 MiB.
+        absent = for i <- 1..65_536, do: {long.("r", i), long.("a", i)}
+        {Approval.retire(s, absent), Approval.retire(s, [present | tl(absent)])}
+      end)
+
+    assert {{:ok, ^s}, {:ok, with_present}} = Task.await(task, 120_000)
+    assert {:ok, ^with_present} = Approval.retire(s, [present])
+  end
+
   test "a malformed now, a malformed pair and a value that is not a state are refused" do
     s = history()
 
@@ -728,9 +746,12 @@ defmodule Elzoo.ApprovalPruneTest do
     assert {:released, _, [_], _} = Approval.release(s, a2, open, ctx)
     assert {:refused, :already_released, ^s} = Approval.release(s, a1, again, ctx)
     retired = retire!(s, [{"run-1", "act-a"}])
-    # Check 0 passes; check 1 refuses.
+    # Check 0 passes; check 1 refuses. A context of another Run still fails check 0.
     assert {:refused, :unknown_request, ^retired} = Approval.release(retired, a2, open, ctx)
     assert {:refused, :unknown_request, ^retired} = Approval.release(retired, a1, again, ctx)
+    elsewhere = context(:once, "act-a", "a", "run-9", 3_000)
+    assert {:refused, :run_mismatch, ^s} = Approval.release(s, a2, open, elsewhere)
+    assert {:refused, :run_mismatch, ^retired} = Approval.release(retired, a2, open, elsewhere)
   end
 
   test "on a retired line select_retained/3 gives unknown_request" do
@@ -746,6 +767,9 @@ defmodule Elzoo.ApprovalPruneTest do
 
     assert {:refused, :unknown_request} = Approval.select_retained(retired, d2, ctx)
     assert {:refused, :unknown_request, ^retired} = Approval.release(retired, d2, :retained, ctx)
+    elsewhere = context(:run, "act-d", "d", "run-9", 3_000)
+    assert {:refused, :run_mismatch} = Approval.select_retained(s, d2, elsewhere)
+    assert {:refused, :run_mismatch} = Approval.select_retained(retired, d2, elsewhere)
   end
 
   test "on a retired line revalidate/3 gives not_released" do
