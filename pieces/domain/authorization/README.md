@@ -106,7 +106,9 @@ value)`. Because the conflict rule applies to authority sets, an authority
 set holds **at most one value per `(target, field)`**. There is no wildcard in
 authority. The host therefore builds exact-value authority for each action
 (for example the exact refund amount). This is a recorded limit (see
-"Interface deltas"); a wildcard or range authority needs a new Piece ID.
+"Interface deltas"); a wildcard or range authority is a later change of this
+Piece under the same ID, with an entry in the `## Changes` section of this
+README if a copy would notice it.
 
 **Authority context** (trusted; supplied by the owning caller from its own
 state, never from the proposal):
@@ -436,8 +438,9 @@ Providers: pinned Cure `208248063d64e621782cd26dd30698ee42850a89`, Elixir
 ## Limits
 
 - **Single requirement (Q1).** An ASK with more than one distinct requirement
-  fails closed. Multi-approver flows (for example some C3 refunds) need a new
-  Piece ID.
+  fails closed. Multi-approver flows (for example some C3 refunds) are a later
+  change of this Piece under the same ID, with a `## Changes` entry here if a
+  copy would notice them.
 - **Exact-value authority (Q3).** Authority holds one exact value per
   `(target, field)`; the host builds exact-value authority per action.
 - Subset laws hold with respect to `eq_write`; agreement with Elixir
@@ -456,7 +459,7 @@ input, output or acceptance item.
 | D3 | "decide, from principal, tenant, resource, action payload and policy version" | rules match exact principal, tenant, resource, payload and write value, plus effect class, target and field; policy version is in the identity triple bound and rechecked | F9: verdict can depend on every listed input |
 | D4 | "bounding authority (the permitted-write set …)" | exact writes, one value per `(target, field)`, no wildcard | B24.3 + conflict rule; Q3 limit |
 | D5 | "ASK holding proposed writes in escrow" | whole-action escrow: ASK permits nothing until release | no partial execution of one action |
-| D6 | ASK requirement | one requirement per ASK; several distinct → fail closed | Q1 limit; multi-approver needs new ID |
+| D6 | ASK requirement | one requirement per ASK; several distinct → fail closed | Q1 limit; multi-approver is a later change under the same ID |
 | D7 | "deny as a proposal any proposal that carries its own policy, bounding authority or approval" | atom control keys → DENY with policy identity; string keys → `invalid_input` | F11/Q2: both fail closed; the reason class differs |
 | D8 | DENY reasons / ASK prompts shown "is a declared Assembly setting" | `proposer_view/2` with per-call `disclosure` | makes the setting concrete |
 | D9 | "implement the pure reducer … in Cure" | validation/normalization/encoding in Elixir; all decisions in Cure; text as byte-integer lists; laws relative to `eq_write` | F3/F8; pinned Cure cannot reduce `String` equality in proofs |

@@ -589,9 +589,11 @@ own schema id. Providers: pinned Cure, Elixir 1.20.5, OTP 29.1.3.
 ## Limits
 
 - **Single approver per request (Q1):** one requirement, one approving
-  evidence. Multi-approver needs a new Piece ID.
+  evidence. Multi-approver is a later change of this Piece under the same ID;
+  if a copy would notice it, it adds an entry to `## Changes` in this README.
 - **Exact scope match (Q4):** evidence scope must equal the requirement
-  scope. Accepting narrower scope later needs a new Piece ID.
+  scope. Accepting narrower scope later is a change of this Piece under the
+  same ID, with an entry in `## Changes` here if a copy would notice it.
 - **Exact-value authority (Q3):** approver authority, like proposer
   authority, holds exact writes.
 - Refusal order is fixed and pinned by tests (Q5); it changes only the

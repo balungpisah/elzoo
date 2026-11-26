@@ -110,9 +110,10 @@ strands a dispatched intent. Neither expiry authorizes rearm.
 
 Every recovery startup is potentially uncertain and read-only until host/operator
 reconciliation re-establishes authoritative outcomes/grounds and grants activation.
-There is no clean-release path in this subset; a later such Contract needs a new
-Piece ID. The host preserves this obligation across restart. An in-memory halt
-flag is not durable quarantine.
+There is no clean-release path in this subset; adding one later is a change of this
+Piece under the same ID, with an entry in the `## Changes` section of this README if
+a copy would notice it. The host preserves this obligation across restart. An
+in-memory halt flag is not durable quarantine.
 
 `Host.activate(context, request)` is synchronous, trusted and configured at startup.
 The request has exactly `key`, fresh 16-byte `nonce`, recovered `revision` and

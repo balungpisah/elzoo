@@ -71,9 +71,10 @@ for non-retrying consumers. A result is standalone data, or the payload of a
 outer Envelope has its own message ID/producer; completed.value's separate
 schema does not replace the wrapper schema. The shared examples show layering.
 
-Changing this ready behavioral Contract requires a new Piece ID and reviewed
-prerequisite, not a private ELZ-006/007 extension. Both tasks consume the same
-checked examples in `examples/shared.exs`.
+A later change of this ready behavioral Contract keeps this Piece ID and needs
+a reviewed prerequisite, not a private ELZ-006/007 extension; if a copy would
+notice it, it adds an entry to the `## Changes` section of this README. Both
+tasks consume the same checked examples in `examples/shared.exs`.
 
 ## Boundaries and grounding
 

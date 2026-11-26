@@ -81,5 +81,7 @@ Follow [consuming](../../../docs/consuming.md): application-owned namespaces,
 one coordinated revision per module, and explicit module/import/MFA plus public
 record-tag renaming/translation for redistributing libraries. `:Interface`,
 `:Descriptor`, `:Transition` and `:Joined` erase without module isolation.
-Changing ready behavior requires a new Piece ID and explicit consumer opt-in.
-Elzoo-owned source is Apache-2.0; upstream licenses are separate.
+A later change of ready behavior keeps this Piece ID; if a copy would notice
+it, it adds an entry to the `## Changes` section of this README, and a
+consumer opts in by taking again. Elzoo-owned source is Apache-2.0; upstream
+licenses are separate.

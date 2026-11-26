@@ -79,6 +79,7 @@ See [consuming](../../../docs/consuming.md) for setup and provenance limits.
 The application owns the `Elzoo.Port` / `Cure.Elzoo.Port` namespace and must
 load one coordinated revision per module. Redistributing libraries must rename
 modules/imports/MFAs and deliberately rename or translate the erased public
-`:Descriptor` tag. The copier performs no automatic isolation. A changed ready
-behavioral Contract requires a new Piece ID. Source is Apache-2.0; upstream
-licenses and pins are recorded separately.
+`:Descriptor` tag. The copier performs no automatic isolation. A later change
+of the ready behavioral Contract keeps this Piece ID; if a copy would notice
+it, it adds an entry to the `## Changes` section of this README. Source is
+Apache-2.0; upstream licenses and pins are recorded separately.

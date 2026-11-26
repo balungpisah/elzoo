@@ -17,7 +17,7 @@
     "Validation, normalization, bounds, the control-key DENY and proposer/effect-class mismatch are Elixir-side and test-grounded only.",
     "No law states that decide's verdict equals join_all of its per-write rule verdicts; that composition is by construction and tested.",
     "Authority is exact writes, one value per (target, field); the host builds exact-value authority per action. No wildcard or range authority.",
-    "One requirement per ASK; several distinct requirements fail closed. Multi-approver needs a new Piece ID.",
+    "One requirement per ASK; several distinct requirements fail closed. Multi-approver is a later change of this Piece under the same ID, with a README `## Changes` entry if a copy would notice it.",
     "The host supplies the policy SHA-256; the Piece compares it and does not authenticate its origin. External decoders must reject duplicate keys.",
     "Every gated effect must be at least one typed write; an empty write set is rejected."
   ],

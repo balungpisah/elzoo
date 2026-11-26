@@ -463,6 +463,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-412](https://github.com/balungpisah/elzoo/issues/1006) | V2 / later | ELZ-411 | published 2026-11-26 | coordinator; one-PR path for documents-only work; independent review and merge queue |
 | [ELZ-413](https://github.com/balungpisah/elzoo/issues/1008) | V2 / later | ELZ-411 | published 2026-11-26 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
 | [ELZ-414](https://github.com/balungpisah/elzoo/issues/1007) | V2 / later | ELZ-411 | published 2026-11-26 | coordinator; one-PR path for a test-only Piece repair; independent review and merge queue |
+| [ELZ-415](https://github.com/balungpisah/elzoo/issues/1012) | V2 / later | ELZ-411 | published 2026-11-26 | coordinator; one-PR path for documents and docs/consuming.md; independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -5576,3 +5577,13 @@ Publication copy: [tasks/ELZ-414-mcp-server-bearer-connection.md](../../tasks/EL
 **Product aims:** P09.
 
 **Acceptance:** Reproduce #984, isolate the oversized 401 connection in the test, preserve refusal and valid bearer-prefix assertions, pass the loaded repeat and reproduce the failure by restoring reuse. Piece suite, local small gate, full independent review and exact-head hosted Piece check.
+
+### ELZ-415
+
+ELZ-415 — A ready Piece improves in place under its Piece ID
+
+Publication copy: [tasks/ELZ-415-ready-piece-improves-in-place.md](../../tasks/ELZ-415-ready-piece-improves-in-place.md).
+
+**Product aims:** P10, P11.
+
+**Acceptance:** State the owner's rule of 2026-11-26 (a ready Piece keeps its ID when it improves; a breaking change records a README Changes entry; a new ID only for a new capability or a split) in AGENTS.md, docs/consuming.md, docs/choices.md, docs/catalogue.md and each Piece README or manifest limit that stated the old rule (wording only). Roadmap and claims checks, full hosted check, independent review.
