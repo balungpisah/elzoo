@@ -25,10 +25,15 @@ ID (the rule of ELZ-415).
   revision without changing `id`, `operation_id`, `current_attempt` or
   `outcome` (the publication fixture of `run_engine_test.exs` expects their
   `:run_view` records). The proof must survive an owner restart; the live
-  owner's revision floor alone is not sufficient. `RunApprovalRelease`
-  exposes it, derived from its durable stream (for example the revision of
-  its newest Run record in `status/2`), as an additive change with a
-  `## Changes` entry in its own README.
+  owner's revision floor alone is not sufficient. A newest Run record is not
+  that proof: lease release, claim and seize also advance the stream without
+  a Run record. `RunApprovalRelease.status/2` exposes the revision of the
+  latest committed record in the owner's stream whose kind is not
+  `lease_renewed`, reconstructed on startup and kept current as the owner
+  writes. The engine suppresses `:run_view` only when its recorded
+  `run_revision` is at or above that boundary and below the owner's current
+  revision, and keeps today's behavior if the proof is unavailable. The
+  additive field gets a `## Changes` entry in the owner's README.
 - For a renewal-only interval the engine commits no journal record and
   settles nothing because of it, and its next owner command applies (the
   owner accepts a revision from before its own renewals while it lives,
@@ -57,6 +62,8 @@ Paths: `pieces/assembly/run-engine/**`, `pieces/workflow/run-approval-release/**
 - An Approval request or evidence write interleaved with renewals: its
   `:run_view` record is journaled as today, and the renewals around it add
   none.
+- A release and re-claim with no intervening Run record still produce the
+  existing `:run_view` after recovery.
 - After renewals, stop the owner and start a replacement using the current
   held token. Reopen the engine against the replacement owner and the
   existing Unit journal. Startup adds no renewal-only record, and a new owner
