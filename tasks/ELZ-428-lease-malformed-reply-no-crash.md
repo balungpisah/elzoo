@@ -45,10 +45,11 @@ Paths: `pieces/state/lease/**`, the `entries` row of `state/lease` in
   inject the throw but cannot replace a query reply. Then inject the throw on
   a later sweep key after an earlier key enters `write!/6`, and assert an
   indeterminate result and rollback of the sweep. Cover each sweep query's
-  reply shape separately: an unexpected row count or row shape from the
-  `SKIP LOCKED` lookup, and from the `NOWAIT` probe after an empty
-  `SKIP LOCKED` reply, each gives `{:error, :malformed}` (an invalid head value
-  alone does not satisfy this case).
+  reply shape separately, injected on the sweep's first key before any
+  lease-record write is attempted: an unexpected row count or row shape from
+  the `SKIP LOCKED` lookup, and from the `NOWAIT` probe after an empty
+  `SKIP LOCKED` reply, each gives `{:error, :malformed}` (an invalid head
+  value alone does not satisfy this case).
 - A negative control: removing the new handling makes the test fail with the
   crash (recorded and reverted).
 - `mix test pieces/state/lease/test` on PostgreSQL 19, and
