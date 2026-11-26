@@ -39,6 +39,13 @@ defmodule Elzoo.Lease.FaultQuery do
     :ok
   end
 
+  @doc "Replace the whole result of the next successful reply whose SQL contains `match`, after `skip` matching replies."
+  def replace_result(match, result, skip \\ 0) do
+    fault = %{match: match, result: result, times: 1, skip: skip}
+    Process.put(@key, Process.get(@key, []) ++ [fault])
+    :ok
+  end
+
   @doc false
   def take(sql) do
     faults = Process.get(@key, [])
@@ -61,7 +68,7 @@ defmodule Elzoo.Lease.FaultQuery do
           do: put(List.replace_at(faults, index, %{fault | times: fault.times - 1})),
           else: put(List.delete_at(faults, index))
 
-        {:rows, fault.rows}
+        if Map.has_key?(fault, :result), do: {:result, fault.result}, else: {:rows, fault.rows}
     end
   end
 
@@ -133,6 +140,7 @@ defmodule Elzoo.Lease.FaultAdapter.Connection do
         case FaultQuery.take(IO.iodata_to_binary(sql)) do
           :pass -> {:ok, result}
           {:rows, rows} -> {:ok, %{result | rows: rows}}
+          {:result, replacement} -> {:ok, replacement}
         end
 
       other ->
@@ -1291,6 +1299,15 @@ defmodule Elzoo.LeasePostgresTest do
     count
   end
 
+  defp head_values(prefix, key),
+    do:
+      SQL.query!(
+        TestRepo,
+        "SELECT revision, low_water FROM #{Postgres.identifier(prefix)}.elzoo_log_heads WHERE stream = $1",
+        [key],
+        log: false
+      ).rows
+
   test "LS29a malformed head and clock replies of a single-key write transaction return an error, the caller survives, nothing persists",
        %{lease: lease, store: store, prefix: prefix} do
     fl = fault_lease(prefix)
@@ -1337,6 +1354,10 @@ defmodule Elzoo.LeasePostgresTest do
     assert {:error, :malformed} = Lease.claim_expired(fl, "sweeper", @minute, 10, ["h2"])
     assert length(TestHelper.rows(store, "h2")) == 1
 
+    # nothing persisted: both heads keep the seeded revision and low water
+    assert [[1, 0]] = head_values(prefix, "h1")
+    assert [[1, 0]] = head_values(prefix, "h2")
+
     # the sweep recovers once the faults are consumed
     assert {:claimed, %{held: [_, _]}} = Lease.claim_expired(fl, "sweeper", @minute, 10, ~w(h1 h2))
   end
@@ -1363,6 +1384,8 @@ defmodule Elzoo.LeasePostgresTest do
     # the whole sweep rolls back: neither key holds a new record or revision
     assert length(TestHelper.rows(store, "x")) == 1
     assert length(TestHelper.rows(store, "y")) == 1
+    assert [[1, 0]] = head_values(prefix, "x")
+    assert [[1, 0]] = head_values(prefix, "y")
     assert {:unknown, :unfenced} = Lease.confirm(lease, info)
 
     assert {:claimed, %{held: [_, _]}} = Lease.claim_expired(fl, "sweeper", @minute, 10, ~w(x y))
@@ -1373,10 +1396,11 @@ defmodule Elzoo.LeasePostgresTest do
     past = TestHelper.pg_now(TestRepo) - @hour_us
     fl = fault_lease(prefix)
 
-    for {suffix, rows} <- [
-          {"count", [[1, 0], [1, 0]]},
-          {"shape", [[1, 0, 0]]},
-          {"nil", nil}
+    for {suffix, kind, replacement} <- [
+          {"count", :rows, [[1, 0], [1, 0]]},
+          {"shape", :rows, [[1, 0, 0]]},
+          {"nil", :rows, nil},
+          {"missing", :result, %{num_rows: 0}}
         ] do
       key = "sl" <> suffix
 
@@ -1384,9 +1408,13 @@ defmodule Elzoo.LeasePostgresTest do
         {"lease_claimed", TestHelper.holder_payload("old", past, @minute)}
       ])
 
-      :ok = FaultQuery.replace_rows("FOR UPDATE SKIP LOCKED", rows)
+      if kind == :rows,
+        do: :ok = FaultQuery.replace_rows("FOR UPDATE SKIP LOCKED", replacement),
+        else: :ok = FaultQuery.replace_result("FOR UPDATE SKIP LOCKED", replacement)
+
       assert {:error, :malformed} = Lease.claim_expired(fl, "sweeper", @minute, 10, [key])
       assert length(TestHelper.rows(store, key)) == 1
+      assert [[1, 0]] = head_values(prefix, key)
       assert {:claimed, %{held: [_]}} = Lease.claim_expired(fl, "sweeper", @minute, 10, [key])
     end
   end
@@ -1396,10 +1424,11 @@ defmodule Elzoo.LeasePostgresTest do
     past = TestHelper.pg_now(TestRepo) - @hour_us
     fl = fault_lease(prefix)
 
-    for {suffix, rows} <- [
-          {"count", [[1, 0], [1, 0]]},
-          {"shape", [[1, 0, 0]]},
-          {"nil", nil}
+    for {suffix, kind, replacement} <- [
+          {"count", :rows, [[1, 0], [1, 0]]},
+          {"shape", :rows, [[1, 0, 0]]},
+          {"nil", :rows, nil},
+          {"missing", :result, %{num_rows: 0}}
         ] do
       key = "nw" <> suffix
 
@@ -1408,10 +1437,63 @@ defmodule Elzoo.LeasePostgresTest do
       ])
 
       :ok = FaultQuery.replace_rows("FOR UPDATE SKIP LOCKED", [])
-      :ok = FaultQuery.replace_rows("FOR UPDATE NOWAIT", rows)
+
+      if kind == :rows,
+        do: :ok = FaultQuery.replace_rows("FOR UPDATE NOWAIT", replacement),
+        else: :ok = FaultQuery.replace_result("FOR UPDATE NOWAIT", replacement)
+
       assert {:error, :malformed} = Lease.claim_expired(fl, "sweeper", @minute, 10, [key])
       assert length(TestHelper.rows(store, key)) == 1
+      assert [[1, 0]] = head_values(prefix, key)
       assert {:claimed, %{held: [_]}} = Lease.claim_expired(fl, "sweeper", @minute, 10, [key])
     end
+  end
+
+  test "LS29f the unlocked reads keep their failure results: a wrong-shape head row is unavailable, an invalid head value is malformed",
+       %{lease: lease, prefix: prefix} do
+    fl = fault_lease(prefix)
+    {:held, _} = Lease.claim(lease, "rd", "alice", @minute)
+
+    # a wrong-shape row was never a malformed outcome of the unlocked reads:
+    # the head/1 match error is rescued to {:error, :unavailable}
+    for fun <- [
+          fn -> Lease.status(fl, "rd") end,
+          fn -> Lease.hold(fl, "rd", "alice") end,
+          fn -> Lease.retention_bound(fl, "rd") end
+        ] do
+      :ok = FaultQuery.replace_rows("SELECT revision, low_water", [[1, 0, 0]])
+      assert {:error, :unavailable} = fun.()
+    end
+
+    # an invalid head value of a two-element row stays malformed
+    :ok = FaultQuery.replace_rows("SELECT revision, low_water", [[1, 5]])
+    assert {:error, :malformed} = Lease.status(fl, "rd")
+    assert {:ok, %{status: :active}} = Lease.status(lease, "rd")
+  end
+
+  test "LS29g a post-commit hook throwing :malformed escapes as before: after_commit and before_return are outside the transaction",
+       %{lease: lease, store: store} do
+    past = TestHelper.pg_now(TestRepo) - @hour_us
+
+    TestHelper.forge!(store, "swz", 0, [
+      {"lease_claimed", TestHelper.holder_payload("old", past, @minute)}
+    ])
+
+    {:ok, hooked} =
+      TestHelper.pg_lease(store,
+        hook: fn
+          :after_commit, %{key: "hk"} -> throw(:malformed)
+          :before_return, %{key: :sweep} -> throw(:malformed)
+          _, _ -> :ok
+        end
+      )
+
+    # the throw is not translated by the write wrapper: the claim has committed
+    assert :malformed = catch_throw(Lease.claim(hooked, "hk", "alice", @minute))
+    assert {:ok, %{status: :active, holder: %{owner: "alice"}}} = Lease.status(lease, "hk")
+
+    # the sweep's return hook is likewise outside the translated part
+    assert :malformed = catch_throw(Lease.claim_expired(hooked, "sweeper", @minute, 1, ["swz"]))
+    assert {:ok, %{status: :active, holder: %{owner: "sweeper"}}} = Lease.status(lease, "swz")
   end
 end

@@ -272,40 +272,56 @@ defmodule Elzoo.Lease.Postgres do
   defp transact(backend, key, fun) do
     Process.put({__MODULE__, :wrote}, nil)
 
+    # A malformed reply inside the transaction is reported here after the
+    # Repo's rollback; the post-commit hooks run outside this catch and keep
+    # their own failure semantics.
+    outcome =
+      try do
+        {:ok,
+         backend.repo.transaction(
+           fn ->
+             check_shape!(backend)
+             lock_timeout!(backend)
+             hook(backend, :before_lock, key)
+             insert_head(backend, key)
+             head = lock_head(backend, key, "FOR UPDATE")
+             hook(backend, :after_lock, key)
+             now = clock(backend)
+             hook(backend, :after_clock, key)
+             latest = latest(backend, key, head)
+
+             case fun.(%{
+                    key: key,
+                    revision: head.revision,
+                    low_water: head.low_water,
+                    latest: latest,
+                    now: now
+                  }) do
+               {:refuse, result} -> backend.repo.rollback({:refuse, result})
+               {:write, rows, request, result} -> write!(backend, key, head, rows, request, result)
+             end
+           end,
+           timeout: transaction_timeout(backend)
+         )}
+      rescue
+        e -> {:done, failure(e)}
+      catch
+        :throw, :malformed -> {:done, malformed_failure()}
+        :exit, reason -> {:done, failure(reason)}
+      end
+
     try do
-      result =
-        backend.repo.transaction(
-          fn ->
-            check_shape!(backend)
-            lock_timeout!(backend)
-            hook(backend, :before_lock, key)
-            insert_head(backend, key)
-            head = lock_head(backend, key, "FOR UPDATE")
-            hook(backend, :after_lock, key)
-            now = clock(backend)
-            hook(backend, :after_clock, key)
-            latest = latest(backend, key, head)
+      case outcome do
+        {:done, result} ->
+          result
 
-            case fun.(%{
-                   key: key,
-                   revision: head.revision,
-                   low_water: head.low_water,
-                   latest: latest,
-                   now: now
-                 }) do
-              {:refuse, result} -> backend.repo.rollback({:refuse, result})
-              {:write, rows, request, result} -> write!(backend, key, head, rows, request, result)
-            end
-          end,
-          timeout: transaction_timeout(backend)
-        )
-
-      if match?({:ok, _}, result), do: hook(backend, :after_commit, key)
-      unwrap(result)
+        {:ok, result} ->
+          if match?({:ok, _}, result), do: hook(backend, :after_commit, key)
+          unwrap(result)
+      end
     rescue
       e -> failure(e)
     catch
-      :throw, :malformed -> malformed_failure()
       :exit, reason -> failure(reason)
     end
   end
@@ -328,106 +344,138 @@ defmodule Elzoo.Lease.Postgres do
     Process.put({__MODULE__, :wrote}, nil)
     acc0 = %{held: [], refused: %{}, skipped_locked: [], skipped: []}
 
+    outcome =
+      try do
+        {:ok,
+         backend.repo.transaction(
+           fn ->
+             check_shape!(backend)
+             lock_timeout!(backend)
+
+             Enum.reduce(Enum.sort(keys), acc0, fn key, acc ->
+               if length(acc.held) >= limit do
+                 %{acc | skipped: acc.skipped ++ [key]}
+               else
+                 case lock_or_probe(backend, key) do
+                   :locked_elsewhere ->
+                     %{acc | skipped_locked: acc.skipped_locked ++ [key]}
+
+                   :absent ->
+                     %{acc | refused: Map.put(acc.refused, key, free_fun.(key))}
+
+                   {:ok, head} ->
+                     now = clock(backend)
+                     hook(backend, :after_clock, key)
+                     latest = latest(backend, key, head)
+
+                     case fun.(%{
+                            key: key,
+                            revision: head.revision,
+                            low_water: head.low_water,
+                            latest: latest,
+                            now: now
+                          }) do
+                       {:refuse, refusal} ->
+                         %{acc | refused: Map.put(acc.refused, key, refusal)}
+
+                       {:write, rows, request, held} ->
+                         write!(backend, key, head, rows, request, held)
+                         %{acc | held: acc.held ++ [held]}
+                     end
+                 end
+               end
+             end)
+           end,
+           timeout: transaction_timeout(backend)
+         )}
+      rescue
+        e -> {:done, failure(e)}
+      catch
+        :throw, :malformed -> {:done, malformed_failure()}
+        :exit, reason -> {:done, failure(reason)}
+      end
+
     try do
-      result =
-        backend.repo.transaction(
-          fn ->
-            check_shape!(backend)
-            lock_timeout!(backend)
+      case outcome do
+        {:done, result} ->
+          result
 
-            Enum.reduce(Enum.sort(keys), acc0, fn key, acc ->
-              if length(acc.held) >= limit do
-                %{acc | skipped: acc.skipped ++ [key]}
-              else
-                case lock_or_probe(backend, key) do
-                  :locked_elsewhere ->
-                    %{acc | skipped_locked: acc.skipped_locked ++ [key]}
+        {:ok, result} ->
+          case result do
+            {:ok, acc} ->
+              hook(backend, :before_return, :sweep)
+              {:claimed, acc}
 
-                  :absent ->
-                    %{acc | refused: Map.put(acc.refused, key, free_fun.(key))}
-
-                  {:ok, head} ->
-                    now = clock(backend)
-                    hook(backend, :after_clock, key)
-                    latest = latest(backend, key, head)
-
-                    case fun.(%{
-                           key: key,
-                           revision: head.revision,
-                           low_water: head.low_water,
-                           latest: latest,
-                           now: now
-                         }) do
-                      {:refuse, refusal} ->
-                        %{acc | refused: Map.put(acc.refused, key, refusal)}
-
-                      {:write, rows, request, held} ->
-                        write!(backend, key, head, rows, request, held)
-                        %{acc | held: acc.held ++ [held]}
-                    end
-                end
-              end
-            end)
-          end,
-          timeout: transaction_timeout(backend)
-        )
-
-      case result do
-        {:ok, acc} ->
-          hook(backend, :before_return, :sweep)
-          {:claimed, acc}
-
-        other ->
-          unwrap(other)
+            other ->
+              unwrap(other)
+          end
       end
     rescue
       e -> failure(e)
     catch
-      :throw, :malformed -> malformed_failure()
       :exit, reason -> failure(reason)
     end
   end
 
   defp lock_or_probe(backend, key) do
-    case head_rows(backend, key, "FOR UPDATE SKIP LOCKED") do
-      [row] ->
-        {:ok, head(row)}
+    case SQL.query(
+           backend.repo,
+           "SELECT revision, low_water FROM #{table(backend, "elzoo_log_heads")} WHERE stream = $1 FOR UPDATE SKIP LOCKED",
+           [key],
+           log: false
+         ) do
+      {:ok, %{rows: [row]}} ->
+        {:ok, locked_head(row)}
 
-      [] ->
-        hook(backend, :after_skip_locked, key)
-        query(backend, "SAVEPOINT lease_probe")
+      {:ok, %{rows: []}} ->
+        probe(backend, key)
 
-        case SQL.query(
-               backend.repo,
-               "SELECT revision, low_water FROM #{table(backend, "elzoo_log_heads")} WHERE stream = $1 FOR UPDATE NOWAIT",
-               [key],
-               log: false
-             ) do
-          {:ok, %{rows: [row]}} ->
-            query(backend, "RELEASE SAVEPOINT lease_probe")
-            {:ok, head(row)}
+      {:error, error} ->
+        raise error
 
-          {:ok, %{rows: []}} ->
-            query(backend, "RELEASE SAVEPOINT lease_probe")
-            :absent
-
-          {:error, %Postgrex.Error{postgres: %{code: :lock_not_available}}} ->
-            query(backend, "ROLLBACK TO SAVEPOINT lease_probe")
-            :locked_elsewhere
-
-          {:error, error} ->
-            raise error
-
-          # Any other successful reply shape is not a valid probe outcome.
-          {:ok, _} ->
-            throw(:malformed)
-        end
-
-      # Any other row count of the locked lookup is not a valid head outcome.
-      _ ->
+      # Any other successful reply shape is not a valid lookup outcome.
+      {:ok, _} ->
         throw(:malformed)
     end
   end
+
+  # The savepoint NOWAIT probe decides existence and lock state at one instant:
+  # row → evaluate it; none → free; lock_not_available → skipped_locked.
+  defp probe(backend, key) do
+    hook(backend, :after_skip_locked, key)
+    query(backend, "SAVEPOINT lease_probe")
+
+    case SQL.query(
+           backend.repo,
+           "SELECT revision, low_water FROM #{table(backend, "elzoo_log_heads")} WHERE stream = $1 FOR UPDATE NOWAIT",
+           [key],
+           log: false
+         ) do
+      {:ok, %{rows: [row]}} ->
+        query(backend, "RELEASE SAVEPOINT lease_probe")
+        {:ok, locked_head(row)}
+
+      {:ok, %{rows: []}} ->
+        query(backend, "RELEASE SAVEPOINT lease_probe")
+        :absent
+
+      {:error, %Postgrex.Error{postgres: %{code: :lock_not_available}}} ->
+        query(backend, "ROLLBACK TO SAVEPOINT lease_probe")
+        :locked_elsewhere
+
+      {:error, error} ->
+        raise error
+
+      # Any other successful reply shape is not a valid probe outcome.
+      {:ok, _} ->
+        throw(:malformed)
+    end
+  end
+
+  # The head row of a transaction lookup must be exactly the two locked
+  # values; the unlocked reads keep their own failure semantics.
+  defp locked_head([_, _] = row), do: head(row)
+  defp locked_head(_row), do: throw(:malformed)
 
   @doc """
   Unlocked read protocol (`status/2`, `hold/3`, `retention_bound/2`): head,
@@ -551,7 +599,7 @@ defmodule Elzoo.Lease.Postgres do
 
   defp lock_head(backend, key, lock) do
     case head_rows(backend, key, lock) do
-      [row] -> head(row)
+      [row] -> locked_head(row)
       _ -> throw(:malformed)
     end
   end
@@ -587,9 +635,6 @@ defmodule Elzoo.Lease.Postgres do
 
     %{revision: revision, low_water: low_water}
   end
-
-  # A head row of any other shape is not a valid reply either.
-  defp head(_row), do: throw(:malformed)
 
   defp clock(backend) do
     case query(backend, Clock.postgres_sql()).rows do
