@@ -1356,4 +1356,54 @@ defmodule Elzoo.DurableLog.PostgresTest do
       assert dead_checkpoints(prefix) == 0
     end
   end
+
+  test "ELZ-427 checkpoint fallback stops below low-water: no probe of pruned sequences", %{
+    store: s,
+    prefix: prefix
+  } do
+    parent = self()
+
+    reader =
+      Postgres.store(TestRepo,
+        prefix: String.trim(prefix, "\""),
+        fold: fold(),
+        limits: @limits,
+        test_read: fn operation ->
+          send(parent, {:store_read, operation})
+          :ok
+        end
+      )
+
+    # Valid checkpoints at N - 1 and N, the model at N rejected. Retained through N:
+    # the pruned result with no read_checkpoint call. Retained through N - 1: one
+    # read, of the checkpoint exactly at low-water, which seeds. Checkpoints at 4
+    # and 6 retained through 4: the probes run down to low-water and stop there.
+    for {checkpoints, through, probes} <- [{[5, 6], 6, 0}, {[5, 6], 5, 1}, {[4, 6], 4, 2}] do
+      stream = "fallback-#{through}"
+      rows = Enum.map(1..6, &row(&1, <<1::128>>, stream))
+      assert {:committed, 6} = Postgres.append(s, stream, 0, rows, [])
+
+      for n <- checkpoints,
+          do: assert({:committed, n} == Postgres.put_checkpoint(s, checkpoint(Enum.take(rows, n))))
+
+      assert {:committed, ^through} = Postgres.retain(s, stream, 0, through, <<9::128>>)
+      reject = fn b -> if b == "6", do: {:error, :rejected}, else: {:ok, String.to_integer(b)} end
+      result = Checkpoint.recover(reader, stream, fold(), 1, reject)
+
+      if probes == 0,
+        do: assert({:error, {:pruned, ^through}} = result),
+        else: assert(%{model: 6, cursor: {6, false, []}} = result)
+
+      assert drain_store_reads([]) ==
+               [:head, :latest_checkpoint] ++ List.duplicate(:read_checkpoint, probes) ++ [:read]
+    end
+  end
+
+  defp drain_store_reads(acc) do
+    receive do
+      {:store_read, operation} -> drain_store_reads([operation | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
 end

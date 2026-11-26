@@ -27,7 +27,7 @@ Read path: `head`, `latest_checkpoint`, `read_checkpoint`, `pending`, `read_ack`
 - Static, I/O-free validation runs before the caller-transaction check, so invalid input inside a caller transaction keeps its existing result (a write's rejection or indeterminate(:malformed_reply), {:error, :malformed} from a read with an I/O-free pre-check such as read_ack key parsing or an unknown read_maintenance operation; reads that validate input during the query, such as head/read with an invalid stream, return {:error, :caller_transaction} instead); no SQL is issued in either case.
 - PostgreSQL transaction/locking/storage behavior is upstream; finite local tests do not establish universal durability or exactly-once effects.
 - Consumers own the Repo, schema deployment, access control, fsync/synchronous_commit, backups and operational recovery.
-- Retention deletes the checkpoints it leaves unusable (ELZ-427, same ID): a committed retain deletes, in the same transaction as its record and acked-outbox deletes, every elzoo_checkpoints row of the stream with a sequence below through, of every fold version; rows at or above through and of other streams stay, and a refused, conflicting or rolled-back retain, including an exact retry of a committed one, deletes none. put_checkpoint below the locked head's low_water returns {:rejected, :checkpoint_below_low_water} and inserts nothing. A deleted checkpoint reads {:ok, :absent} and latest_checkpoint no longer returns it; confirm_checkpoint/2 then returns {:unknown, :unfenced}, which does not prove that the put failed, so a checkpoint receipt needed for Writer reconciliation must be resolved before retaining past its anchor. Checkpoints that a retention before this change left below low_water stay until the stream's next committed retain.
+- Retention deletes the checkpoints it leaves unusable (ELZ-427, same ID): a committed retain(stream, expected, through, nonce) moves the stream's low_water to through and, in one transaction, deletes its records and acked outbox rows at or below through (through the new low_water) and its elzoo_checkpoints rows of every fold version strictly below through (strictly below the new low_water). Checkpoints at or above the new low_water and those of other streams stay, and a refused, conflicting or rolled-back retain, including an exact retry of a committed one, deletes none. put_checkpoint below the locked head's low_water returns {:rejected, :checkpoint_below_low_water} and inserts nothing. A deleted checkpoint reads {:ok, :absent} and latest_checkpoint no longer returns it; confirm_checkpoint/2 then returns {:unknown, :unfenced}, which does not prove that the put failed, so a checkpoint receipt needed for Writer reconciliation must be resolved before retaining past its anchor. Checkpoints that a retention before this change left below low_water stay until the stream's next committed retain.
 - The role that calls retain needs DELETE on elzoo_checkpoints (ELZ-427); without it a retain returns indeterminate(:unavailable) and commits nothing (read from the code path, not tested).
 - A put_checkpoint below through that races a retain either commits first and is then deleted by it, or waits for the head-row lock and is refused after it. This assumes the Store's own transactions run at PostgreSQL's default READ COMMITTED isolation, where each statement after the lock wait sees the other transaction's commit; a server or role default of REPEATABLE READ or SERIALIZABLE is outside this guarantee.
 
@@ -46,9 +46,11 @@ consumer assumptions are distinct; no disk durability or exactly-once claim.
 
 ## Changes
 
-- ELZ-427 (2026-11-26): a committed retain now also deletes, in its
-  transaction, the stream's rows of `elzoo_checkpoints` with a sequence below
-  `through`, of every fold version; before, every checkpoint was kept.
+- ELZ-427 (2026-11-26): a committed retain still deletes the stream's records
+  and acked outbox rows at or below `through`, the new `low_water`, and now
+  also deletes, in the same transaction, its rows of `elzoo_checkpoints`
+  strictly below `through`, of every fold version; before, every checkpoint
+  was kept.
   `put_checkpoint` below the locked head's `low_water` now returns
   `{:rejected, :checkpoint_below_low_water}` and inserts nothing; before, it
   committed, or conflicted on an existing key. `read_checkpoint` of a deleted
