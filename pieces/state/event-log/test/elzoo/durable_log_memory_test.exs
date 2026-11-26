@@ -272,4 +272,157 @@ defmodule Elzoo.DurableLogMemoryTest do
     assert {:committed, 1} = Memory.release(s, :retain)
     assert {:committed, 1} = Log.confirm_retention(s, receipt)
   end
+
+  # ELZ-427 fixture: stream "s" holds records 1..3 and the checkpoints a (1, fold
+  # version 2), b (2, version 1) and c (3, version 1); stream "o" holds record 1 and
+  # one checkpoint at 1 of each version, so a delete that ignores the stream shows.
+  defp stream_row(stream, seq, nonce \\ <<1::128>>) do
+    r = %{row(seq, nonce) | stream: stream}
+    %{r | digest: Log.digest(r)}
+  end
+
+  defp checkpoint_at(rows, seq, version, nonce) do
+    state = Log.replay(Enum.take(rows, seq), seq, fold())
+    checkpoint(state, seq, %{stream: hd(rows).stream, fold_version: version, nonce: nonce})
+  end
+
+  defp seed_retention(s) do
+    rows = Enum.map(1..3, &row/1)
+    other = [stream_row("o", 1)]
+    assert {:committed, 3} = Memory.append(s, "s", 0, rows, [])
+    assert {:committed, 1} = Memory.append(s, "o", 0, other, [])
+    a = checkpoint_at(rows, 1, 2, <<11::128>>)
+    b = checkpoint_at(rows, 2, 1, <<12::128>>)
+    c = checkpoint_at(rows, 3, 1, <<13::128>>)
+    others = [checkpoint_at(other, 1, 1, <<14::128>>), checkpoint_at(other, 1, 2, <<15::128>>)]
+
+    for checkpoint <- [a, b, c | others],
+        do: assert({:committed, checkpoint.sequence} == Memory.put_checkpoint(s, checkpoint))
+
+    %{rows: rows, a: a, b: b, c: c, others: others}
+  end
+
+  defp checkpoint_keys(s), do: Memory.inspect_state(s).checkpoints |> Map.keys() |> Enum.sort()
+
+  defp put_request(c),
+    do: %{
+      operation: :put_checkpoint,
+      stream: c.stream,
+      expected: c.sequence,
+      target: c.sequence,
+      nonce: c.nonce,
+      digest: c.digest
+    }
+
+  @kept [{"o", 1, 1}, {"o", 1, 2}, {"s", 2, 1}, {"s", 3, 1}]
+
+  test "ELZ-427 committed retention deletes the stream's checkpoints below through, of every version",
+       %{store: s} do
+    %{a: a, b: b, c: c, others: others} = seed_retention(s)
+    assert {:committed, 2} = Memory.retain(s, "s", 0, 2, <<20::128>>)
+    assert {:ok, :absent} = Memory.read_checkpoint(s, "s", 1, 2)
+    assert {:ok, :none} = Memory.latest_checkpoint(s, "s", 2)
+    assert {:ok, ^b} = Memory.read_checkpoint(s, "s", 2, 1)
+    assert {:ok, ^c} = Memory.read_checkpoint(s, "s", 3, 1)
+    assert {:ok, ^c} = Memory.latest_checkpoint(s, "s", 1)
+
+    for o <- others,
+        do: assert({:ok, o} == Memory.read_checkpoint(s, "o", 1, o.fold_version))
+
+    # The receipt of a deleted checkpoint can no longer be confirmed.
+    assert {:unknown, :unfenced} = Log.confirm_checkpoint(s, a)
+    assert checkpoint_keys(s) == @kept
+  end
+
+  test "ELZ-427 an exact retention retry keeps its conflict, deletes nothing more, and the receipt confirms",
+       %{store: s} do
+    %{rows: rows} = seed_retention(s)
+    receipt = Codec.receipt(:retain, "s", 0, 2, <<21::128>>)
+    Memory.fault(s, :retain, :reply_loss)
+    assert {:indeterminate, _} = Memory.retain(s, "s", 0, 2, receipt.nonce)
+    assert {:committed, 2} = Log.confirm_retention(s, receipt)
+    assert checkpoint_keys(s) == @kept
+
+    # A checkpoint below low-water that no retention deleted, as a store written
+    # before this change can hold: the retry must not delete it either.
+    left = checkpoint_at(rows, 1, 1, <<22::128>>)
+
+    :sys.replace_state(elem(s, 1).pid, fn state ->
+      put_in(state.checkpoints[{"s", 1, 1}], left)
+    end)
+
+    before = Memory.inspect_state(s)
+    assert {:conflict, %{expected: 0, observed: 2}} = Memory.retain(s, "s", 0, 2, receipt.nonce)
+    assert Memory.inspect_state(s) == before
+    assert {:committed, 2} = Log.confirm_retention(s, receipt)
+
+    # The next committed retention deletes it with the rest below its through.
+    assert {:committed, 3} = Memory.retain(s, "s", 2, 3, <<23::128>>)
+    assert checkpoint_keys(s) == [{"o", 1, 1}, {"o", 1, 2}, {"s", 3, 1}]
+  end
+
+  test "ELZ-427 refused or conflicting retention deletes no checkpoint", %{store: s} do
+    rows = Enum.map(1..3, &row/1)
+
+    item = %{
+      stream: "s",
+      sequence: 3,
+      position: 1,
+      destination: "sink",
+      payload: "effect",
+      nonce: <<1::128>>,
+      idempotency_key: Codec.item_key("s", 3, 1),
+      state: :pending,
+      ack_nonce: nil,
+      ack_digest: nil
+    }
+
+    item = Map.put(item, :digest, Codec.hash(Codec.item_bytes(item)))
+    assert {:committed, 3} = Memory.append(s, "s", 0, rows, [item])
+
+    for c <- [checkpoint_at(rows, 1, 2, <<11::128>>), checkpoint_at(rows, 2, 1, <<12::128>>)],
+        do: assert({:committed, c.sequence} == Memory.put_checkpoint(s, c))
+
+    before = Memory.inspect_state(s)
+    assert {:rejected, :retention_beyond_checkpoint} = Memory.retain(s, "s", 0, 3, <<20::128>>)
+    assert Memory.inspect_state(s) == before
+    assert {:committed, 3} = Memory.put_checkpoint(s, checkpoint_at(rows, 3, 1, <<13::128>>))
+    before = Memory.inspect_state(s)
+    assert {:rejected, :retention_beyond_pending_outbox} = Memory.retain(s, "s", 0, 3, <<21::128>>)
+    assert {:conflict, %{expected: 1, observed: 0}} = Memory.retain(s, "s", 1, 2, <<22::128>>)
+    assert Memory.inspect_state(s) == before
+    assert {:committed, 2} = Memory.retain(s, "s", 0, 2, <<23::128>>)
+    assert checkpoint_keys(s) == [{"s", 2, 1}, {"s", 3, 1}]
+  end
+
+  test "ELZ-427 a checkpoint below low-water is refused through Store.write and writes nothing",
+       %{store: s} do
+    %{rows: rows, a: a} = seed_retention(s)
+    assert {:committed, 2} = Memory.retain(s, "s", 0, 2, <<30::128>>)
+    before = Memory.inspect_state(s)
+    unused = checkpoint_at(rows, 1, 1, <<31::128>>)
+    empty = checkpoint(Log.replay([], 0, fold()), 0, %{nonce: <<32::128>>})
+
+    # An unused key, the key that retention deleted, and sequence 0.
+    for c <- [unused, a, empty] do
+      assert {:rejected, :checkpoint_below_low_water} =
+               Store.write(s, :put_checkpoint, [c], put_request(c))
+    end
+
+    assert Memory.inspect_state(s) == before
+    assert {:ok, :absent} = Memory.read_checkpoint(s, "s", 1, 1)
+    at_low_water = checkpoint_at(rows, 2, 3, <<33::128>>)
+
+    assert {:committed, 2} =
+             Store.write(s, :put_checkpoint, [at_low_water], put_request(at_low_water))
+
+    rows = rows ++ [row(4, <<4::128>>)]
+    assert {:committed, 4} = Memory.append(s, "s", 3, [List.last(rows)], [])
+    above = checkpoint_at(rows, 4, 1, <<34::128>>)
+    assert {:committed, 4} = Store.write(s, :put_checkpoint, [above], put_request(above))
+    beyond = checkpoint_at(rows ++ [row(5, <<5::128>>)], 5, 1, <<35::128>>)
+
+    assert {:rejected, :checkpoint_beyond_tail} =
+             Store.write(s, :put_checkpoint, [beyond], put_request(beyond))
+  end
 end
