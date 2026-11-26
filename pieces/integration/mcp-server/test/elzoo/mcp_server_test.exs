@@ -623,6 +623,8 @@ defmodule Elzoo.McpServerTest do
 
   test "3: no token, a malformed header, an expired token and a token of another key are HTTP 401 before MCP handling, with no Need called",
        ctx do
+    Code.ensure_loaded!(Elzoo.McpServer.Handler)
+    Code.ensure_loaded!(ExMCP.HttpPlug)
     init = {Elzoo.McpServer.Handler, :init, 1}
     http = {ExMCP.HttpPlug, :call, 2}
     :erlang.trace_pattern(init, true, [:call_count])
@@ -692,7 +694,8 @@ defmodule Elzoo.McpServerTest do
     assert count(http) == 0
 
     # No token and a body over the default body limit: 401, the body unread.
-    assert post(ctx, [], String.duplicate(" ", 2_000_000)).status == 401
+    # Cowboy may close rather than drain this body. Don't pool this connection.
+    assert post(ctx, [{"connection", "close"}], String.duplicate(" ", 2_000_000)).status == 401
 
     # Controls: a lowercase scheme and several spaces pass the header check, and
     # a valid token reaches the handler.
