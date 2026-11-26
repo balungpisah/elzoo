@@ -12370,7 +12370,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/checkpoint/piece.json",
-      "manifest_sha256": "eb2b69c4cdb8f8f923f8a449ae861846bf589b7f4d63e8a82a2c65455f73b73b"
+      "manifest_sha256": "0ae1ab4ff2fdbb8f3fdd56175c16d48d860751108bb3f24580db211796dee8ca"
     },
     {
       "id": "state/conversation",
