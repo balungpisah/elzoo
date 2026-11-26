@@ -5,7 +5,7 @@ through `Operations`, a pure `Admission` policy and a volatile GenServer host.
 `test/operations_test.exs` checks revision conflicts, limit changes with active
 work, pause/drain/resume, direct/tool authority, tenant routing and telemetry
 redaction/observer failure. These tests do not turn the experiment into a ready
-admission Piece. `:telemetry` 1.4.2 is an explicit upstream dependency for this
+admission Piece. `:telemetry` 1.4.3 is an explicit upstream dependency for this
 experiment; it is unrelated to Gleam or a frontend choice.
 
 ELZ-015 evaluates the upstream Ash application action model; it is not a ready
