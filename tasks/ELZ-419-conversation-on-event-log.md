@@ -51,6 +51,23 @@ Three calls, each with one exact DTO. The host vouches for every field:
     associate_run(owner, %{input_message_id, run_id})
     append_answer(owner, %{message_id, actor, text, run_id, input_message_id, completed})
 
+and one read-only call, `check(owner, intents)`. `intents` is a non-empty
+list, in command sequence order, of `{:input, dto}`, `{:association, dto}` or
+`{:answer, dto}` with the DTO of the matching call: the conversation's
+earlier committed but undelivered intents, then the candidate. The owner first
+reads the rows after its head (as an append does after a conflict) and folds
+them, then applies the intents in order to a copy of that projection with the
+same decision rules, and returns one decision per intent: `:ok` for a new
+admissible record, or the same duplicate or refusal decision as the write
+against the same history (`{:ok, :already_present}` or `{:refused, code}`).
+It never appends or reserves a sequence. A refresh that cannot read the
+Store returns `{:error, :unavailable}`; a row that fails validation returns
+`{:error, :damaged}`. These results apply both to `check/2` and to an
+append's refresh after a compare-and-set conflict. Each owner call has a bounded
+timeout that the README states: a timed-out check returns
+`{:error, :timeout}`; a timed-out append returns `{:unknown, :unresolved}` and
+is retried only with the identical operation.
+
 `completed` is the host's boolean fact that the Run completed. Results:
 
 - `{:ok, %{sequence: s}}`: this call committed its record at `s`.
@@ -69,6 +86,9 @@ Three calls, each with one exact DTO. The host vouches for every field:
 - `{:error, :contended}`: the Store's compare-and-set on the head lost more
   times than the bound that the README states. On each conflict the owner
   reads only the new rows, folds them and decides again.
+- `{:error, :unavailable}` or `{:error, :damaged}`: that refresh could not
+  read the Store, or found a row that fails validation; nothing was appended
+  by this call.
 - `{:unknown, :unresolved}`: an append was indeterminate and could not be
   resolved. The owner resolves an indeterminate append by the proposed row's
   nonce and bytes (`Elzoo.DurableLog` confirmation) or by finding the
@@ -145,7 +165,12 @@ append becomes a delivery after the commit:
 
 - Before command commit, the channel validates the exact Conversation intent
   against the tenant's ordered admitted state, including committed intents
-  not yet visible in Conversation. It binds the canonical intent, or its exact
+  not yet visible in Conversation: it calls `check/2` with this
+  conversation's earlier committed, undelivered intents in command sequence
+  order followed by the candidate, and admits the candidate only when every
+  earlier decision is `:ok` or `{:ok, :already_present}` and the candidate's
+  is `:ok` (`{:ok, :already_present}` is not admission for a different
+  command). It keeps no index of a conversation itself. It binds the canonical intent, or its exact
   digest, into the write that Authorization and Approval check (a write of a
   channel-owned resource; a command with no write gets no outbox item). The
   retained response carries that same intent (an input, an association, or an
@@ -153,6 +178,13 @@ append becomes a delivery after the commit:
   `assembly/checked-command` fits the largest), and delivery verifies the
   binding. Idempotent delivery of the same command is not permission for a new
   command to claim an existing message ID.
+- Wave 4 Need (document in `pieces/state/conversation/README.md`): the
+  channel is the sole writer of the conversation streams it delivers to.
+  `check/2` does not reserve a message ID. If an outside writer commits the
+  same ID with different content before delivery, delivery is refused and
+  blocks later deliveries for the tenant. An identical outside write is
+  indistinguishable from redelivery, so the exclusivity requirement is not
+  enforced by `check/2`.
 - Every Conversation-writing command, including associations and answers, is
   configured with a delivery notification (today the association and answer
   descriptors have no outbox destination). The channel processes
@@ -219,6 +251,12 @@ regenerated from current `main` and never hand-merged.
     cases: committed (the owner resolves it to `{:ok, _}`, and an identical
     retry gives `{:ok, :already_present}`) and unresolved (`{:unknown,
     :unresolved}`, then an identical retry that is safe either way).
+  - `check/2`: decision parity with the write for each result case, an
+    unchanged head, a refresh after an independent append, an association
+    after an undelivered input and an answer after an undelivered matching
+    association (both `:ok`), a conflicting candidate refused before commit,
+    and both timeout results, including an append that commits after the
+    caller times out.
   - `page` and `tail` for another tenant or an ungranted conversation:
     `:not_found` with zero Store calls (count them); a malformed scope:
     `{:error, :invalid_scope}` with zero Store calls.
