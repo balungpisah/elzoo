@@ -5697,7 +5697,7 @@ Publication copy: [tasks/ELZ-426-lua-sandbox-lua-5-5.md](../../tasks/ELZ-426-lua
 
 **Product aims:** P09.
 
-**Acceptance:** Move lua_source and runtime/lua-sandbox to PUC Lua 5.5.1 in place: recomputed source identity, every policy statement rechecked against 5.5.1 with tests and a negative control, 5.4.9 records refused at replay; full gate and hosted check, strongest other-family review.
+**Acceptance:** Move lua_source and runtime/lua-sandbox to PUC Lua 5.5.1 in place: recomputed source identity, every policy statement rechecked against 5.5.1 with tests and a negative control, 5.4.9 records documented as replay-incompatible, with a test showing the runtime identity changed; full gate and hosted check, strongest other-family review.
 
 **Secondary contribution:** runtime/lua-sandbox — In-place breaking change under the same ID: PUC Lua 5.5.1.
 

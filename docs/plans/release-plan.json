@@ -11095,13 +11095,13 @@
           "role": "Its Lua fixture follows the sandbox's Lua version."
         }
       ],
-      "acceptance": "Move lua_source and runtime/lua-sandbox to PUC Lua 5.5.1 in place: recomputed source identity, every policy statement rechecked against 5.5.1 with tests and a negative control, 5.4.9 records refused at replay; full gate and hosted check, strongest other-family review.",
+      "acceptance": "Move lua_source and runtime/lua-sandbox to PUC Lua 5.5.1 in place: recomputed source identity, every policy statement rechecked against 5.5.1 with tests and a negative control, 5.4.9 records documented as replay-incompatible, with a test showing the runtime identity changed; full gate and hosted check, strongest other-family review.",
       "product_aims": [
         "P09"
       ],
       "issue": 1024,
       "url": "https://github.com/balungpisah/elzoo/issues/1024",
-      "issue_body_sha256": "7e5e3c00ca3a921a587c5a6969b246b1adcf75f4b42b576b71ae15a9c55f4008"
+      "issue_body_sha256": "7dcc8592cadd0aff91c95bc0230e75dc9e5944379083bf6816d0ff898e08e06d"
     }
   ],
   "entries": [
