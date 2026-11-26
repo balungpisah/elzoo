@@ -405,9 +405,9 @@ defmodule Elzoo.LuaSandboxLimitsTest do
                  "return function() return string.pack(string.rep('i8', 20000), 1) end"
                )
 
-      # the exact external-string cutoff: packing sizes its buffer up front, so a
-      # 1,025-byte result is charged at adoption even when rep of the same size is
-      # stopped earlier by its own length check against value_bytes
+      # the exact external-string cutoff: packing reserves the whole 1,025-byte
+      # field in one step, so the result is charged at adoption even when rep of
+      # the same size is stopped earlier by its own length check against value_bytes
       assert {:ok, %{value: 1_025}} =
                Helper.run(exe, "return function() return #string.pack('c1025', 'a') end", nil, %{
                  value_bytes: 1_025

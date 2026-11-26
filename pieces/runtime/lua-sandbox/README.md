@@ -486,10 +486,11 @@ outside that checkout. `examples/elzoo/lua_sandbox.exs` shows the call and evalu
     and the sort pivot macro is `-Dl_randomizePivot(L)=0u` (a function-like macro in
     5.5.1); the `luai_makeseed` define is gone, so the recorded build options differ.
   - `string.pack` with a very large count is refused as `value_size` instead of
-    ending in the host outcome `memory`: 5.5.1 sizes the pack buffer once before
-    allocating (reserving the padding of each fixed-width field), so the scoped
-    allocation cap refuses it before the memory limit is reached (5.4 grew the
-    buffer and hit the memory limit first). The refusal is earlier and smaller;
+    ending in the host outcome `memory`: 5.5.1 works through the format field by
+    field and reserves each fixed-width field's bytes, padding included, in one
+    step, so the scoped allocation cap refuses an oversized field before the
+    memory limit is reached (5.4 grew the buffer and hit the memory limit first).
+    The refusal is earlier and smaller;
     nothing is granted that 5.4.9 refused.
   - `error(nil)` is now caught inside Lua as the string `"<no error object>"`
     instead of `nil`; every other error object is unchanged.
