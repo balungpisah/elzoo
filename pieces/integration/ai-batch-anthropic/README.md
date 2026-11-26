@@ -2,7 +2,7 @@
 
 The Anthropic Message Batches provider of `integration/ai-batch`
 (`Elzoo.AiBatch.Anthropic`, implementing `Elzoo.AiBatch.Provider`): a thin own
-Adapter on the pinned Req 0.7.5, because `req_llm` 1.30.0 has no batch client.
+Adapter on the pinned Req 0.7.5, because `req_llm` 1.31.0 has no batch client.
 Item bodies reuse `integration/ai-text-anthropic` so a batched item means what the
 same synchronous call means. Apache-2.0.
 

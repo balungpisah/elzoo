@@ -2,7 +2,7 @@
 defmodule Elzoo.AiText.OpenAI do
   @moduledoc """
   The OpenAI Responses API provider of `integration/ai-text`, through `req_llm`
-  1.30's documented provider-callback API
+  1.31's documented provider-callback API
   (`ReqLLM.Providers.OpenAI.prepare_request/4` then `Req.request/1`).
 
   Evidenced models: `gpt-6.1-terra` only, on the Responses surface

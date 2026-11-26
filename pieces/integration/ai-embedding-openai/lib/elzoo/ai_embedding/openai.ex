@@ -2,7 +2,7 @@
 defmodule Elzoo.AiEmbedding.OpenAI do
   @moduledoc """
   The OpenAI embeddings provider of `integration/ai-embedding`, through
-  `req_llm` 1.30's documented provider-callback API
+  `req_llm` 1.31's documented provider-callback API
   (`ReqLLM.Providers.OpenAI.prepare_request(:embedding, ...)` then
   `Req.request/1`), not the `ReqLLM.embed/3` facade (which hides the status, the
   request id and the raw usage, and returns a short list as success).
