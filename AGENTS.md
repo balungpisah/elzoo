@@ -179,14 +179,10 @@ agent writes in a worktree at a time.
   `README.md` and `piece.json`. `piece.json` owns the source list, the
   dependencies, the grounding of each claim and the Telemetry, Config and
   Control declarations.
-- Elzoo is not released yet. Until the first release, when a ready Piece
-  lacks something that clearly belongs to it, extend, refactor or cut it clean
-  in place: same Piece ID, no second Piece for the same job. The task body
-  states the changed Contract, and `piece.json`, the README and the index
-  rows follow it. A separate capability still gets its own Piece.
-- From the first release, a ready Piece ID is a stable Contract. A change of
+- The release commit is the merge of [ELZ-411](https://github.com/balungpisah/elzoo/pull/1004) on `main` only if the `symbolic-check.yml` push run for that exact SHA succeeds. Jobs published after the release commit take stage `later` until the owner plans the next release.
+- From the release commit on, a ready Piece ID is a stable Contract. A change of
   accepted inputs, outputs, state, delivery, failure guarantees or Needs gets
-  a **new Piece ID**. The old ID stays usable. A bug fix that restores the
+  a **new Piece ID** and migration notes. The old ID stays usable. A bug fix that restores the
   Contract keeps the ID.
 - The toolchain pins are in `.tool-versions` and `mix.exs`. Do not change them
   in a Piece task.

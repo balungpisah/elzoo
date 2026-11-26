@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This document is the planning input for Elzoo's first release. [release-plan.json](release-plan.json) stays the one canonical planning source. ELZ-388 published this plan; the Level 1 work has since merged. F is [ELZ-403](../../tasks/ELZ-403-first-release-freeze.md). The coordinator assigns IDs to A, X1–X3 and M at publication. Each published task is the Contract of its work. Where a task differs from a sketch below, the task wins.
+This document is the planning input for Elzoo's first release. [release-plan.json](release-plan.json) stays the one canonical planning source. ELZ-388 published this plan; the Level 1 work, the freeze (ELZ-403), acceptance (ELZ-404) and fixtures (ELZ-405–407) have merged. Each published task is the Contract of its work. Where a task differs from a sketch below, the task wins.
 
 Wave 9 is the last row of the wave table of [bot-platform.md](bot-platform.md). Its root consumer acceptance [ELZ-379](../../tasks/ELZ-379-wave9-tools-doors-models-money-acceptance.md) merged on `main` as [#933](https://github.com/balungpisah/elzoo/pull/933) at `c6fe7a8f`. Its follow-ups ELZ-380 to ELZ-386 have merged too, the last at `77569285`. The publication of ELZ-387 (#941, [#942](https://github.com/balungpisah/elzoo/pull/942)) merged at `a290e338`. Its build has since merged (Level 0 below). The plan's baseline comes from "What remains after Wave 9" in [bot-platform-wave9.md](bot-platform-wave9.md#what-remains-after-wave-9) and from the `release_gates`, `products` and `jobs` of [release-plan.json](release-plan.json), read at `a290e338`.
 
@@ -12,7 +12,7 @@ The first release is one event that passes three gates together: `V1-ACCEPT`, `V
 2. One documents-only task freezes the selected set and the record formats (Level 2).
 3. One root acceptance task passes the three gates on the frozen set (Level 3).
 4. Three Piece tasks commit the record fixtures written by the frozen code (Level 4).
-5. One task (Level 5) names the release in the consuming documents and in `AGENTS.md` section 4. Its merge commit on `main`, with a green push run, is the **release commit**. It changes no Piece, so its code is the code of the last fixture task's merge. From the release commit on, the new-ID rule of `AGENTS.md` section 4 applies to every ready Contract.
+5. The release mark (M) changes no Piece. The merge commit of [ELZ-411](https://github.com/balungpisah/elzoo/pull/1004) on `main` is the **release commit** only if the `symbolic-check.yml` push run for that exact SHA succeeds. A later green repair does not qualify. From the release commit on, the new-ID rule of `AGENTS.md` section 4 applies to every ready Contract. Jobs published after it take stage `later` until the owner plans the next release.
 
 The plan adds no Piece, no script, no CI job and no release mechanism that the repository's documents do not already support.
 

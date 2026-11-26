@@ -12502,7 +12502,7 @@
         ]
       },
       "prior_release_gate": null,
-      "status": "accepted by ELZ-404; the release mark follows the fixtures",
+      "status": "accepted by ELZ-404; first release marked by ELZ-411 only on a successful main push check for its exact merge SHA",
       "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012."
     },
     "V1B": {
@@ -12517,7 +12517,7 @@
         ]
       },
       "prior_release_gate": null,
-      "status": "accepted by ELZ-404; the release mark follows the fixtures",
+      "status": "accepted by ELZ-404; first release marked by ELZ-411 only on a successful main push check for its exact merge SHA. Post-fixture manifest_sha256: assembly/run-engine 5d3a0e2aef701e0caedf14c0b7655407cd9500f9cb7efe55466f8c26b2c40ce8; workflow/pattern-step 9bb617b53d1fad2ce0e01e6785c345c5affd0059bc659778006eaf00aa7fab99; runtime/recipe-test fc0ce403b3032e9a4ca3f19a45b1e78ce625344d871169fbafec57b673c68819",
       "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release."
     },
     "V2": {
@@ -12532,7 +12532,7 @@
         ]
       },
       "prior_release_gate": "V1-ACCEPT",
-      "status": "accepted by ELZ-404; the release mark follows the fixtures",
+      "status": "accepted by ELZ-404; first release marked by ELZ-411 only on a successful main push check for its exact merge SHA",
       "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012."
     },
     "V3": {
