@@ -205,13 +205,29 @@ is not claimed bounded (the Memory Store scans its map).
 - The host authenticates the principal, vouches for every DTO field and read
   grant, allocates stable Run IDs and attests Run completion.
 - Wave 4: the signed channel is the sole writer of the conversation streams
-  that it delivers to. `check/2` does not reserve a message ID. If an outside
+  that it delivers to, and the only party that acknowledges its own outbox
+  items: each with that item's own nonce, and only after that item's
+  Conversation append is proven (a primary or reply item also only after its
+  native-work custody). `check/2` does not reserve a message ID. If an outside
   writer commits the same ID with different content before delivery, the
   delivery is refused, and the channel blocks later deliveries to that
   conversation; deliveries to other conversations continue, and only the
   tenant's outbox window is shared (admission and observation refuse while
   it is full). An identical outside write cannot be told from a redelivery,
-  so `check/2` does not enforce this exclusivity.
+  so `check/2` does not enforce this exclusivity. An item acknowledged with
+  its own nonce whose Conversation row is missing breaks the Need: the
+  channel dispatches no new append for it, live or after a reopen, and
+  fences with `{:delivery_unproven, kind, key}`. The live fence holds until a
+  fenced reopen; recovery then reads the row read-only, and only the row
+  equal to the intent rebuilt from the retained command proves the delivery.
+  An unreadable row is retried, a row with other content is the refusal
+  fence, and an acknowledgement under another nonce is the superseded fence.
+  Detection covers the items the channel holds: live once it has observed
+  the item, and after a fenced reopen the items of a round whose custody it
+  persisted. An acknowledgement before the channel first observes an item
+  leaves no pending item and no custody, so nothing the channel reads shows
+  it: the Need excludes it, as it excludes an identical outside write, and
+  later deliveries to that conversation proceed without that item.
 
 ## Migration from version 1
 
@@ -301,4 +317,9 @@ consumer's.
   segment reference where a version 1 tenant or resource ID is not a segment),
   start one owner per conversation under your supervisor, send the three writes
   to it (with `check/2` before your own commit if you queue intents), and read
-  with `page/5` and `tail/4`.
+  with `page/5` and `tail/4`. The wave 4 Need changes too: the channel is
+  now the only party that acknowledges its own outbox items. Before traffic
+  resumes on this revision, stop every other party that acknowledges the
+  channel's outbox items, let their in-flight acknowledgements finish, and
+  give the channel sole authority. A reopen is not permission to append an
+  acknowledged item whose row is missing.
