@@ -845,6 +845,15 @@ for file in files:
                         or len(beam_after) - len(beam_after.lstrip(' ')) <= 4)):
             errors.append(f'{file}: the pinned BEAM setup step (with: exactly {beam[-1].strip()}, '
                           f'the OTP version of the root jobs) is missing or changed')
+        # The Gleam tests (check.sh) run on the pinned OTP only if the BEAM is set up first: the step must come
+        # before every setup-node step and every line that runs the Gleam setup or check script (script text
+        # included), wherever those steps are moved.
+        later = [i for i, line in enumerate(lines)
+                 if re.match(r'\s*(?:-\s+)?uses\s*:\s*["\']?actions/setup-node\b', line, re.IGNORECASE)
+                 or './scripts/setup.sh' in line or './scripts/check.sh' in line]
+        if len(beam_starts) != 1 or not later or beam_starts[0] + len(beam) > min(later):
+            errors.append(f'{file}: the pinned BEAM setup step must come before the setup-node step '
+                          f'and every step that runs ./scripts/setup.sh or ./scripts/check.sh')
     elif token_lines != pinned_tokens:
         errors.append(f'{file}: github.token and secrets are not allowed in this workflow outside the pinned decision and S3 test server steps')
     # Token permissions: one top-level contents: read block, plus actions: read and pull-requests: read on check-plan only; never write.
