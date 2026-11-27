@@ -11339,6 +11339,35 @@
       "issue": 1046,
       "url": "https://github.com/balungpisah/elzoo/issues/1046",
       "issue_body_sha256": "c006557b2705fb1c9bfa26c8e3faf7e78fc7e9aa75b65ac556d1a6b7c59be7ab"
+    },
+    {
+      "id": "ELZ-433",
+      "title": "ELZ-433 — assembly/run-engine: a failed journal read ends in a defined result, never a match error",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-420"
+      ],
+      "status": "published 2026-11-27",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-433-run-engine-journal-read-failure.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "assembly/run-engine",
+          "role": "In-place fix under the same ID: a failed read of the engine's own journal ends in a defined result, never a match error."
+        }
+      ],
+      "acceptance": "find_input/4 returns {:error, :unavailable} for a failed or incomplete read (:unavailable, :malformed, {:pruned, _}, low_water > 0); input/4 and control/4 (pause, continue, cancel) return {:error, :unavailable} and commit nothing for the submitted ID; a failed admitted_action/2 lookup on a settled retry is not discarded; after :input_id_conflict a failed winner read halts :unavailable, while no winner or a differing winner stays :integrity_failure; negative controls; Piece gate, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1048,
+      "url": "https://github.com/balungpisah/elzoo/issues/1048",
+      "issue_body_sha256": "d84e19cf27bbf6e993ce1f5159883317bd410e0f5f37db59f288f04395e6c6c4"
     }
   ],
   "entries": [

@@ -7,7 +7,7 @@ limits and the other candidates.
 
 ## Reproduce
 
-Prerequisites: Node **24.16.0**, Python **3.11+**, OTP **29.1.2** (the repository's
+Prerequisites: Node **26.13.1**, Python **3.11+**, OTP **29.1.3** (the repository's
 BEAM pin), network access and a supported browser host. From this directory:
 
 ```sh
