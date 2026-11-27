@@ -199,13 +199,16 @@ pause_deadline: ms | nil}}`, read from the same committed state as `status/1`,
 which shows neither deadline. `phase` is the `phase` that `status/1` gives at that
 point (`:active`, `:waiting`, `:paused` or `:terminal`). `run_deadline` is the
 committed Run deadline in Unix milliseconds: the `run_deadline` start option until
-the first applied `continue`, then the `run_deadline` of the last applied
-`continue`, in every phase, also after a terminal outcome. `pause_deadline` is the
-committed pause deadline when `phase` is `:paused` and `nil` in every other phase:
-the `pause_deadline` of the `pause` control, or for an internal pause (a Budget
-exhaustion or an expiry report under `budget_rule: :pause`) the `pause_deadline`
-of the trusted `context` of the record that paused the Run; a Run that is already
-paused keeps its pause deadline, and a `continue` clears it. After a restart on
+the first `continue` that resumes the Run, then the `run_deadline` of the last
+such `continue`, in every phase, also after a terminal outcome. `pause_deadline`
+is the committed pause deadline when `phase` is `:paused` and `nil` in every other
+phase: the `pause_deadline` of the `pause` control, or for an internal pause (a
+Budget exhaustion or an expiry report under `budget_rule: :pause`) the
+`pause_deadline` of the trusted `context` of the record that paused the Run; a Run
+that is already paused keeps its pause deadline, and a `continue` that resumes the
+Run clears it. A timely, verified `continue` can be applied (`{:ok, :applied}`)
+while an exhausted Budget keeps the Run paused: it changes neither deadline, so
+the read still gives the old Run deadline and the pause deadline. After a restart on
 the journal both values come from the recovered state, never from the start
 options (the `run_deadline` start option at a restart is the original value, part
 of the fingerprint). The engine has no timer: a host that wakes a Run at its
@@ -1611,15 +1614,18 @@ deadline; a `pause` control gives its `pause_deadline`, a second `pause` keeps
 it, and a later `continue` gives its new Run deadline and no pause deadline; an
 internal pause under `budget_rule: :pause` (the first excess at request cap 1, in
 the step of a local-work outcome) gives the `pause_deadline` that the context
-callback gave for that outcome record, not the start input's.
+callback gave for that outcome record, not the start input's; a `continue` with
+another Run deadline that is applied while an exhausted monetary Budget keeps the
+Run paused leaves the read at the old Run deadline and the pause deadline.
 `deadlines_after_restart`: after a `continue`, and separately after an internal
 pause, a restart of the engine and its Unit on the same journal with the original
 start options reads the committed values, also with the context callback since
-changed. `deadlines_at_the_end`: a wake at the Run deadline, and a wake at the
-pause deadline of a paused Run, end the Run `:out_of_time`; the read keeps the Run
-deadline and gives no pause deadline. `deadlines_wait_for_the_engine`: a read sent
-while the gate of an input blocks has no reply after 5,500 ms and then gives the
-`:waiting` phase of the committed input. Four temporary negative controls each
+changed. `deadlines_at_the_end`: a wake at the Run deadline that a `continue` set
+(not the start option), and a wake at the pause deadline of a paused Run, end the
+Run `:out_of_time`; the read keeps the Run deadline and gives no pause deadline.
+`deadlines_wait_for_the_engine`: a read queued while the gate of an input blocks
+has no reply 5,500 ms after it is queued and then gives the `:waiting` phase of
+the committed input, equal to `status/1`. Four temporary negative controls each
 made named tests fail and were reverted: the start option read instead of the
 committed Run deadline, the pause deadline read in every phase, the pause deadline
 read from a new context sample, and the 5,000 ms default call limit. Listed

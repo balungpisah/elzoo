@@ -54,6 +54,35 @@ defmodule Elzoo.RunEngineDeadlinesTest do
       # the start input carried 50,000.
       assert local_outcome_contexts(c) == [%{pause_deadline: 47_000}]
     end
+
+    test "a continue that an exhausted Budget leaves paused keeps both committed deadlines" do
+      c =
+        fixture(
+          pattern: {TestPattern, :step, %{requests: [request([action("cost", "tool_call")])]}},
+          budget: %{cap: 1, unit: "credits", id: "budget", incarnation: "sealed"},
+          budget_rule: :pause
+        )
+
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}
+
+      # An actual of 3 over a cap of 1 pauses the Run with the input's pause deadline.
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "actual",
+                 result("cost"),
+                 verified(%{occurrence: {1, 0}, actual: 3, dispatch: "dispatched"})
+               )
+
+      assert deadlines(engine) == %{phase: :paused, run_deadline: 60_000, pause_deadline: 50_000}
+      # Timely and verified, so applied, but the Budget keeps the Run paused: the proposed
+      # Run deadline is not committed and the pause deadline stays.
+      continue(engine, "continue", 70_000)
+      assert deadlines(engine) == %{phase: :paused, run_deadline: 60_000, pause_deadline: 50_000}
+      send(provider, {:result, %{}})
+    end
   end
 
   describe "deadlines_after_restart" do
@@ -86,10 +115,13 @@ defmodule Elzoo.RunEngineDeadlinesTest do
       c = asking()
       engine = start(c)
       assert {:ok, :applied} = send_input(engine)
-      Agent.update(c.clock, fn _ -> 60_000 end)
+      # A continue replaces the start option (60,000), so the terminal read must give 65,000.
+      pause(engine, "pause", 50_000)
+      continue(engine, "continue", 65_000)
+      Agent.update(c.clock, fn _ -> 65_000 end)
       assert {:ok, :applied} = RunEngine.input(engine, "wake", wake(), verified())
       assert view(engine).outcome == :out_of_time
-      assert deadlines(engine) == %{phase: :terminal, run_deadline: 60_000, pause_deadline: nil}
+      assert deadlines(engine) == %{phase: :terminal, run_deadline: 65_000, pause_deadline: nil}
     end
 
     test "a wake at the pause deadline of a paused Run ends it :out_of_time with no pause deadline read" do
@@ -131,13 +163,27 @@ defmodule Elzoo.RunEngineDeadlinesTest do
       input = Task.async(fn -> send_input(engine) end)
       assert_receive {:gate_barrier, gate}
       read = Task.async(fn -> RunEngine.deadlines(engine) end)
-      # Past the 5,000 ms default of GenServer.call/2 the read still waits.
+      # The interval starts once the read is queued at the blocked engine: past the
+      # 5,000 ms default of GenServer.call/2 it still waits.
+      await_queued(engine, :deadlines)
       assert Task.yield(read, 5_500) == nil
       send(gate, :release)
       assert {:ok, :applied} = Task.await(input, 20_000)
 
-      assert {:ok, %{phase: :waiting, run_deadline: 60_000, pause_deadline: nil}} =
+      assert {:ok, %{phase: :waiting, run_deadline: 60_000, pause_deadline: nil} = reply} =
                Task.await(read, 20_000)
+
+      assert reply.phase == view(engine).phase
+    end
+  end
+
+  defp await_queued(engine, request, left \\ 400) do
+    {:messages, messages} = Process.info(engine, :messages)
+
+    cond do
+      Enum.any?(messages, &match?({:"$gen_call", _, ^request}, &1)) -> :ok
+      left == 0 -> flunk("the read did not reach the engine")
+      true -> Process.sleep(5) && await_queued(engine, request, left - 1)
     end
   end
 
