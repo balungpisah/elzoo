@@ -896,7 +896,9 @@ still fail closed; a second source (a hash-verified mirror) is planned as ELZ-06
 
 The hashes are unchanged from the earlier browser-URL version; the asset IDs, sizes and hashes were read
 from `GET /repos/gleam-lang/gleam/releases/tags/v1.19.2` on 2026-11-08 (the API `digest` fields equal the pins),
-and the Linux x86_64 archive downloaded through the API had exactly the pinned size and hash.
+and the Linux x86_64 archive downloaded through the API had exactly the pinned size and hash. ELZ-425
+re-verified v1.19.2 as the latest stable release and recomputed every SHA-256 on 2026-11-27 from the archives of
+`https://github.com/gleam-lang/gleam/releases/download/v1.19.2/gleam-v1.19.2-<target>.tar.gz`; all four equalled the pins.
 
 Reason: from about 16:20 WIB on 2026-11-08 the browser URL
 `https://github.com/gleam-lang/gleam/releases/download/v1.19.2/...` answered `HTTP Error 504: Gateway Time-out`
