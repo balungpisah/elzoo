@@ -926,9 +926,11 @@ fallback provisioning fails the job. This does not guarantee network availabilit
 The fallback update and installation read only the official Ubuntu stanzas
 (ELZ-435): the helper writes them, with `URIs: https://archive.ubuntu.com/ubuntu/`
 alone, to a temporary `.sources` file and passes `-o Dir::Etc::sourcelist=<that
-file> -o Dir::Etc::sourceparts=-` (`apt.conf(5)`), so other stanzas of
-`ubuntu.sources`, other URIs of an official stanza and other source files are
-not read, and an unreachable third-party repository cannot fail the fallback.
+file> -o Dir::Etc::sourceparts=<an empty temporary directory>` (`apt.conf(5)`;
+`-` would resolve to `/etc/apt/-/`), so other stanzas of `ubuntu.sources`, other
+URIs of an official stanza and other source files are not read, and an
+unreachable third-party repository cannot fail the fallback. The update adds
+`--no-list-cleanup`, so the cached indexes of the other sources are kept.
 
 The supported configuration is Ubuntu 24.04's canonical
 `/etc/apt/sources.list.d/ubuntu.sources`, with single-line `URIs:` fields and no
@@ -937,8 +939,10 @@ endpoints or `mirror+file:/etc/apt/apt-mirrors.txt` whose first whitespace-delim
 mirror field is exactly such an official URI (including the hosted `priority:N`
 form). Suites, components, Signed-By and other fields of an official stanza are
 copied unchanged; the installed source files and the mirror file are not written.
-Unknown layouts, explicit enable/disable fields, a repeated `URIs:` field or no
-recognized URI fail before the fallback runs apt.
+Field names are compared as apt does (case-insensitive, whitespace before the
+colon ignored). Unknown layouts, a line of only whitespace (apt reads it as a
+continuation, not a stanza boundary), an `Enabled` field, a repeated `URIs` field
+or no recognized URI fail before the fallback runs apt.
 This is not a general apt source parser. Apt retains repository/package
 authentication; no insecure/trusted overrides, package pin or IP pin is added.
 

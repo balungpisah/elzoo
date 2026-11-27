@@ -25,8 +25,8 @@ THIRD_PARTY = ('# Unrelated stanza and its whitespace must remain unchanged.\n'
 SOURCE = STANZA + '\n' + THIRD_PARTY
 ARCHIVE_STANZA = STANZA.format(uri=ARCHIVE)
 INSTALL = ['install', '-y', '--no-install-recommends', 'libncurses6', 'libsctp1', 'libssl3']
-ONLY = ['-o', 'Dir::Etc::sourcelist=TEMP', '-o', 'Dir::Etc::sourceparts=-']
-FALLBACK_UPDATE = ONLY + ['-o', 'APT::Update::Error-Mode=any', 'update']
+ONLY = ['-o', 'Dir::Etc::sourcelist=TEMP/archive.sources', '-o', 'Dir::Etc::sourceparts=TEMP/parts']
+FALLBACK_UPDATE = ONLY + ['-o', 'APT::Update::Error-Mode=any', '--no-list-cleanup', 'update']
 FALLBACK_INSTALL = ONLY + INSTALL
 
 
@@ -43,15 +43,20 @@ class RuntimeProvisioningTest(unittest.TestCase):
         self.other.write_text('deb [signed-by=/other.gpg] https://other.invalid stable main\n')
         self.trace = self.root / 'calls.jsonl'
         binary = self.root / 'apt-get'
-        # The stub records each argument list and the text of the source list it names.
+        # The stub records each argument list, the text of the source list it names
+        # and the entries of the source parts directory it names.
         binary.write_text('''#!/usr/bin/env python3
 import json, os, pathlib, sys
 trace = pathlib.Path(os.environ['APT_TRACE'])
 calls = trace.read_text().splitlines() if trace.exists() else []
-lists = [pathlib.Path(arg.split('=', 1)[1]) for arg in sys.argv if arg.startswith('Dir::Etc::sourcelist=')]
+def named(option):
+    return [pathlib.Path(arg.split('=', 1)[1]) for arg in sys.argv if arg.startswith(option + '=')]
 with trace.open('a') as output:
     output.write(json.dumps({'args': sys.argv[1:],
-                             'lists': [path.read_text() if path.exists() else None for path in lists]}) + '\\n')
+                             'lists': [path.read_text() if path.exists() else None
+                                       for path in named('Dir::Etc::sourcelist')],
+                             'parts': [sorted(os.listdir(path)) if path.is_dir() else None
+                                       for path in named('Dir::Etc::sourceparts')]}) + '\\n')
 if 'install' in sys.argv[1:] and os.environ.get('DEBIAN_FRONTEND') != 'noninteractive':
     sys.exit(98)
 statuses = json.loads(os.environ['APT_STATUSES'])
@@ -60,7 +65,7 @@ sys.exit(statuses[len(calls)] if len(calls) < len(statuses) else 99)
         binary.chmod(0o755)
 
     def provision(self, statuses, failure=None):
-        """Runs the installer; returns argument lists with the temporary list path as TEMP."""
+        """Runs the installer; returns argument lists with the temporary directory as TEMP."""
         self.output = io.StringIO()
         original = self.source.read_text() if self.source.exists() else None
         env = {'PATH': str(self.root) + os.pathsep + os.environ['PATH'],
@@ -77,13 +82,15 @@ sys.exit(statuses[len(calls)] if len(calls) < len(statuses) else 99)
         paths = {arg.split('=', 1)[1] for record in records for arg in record['args']
                  if arg.startswith('Dir::Etc::sourcelist=')}
         self.assertLessEqual(len(paths), 1)
-        for path in paths:
-            self.assertTrue(path.endswith('.sources'))
-            self.assertFalse(Path(path).exists())
-            self.assertFalse(Path(path).is_relative_to(self.apt))
+        directories = [str(Path(path).parent) for path in paths]
+        for directory in directories:
+            self.assertFalse(Path(directory).exists())
+            self.assertFalse(Path(directory).is_relative_to(self.apt))
         self.lists = [text for record in records for text in record['lists']]
-        return [[('Dir::Etc::sourcelist=TEMP' if arg.startswith('Dir::Etc::sourcelist=') else arg)
-                 for arg in record['args']] for record in records]
+        self.assertEqual([[] for record in records if record['parts']],
+                         [parts for record in records for parts in record['parts']])
+        return [[arg.replace(directories[0], 'TEMP') if directories else arg for arg in record['args']]
+                for record in records]
 
     def test_primary_success_does_not_read_or_change_sources(self):
         self.source.unlink()
@@ -101,7 +108,7 @@ sys.exit(statuses[len(calls)] if len(calls) < len(statuses) else 99)
     def test_third_party_stanzas_of_ubuntu_sources_are_not_read(self):
         security = STANZA.format(uri='http://archive.ubuntu.com/ubuntu').replace(
             'noble\n noble-updates noble-backports', 'noble-security')
-        self.source.write_text(STANZA.format(uri=AZURE) + '\n \n\t\n' + THIRD_PARTY + '\n\n'
+        self.source.write_text(STANZA.format(uri=AZURE) + '\n\n\n' + THIRD_PARTY + '\n\n'
                                + security + '\n' + THIRD_PARTY.replace('third-party', 'another'))
         calls = self.provision([100, 0, 0])
         self.assertEqual([['update'], FALLBACK_UPDATE, FALLBACK_INSTALL], calls)
@@ -163,12 +170,27 @@ sys.exit(statuses[len(calls)] if len(calls) < len(statuses) else 99)
 
     def test_disabled_repeated_or_comment_only_official_source_refuses_unchanged(self):
         for original in ('Enabled: no\n' + SOURCE.format(uri=AZURE),
+                         SOURCE + 'Enabled : no\n',
                          SOURCE.format(uri=AZURE + '\nuris: https://other.invalid/ubuntu/'),
+                         SOURCE.format(uri=AZURE + '\nURIs : https://third-party.invalid/repo'),
+                         SOURCE.format(uri=AZURE + '\nURIS\t:https://third-party.invalid/repo'),
                          '# URIs: ' + AZURE + '\n' + SOURCE.format(uri='https://other.invalid/')):
+            with self.subTest(source=original):
+                self.trace.unlink(missing_ok=True)
+                self.source.write_text(original.format(uri=AZURE))
+                self.assertEqual([['update']], self.provision([100], ValueError))
+                self.assertNotIn('Retrying', self.output.getvalue())
+
+    def test_whitespace_only_line_refuses_before_apt(self):
+        # Apt reads such a line as a continuation, so it does not end the stanza.
+        for original in (SOURCE.format(uri=AZURE).replace('\nSigned-By', '\n \nSigned-By', 1),
+                         SOURCE.format(uri=AZURE).replace('\nSigned-By', '\n\t\nSigned-By', 1),
+                         STANZA.format(uri=AZURE) + ' \n' + THIRD_PARTY):
             with self.subTest(source=original):
                 self.trace.unlink(missing_ok=True)
                 self.source.write_text(original)
                 self.assertEqual([['update']], self.provision([100], ValueError))
+                self.assertNotIn('Retrying', self.output.getvalue())
 
     def test_unsupported_legacy_layout_is_not_rewritten(self):
         self.source.unlink()
