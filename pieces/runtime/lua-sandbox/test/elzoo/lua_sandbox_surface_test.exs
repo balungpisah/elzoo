@@ -319,20 +319,27 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
       # Lua 5.5.1 lets a string stand in for a read-only table. The table wrappers
       # require a table for every argument they index, before the upstream function
       # runs, so the library never indexes the string through the strict string
-      # metatable: the error is an ordinary one and the evaluation continues
-      for {arguments, position} <- [
-            {"table.concat, s", 1},
-            {"table.unpack, s", 1},
-            {"table.insert, s, 'x'", 1},
-            {"table.remove, s", 1},
-            {"table.sort, s", 1},
-            {"table.move, s, 1, 1, 1", 1},
-            {"table.move, {1}, 1, 1, 1, s", 5}
+      # metatable: the error is an ordinary one and the evaluation continues. The
+      # source of move is also checked with a separate writable destination, which
+      # upstream accepts, so only the wrapper stops the read; the empty ranges of
+      # unpack('') and of move are errors too, where 5.4.9 gave zero values and the
+      # destination.
+      for {arguments, input, position} <- [
+            {"table.concat, s", "blue", 1},
+            {"table.unpack, s", "blue", 1},
+            {"table.insert, s, 'x'", "blue", 1},
+            {"table.remove, s", "blue", 1},
+            {"table.sort, s", "blue", 1},
+            {"table.move, s, 1, 1, 1", "blue", 1},
+            {"table.move, s, 1, 1, 1, {}", "blue", 1},
+            {"table.move, {1}, 1, 1, 1, s", "blue", 5},
+            {"table.unpack, s", "", 1},
+            {"table.move, s, 2, 1, 1, {}", "abc", 1}
           ] do
         source =
           "return function(s) local ok, e = pcall(#{arguments}) return {ok, e, 'fallback'} end"
 
-        assert {:ok, %{value: [false, message, "fallback"]}} = Helper.run(exe, source, "blue"),
+        assert {:ok, %{value: [false, message, "fallback"]}} = Helper.run(exe, source, input),
                arguments
 
         assert message =~ "bad argument ##{position} to ", arguments
@@ -346,6 +353,18 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
       # a direct index of a string is still a lookup of the strict string metatable
       assert Helper.run(exe, Helper.function_source("return ('abc')[1]")) ==
                {:refused, :unlisted_name}
+
+      # so is ipairs of a string, as in 5.4.9: the iterator is made, and its first
+      # step indexes the string, a sticky stop that pcall cannot catch
+      assert {:ok, %{value: "function"}} =
+               Helper.run(exe, Helper.function_source("return type(ipairs('abc'))"))
+
+      assert Helper.run(
+               exe,
+               Helper.function_source(
+                 "local ok = pcall(function() for _ in ipairs('abc') do end end) return ok"
+               )
+             ) == {:refused, :unlisted_name}
     end
 
     test "a missing field of each library table", %{executable: exe} do

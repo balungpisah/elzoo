@@ -546,18 +546,24 @@ outside that checkout. `examples/elzoo/lua_sandbox.exs` shows the call and evalu
     given name instead, so `function(...v)` loads already at 13 (at 4, like a
     plain function, since `v` is shorter than the smallest interned name of
     initialization).
-  - Two granted calls change results: `select('#', table.unpack(false, 2, 1))`
-    is a `lua_error` now instead of 0 (the range is no longer read before the
-    first argument is checked), and on 64-bit
-    `string.packsize('c2000000000c2000000000')` is 4000000000 now instead of a
-    `lua_error`.
-  - 5.5.1 lets a string stand in for a read-only table (a string needs no
-    `__len` for its length), so `table.concat`, `table.unpack` and the source of
-    `table.move` would index a string through the shared string metatable, whose
-    strict lookup ends the run with the sticky `unlisted_name`, which `pcall`
-    cannot catch. The table wrappers now require a table for every argument they
-    index (`concat`, `unpack`, `insert`, `remove`, `sort`, and both tables of
-    `move`) and raise an ordinary argument error before the upstream function
-    runs, so `pcall` catches it as under 5.4.9 (`table.concat('')` stays an
-    argument error). A direct index of a string, such as `('abc')[1]`, is still
-    `unlisted_name`.
+  - On 64-bit, `string.packsize('c2000000000c2000000000')` is 4000000000 now
+    instead of a `lua_error`.
+  - The table wrappers now require a table for every argument they index
+    (`concat`, `unpack`, `insert`, `remove`, `sort`, and both tables of `move`)
+    and raise an ordinary argument error, which `pcall` catches, before the
+    upstream function runs. Without the check, 5.5.1 would let a string stand in
+    for a read-only table (a string needs no `__len` for its length) and index it
+    through the shared string metatable, whose strict lookup ends the run with
+    the sticky `unlisted_name`. Compared with 5.4.9:
+    - `table.concat` of a string is the same argument error as before, also for
+      `table.concat('')`; `insert`, `remove`, `sort` and a string destination of
+      `move` were argument errors before and still are.
+    - `table.unpack` of a nonempty string and `table.move` from a string to a
+      table over a nonempty range (`table.move('abc', 1, 1, 1, {})`) reached the
+      sticky `unlisted_name` under 5.4.9; both are catchable argument errors now.
+    - Empty ranges are errors now: `table.unpack('')` returned zero values,
+      `table.move('abc', 2, 1, 1, {})` returned the destination, and
+      `select('#', table.unpack(false, 2, 1))` returned 0 under 5.4.9; each is
+      an argument error now.
+    - A direct index of a string, such as `('abc')[1]`, and the first step of
+      `ipairs('abc')` are still the sticky `unlisted_name`, as in 5.4.9.
