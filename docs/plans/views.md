@@ -5817,6 +5817,6 @@ Publication copy: [tasks/ELZ-433-run-engine-journal-read-failure.md](../../tasks
 
 **Product aims:** P09.
 
-**Acceptance:** find_input/4 returns read failures; original_record/4 and admitted_action/2 return {:error, :unavailable} with the engine alive and state unchanged; a failed winner read after :input_id_conflict halts with :unavailable, a differing winner stays :integrity_failure; fault-Store tests per caller for :unavailable, :gap and low_water > 0; negative controls; Piece gate, strongest other-family review.
+**Acceptance:** find_input/4 returns {:error, :unavailable} for a failed or incomplete read (:unavailable, :malformed, {:pruned, _}, low_water > 0); input/4 and control/4 (pause, continue, cancel) return {:error, :unavailable} and commit nothing for the submitted ID; a failed admitted_action/2 lookup on a settled retry is not discarded; after :input_id_conflict a failed winner read halts :unavailable, while no winner or a differing winner stays :integrity_failure; negative controls; Piece gate, strongest other-family review.
 
 **Secondary contribution:** assembly/run-engine — In-place fix under the same ID: a failed read of the engine's own journal ends in a defined result, never a match error.

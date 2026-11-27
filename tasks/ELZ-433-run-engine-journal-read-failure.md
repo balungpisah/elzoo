@@ -18,7 +18,8 @@ exit with a match error in the middle of a call. Three lookups are affected:
 - `original_record/4`, used by ingress (`input/4`) and by `control/4` (pause,
   continue and cancel);
 - `admitted_action/2`, the second lookup of a retried settled outcome
-  (`recheck_settled/5`), whose failure is today discarded as `nil`;
+  (`recheck_settled/5`); a failure there raises today, and once `find_input/4`
+  returns it, the `nil` fallback of `recheck_settled/5` would discard it;
 - the read of the winner after `DurableUnit.step/3` returns
   `{:error, :input_id_conflict}` from its completed-ID check (about line
   4449).
@@ -66,7 +67,8 @@ Paths: `pieces/assembly/run-engine/**`, its `entries` row in
   alive, and the same call succeeds once the fault is cleared.
 - `admitted_action/2`: on a retried settled outcome, the second lookup fails
   (the first succeeds). The retry returns `{:error, :unavailable}` and commits
-  nothing.
+  nothing. After the fault is cleared, the same retry on the same engine
+  returns `{:ok, :duplicate}`.
 - The conflict case: a failed read of the winner halts with `:unavailable`;
   a complete scan with no winner, and a winner that differs on `:kind`,
   `:request` or `:occurrence`, still halt with `:integrity_failure`.
