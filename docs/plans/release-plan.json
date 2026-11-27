@@ -11368,6 +11368,56 @@
       "issue": 1048,
       "url": "https://github.com/balungpisah/elzoo/issues/1048",
       "issue_body_sha256": "d84e19cf27bbf6e993ce1f5159883317bd410e0f5f37db59f288f04395e6c6c4"
+    },
+    {
+      "id": "ELZ-434",
+      "title": "ELZ-434 — assembly/run-engine: a failed replacement recovery is retried before the next input",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-433"
+      ],
+      "status": "published 2026-11-27",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-434-run-engine-keep-recovery-after-failed-current.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "assembly/run-engine",
+          "role": "In-place fix under the same ID: a replacement recovery that fails without a halt keeps the live replacement and is marked unfinished; every input or drain path resumes it first, without reclassifying the replacement's own work; same-Unit errors keep the returned state."
+        }
+      ],
+      "acceptance": "A replacement recovery that fails without a halt keeps the live replacement and marks recovery unfinished; every input or drain path resumes it first without reclassifying the replacement's own work; same-Unit errors keep the returned state; tests per caller incl. an outbox item and a local_work task between the failure and the next call; four negative controls; Piece gate, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1055,
+      "url": "https://github.com/balungpisah/elzoo/issues/1055",
+      "issue_body_sha256": "a5a30073dce07fb64c22624b61de363a88e53dd607c7007066ad411f68eb35df"
+    },
+    {
+      "id": "ELZ-435",
+      "title": "ELZ-435 — CI: the runtime-library fallback reads only the official Ubuntu archive",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [],
+      "status": "published 2026-11-27",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-435-ci-runtime-fallback-ubuntu-sources-only.md"
+      ],
+      "outputs": [],
+      "acceptance": "The runtime-library fallback's update and install read only the rewritten official Ubuntu stanzas, from a temporary .sources file, with Error-Mode=any; stubbed apt tests of the exact arguments and of a third-party stanza left out, with a negative control; guard tests, full local gate and full hosted check; independent review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1056,
+      "url": "https://github.com/balungpisah/elzoo/issues/1056",
+      "issue_body_sha256": "9069544a47e64b28aaa11ceef01470fe09c691e2bfd8d1265b7da4dec9916ea6"
     }
   ],
   "entries": [
