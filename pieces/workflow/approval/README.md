@@ -73,7 +73,8 @@ Runs.
 ```
 
 The state is a plain value held by the caller, encoded as lists for Cure.
-This Piece performs no I/O and reads no clock.
+This Piece performs no I/O and reads no clock. No transition removes an
+entry; only `prune/2` and `retire/2` do ([Prune and retirement](#prune-and-retirement)).
 
 ## Evidence record (B24.2)
 
@@ -140,7 +141,8 @@ there (N6).
 | `max_age` | integer `1..2^63-1` |
 | revision | integer `1..2^31-1` |
 | events in one `replay/1` call | 65 536 |
-| entries in each state list (requests, consents, releases, consumed, revoked) | 65 536; a transition that would exceed it is refused with `{:invalid_input, {:bound_exceeded, :state}}` and no change |
+| entries in each state list (requests, consents, releases, consumed, revoked) | 65 536; while a list is full, `request/3`, `revoke/2` and `apply_event/2` (first) and `release/4` (after validating its context, key and evidence source) return `{:error, {:invalid_input, {:bound_exceeded, :state}}}`, for `release/4` with the unchanged state as a third element; `select_retained/3`, `revalidate/3`, `prune/2` and `retire/2` do not check it |
+| `{run, action_id}` pairs in one `retire/2` call | 65 536 |
 
 ## Transitions
 
@@ -167,7 +169,14 @@ Elzoo.Approval.request(state, run, decision)
   `{:superseded, old_key, new_request}`;
 - latest is `:released` or `:superseded` → a new request opens with
   `latest revision + 1`; event `{:requested, request}` (F5c). A released
-  request is never reopened or released twice.
+  request is never reopened or released twice;
+- a new revision would exceed `2^31-1` → `{:error, {:invalid_input,
+  {:bound_exceeded, :revision}}}` and no change; an unchanged open request at
+  revision `2^31-1` is still returned. A line reaches that revision when
+  `prune/2` has dropped its older entries, or when `apply_event/2` or
+  `replay/1` folds a `:requested` or `:superseded` event at it (they do not
+  require the earlier revisions); the state bound keeps live requests of an
+  unpruned line below it.
 
 A non-ASK decision is `{:invalid_input, :not_ask}`. The decision is
 validated fully before evaluation with the `domain/authorization` validators
@@ -364,6 +373,125 @@ consent scope run/root and consent equal to its release record. Any fault is
 show that an internally consistent event was really produced by a live
 transition; that origin remains the owner's assumption.
 
+### Prune and retirement
+
+No transition removes an entry, and each state list holds at most 65 536
+entries, so a long-lived owner stops at the bound. Expiry alone cannot free a
+request line: the newest request of a line must stay, or `request/3` would
+restart at revision 1. Two pure operations remove entries. An owner that
+calls either takes the Verifier, Clock and Retirement Needs and the replay
+handoff ([Needs](#needs-assumptions-and-unspecified-behavior)); an owner that
+calls neither is unaffected.
+
+```elixir
+Elzoo.Approval.prune(state, now) :: {:ok, state} | {:error, {:invalid_input, r}}
+Elzoo.Approval.retire(state, lines) :: {:ok, state} | {:error, {:invalid_input, r}}
+```
+
+Both are pure, total and deterministic. They emit no event, only remove
+entries, keep the order of the surviving entries and do not run the capacity
+check, so they work on a full state. A value that is not a state, or a state
+whose five lists are not proper lists, gives `{:error, {:invalid_input,
+:state}}` (the entries themselves are not validated, as for the other
+operations); malformed input changes nothing. The work is close to linear in
+the size of the state: Elixir indexes the state in a few passes, encodes each
+distinct retired pair on its own and keeps it only when the state names that
+line, and asks Cure for the keep or drop decision of each entry.
+
+`prune(state, now)`, with `now` an integer Unix time in ms, `0..2^63-1`
+(otherwise `{:invalid_input, {:bound_exceeded, :now}}`):
+
+- An evidence key `{verifier, evidence_id}` is **dead** at `now` when the
+  release records and consents of the state hold at least one evidence record
+  for it, all of them are the same record (all eight fields), and its
+  `expiry <= now`. A key whose records differ in any field is ambiguous and is
+  never dead.
+- Each release record and each consent whose evidence key is dead leaves, and
+  so does each consumed key and revoked key that is dead. A consumed or
+  revoked key that no release record or consent names stays: a revocation of
+  evidence that the state never saw is kept.
+- Each request entry that is `:open` or is the newest of its line (the
+  highest revision of its `(run, action_id)`; every entry at that revision
+  when a replayed log holds several) stays. Any other request entry leaves
+  when no surviving release record has its key.
+
+`retire(state, lines)`, with `lines` a proper list of at most 65 536
+`{run, action_id}` pairs, each part validated as `request/3` validates `run`.
+A fault is `{:invalid_input, r}` with `r` one of `{:not_a_list, :lines}`,
+`{:bound_exceeded, :lines}`, `:line` (an element that is not a pair) or
+`{:empty | :bound_exceeded | :invalid_utf8 | :not_text, :run | :action_id}`.
+A pair that the state does not hold changes nothing; duplicates are allowed.
+
+- For each line, every request entry of the line (every revision and status),
+  every release record whose key is on the line and every consent of scope
+  `:run` whose `run` and bound action id are the line's leave; only that line
+  can use such a consent.
+- Then each consumed key and revoked key that a record dropped by this call
+  named, and that no surviving record names, leaves.
+- Consents of scope `:root` stay: they can serve other lines, and `prune/2`
+  drops them when they expire.
+- The Piece cannot tell an open request that the owner will still release
+  from an open request that the owner closed (an owner that refuses a release
+  as stale appends no Approval event, so its request stays `:open`). So "a
+  pending ASK line is never retired" is the owner's Retirement Need, not a
+  refusal of `retire/2`.
+
+**Replay handoff.** Neither operation emits an event, so a full replay from an
+empty state folds the whole uncompacted history and rebuilds the state
+without pruning or retirement. The 65 536-event limit of one `replay/1` call
+does not stop that fold (an owner can fold more events with `apply_event/2`;
+for example 65 537 revocations of one key leave one marker); the state bound
+can: the fold is refused once a list of the uncompacted state is full, which
+pruning or retirement had avoided. Re-applying an event from before a prune
+or retirement can fail (`:release_without_request`) or bring an old record
+back. So an owner that prunes or retires stores the result, with its clock
+floor (the highest `now` it passed to `prune/2`), together with the exact
+position of the last event that the result covers, and replays only later
+events onto it; only that stored result preserves the compaction.
+
+**Equivalence.** Under the Needs, comparing only inputs for which both states
+pass the capacity check:
+
+- after `prune(s, now)`, for every input at `now' >= now`: `release/4`
+  releases on one state exactly when it releases on the other, with the same
+  writes and the same event; `select_retained/3` selects the same consent on
+  both, or none on both; `revalidate/3` returns `:ok` on both or on neither;
+  `request/3` returns the same request and event;
+- after `retire/2`, the same for every input whose request key or line is not
+  retired, with the same refusal reasons as well;
+- only refusal reasons change. The reachable changes:
+
+| Operation | Call | Before | Then |
+| --- | --- | --- | --- |
+| `prune/2` | `release/4` or `select_retained/3` for a dropped superseded request | `:superseded` | `:unknown_request` |
+| `prune/2` | `release/4` or `select_retained/3` for a dropped non-newest released request | `:already_released` | `:unknown_request` |
+| `prune/2` | `revalidate/3` (restore) of a key whose release record was dropped | the refusal it reached, for example `:expired` or `:revoked` | `:not_released` |
+| `retire/2` | `release/4` or `select_retained/3` on a retired line, with a context of the key's Run | the line's outcome | `:unknown_request` |
+| `retire/2` | `revalidate/3` on a retired line | the line's outcome | `:not_released` |
+
+Once a call reaches check 0, a context that names another Run still gets
+`:run_mismatch` from `release/4` and `select_retained/3` on a retired line, as
+before retirement: check 0 runs before the request lookup. (A wrong-Run call
+whose proposal carries the `:approval` control field gets `:deny_at_release`
+first; retirement changes neither outcome.)
+
+For `release/4` with evidence that keeps the Verifier Need and a request key
+that is not on a retired line, `:revoked`, `:consumed` and `:evidence_reused`
+are not reachable as changed reasons: checks 1 to 4 refuse first. On a
+retired line every earlier outcome past check 0 becomes `:unknown_request`,
+`:revoked` included (an open request whose evidence key was revoked before
+its first release; table above). A restore (`revalidate/3`) does not run
+checks 1 to 4, so a revoked or expired restore whose release record was
+dropped changes to `:not_released`.
+
+Capacity is outside this comparison. A full state refuses with
+`{:invalid_input, {:bound_exceeded, :state}}`; the pruned or retired state
+admits the same otherwise valid transition only when the removal left room in
+every list. Pruning a full superseded chain turns a capacity refusal of
+`request/3` into a success, but pruning cannot free a list whose 65 536
+entries must all stay (for example 65 536 newest or open request entries):
+such a state stays full until `retire/2` removes lines.
+
 ### Model text
 
 There is no path from text to release. Only an evidence record that passes
@@ -385,9 +513,13 @@ argument or chat turn, leaves the escrowed writes escrowed.
 | `request` transition (supersede / revision + 1) | Cure `request` | finite tests |
 | `revoke`, `apply_event`, replay fold | Cure `revoke`, `apply_event`; Elixir only iterates the bounded list | finite tests (state-only return is by type) |
 | `revalidate` | Cure `revalidate` | finite tests; returns no writes by type |
+| `prune/2` and `retire/2`: validation, the index (the evidence records of each key compared in all eight fields, the newest revision of each line, the keys of surviving release records, the retired lines, the keys that dropped and surviving records name) and the in-order filter of each list | Elixir `Elzoo.Approval` | finite tests only |
+| Keep or drop decision of each entry from the facts of the index (`prune_keeps_request`, `prune_keeps_evidence`, `retire_keeps_entry`, `retire_keeps_consent`, `retire_keeps_key`) | Cure | laws below; the expiry boundary by tests |
 
 Apart from the control-key refusal above, Elixir never computes a check
-result, and it never computes a write list. If a check proves
+result, and it never computes a write list. For `prune/2` and `retire/2`
+Elixir computes the facts of each entry from its index and Cure decides
+whether the entry stays. If a check proves
 impossible to move into Cure during implementation, it will be marked
 test-only here and in `piece.json` before review, never presented as covered
 by a law.
@@ -413,6 +545,13 @@ fn select_retained(s, k, ctx) -> ApprSelection
 fn revalidate(s, k, ctx) -> ApprCheck
 fn request(s, run, binding) -> ApprRequestStep
 fn apply_event(s, e) -> ApprState
+
+type ApprKeyRecords = KeyUnnamed | KeyAmbiguous | KeyRecord(ApprEvidence)
+fn prune_keeps_request(st: ApprStatus, newest: Bool, released: Bool) -> Bool
+fn prune_keeps_evidence(f: ApprKeyRecords, now: Int) -> Bool   # KeyRecord(e): lt_int(now, expiry_of(e))
+fn retire_keeps_entry(on_line: Bool) -> Bool
+fn retire_keeps_consent(sc: AuthScope, on_line: Bool) -> Bool
+fn retire_keeps_key(named_by_dropped: Bool, named_by_survivor: Bool) -> Bool
 ```
 
 The success state is `apply_event(s, released_event(...))`, so a live release
@@ -463,7 +602,10 @@ relevant stuck `Bool` or check result as a hypothesis and discharges it by
 Boolean with its equation as an argument); none assumes that a key or value equals itself. Native
 `<=`, `<` and `+` are also neutral on symbolic values (`Std.Builtin#int_le`,
 same comment). Checks 10–12 and the `issued_at` selection order use them, so
-no time, age or ordering law is planned; those are tests only (R5).
+no time, age or ordering law is planned; those are tests only (R5). The prune
+decision compares `now` with an evidence expiry as check 12 does
+(`lt_int(now, expiry_of(e))`); its laws take that comparison as a hypothesis,
+so the expiry boundary itself is tested, not proven.
 
 **Test-grounded, not laws, for that reason:**
 
@@ -481,6 +623,38 @@ no time, age or ordering law is planned; those are tests only (R5).
 If a production law cannot be checked in its stated form during
 implementation, work stops and the exact Cure error is reported; the law is
 not weakened.
+
+### Prune and retire laws (Cure-checked)
+
+On the production per-entry decisions, with negative controls and the same
+clean audit. Each law fixes the decision for the facts that Elixir supplies
+(decision-split form); the expiry comparison is a hypothesis.
+
+| Law | Statement |
+| --- | --- |
+| `prune_keeps_open` | for all `newest`, `released`: `prune_keeps_request(ApprOpen, newest, released) = True` |
+| `prune_keeps_newest` | for all `st`, `released`: `prune_keeps_request(st, True, released) = True` |
+| `prune_keeps_released_key` | for all `st`, `newest`: `prune_keeps_request(st, newest, True) = True` |
+| `prune_drops_unused_superseded`, `prune_drops_unused_released` | `prune_keeps_request(ApprSuperseded, False, False) = False`; the same for `ApprReleased` |
+| `prune_keeps_unnamed` | for all `now`: `prune_keeps_evidence(KeyUnnamed, now) = True` |
+| `prune_keeps_ambiguous` | for all `now`: `prune_keeps_evidence(KeyAmbiguous, now) = True` |
+| `prune_keeps_live` | if `lt_int(now, expiry_of(e)) = True`: `prune_keeps_evidence(KeyRecord(e), now) = True` |
+| `prune_drops_dead` | if `lt_int(now, expiry_of(e)) = False`: `prune_keeps_evidence(KeyRecord(e), now) = False`; release records, consents, consumed keys and revoked keys share this decision |
+| `retire_drops_line_entry`, `retire_keeps_other_entry` | `retire_keeps_entry(True) = False`; `retire_keeps_entry(False) = True` (request entries and release records) |
+| `retire_drops_run_consent`, `retire_keeps_other_run_consent` | `retire_keeps_consent(ScopeRun, True) = False`; `retire_keeps_consent(ScopeRun, False) = True` |
+| `retire_keeps_root_consent` | for all `on_line`: `retire_keeps_consent(ScopeRoot, on_line) = True` |
+| `retire_drops_orphaned_key` | `retire_keeps_key(True, False) = False` |
+| `retire_keeps_named_key`, `retire_keeps_untouched_key` | for all `d`: `retire_keeps_key(d, True) = True`; for all `s`: `retire_keeps_key(False, s) = True` |
+
+**Law versus test.** The laws cover each keep or drop decision given its
+facts. Only tests cover the index (a key's records compared in all eight
+fields, "newest" as the highest revision of the line, "released" as a
+surviving release record, line membership, and the keys that dropped and
+surviving records name); that every list is filtered with its decision and
+keeps its order; validation and bounds; the expiry boundary (`expiry == now`
+dropped, `now + 1` kept) and that a dead key stays dead at a later `now`;
+idempotence; the equivalence and the changed refusals; capacity recovery; and
+work on large states.
 
 ## Finite tests (not proofs)
 
@@ -538,6 +712,46 @@ not weakened.
 - unavailable context fails closed with no writes, distinct from DENY and
   invalid input;
 - Elixir↔Cure agreement for encoded state and evidence.
+- prune: `expiry == now` drops the release record, consent, consumed key and
+  revocation of that key and `expiry == now + 1` keeps them; a revocation of
+  evidence that the state never saw stays; the consumed marker of a live once
+  release stays until its expiry; an ambiguous key (two distinct `:run`
+  records with one verifier and evidence id, then revoked) keeps both records
+  and its revocation between and after their expiries;
+- prune keeps every open entry and every entry at the highest revision of a
+  line, also those that only a replayed log builds; after a prune, `request/3`
+  on a released line opens the newest revision plus one;
+- retire: an absent line, or a line given twice, changes nothing more;
+  `request/3` on a retired line opens revision 1 (Retirement Need); `lines`
+  with 65 536 and 65 537 pairs; a malformed `now`, pair or state;
+- idempotence at the same time: `prune(prune(s, t), t) == prune(s, t)`;
+  retiring the same lines twice equals retiring them once;
+- a sampled equivalence harness: one public-API history that keeps the Needs
+  (open, released, superseded and non-newest released requests; once, run and
+  root evidence; live and expired evidence; revoked keys seen and unseen;
+  consumed keys) and a fixed probe set (every request key and one unknown
+  key, each with every stored evidence record, an unseen revoked record, fresh
+  evidence and `:retained`, plus `select_retained/3`, `revalidate/3`, and
+  `request/3` with the same and a changed payload per line). After `prune/2`
+  at six times it compares eight times `now' >= now` (2 000 to `2^63-1`) and
+  allows only the listed reason changes; after `retire/2` of 25 line sets it
+  compares four times exactly on the kept lines. The universal statement is
+  the Contract; this is its sampled evidence;
+- `request/3` refuses a revision above `2^31-1` and still returns an unchanged
+  open request at it; a state whose list spine is not a proper list gives
+  `{:invalid_input, :state}`; 65 536 copies of one pair, and 65 536 distinct
+  absent pairs, of 1 024-byte identities are retired under heap limits (only
+  the pairs that the state names are kept); a context of another Run still
+  gets `:run_mismatch` on a retired line;
+- each changed refusal in its own test, with the earlier checks passing; at
+  `now' < now` a consent that the unpruned state selects is gone (Clock Need);
+- capacity recovery from directly built states: a 65 536-entry superseded
+  chain refuses `request/3` until `prune/2`; 65 536 released once lines
+  refuse a new line until `retire/2` empties the request, release and consumed
+  lists (expiry alone frees none of them);
+- retiring 10 000 of 20 000 released lines in one call or in batches of 1 000
+  gives the same state, with every other line, its records and the order of
+  all surviving entries unchanged.
 
 Trusted fixtures stand in for verifier output and principals. They do not
 establish authentication.
@@ -559,7 +773,7 @@ a generic action in its own Adapter. No Ash dependency in this bundle.
     `now - issued_at < max_age`;
   - `policy` — as in `domain/authorization`, for re-decide.
 - **Data, not Config:** proposal, authority context, approver, run context,
-  `now`, evidence, state, events.
+  `now`, evidence, state, events, retired `lines`.
 - **Control:** `not_applicable`. Revocation is a domain transition on the
   caller's state, not a lifecycle Control.
 
@@ -574,6 +788,26 @@ approvals must survive restart; serialization of transitions per state value
 event log beyond the structural and invariant validation of `apply_event/2`
 (a consistent, approving event that was never produced live cannot be
 detected).
+
+Needs of `prune/2` and `retire/2`, for an owner that calls either (opt-in):
+
+- **Verifier Need:** the trusted verifier binds each evidence key permanently
+  to one immutable evidence record (request, decision, scope, issue time and
+  expiry). It never reissues a key and never extends an expiry. Check 8
+  (reuse) compares bindings only; without this Need a dropped record could let
+  a reissued key release.
+- **Clock Need:** after `prune/2` at `now`, the owner never calls `release/4`,
+  `select_retained/3`, `revalidate/3` or `prune/2` on that state with a
+  smaller `now`; a consent that the unpruned state selects at an earlier time
+  is gone after the prune.
+- **Retirement Need:** the owner retires a line only after it has durably
+  closed the line to every later `request/3`, `release/4`, restore and event,
+  and never a line that it may still release. After retirement, `request/3` on
+  the line would open revision 1 again, and once-scope evidence for an old key
+  of the line could pass again.
+- **Replay handoff:** the owner stores the pruned or retired state with its
+  clock floor and the exact position of the last event it covers, and replays
+  only later events onto it ([Prune and retirement](#prune-and-retirement)).
 
 Not claimed: durable storage, cross-owner or exactly-once dispatch of the
 released writes (the caller dispatches; a timeout after dispatch is an
@@ -599,6 +833,10 @@ own schema id. Providers: pinned Cure, Elixir 1.20.5, OTP 29.1.3.
 - Refusal order is fixed and pinned by tests (Q5); it changes only the
   reported reason, never whether writes are emitted.
 - Subset laws hold with respect to `eq_write`.
+- `prune/2` never removes an open request entry, the newest entry of a line,
+  the records of an ambiguous key or a revocation of evidence that the state
+  never saw; only `retire/2` removes a request line, and only one that the
+  owner names.
 
 ## Interface deltas vs #38 (approval)
 
@@ -615,3 +853,25 @@ own schema id. Providers: pinned Cure, Elixir 1.20.5, OTP 29.1.3.
 
 - ELZ-416 (2026-11-26): the README names the current platform pins, Elixir
   1.20.5 and OTP 29.1.3 (before 1.20.4 and 29.1.2). No code or API change.
+- ELZ-417 (2026-11-26): new `prune/2` and `retire/2`, opt-in. An owner that
+  calls either takes the Verifier, Clock and Retirement Needs and the replay
+  handoff. Events and `replay/1` do not change. `request/3` now refuses a new
+  revision above `2^31-1` with `{:invalid_input, {:bound_exceeded, :revision}}`
+  where it returned a request whose key `release/4` and `apply_event/2`
+  reject; an unchanged request at that revision is still returned. Without
+  the new operations only a replayed or applied `:requested` or `:superseded`
+  event at `2^31-1` reaches that revision (the state bound keeps live requests
+  below it); a copy that calls neither new operation and folds no such event
+  sees no change, and one that does handles the refusal like the other
+  `{:invalid_input, r}` results of `request/3`.
+  On a pruned state a release or retained selection for a dropped superseded
+  request gives `:unknown_request` instead of `:superseded`, for a dropped
+  non-newest released request `:unknown_request` instead of
+  `:already_released`, and a restore whose release record was dropped gives
+  `:not_released` instead of its earlier refusal; on a retired line
+  `release/4` and `select_retained/3` give `:unknown_request` (a context of
+  another Run still gets `:run_mismatch`: check 0 runs first) and
+  `revalidate/3` gives `:not_released`. Neither operation emits an event: to
+  move, an owner that prunes or retires stores the result with its clock floor
+  and the position of the last event it covers, and replays only later events
+  onto it.

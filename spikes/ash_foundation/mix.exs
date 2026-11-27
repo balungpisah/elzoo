@@ -10,12 +10,12 @@ defmodule ElzooAshSpike.MixProject do
       elixirc_paths: if(Mix.env() == :test, do: ["lib", "test/support"], else: ["lib"]),
       test_ignore_filters: [~r/test_helper.exs$/, ~r{/support/}],
       deps: [
-        {:ash, "== 3.37.3"},
-        {:ash_postgres, "== 2.15.2"},
-        {:ash_ai, "== 1.5.4"},
+        {:ash, "== 3.38.1"},
+        {:ash_postgres, "== 2.16.0"},
+        {:ash_ai, "== 1.5.6"},
         {:simple_sat, "== 0.1.4"},
-        {:telemetry, "== 1.4.2"},
-        {:ash_state_machine, "== 0.3.0"},
+        {:telemetry, "== 1.4.3"},
+        {:ash_state_machine, "== 0.3.1"},
         # ELZ-010 job-provider comparison (AshOban triggers, Reactor inside Oban).
         {:ash_oban, "== 0.10.3"},
         {:oban, "== 2.24.2"}

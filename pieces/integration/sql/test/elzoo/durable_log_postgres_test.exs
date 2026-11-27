@@ -13,6 +13,7 @@ defmodule Elzoo.DurableLog.PostgresTest do
     Postgres,
     PostgresHarness,
     Record,
+    Store,
     TestMigration,
     TestRepo,
     UnreachableRepo,
@@ -43,7 +44,7 @@ defmodule Elzoo.DurableLog.PostgresTest do
     %{r | digest: Log.digest(r)}
   end
 
-  defp checkpoint(rows) do
+  defp checkpoint(rows, changes \\ %{}) do
     replay = Log.replay(rows, List.last(rows).sequence, fold())
 
     c = %{
@@ -56,6 +57,7 @@ defmodule Elzoo.DurableLog.PostgresTest do
       nonce: :crypto.strong_rand_bytes(16)
     }
 
+    c = Map.merge(c, changes)
     Map.put(c, :digest, Codec.hash(Codec.checkpoint_bytes(c)))
   end
 
@@ -1080,6 +1082,328 @@ defmodule Elzoo.DurableLog.PostgresTest do
         end
 
       assert {name, outcome} == {name, {:error, :unavailable}}
+    end
+  end
+
+  # ELZ-427 fixture, as in the Memory Store test: stream "s" holds records 1..3 and the
+  # checkpoints a (1, fold version 2), b (2, version 1) and c (3, version 1); stream "o"
+  # holds record 1 and one checkpoint at 1 of each version.
+  @kept [["o", 1, 1], ["o", 1, 2], ["s", 2, 1], ["s", 3, 1]]
+
+  defp checkpoint_at(rows, seq, version, nonce),
+    do: checkpoint(Enum.take(rows, seq), %{fold_version: version, nonce: nonce})
+
+  defp seed_retention(s) do
+    rows = Enum.map(1..3, &row(&1, <<1::128>>, "s"))
+    other = [row(1, <<1::128>>, "o")]
+    assert {:committed, 3} = Postgres.append(s, "s", 0, rows, [])
+    assert {:committed, 1} = Postgres.append(s, "o", 0, other, [])
+    a = checkpoint_at(rows, 1, 2, <<11::128>>)
+    b = checkpoint_at(rows, 2, 1, <<12::128>>)
+    c = checkpoint_at(rows, 3, 1, <<13::128>>)
+    others = [checkpoint_at(other, 1, 1, <<14::128>>), checkpoint_at(other, 1, 2, <<15::128>>)]
+
+    for checkpoint <- [a, b, c | others],
+        do: assert({:committed, checkpoint.sequence} == Postgres.put_checkpoint(s, checkpoint))
+
+    %{rows: rows, a: a, b: b, c: c, others: others}
+  end
+
+  defp snapshot(s), do: PostgresHarness.hook(s, :snapshot, [])
+  defp checkpoint_keys(s), do: Enum.map(snapshot(s).elzoo_checkpoints, &Enum.take(&1, 3))
+
+  defp put_request(c),
+    do: %{
+      operation: :put_checkpoint,
+      stream: c.stream,
+      expected: c.sequence,
+      target: c.sequence,
+      nonce: c.nonce,
+      digest: c.digest
+    }
+
+  defp dead_checkpoints(prefix) do
+    [[count]] =
+      SQL.query!(
+        TestRepo,
+        "SELECT count(*) FROM #{prefix}.elzoo_checkpoints c JOIN #{prefix}.elzoo_log_heads h ON h.stream = c.stream WHERE c.sequence < h.low_water",
+        [],
+        log: false
+      ).rows
+
+    count
+  end
+
+  # Waits until a backend of this database waits for a lock in a statement on this
+  # test's head table: the second writer is queued behind the paused head lock.
+  defp await_head_lock_wait(prefix, attempts \\ 250)
+  defp await_head_lock_wait(_, 0), do: flunk("no statement waited for the head lock")
+
+  defp await_head_lock_wait(prefix, attempts) do
+    [[count]] =
+      SQL.query!(
+        TestRepo,
+        "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND position($1 in query) > 0",
+        [prefix <> ~s(."elzoo_log_heads")],
+        log: false
+      ).rows
+
+    if count == 1 do
+      :ok
+    else
+      Process.sleep(20)
+      await_head_lock_wait(prefix, attempts - 1)
+    end
+  end
+
+  defp lock_order(controller, from) do
+    PostgresHarness.history(controller)
+    |> Enum.drop(from)
+    |> Enum.filter(fn {_, phase} -> phase in [:after_head_lock, :before_commit] end)
+  end
+
+  test "ELZ-427 committed retention deletes the stream's checkpoints below through, of every version",
+       %{store: s, prefix: prefix} do
+    %{a: a, b: b, c: c, others: others} = seed_retention(s)
+    assert {:committed, 2} = Postgres.retain(s, "s", 0, 2, <<20::128>>)
+    assert {:ok, :absent} = Postgres.read_checkpoint(s, "s", 1, 2)
+    assert {:ok, :none} = Postgres.latest_checkpoint(s, "s", 2)
+    assert {:ok, ^b} = Postgres.read_checkpoint(s, "s", 2, 1)
+    assert {:ok, ^c} = Postgres.read_checkpoint(s, "s", 3, 1)
+    assert {:ok, ^c} = Postgres.latest_checkpoint(s, "s", 1)
+
+    for o <- others,
+        do: assert({:ok, o} == Postgres.read_checkpoint(s, "o", 1, o.fold_version))
+
+    # The receipt of a deleted checkpoint can no longer be confirmed.
+    assert {:unknown, :unfenced} = Log.confirm_checkpoint(s, a)
+    assert checkpoint_keys(s) == @kept
+    assert dead_checkpoints(prefix) == 0
+  end
+
+  test "ELZ-427 a retention rolled back after its deletes keeps every checkpoint", %{store: s} do
+    %{a: a} = seed_retention(s)
+    before = snapshot(s)
+    # The injected rollback runs at :before_commit, after the checkpoint DELETE.
+    PostgresHarness.hook(s, :inject, [:retain, :rollback])
+    assert {:indeterminate, _} = Postgres.retain(s, "s", 0, 2, <<24::128>>)
+    assert snapshot(s) == before
+    assert {:ok, ^a} = Postgres.read_checkpoint(s, "s", 1, 2)
+    assert {:committed, 2} = Postgres.retain(s, "s", 0, 2, <<25::128>>)
+    assert checkpoint_keys(s) == @kept
+  end
+
+  test "ELZ-427 an exact retention retry keeps its conflict, deletes nothing more, and the receipt confirms",
+       %{store: s, prefix: prefix} do
+    %{rows: rows} = seed_retention(s)
+    receipt = Codec.receipt(:retain, "s", 0, 2, <<21::128>>)
+    PostgresHarness.hook(s, :inject, [:retain, :reply_loss])
+    assert {:indeterminate, _} = Postgres.retain(s, "s", 0, 2, receipt.nonce)
+    assert {:committed, 2} = Log.confirm_retention(s, receipt)
+    assert checkpoint_keys(s) == @kept
+
+    # A checkpoint below low-water that no retention deleted, as a database written
+    # before this change holds: the retry must not delete it either.
+    left = checkpoint_at(rows, 1, 1, <<22::128>>)
+
+    SQL.query!(
+      TestRepo,
+      "INSERT INTO #{prefix}.elzoo_checkpoints (stream, sequence, fold_version, model, cursor, seen, nonce, digest) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+      [
+        left.stream,
+        left.sequence,
+        left.fold_version,
+        left.model,
+        Codec.cursor_bytes(left.cursor),
+        Codec.seen_bytes(left.seen),
+        left.nonce,
+        left.digest
+      ],
+      log: false
+    )
+
+    before = snapshot(s)
+    assert {:conflict, %{expected: 0, observed: 2}} = Postgres.retain(s, "s", 0, 2, receipt.nonce)
+    assert snapshot(s) == before
+    assert {:committed, 2} = Log.confirm_retention(s, receipt)
+
+    # The next committed retention deletes it with the rest below its through.
+    assert {:committed, 3} = Postgres.retain(s, "s", 2, 3, <<23::128>>)
+    assert checkpoint_keys(s) == [["o", 1, 1], ["o", 1, 2], ["s", 3, 1]]
+    assert dead_checkpoints(prefix) == 0
+  end
+
+  test "ELZ-427 refused or conflicting retention deletes no checkpoint", %{store: s} do
+    rows = Enum.map(1..3, &row(&1, <<1::128>>, "s"))
+    item = Outbox.new("s", 3, 1, "sink", "effect", <<1::128>>)
+    assert {:committed, 3} = Postgres.append(s, "s", 0, rows, [item])
+
+    for c <- [checkpoint_at(rows, 1, 2, <<11::128>>), checkpoint_at(rows, 2, 1, <<12::128>>)],
+        do: assert({:committed, c.sequence} == Postgres.put_checkpoint(s, c))
+
+    before = snapshot(s)
+    assert {:rejected, :retention_beyond_checkpoint} = Postgres.retain(s, "s", 0, 3, <<20::128>>)
+    assert snapshot(s) == before
+    assert {:committed, 3} = Postgres.put_checkpoint(s, checkpoint_at(rows, 3, 1, <<13::128>>))
+    before = snapshot(s)
+
+    assert {:rejected, :retention_beyond_pending_outbox} =
+             Postgres.retain(s, "s", 0, 3, <<21::128>>)
+
+    assert {:conflict, %{expected: 1, observed: 0}} = Postgres.retain(s, "s", 1, 2, <<22::128>>)
+    assert snapshot(s) == before
+    assert {:committed, 2} = Postgres.retain(s, "s", 0, 2, <<23::128>>)
+    assert checkpoint_keys(s) == [["s", 2, 1], ["s", 3, 1]]
+  end
+
+  test "ELZ-427 a checkpoint below low-water is refused through Store.write and writes nothing",
+       %{store: s} do
+    %{rows: rows, a: a} = seed_retention(s)
+    assert {:committed, 2} = Postgres.retain(s, "s", 0, 2, <<30::128>>)
+    before = snapshot(s)
+    unused = checkpoint_at(rows, 1, 1, <<31::128>>)
+    replay = Log.replay([], 0, fold())
+
+    empty = %{
+      stream: "s",
+      sequence: 0,
+      fold_version: 1,
+      model: "0",
+      cursor: replay.cursor,
+      seen: replay.seen,
+      nonce: <<32::128>>
+    }
+
+    empty = Map.put(empty, :digest, Codec.hash(Codec.checkpoint_bytes(empty)))
+
+    # An unused key, the key that retention deleted, and sequence 0.
+    for c <- [unused, a, empty] do
+      assert {:rejected, :checkpoint_below_low_water} =
+               Store.write(s, :put_checkpoint, [c], put_request(c))
+    end
+
+    assert snapshot(s) == before
+    assert {:ok, :absent} = Postgres.read_checkpoint(s, "s", 1, 1)
+    at_low_water = checkpoint_at(rows, 2, 3, <<33::128>>)
+
+    assert {:committed, 2} =
+             Store.write(s, :put_checkpoint, [at_low_water], put_request(at_low_water))
+
+    rows = rows ++ [row(4, <<4::128>>, "s")]
+    assert {:committed, 4} = Postgres.append(s, "s", 3, [List.last(rows)], [])
+    above = checkpoint_at(rows, 4, 1, <<34::128>>)
+    assert {:committed, 4} = Store.write(s, :put_checkpoint, [above], put_request(above))
+    beyond = checkpoint_at(rows ++ [row(5, <<5::128>>, "s")], 5, 1, <<35::128>>)
+
+    assert {:rejected, :checkpoint_beyond_tail} =
+             Store.write(s, :put_checkpoint, [beyond], put_request(beyond))
+  end
+
+  test "ELZ-427 a put below through racing retention commits first and is deleted, or is refused after it",
+       %{store: s, prefix: prefix, controller: controller} do
+    for order <- [:put_first, :retain_first] do
+      stream = "race-#{order}"
+      rows = Enum.map(1..3, &row(&1, <<1::128>>, stream))
+      assert {:committed, 3} = Postgres.append(s, stream, 0, rows, [])
+      assert {:committed, 3} = Postgres.put_checkpoint(s, checkpoint(rows))
+      put = checkpoint(Enum.take(rows, 1))
+      from = length(PostgresHarness.history(controller))
+      token = make_ref()
+
+      # Each writer locks the head row first; the paused one holds it until release,
+      # so the other waits and runs its next statements after that COMMIT.
+      case order do
+        :put_first ->
+          PostgresHarness.hook(s, :inject, [:put_checkpoint, {:pause, token, :before_commit}])
+          assert {:indeterminate, _} = Postgres.put_checkpoint(s, put)
+
+          waiter =
+            Task.async(fn -> Postgres.retain(s, stream, 0, 2, :crypto.strong_rand_bytes(16)) end)
+
+          await_head_lock_wait(prefix)
+          assert {:committed, 1} = PostgresHarness.hook(s, :release, [token])
+          assert {:committed, 2} = Task.await(waiter, 15_000)
+
+          assert lock_order(controller, from) == [
+                   {:maintenance, :after_head_lock},
+                   {:put_checkpoint, :before_commit},
+                   {:maintenance, :after_head_lock},
+                   {:retain, :before_commit}
+                 ]
+
+        :retain_first ->
+          PostgresHarness.hook(s, :inject, [:retain, {:pause, token, :before_commit}])
+
+          assert {:indeterminate, _} =
+                   Postgres.retain(s, stream, 0, 2, :crypto.strong_rand_bytes(16))
+
+          waiter = Task.async(fn -> Store.write(s, :put_checkpoint, [put], put_request(put)) end)
+          await_head_lock_wait(prefix)
+          assert {:committed, 2} = PostgresHarness.hook(s, :release, [token])
+          assert {:rejected, :checkpoint_below_low_water} = Task.await(waiter, 15_000)
+
+          # The refused put rolls back after its head lock, before :before_commit.
+          assert lock_order(controller, from) == [
+                   {:maintenance, :after_head_lock},
+                   {:retain, :before_commit},
+                   {:maintenance, :after_head_lock}
+                 ]
+      end
+
+      assert {:ok, :absent} = Postgres.read_checkpoint(s, stream, 1, 1)
+      assert {:ok, %{sequence: 3}} = Postgres.latest_checkpoint(s, stream, 1)
+      assert {:ok, %{revision: 3, low_water: 2}} = Postgres.head(s, stream)
+      assert dead_checkpoints(prefix) == 0
+    end
+  end
+
+  test "ELZ-427 checkpoint fallback stops below low-water: no probe of pruned sequences", %{
+    store: s,
+    prefix: prefix
+  } do
+    parent = self()
+
+    reader =
+      Postgres.store(TestRepo,
+        prefix: String.trim(prefix, "\""),
+        fold: fold(),
+        limits: @limits,
+        test_read: fn operation ->
+          send(parent, {:store_read, operation})
+          :ok
+        end
+      )
+
+    # Valid checkpoints at N - 1 and N, the model at N rejected. Retained through N:
+    # the pruned result with no read_checkpoint call. Retained through N - 1: one
+    # read, of the checkpoint exactly at low-water, which seeds. Checkpoints at 4
+    # and 6 retained through 4: the probes run down to low-water and stop there.
+    for {checkpoints, through, probes} <- [{[5, 6], 6, 0}, {[5, 6], 5, 1}, {[4, 6], 4, 2}] do
+      stream = "fallback-#{through}"
+      rows = Enum.map(1..6, &row(&1, <<1::128>>, stream))
+      assert {:committed, 6} = Postgres.append(s, stream, 0, rows, [])
+
+      for n <- checkpoints,
+          do: assert({:committed, n} == Postgres.put_checkpoint(s, checkpoint(Enum.take(rows, n))))
+
+      assert {:committed, ^through} = Postgres.retain(s, stream, 0, through, <<9::128>>)
+      reject = fn b -> if b == "6", do: {:error, :rejected}, else: {:ok, String.to_integer(b)} end
+      result = Checkpoint.recover(reader, stream, fold(), 1, reject)
+
+      if probes == 0,
+        do: assert({:error, {:pruned, ^through}} = result),
+        else: assert(%{model: 6, cursor: {6, false, []}} = result)
+
+      assert drain_store_reads([]) ==
+               [:head, :latest_checkpoint] ++ List.duplicate(:read_checkpoint, probes) ++ [:read]
+    end
+  end
+
+  defp drain_store_reads(acc) do
+    receive do
+      {:store_read, operation} -> drain_store_reads([operation | acc])
+    after
+      0 -> Enum.reverse(acc)
     end
   end
 end

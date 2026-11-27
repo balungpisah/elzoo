@@ -1378,6 +1378,423 @@ defmodule Elzoo.RunApprovalReleaseTest do
     assert snapshot(p).effects == %{}
   end
 
+  # A Lease Adapter double for malformed renewal replies: each lease step and
+  # read runs on the PostgreSQL Adapter, then `mangle` rewrites the step's result.
+  defmodule MalformedRenewal do
+    def single(%{real: backend, mangle: mangle}, key, fun),
+      do: mangle.(Elzoo.Lease.Postgres.single(backend, key, fun))
+
+    def read(%{real: backend}, key), do: Elzoo.Lease.Postgres.read(backend, key)
+  end
+
+  @ttl 3_600_000
+
+  describe "lease_renewal" do
+    test "a write after renewal applies at the renewed revision", c do
+      p = owner(c)
+      {:held, held} = Lease.hold(c.lease, "runs", "owner")
+
+      assert {:ok, created, "run"} =
+               command(p, :create, %{
+                 operation_id: "operation",
+                 provider_refs: %{},
+                 expected_revision: held.live.revision
+               })
+
+      assert snapshot(p).current_attempt == nil
+      assert {:ok, renewed, %{until: until}} = Run.renew(p, @ttl)
+      # Read before the write and compared after it: an owner that kept the old
+      # token fails the write with {:refused, :conflict}.
+      reported = snapshot(p).revision
+
+      assert {:ok, begun, "attempt-1"} =
+               command(p, :begin_attempt, %{attempt_id: "attempt-1", expected_revision: reported})
+
+      assert reported == renewed and renewed == created + 1 and begun == renewed + 1
+
+      assert {:ok, done, :failed} =
+               command(p, :complete, %{
+                 attempt_id: "attempt-1",
+                 outcome: :failed,
+                 reason: nil,
+                 evidence_ref: nil,
+                 expected_revision: begun
+               })
+
+      assert done == begun + 1
+      assert {:ok, rows, %{revision: ^done}} = Elzoo.DurableLog.read(c.store, "runs", renewed, 10)
+      assert Enum.map(rows, & &1.kind) == ["lease_renewed", "run", "run"]
+
+      assert Enum.take(history(c), -2) == [
+               {:append, "runs", begun, {:attempt, "run", "attempt-1"}, {:committed, begun}},
+               {:append, "runs", done, {:terminal, "run", :failed, nil, nil, done},
+                {:committed, done}}
+             ]
+
+      assert {:held, %{owner: "owner", live: %{revision: ^done, until: ^until}}} =
+               Lease.hold(c.lease, "runs", "owner")
+    end
+
+    test "an expected revision from before this owner's renewals applies until a Run, child or death write",
+         c do
+      p = owner(c)
+      create(p, c)
+      base = snapshot(p).revision
+      assert {:ok, r1, _} = Run.renew(p, @ttl)
+      assert {:ok, r2, _} = Run.renew(p, @ttl)
+      assert {r1, r2} == {base + 1, base + 2}
+
+      run =
+        &command(
+          p,
+          :create,
+          %{operation_id: "operation", provider_refs: %{}, expected_revision: &1},
+          &2
+        )
+
+      # From before both renewals, no Run record since: applied on the newest token.
+      assert {:ok, created, "child"} = run.(base, "child")
+      assert created == r2 + 1
+      written = history(c)
+
+      for stale <- [base, r1, r2] do
+        assert {:refused, :conflict} = run.(stale, "other")
+      end
+
+      # Refused at admission: no append reached the Store.
+      assert history(c) == written
+      assert {:ok, r3, _} = Run.renew(p, @ttl)
+      assert {:ok, r4, _} = Run.renew(p, @ttl)
+      child = spawn(fn -> receive(do: (:stop -> :ok)) end)
+      attach = %{attempt_id: "attempt-1", child_run_id: "child", child_pid: child}
+      # The revision between two renewals is accepted too; the child write moves the floor.
+      assert {:ok, attached, "child"} =
+               command(p, :attach_child, Map.put(attach, :expected_revision, r3))
+
+      assert attached == r4 + 1
+      begin = &command(p, :begin_attempt, %{attempt_id: "attempt-2", expected_revision: &1})
+      for stale <- [r3, r4], do: assert({:refused, :conflict} = begin.(stale))
+      assert {:ok, r5, _} = Run.renew(p, @ttl)
+      send(child, :stop)
+      eventually(fn -> snapshot(p).children["child"].dead end)
+      dead = snapshot(p).revision
+      assert dead == r5 + 1
+      for stale <- [attached, r5], do: assert({:refused, :conflict} = begin.(stale))
+      assert {:ok, _, "attempt-2"} = begin.(dead)
+    end
+
+    test "another writer is not normalized: the held and the head revision both conflict", c do
+      p = owner(c)
+      create(p, c)
+      held = snapshot(p).revision
+
+      assert {:renewed, %{held: %{"runs" => outside}}} =
+               Lease.renew(c.lease, "owner", ["runs"], @ttl)
+
+      assert outside.live.revision == held + 1
+      begin = &command(p, :begin_attempt, %{attempt_id: "attempt-2", expected_revision: &1})
+      written = history(c)
+      # Admitted at the held revision, then fenced by the Store.
+      assert {:refused, :conflict} = begin.(held)
+      assert [{:append, "runs", _, nil, {:conflict, _}}] = Enum.drop(history(c), length(written))
+      written = history(c)
+      # Above the held revision: refused before any append.
+      assert {:refused, :conflict} = begin.(held + 1)
+      assert history(c) == written
+      assert snapshot(p).revision == held
+    end
+
+    test "a replacement accepts its startup fence but no revision before it", c do
+      p = owner(c)
+      create(p, c)
+      before = snapshot(p).revision
+      assert {:ok, renewed, _} = Run.renew(p, @ttl)
+      p = restart(c, p)
+      assert snapshot(p).revision == renewed
+      begin = &command(p, :begin_attempt, %{attempt_id: "attempt-2", expected_revision: &1})
+      written = history(c)
+      assert {:refused, :conflict} = begin.(before)
+      assert {:ok, again, _} = Run.renew(p, @ttl)
+      assert again == renewed + 1
+      assert {:refused, :conflict} = begin.(before)
+      assert history(c) == written
+      assert {:ok, _, "attempt-2"} = begin.(renewed)
+    end
+
+    test "a renewal after another claimant took the expired lease is lease_lost not_holder", c do
+      p = owner(c)
+      create(p, c)
+      assert {:ok, _, _} = Run.renew(p, 1)
+      eventually(fn -> match?({:ok, %{status: :stale}}, Lease.status(c.lease, "runs")) end)
+      assert {:held, other} = Lease.claim(c.lease, "runs", "other", @ttl)
+      written = history(c)
+      ref = Process.monitor(p)
+      assert {:refused, {:lease_lost, %{reason: :not_holder}}} = Run.renew(p, @ttl)
+
+      assert_receive {:DOWN, ^ref, :process, ^p,
+                      {:shutdown, {:lease_lost, %{reason: :not_holder, holder: "other"}}}}
+
+      assert {:ok, %{revision: revision}} = Store.read(c.store, :head, ["runs"])
+      assert revision == other.live.revision
+      assert history(c) == written
+    end
+
+    test "a renewal after expiry without a claimant is lease_lost stale", c do
+      p = owner(c)
+      create(p, c)
+      assert {:ok, renewed, _} = Run.renew(p, 1)
+      eventually(fn -> match?({:ok, %{status: :stale}}, Lease.status(c.lease, "runs")) end)
+      written = history(c)
+      ref = Process.monitor(p)
+      assert {:refused, {:lease_lost, %{reason: :stale}}} = Run.renew(p, @ttl)
+      assert_receive {:DOWN, ^ref, :process, ^p, {:shutdown, {:lease_lost, %{reason: :stale}}}}
+      assert {:ok, %{revision: ^renewed}} = Store.read(c.store, :head, ["runs"])
+      assert history(c) == written
+    end
+
+    test "a renewal outside the owner is detected, committed and not installed", c do
+      p = owner(c)
+      create(p, c)
+      held = snapshot(p).revision
+      assert {:renewed, %{held: %{"runs" => _}}} = Lease.renew(c.lease, "owner", ["runs"], @ttl)
+      written = history(c)
+      ref = Process.monitor(p)
+      # Lease.write/4's meaning: the revision held, and the head appended after.
+      facts = %{expected: held, observed: held + 1}
+      assert {:refused, {:fenced, ^facts}} = Run.renew(p, @ttl)
+      assert_receive {:DOWN, ^ref, :process, ^p, {:shutdown, {:fenced, ^facts}}}
+      # The detecting renewal committed after the outside one; nothing followed it.
+      assert {:ok, rows, %{revision: head}} = Elzoo.DurableLog.read(c.store, "runs", held + 1, 10)
+      assert head == held + 2
+      assert Enum.map(rows, & &1.kind) == ["lease_renewed", "lease_renewed"]
+      assert history(c) == written
+    end
+
+    test "a renewal unknown after commit stops the owner with its receipt", c do
+      lost = fn
+        :after_commit, _ -> raise "reply lost after commit"
+        _, _ -> :ok
+      end
+
+      {:ok, lease} = Lease.new(store: c.store, clock: :store, test_hook: lost)
+      p = owner(c, Keyword.put(c.opts, :lease, lease))
+      create(p, c)
+      before = snapshot(p).revision
+      ref = Process.monitor(p)
+      assert {:indeterminate, receipt} = Run.renew(p, @ttl)
+      assert_receive {:DOWN, ^ref, :process, ^p, {:shutdown, {:indeterminate, ^receipt}}}
+      assert {:committed, _} = Lease.confirm(c.lease, receipt)
+      renewed = before + 1
+      assert {:ok, %{revision: ^renewed}} = Store.read(c.store, :head, ["runs"])
+      p = owner(c, Keyword.put(c.opts, :reconcile, receipt))
+      assert snapshot(p).revision == renewed
+    end
+
+    test "a Memory renewal whose backend dies after the append is unknown without a receipt" do
+      Process.flag(:trap_exit, true)
+      test = self()
+      armed = :atomics.new(1, [])
+
+      hook = fn
+        :before_write, %{owner: backend} ->
+          if :atomics.exchange(armed, 1, 0) == 1 do
+            send(test, {:before_write, backend})
+
+            receive do
+              :continue -> :ok
+            after
+              5_000 -> raise "before_write seam not released"
+            end
+          end
+
+          :ok
+
+        _, _ ->
+          :ok
+      end
+
+      {:ok, memory} =
+        Elzoo.DurableLog.Memory.start_link(
+          fold: Run.fold(),
+          limits: Run.limits(),
+          append_visibility: :atomic
+        )
+
+      store = Elzoo.DurableLog.Memory.store(memory)
+      {:ok, clock} = Lease.Clock.manual(1_700_000_000_000_000)
+      {:ok, lease} = Lease.new(store: store, clock: {:manual, clock}, test_hook: hook)
+      assert {:held, held} = Lease.claim(lease, "runs", "owner", @ttl)
+      {:ok, p} = Run.start_link(store: store, lease: lease, held: held, effect_intent: %{})
+      # Memory errors before the append are definite: the token is kept.
+      :ok = Lease.Clock.fail(clock, true)
+      assert {:error, :clock_unavailable} = Run.renew(p, @ttl)
+      :ok = Lease.Clock.fail(clock, false)
+      :ok = Elzoo.DurableLog.Memory.fault(store, :head, :malformed)
+      assert {:error, :malformed} = Run.renew(p, @ttl)
+      assert {:ok, renewed, _} = Run.renew(p, @ttl)
+      assert renewed == held.live.revision + 1
+      # The next renewal queues its append at a suspended Store; the append
+      # commits while the backend is suspended, and the backend dies unreplied.
+      :atomics.put(armed, 1, 1)
+      renewal = Task.async(fn -> Run.renew(p, @ttl) end)
+      assert_receive {:before_write, backend}
+      :ok = :sys.suspend(memory)
+      send(backend, :continue)
+
+      eventually(fn ->
+        {:messages, queued} = Process.info(memory, :messages)
+        Enum.any?(queued, &match?({:"$gen_call", {^backend, _}, {:operation, :append, _}}, &1))
+      end)
+
+      true = :erlang.suspend_process(backend)
+      :ok = :sys.resume(memory)
+      committed = renewed + 1
+
+      assert {:ok, [%{kind: "lease_renewed"}], %{revision: ^committed}} =
+               Elzoo.DurableLog.read(store, "runs", committed, 10)
+
+      ref = Process.monitor(p)
+      Process.exit(backend, :kill)
+      assert Task.await(renewal) == {:unknown, :no_receipt}
+      assert_receive {:DOWN, ^ref, :process, ^p, {:shutdown, {:unknown, :no_receipt}}}
+    end
+
+    test "a definite no-write error keeps the token and the next command applies", c do
+      p = owner(c)
+      create(p, c)
+      revision = snapshot(p).revision
+
+      for ttl <- [0, 86_400_001, :hour] do
+        assert {:error, {:invalid, :ttl_ms}} = Run.renew(p, ttl)
+      end
+
+      break_schema(c)
+      assert {:error, {:schema, _}} = Run.renew(p, @ttl)
+      repair_schema(c)
+      assert {:ok, %{revision: ^revision}} = Store.read(c.store, :head, ["runs"])
+
+      assert {:ok, written, "attempt-2"} =
+               command(p, :begin_attempt, %{attempt_id: "attempt-2", expected_revision: revision})
+
+      assert written == revision + 1
+    end
+
+    test "a PostgreSQL lock timeout before the renewal append keeps the token", c do
+      {:ok, lease} = Lease.new(store: c.store, clock: :store, timeout_ms: 100)
+      p = owner(c, Keyword.put(c.opts, :lease, lease))
+      create(p, c)
+      revision = snapshot(p).revision
+      test = self()
+      heads = Postgres.identifier(c.prefix) <> ".elzoo_log_heads"
+
+      blocker =
+        Task.async(fn ->
+          c.repo.transaction(fn ->
+            SQL.query!(c.repo, "SELECT revision FROM #{heads} WHERE stream = 'runs' FOR UPDATE", [],
+              log: false
+            )
+
+            send(test, :locked)
+            receive(do: (:release -> :ok))
+          end)
+        end)
+
+      assert_receive :locked
+      assert {:error, :contended} = Run.renew(p, @ttl)
+      send(blocker.pid, :release)
+      assert {:ok, :ok} = Task.await(blocker)
+
+      assert {:ok, written, "attempt-2"} =
+               command(p, :begin_attempt, %{attempt_id: "attempt-2", expected_revision: revision})
+
+      assert written == revision + 1
+    end
+
+    test "a malformed renewal reply stops the owner without a receipt", c do
+      p = owner(c)
+      create(p, c)
+      GenServer.stop(p)
+
+      for mangle <- [
+            fn {:held, token} -> {:held, %{token | live: Map.delete(token.live, :until)}} end,
+            fn {:held, _} -> {:held, nil} end
+          ] do
+        backend = %{real: c.lease.backend, mangle: mangle}
+
+        p =
+          owner(
+            c,
+            Keyword.put(c.opts, :lease, %{c.lease | module: MalformedRenewal, backend: backend})
+          )
+
+        before = snapshot(p).revision
+        written = history(c)
+        ref = Process.monitor(p)
+        assert {:unknown, :no_receipt} = Run.renew(p, @ttl)
+        assert_receive {:DOWN, ^ref, :process, ^p, {:shutdown, {:unknown, :no_receipt}}}
+        # The renewal itself committed; the owner wrote nothing after it.
+        assert {:ok, %{revision: head}} = Store.read(c.store, :head, ["runs"])
+        assert head == before + 1
+        assert history(c) == written
+      end
+    end
+
+    test "commands after status reads never conflict with concurrent renewals", c do
+      p = owner(c)
+      create(p, c)
+      start = snapshot(p).revision
+
+      create_run = fn id, read ->
+        {read,
+         Run.command(p, %{
+           kind: :create,
+           run_id: id,
+           expected_revision: read,
+           operation_id: "operation",
+           provider_refs: %{}
+         })}
+      end
+
+      # Handshake: a status read, then a renewal by another process, then the command.
+      read = snapshot(p).revision
+      assert {:ok, renewal, _} = Task.await(Task.async(fn -> Run.renew(p, @ttl) end))
+      assert {^read, {:ok, write, "run-0"}} = create_run.("run-0", read)
+      assert {renewal, write} == {read + 1, read + 2}
+      # Free running: one process commands after status reads while another renews.
+      renewer = Task.async(fn -> renew_until_stopped(p, []) end)
+      commands = for i <- 1..30, do: create_run.("run-#{i}", snapshot(p).revision)
+      send(renewer.pid, :stop)
+      renewals = Task.await(renewer, 30_000)
+      assert Enum.all?(commands, &match?({_, {:ok, _, _}}, &1))
+      assert renewals != [] and Enum.all?(renewals, &match?({:ok, _, %{until: _}}, &1))
+      # Every Run append reached the Store on the newest token.
+      assert Enum.all?(
+               for {:append, "runs", t, _, result} <- history(c), do: result == {:committed, t}
+             )
+
+      assert {:ok, rows, %{revision: head}} = Elzoo.DurableLog.read(c.store, "runs", 1, 1_000)
+      assert Enum.map(rows, & &1.sequence) == Enum.to_list(1..head)
+      written = [write | for({_, {:ok, revision, _}} <- commands, do: revision)]
+      renewed = [renewal | for({:ok, revision, _} <- renewals, do: revision)]
+      assert Enum.sort(written ++ renewed) == Enum.to_list((start + 1)..head)
+
+      for row <- rows, row.sequence > start do
+        assert row.kind == if(row.sequence in written, do: "run", else: "lease_renewed")
+      end
+    end
+  end
+
+  # Renews at least once, then until it receives :stop.
+  defp renew_until_stopped(p, renewals) do
+    renewals = [Run.renew(p, @ttl) | renewals]
+
+    receive do
+      :stop -> Enum.reverse(renewals)
+    after
+      0 -> renew_until_stopped(p, renewals)
+    end
+  end
+
   defp resource_intent(id) do
     %{
       identity: ["tenant", "account", "adapter", "send", "resource/" <> id],
