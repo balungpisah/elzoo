@@ -116,7 +116,9 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   # The host is the caller that supervises its conversation owner: it starts
-  # the owner linked and stops it on terminate.
+  # the owner linked, restarts it from the validated stream when it exits
+  # (and stops itself when that restart fails, for its own supervisor to
+  # reopen), and stops it on terminate.
   defp conversation(store, profile) do
     case Conversation.start_link(
            store: store,
@@ -197,8 +199,12 @@ defmodule Elzoo.Wave4ChannelExample do
        when ambiguous in [:check, true],
        do: {:error, :ambiguous}
 
+  # A fresh reply executes against the event's resource, so the event must
+  # name this host's conversation before any check runs on that conversation:
+  # the same fixed-target rule as primary admission and reply release.
   defp existing_reply_or_capacity(state, event, operation_id, {:unknown, :not_observed}) do
-    with nil <- state.reply,
+    with :ok <- fixed_release_scope(state.profile, event),
+         nil <- state.reply,
          %{run_id: run_id} = current when not is_nil(current) <- state.current,
          :result <- state.phase,
          true <- is_nil(state.approval) and is_nil(state.poison),
@@ -473,6 +479,22 @@ defmodule Elzoo.Wave4ChannelExample do
     contain_native_exit(state, pid, reference, reason)
   end
 
+  # The conversation owner exited: a new owner reads and validates the whole
+  # stream again. Deliveries already proven stay proven, because they are in
+  # that stream; a delivery that the exit interrupted is unknown and is
+  # retried with its identical intent. When the restart fails, the host
+  # stops, for its own supervisor to reopen it.
+  def handle_info({:EXIT, pid, reason}, %{conversation: %{owner: pid}} = state) do
+    case conversation(state.conversation.store, state.profile) do
+      {:ok, conversation} ->
+        {:noreply, %{state | conversation: conversation}}
+
+      {:error, cause} ->
+        {:stop, {:conversation_owner, reason, cause},
+         %{state | conversation: %{state.conversation | owner: nil}}}
+    end
+  end
+
   def handle_info({:EXIT, pid, reason}, state) do
     contain_native_exit(state, pid, nil, reason)
   end
@@ -613,39 +635,49 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   # Admission governs commands that have not committed their writes. A
-  # command whose identity already holds a terminal or unresolved result is
-  # an idempotent re-execution of its own retained row, never a fresh claim
-  # of its message IDs, so the admitted-state check does not apply to it. An
-  # approval-pending command has committed nothing yet: admission still
-  # decides it, and its release revalidates against the state as it is then.
-  defp admission_fresh?(state, operation_id) do
+  # command whose identity already holds a retained outcome (completed,
+  # denied, conflicted or refused) is an idempotent re-execution of its own
+  # row, never a fresh claim of its message IDs, so the admitted-state check
+  # does not apply to it. An approval-pending command has committed nothing
+  # yet: admission still decides it, and its release revalidates against the
+  # state as it is then. Anything else, a storage or history read failure
+  # included, proves neither and fails closed.
+  defp admission_freshness(state, operation_id) do
     case CheckedCommand.result(
            state.handles.input,
            result_scope(state.profile),
            {state.profile.tenant, state.profile.actor, operation_id}
          ) do
-      {:unknown, :not_observed} -> true
-      {:approval_pending, _} -> true
-      _ -> false
+      {:unknown, :not_observed} -> :fresh
+      {:approval_pending, _} -> :fresh
+      outcome -> if retained_outcome?(outcome), do: :retained, else: :unknown
     end
   rescue
-    _ -> false
+    _ -> :unknown
   catch
-    _, _ -> false
+    _, _ -> :unknown
   end
+
+  defp retained_outcome?({:completed, result}) when is_map(result), do: true
+  defp retained_outcome?({:denied, {:gate, _}}), do: true
+  defp retained_outcome?({:denied, {:authorization, _}}), do: true
+  defp retained_outcome?({:conflict, :stale_revision}), do: true
+  defp retained_outcome?({:conflict, {:domain, _}}), do: true
+  defp retained_outcome?({:refused, :domain_failure}), do: true
+  defp retained_outcome?(_), do: false
 
   # Before a Conversation-writing command commits, its exact intent must be a
   # new admissible record after this conversation's earlier committed,
   # undelivered intents, which must all still be admissible or present
   # (`Elzoo.Conversation.check/2`). An `{:ok, :already_present}` candidate is
   # a conflict: delivery of an earlier command is not admission for this one.
-  # A command whose identity is already recorded is its own re-execution and
-  # is exempt.
+  # A command whose identity holds a retained outcome is its own re-execution
+  # and is exempt; an unreadable identity is `{:error, :unknown}`.
   defp admission_intent(state, request, facts) do
-    if admission_fresh?(state, request.operation_id) do
-      admission_check(state, request, facts)
-    else
-      :ok
+    case admission_freshness(state, request.operation_id) do
+      :fresh -> admission_check(state, request, facts)
+      :retained -> :ok
+      :unknown -> {:error, :unknown}
     end
   end
 
@@ -1359,6 +1391,9 @@ defmodule Elzoo.Wave4ChannelExample do
   defp advance_once(%{poison: {:reply_ack, key, nonce, _}} = state),
     do: reconcile_reply_ack(state, key, nonce)
 
+  defp advance_once(%{poison: {:reply_custody, operation}} = state),
+    do: reconcile_reply_custody(state, operation)
+
   defp advance_once(%{poison: {:reply_release_live, operation}} = state),
     do: reconcile_v2_release(state, :reply, operation)
 
@@ -1419,8 +1454,11 @@ defmodule Elzoo.Wave4ChannelExample do
   defp advance_once(%{poison: {:answer, _}} = state),
     do: reconcile_answer(state)
 
-  defp advance_once(%{poison: {:delivery, key, _reason}} = state),
-    do: deliver_retry(state, key)
+  defp advance_once(%{poison: {:delivery, _key, _reason}} = state),
+    do: deliver_retry(state)
+
+  defp advance_once(%{poison: {:delivery_ack, key, nonce, _reason}} = state),
+    do: confirm_delivery_ack(state, key, nonce)
 
   defp advance_once(%{poison: {:delivery_refused, _key, code}} = state),
     do: {{:blocked, {:delivery_refused, code}}, state}
@@ -1468,18 +1506,53 @@ defmodule Elzoo.Wave4ChannelExample do
   # original key and nonce once their append is proven; primary and reply
   # input items stay pending, marked delivered, until their native-work
   # custody and teardown checks complete. A retried poisoned delivery runs
-  # the identical intent again before anything else.
-  defp deliver_retry(state, key) do
+  # the identical intent again before anything else. When the window itself
+  # cannot be read, nothing was delivered: the unknown delivery stays the
+  # retry state, discovery is retried on the next advance and no later work
+  # of this conversation runs meanwhile.
+  defp deliver_retry(%{poison: retry} = state) do
     case deliver_pending(%{state | poison: nil}) do
       {:ok, state} ->
         advance_once(state)
 
+      {:error, %{poison: {:input_observation, cause}} = failed, reply}
+      when cause in [:read, :exception, :exit] ->
+        {reply, %{failed | poison: retry}}
+
       {:error, state, reply} ->
-        case state.poison do
-          {:delivery, ^key, _} -> {reply, state}
-          _ -> {reply, state}
-        end
+        {reply, state}
     end
+  end
+
+  # The append of a delivery-only item is proven and only its acknowledgement
+  # is unknown. Its original key and nonce decide before anything advances:
+  # an acknowledgement with that nonce is confirmed, a still-pending item is
+  # acknowledged again with it, and an item acknowledged with another nonce
+  # stays fenced. An unreadable item keeps the acknowledgement unknown.
+  defp confirm_delivery_ack(state, key, nonce) do
+    case read_original_item(state, key, @delivery_destination) do
+      {:ok, %{state: :acked, nonce: ^nonce, ack_nonce: ^nonce}} ->
+        advance_once(%{state | poison: nil})
+
+      {:ok, %{state: :acked, nonce: ^nonce}} ->
+        {{:blocked, :delivery_ack_superseded}, state}
+
+      {:ok, %{state: :pending, nonce: ^nonce}} ->
+        case acknowledge_original_item(state, key, nonce, @delivery_destination) do
+          :ok ->
+            advance_once(%{state | poison: nil})
+
+          {:error, reason} ->
+            {{:unknown, :delivery}, %{state | poison: {:delivery_ack, key, nonce, reason}}}
+        end
+
+      _ ->
+        {{:unknown, :delivery}, state}
+    end
+  rescue
+    _ -> {{:unknown, :delivery}, state}
+  catch
+    _, _ -> {{:unknown, :delivery}, state}
   end
 
   defp deliver_then_step(state) do
@@ -1588,10 +1661,12 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   # A proven append: delivery-only items are acknowledged at once with their
-  # original key and nonce; primary and reply items stay pending, recorded in
-  # `delivered` with the conversation sequence when it is known (an
-  # `already_present` redelivery proves delivery without the sequence, which
-  # the association facts scan for when they need it).
+  # original key and nonce, and an unknown acknowledgement keeps both, so the
+  # next advance confirms exactly that acknowledgement before anything else;
+  # primary and reply items stay pending, recorded in `delivered` with the
+  # conversation sequence when it is known (an `already_present` redelivery
+  # proves delivery without the sequence, which the association facts scan
+  # for when they need it).
   defp delivery_proven(state, item, sequence) do
     if item.destination == @delivery_destination do
       case acknowledge_original_item(state, item.idempotency_key, item.nonce, @delivery_destination) do
@@ -1601,7 +1676,7 @@ defmodule Elzoo.Wave4ChannelExample do
         {:error, reason} ->
           fail_delivery(
             state,
-            {:delivery, item.idempotency_key, {:ack, reason}},
+            {:delivery_ack, item.idempotency_key, item.nonce, reason},
             {:unknown, :delivery}
           )
       end
@@ -1700,15 +1775,26 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
+  # The sequence of the delivered record, as the delivery itself would have
+  # remembered it; message readers that need the entry use `scan_pages/4`.
   defp conversation_sequence(state, message_id, kinds) do
     reference = %{
       target_tenant: state.profile.tenant,
       conversation_id: state.profile.conversation_id
     }
 
-    scan_pages(state, reference, 1, fn entry ->
-      entry.kind in kinds and entry.message_id == message_id
-    end)
+    case scan_pages(state, reference, 1, fn entry ->
+           entry.kind in kinds and entry.message_id == message_id
+         end) do
+      {:ok, %{sequence: sequence}} when is_integer(sequence) and sequence >= 1 ->
+        {:ok, sequence}
+
+      {:ok, _entry} ->
+        {:error, :damaged}
+
+      error ->
+        error
+    end
   end
 
   # Scan the conversation forward in bounded pages until `match?` holds for
@@ -2166,6 +2252,7 @@ defmodule Elzoo.Wave4ChannelExample do
              state,
              metadata_key,
              association_operation,
+             reply_operation,
              result.revision,
              ticket,
              run_id,
@@ -2213,6 +2300,7 @@ defmodule Elzoo.Wave4ChannelExample do
          state,
          nil,
          operation,
+         _reply_operation,
          _revision,
          ticket,
          run_id,
@@ -2234,10 +2322,13 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
+  # Reply facts in the resource come from the reply association, or, for a
+  # terminal reply acknowledged without one, from the reply custody command.
   defp retained_reply_association(
          state,
          key,
          operation,
+         reply_operation,
          revision,
          ticket,
          run_id,
@@ -2256,12 +2347,38 @@ defmodule Elzoo.Wave4ChannelExample do
            do: {:ok, association_revision},
            else: {:error, :association}
 
+      {:unknown, :not_observed} ->
+        if reply_custody_recorded?(state, reply_operation, ticket, run_id) and
+             not conversation_association?(state, ticket, run_id),
+           do: {:ok, nil},
+           else: {:error, :association}
+
       _ ->
         {:error, :association}
     end
   end
 
-  defp retained_reply_association(_, _, _, _, _, _, _), do: {:error, :association}
+  defp retained_reply_association(_, _, _, _, _, _, _, _), do: {:error, :association}
+
+  defp reply_custody_recorded?(state, reply_operation, ticket, run_id) do
+    case CheckedCommand.result(
+           state.handles.reply_custody,
+           result_scope(state.profile),
+           {state.profile.tenant, state.profile.actor,
+            reply_custody_operation(reply_operation, ticket, state.profile)}
+         ) do
+      {:completed, %{response: {:record, fields}}} ->
+        Map.new(fields) |> Map.take(["message_id", "run_id"]) ==
+          %{"message_id" => {:text, ticket}, "run_id" => {:text, run_id}}
+
+      _ ->
+        false
+    end
+  rescue
+    _ -> false
+  catch
+    _, _ -> false
+  end
 
   defp recover_input(state, item) do
     with true <-
@@ -3772,18 +3889,36 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp acknowledge_reply(state), do: acknowledge_reply_v2(state)
 
-  defp acknowledge_reply_v2(%{reply: %{item: item}, current: current} = state)
+  # The reply item is acknowledged only after its custody facts (original key
+  # and nonce, and the reply input's conversation sequence) are persisted in
+  # the channel resource. The reply association records them on every round
+  # that reaches it; a terminal reply acknowledged without that association
+  # records them first with the reply custody command, one advance before
+  # the acknowledgement.
+  defp acknowledge_reply_v2(%{reply: %{item: item} = reply, current: current} = state)
        when is_map(item) and is_map(current) and
               (not is_nil(current.answer) or not is_nil(current.terminal)) do
     key = item.idempotency_key
     nonce = item.nonce
 
-    case acknowledge_original_item(state, key, nonce, @reply_destination) do
-      :ok ->
-        {{:reply_acknowledged, key}, %{state | phase: :ack}}
+    case reply_custody_state(state, reply, current) do
+      :persisted ->
+        case acknowledge_original_item(state, key, nonce, @reply_destination) do
+          :ok ->
+            {{:reply_acknowledged, key}, %{state | phase: :ack}}
 
-      {:error, reason} ->
-        {{:unknown, :reply_ack}, %{state | poison: {:reply_ack, key, nonce, reason}}}
+          {:error, reason} ->
+            {{:unknown, :reply_ack}, %{state | poison: {:reply_ack, key, nonce, reason}}}
+        end
+
+      {:record, sequence, snapshot} when not is_nil(current.terminal) ->
+        record_reply_custody(state, reply, current, sequence, snapshot)
+
+      :unavailable ->
+        {{:error, :unavailable}, state}
+
+      _ ->
+        {{:blocked, :reply_custody}, %{state | poison: {:reply_custody_mismatch, key}}}
     end
   rescue
     _ ->
@@ -3796,6 +3931,103 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp acknowledge_reply_v2(state), do: {{:blocked, :reply_state}, state}
+
+  # The current Run's custody facts as the channel resource holds them:
+  # `:persisted` when they name this reply item with its sequence, `{:record,
+  # sequence, snapshot}` when they hold no reply yet, `:mismatch` for other
+  # facts and `:unavailable` when the resource or the delivered reply input
+  # cannot be read.
+  defp reply_custody_state(state, reply, current) do
+    item = reply.item
+
+    with {:ok, snapshot} <-
+           CheckedCommand.resource(
+             state.handles.input,
+             resource_scope(state.profile),
+             state.profile.conversation_id
+           ),
+         {:ok, metadata} when is_map(metadata) <-
+           Intents.metadata(snapshot.fields, state.profile.tenant),
+         true <- metadata.run_id == current.run_id and metadata.primary_key == current.item.key,
+         {:ok, sequence} <- input_sequence(state, item.idempotency_key, reply.ticket) do
+      cond do
+        is_nil(metadata.reply_key) ->
+          {:record, sequence, snapshot}
+
+        metadata.reply_key == item.idempotency_key and metadata.reply_nonce == item.nonce and
+            metadata.reply_sequence == sequence ->
+          :persisted
+
+        true ->
+          :mismatch
+      end
+    else
+      false -> :mismatch
+      {:ok, nil} -> :mismatch
+      {:error, :metadata} -> :mismatch
+      _ -> :unavailable
+    end
+  end
+
+  defp record_reply_custody(state, reply, current, sequence, snapshot) do
+    operation = reply_custody_operation(reply.operation_id, reply.ticket, state.profile)
+
+    request =
+      command_request(
+        state.profile,
+        state.profile.conversation_id,
+        snapshot.revision,
+        operation,
+        %{"message_id" => reply.ticket}
+      )
+
+    facts =
+      reply_custody_facts(
+        current.run_id,
+        current.item.key,
+        reply.item.idempotency_key,
+        reply.item.nonce,
+        sequence
+      )
+
+    case execute_checked(state, :reply_custody, reply.event, request, facts) do
+      {:completed, %{revision: revision}} when revision == snapshot.revision + 1 ->
+        {{:reply_custody, revision}, state}
+
+      {:unavailable, _} ->
+        {{:error, :unavailable}, state}
+
+      {:unknown, _} ->
+        {{:unknown, :reply_custody}, %{state | poison: {:reply_custody, operation}}}
+
+      other ->
+        {{:blocked, :reply_custody}, %{state | poison: {:reply_custody_refused, other}}}
+    end
+  end
+
+  # An unknown custody command is resolved by its own retained result: a
+  # completed command lets the acknowledgement proceed, an unobserved one is
+  # executed again with the identical operation on the next advance.
+  defp reconcile_reply_custody(state, operation) do
+    case CheckedCommand.result(
+           state.handles.reply_custody,
+           result_scope(state.profile),
+           {state.profile.tenant, state.profile.actor, operation}
+         ) do
+      {:completed, %{revision: revision}} ->
+        {{:reply_custody, revision}, %{state | poison: nil}}
+
+      {:unknown, :not_observed} ->
+        {{:unknown, :reply_custody}, %{state | poison: nil}}
+
+      _ ->
+        {{:unknown, :reply_custody}, state}
+    end
+  rescue
+    _ -> {{:unknown, :reply_custody}, state}
+  catch
+    _, _ -> {{:unknown, :reply_custody}, state}
+  end
 
   defp acknowledge(state) do
     c = state.current
@@ -4503,7 +4735,9 @@ defmodule Elzoo.Wave4ChannelExample do
              state.profile.conversation_id
            ) do
       prepared =
-        Intents.prepare(snapshot, request, prepare_facts(state.profile, facts))
+        if mode == :reply_custody,
+          do: Intents.prepare_custody(snapshot, request, prepare_facts(state.profile, facts)),
+          else: Intents.prepare(snapshot, request, prepare_facts(state.profile, facts))
 
       writes =
         case prepared do
@@ -4839,7 +5073,7 @@ defmodule Elzoo.Wave4ChannelExample do
   defp handles?(handles, profile) do
     required =
       if reply_profile?(profile),
-        do: [:input, :reply_input, :association, :reply_association, :answer],
+        do: [:input, :reply_input, :association, :reply_association, :answer, :reply_custody],
         else: [:input, :association, :answer]
 
     Enum.all?(required, &match?(%CheckedCommand.Handle{}, handles[&1]))
@@ -5533,6 +5767,17 @@ defmodule Elzoo.Wave4ChannelExample do
         "completed" => completed
       })
 
+  defp reply_custody_facts(run_id, primary_key, reply_key, reply_nonce, reply_sequence),
+    do:
+      portable_facts(%{
+        "mode" => {:text, "record_reply_custody"},
+        "run_id" => {:text, run_id},
+        "primary_key" => {:text, primary_key},
+        "reply_key" => {:text, reply_key},
+        "reply_nonce" => {:bytes, reply_nonce},
+        "reply_sequence" => reply_sequence
+      })
+
   defp portable_facts(fields), do: {:record, Enum.sort_by(fields, &elem(&1, 0))}
 
   defp prepare_facts(profile, facts),
@@ -5559,6 +5804,9 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp answer_operation(operation, input_id, profile),
     do: stable_id("answer", [profile.tenant, profile.actor, operation, input_id])
+
+  defp reply_custody_operation(reply_operation, ticket, profile),
+    do: stable_id("reply-custody", [profile.tenant, profile.actor, reply_operation, ticket])
 
   defp answer_id(input_id), do: stable_id("answer-message", [input_id])
 
@@ -6241,6 +6489,8 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
              primary_result.revision,
              reply_result.revision
            ),
+         :ok <-
+           delivered_associations(conv_store, profile, metadata, primary.input_id, ticket, run_id),
          {:ok, text} <-
            conversation_text(conv_store, profile, ticket, metadata) do
       {:ok,
@@ -6337,6 +6587,58 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
 
       _ ->
         false
+    end
+  end
+
+  # The committed association receipts are not visibility: the reply is an
+  # event only once both input-to-Run associations of the round are delivered
+  # to the conversation. Both follow the primary input, so the bounded page
+  # scan starts at its custody sequence.
+  defp delivered_associations(store, profile, metadata, primary_id, ticket, run_id) do
+    reference = %{target_tenant: profile.tenant, conversation_id: profile.conversation_id}
+
+    with from when is_integer(from) and from >= 1 <- metadata.primary_sequence do
+      scan_associations(
+        store,
+        profile,
+        reference,
+        from,
+        MapSet.new([{primary_id, run_id}, {ticket, run_id}])
+      )
+    else
+      _ -> {:error, :association}
+    end
+  rescue
+    _ -> {:error, :association}
+  catch
+    _, _ -> {:error, :association}
+  end
+
+  defp scan_associations(store, profile, reference, from, wanted) do
+    case Conversation.page(store, resource_scope(profile), reference, from, 1_000) do
+      {:ok, %{revision: revision, entries: entries}} ->
+        remaining =
+          Enum.reduce(entries, wanted, fn
+            %{kind: :association, input_message_id: id, run_id: run}, acc ->
+              MapSet.delete(acc, {id, run})
+
+            _entry, acc ->
+              acc
+          end)
+
+        cond do
+          MapSet.size(remaining) == 0 ->
+            :ok
+
+          entries != [] and revision >= from + length(entries) ->
+            scan_associations(store, profile, reference, from + length(entries), remaining)
+
+          true ->
+            {:error, :association}
+        end
+
+      _ ->
+        {:error, :association}
     end
   end
 
@@ -6486,8 +6788,10 @@ defmodule Elzoo.Wave4ChannelExample.Intents do
   The version 2 associations also write the `"wave4_reply"` custody facts: the
   Run, the primary input and the original key and nonce of its outbox item,
   and after the reply association the reply ticket, the original key and nonce
-  of the reply item and the reply's conversation sequence. The channel resource
-  holds them independently of compactable CheckedCommand rows.
+  of the reply item and the reply's conversation sequence. A terminal reply
+  that is acknowledged without a reply association records the same reply
+  facts with `prepare_custody/3` first. The channel resource holds them
+  independently of compactable CheckedCommand rows.
   """
   alias Elzoo.Conversation.Record
   alias Elzoo.Outbox
@@ -6519,6 +6823,52 @@ defmodule Elzoo.Wave4ChannelExample.Intents do
   catch
     _, _ -> {:refused, "invalid_request"}
   end
+
+  @doc """
+  Prepare the reply custody command of a terminal reply round: it completes
+  the current Run's `"wave4_reply"` facts with the reply item's original key
+  and nonce and the reply input's conversation sequence, binds no
+  Conversation intent and has no outbox item. `{:ok, writes, response}` or
+  `{:refused, code}`.
+  """
+  def prepare_custody(snapshot, request, %{data: {:record, pairs}} = facts)
+      when is_list(pairs) do
+    fields = Map.new(pairs)
+
+    with true <- map_size(fields) == length(pairs),
+         {:text, "record_reply_custody"} <- fields["mode"],
+         %{"message_id" => ticket} = payload when map_size(payload) == 1 <- request.payload,
+         true <- Record.id?(ticket),
+         {:text, run_id} <- fields["run_id"],
+         {:ok, %{reply_key: _} = custody} <- association_custody(fields, facts.tenant),
+         {:ok, %{reply_key: nil, run_id: ^run_id} = metadata} <-
+           snapshot_metadata(snapshot, facts),
+         true <- metadata.primary_key == custody.primary_key do
+      next =
+        Map.merge(metadata, %{
+          reply_key: custody.reply_key,
+          reply_nonce: custody.reply_nonce,
+          reply_sequence: custody.reply_sequence
+        })
+
+      revision = request.expected_revision + 1
+
+      {:ok, [%{target: request.resource, field: @metadata_field, value: metadata_record(next)}],
+       record([
+         {"message_id", {:text, ticket}},
+         {"revision", revision},
+         {"run_id", {:text, run_id}}
+       ])}
+    else
+      _ -> {:refused, "invalid_facts"}
+    end
+  rescue
+    _ -> {:refused, "invalid_request"}
+  catch
+    _, _ -> {:refused, "invalid_request"}
+  end
+
+  def prepare_custody(_, _, _), do: {:refused, "invalid_facts"}
 
   @doc """
   The intent that a command with this request and these prepare facts
@@ -6965,11 +7315,13 @@ end
 
 defmodule Elzoo.Wave4ChannelExample.CommandBindings do
   @moduledoc """
-  The channel's CheckedCommand handles. Every command writes the channel-owned
-  resource through `Elzoo.Wave4ChannelExample.Intents.prepare/3`; the inputs
-  notify their own destinations and the associations and answers the delivery
-  destination, so each Conversation-writing command has an outbox item that
-  the channel delivers.
+  The channel's CheckedCommand handles. Every Conversation-writing command
+  writes the channel-owned resource through
+  `Elzoo.Wave4ChannelExample.Intents.prepare/3`; the inputs notify their own
+  destinations and the associations and answers the delivery destination, so
+  each Conversation-writing command has an outbox item that the channel
+  delivers. The reply profile's custody command writes only the reply
+  custody facts through `Intents.prepare_custody/3` and has no outbox item.
   """
   alias Elzoo.{CheckedCommand, PayloadSchema}
   alias Elzoo.Wave4ChannelExample.Intents
@@ -7026,6 +7378,8 @@ defmodule Elzoo.Wave4ChannelExample.CommandBindings do
          {:ok, reply_association_schema} <-
            command_schema("wave4/channel-reply-association", ["message_id"]),
          {:ok, answer_schema} <- command_schema("wave4/channel-answer", ["message_id", "text"]),
+         {:ok, reply_custody_schema} <-
+           command_schema("wave4/channel-reply-custody", ["message_id"]),
          {:ok, input} <-
            CheckedCommand.new(
              store,
@@ -7061,6 +7415,17 @@ defmodule Elzoo.Wave4ChannelExample.CommandBindings do
            CheckedCommand.new(
              store,
              descriptor("wave4/answer", answer_schema, @delivery_destination, always_allow)
+           ),
+         {:ok, reply_custody} <-
+           CheckedCommand.new(
+             store,
+             descriptor(
+               "wave4/reply-custody",
+               reply_custody_schema,
+               nil,
+               always_allow,
+               &Intents.prepare_custody/3
+             )
            ) do
       {:ok,
        %{
@@ -7068,7 +7433,8 @@ defmodule Elzoo.Wave4ChannelExample.CommandBindings do
          reply_input: reply_input,
          association: association,
          reply_association: reply_association,
-         answer: answer
+         answer: answer,
+         reply_custody: reply_custody
        }}
     else
       _ -> {:error, :commands}
@@ -7096,7 +7462,10 @@ defmodule Elzoo.Wave4ChannelExample.CommandBindings do
 
   # Version 2: the preparation now binds an intent instead of rewriting a
   # conversation field, and the descriptor identity changes with it.
-  defp descriptor(id, %{port: port, compiled: schema}, outbox, gate) do
+  defp descriptor(id, schema, outbox, gate),
+    do: descriptor(id, schema, outbox, gate, &Intents.prepare/3)
+
+  defp descriptor(id, %{port: port, compiled: schema}, outbox, gate, prepare) do
     %{
       id: id,
       version: 2,
@@ -7104,7 +7473,7 @@ defmodule Elzoo.Wave4ChannelExample.CommandBindings do
       effect_class: "conversation.write",
       port: port,
       schema: schema,
-      prepare: &Intents.prepare/3,
+      prepare: prepare,
       gate: %{call: gate},
       approval: %{verifiers: ["wave4-command-approver"], max_age: 60_000},
       outbox: outbox

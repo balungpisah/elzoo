@@ -57,14 +57,17 @@ timeout in milliseconds (default 30,000).
     `already_answered`.
 
   A message ID is unique across all roles: the same ID with other content is
-  `"duplicate_message_id"`.
+  `"duplicate_message_id"`. Before it refuses, the owner reads the rows after
+  its head, as after a lost compare-and-set, and decides once more, because
+  rows that another writer appended can make the same record identical or
+  admissible: a refusal is decided on the history as of that read.
 - `{:error, :contended}`: the Store's head compare-and-set lost 9 times in one
   call (the bound is 8 retries). On each loss the owner reads only the rows
   after its head, folds them and decides again; nothing was appended.
 - `{:error, :unavailable}` or `{:error, :damaged}`: the refresh after a lost
-  compare-and-set could not read the Store, or found a row that fails
-  validation; nothing was appended by this call. The owner keeps its last
-  validated model, and each later refresh tries again.
+  compare-and-set or before a refusal could not read the Store, or found a
+  row that fails validation; nothing was appended by this call. The owner
+  keeps its last validated model, and each later refresh tries again.
 - `{:error, :rejected}`: the Store definitively rejected the append (for
   example a sequence beyond the signed 64-bit range); nothing was appended.
 - `{:unknown, :unresolved}`: the append was indeterminate and could not be
@@ -78,7 +81,7 @@ timeout in milliseconds (default 30,000).
 
 ### check
 
-`check(owner, intents)` takes a non-empty list of at most 1,000
+`check(owner, intents)` takes a non-empty proper list of
 `{:input | :association | :answer, dto}` in command sequence order: a
 conversation's earlier committed but undelivered intents, then the candidate.
 The owner first reads and folds the rows after its head, exactly as after a

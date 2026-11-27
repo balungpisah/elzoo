@@ -76,6 +76,44 @@ defmodule Elzoo.ConversationStoreTest do
     end)
   end
 
+  test "a refusal is decided after reading the rows another owner appended" do
+    H.each_store(fn _kind, store ->
+      stale = H.owner!(store)
+      writer = H.owner!(store)
+
+      assert {:ok, %{sequence: 1}} = Conversation.append_input(writer, H.input("i1"))
+
+      assert {:ok, %{sequence: 2}} =
+               Conversation.associate_run(writer, H.association("i1", "run-1"))
+
+      assert {:ok, %{sequence: 3}} =
+               Conversation.append_answer(writer, H.answer("a1", "i1", "run-1"))
+
+      # The stale owner has read none of rows 1..3. On its own model the answer
+      # retried with completed: false would be run_not_completed; on the rows
+      # after its head it is the identical record.
+      assert {:ok, :already_present} =
+               Conversation.append_answer(stale, H.answer("a1", "i1", "run-1", completed: false))
+
+      # A refusal on a stale model that newer rows make admissible is admitted:
+      # the input exists once the owner reads past its head.
+      late = H.owner!(store)
+      assert {:ok, %{sequence: 4}} = Conversation.append_input(writer, H.input("i2"))
+
+      assert {:ok, %{sequence: 5}} =
+               Conversation.associate_run(late, H.association("i2", "run-2"))
+
+      # A refusal that the newer rows confirm stays a refusal.
+      assert {:ok, %{sequence: 6}} = Conversation.append_input(writer, H.input("i3"))
+
+      assert {:refused, "duplicate_message_id"} =
+               Conversation.append_input(stale, H.input("i3", text: "other"))
+
+      assert H.head!(store).revision == 6
+      Enum.each([stale, writer, late], &GenServer.stop/1)
+    end)
+  end
+
   test "concurrent appends from independent owners keep contiguous sequences and lose no message" do
     H.each_store(fn _kind, store ->
       owners = for _ <- 1..4, do: H.owner!(store)
@@ -217,7 +255,16 @@ defmodule Elzoo.ConversationStoreTest do
       assert {:error, :invalid_request} = Conversation.check(owner, :not_a_list)
 
       assert {:error, :invalid_request} =
-               Conversation.check(owner, List.duplicate({:input, H.input("x")}, 1_001))
+               Conversation.check(owner, [{:input, H.input("x")} | :tail])
+
+      # No intent count bound: a chain longer than any page is decided in full.
+      before = H.head!(store)
+      chain = for n <- 1..2_500, do: {:input, H.input("chain-#{n}")}
+      assert {:ok, decisions} = Conversation.check(owner, chain ++ [{:input, H.input("chain-1")}])
+      assert length(decisions) == 2_501
+      assert Enum.take(decisions, 2_500) == List.duplicate(:ok, 2_500)
+      assert List.last(decisions) == {:ok, :already_present}
+      assert H.head!(store) == before
     end)
   end
 

@@ -357,16 +357,21 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     }
   end
 
-  def reply_listeners!(fixture) do
-    primary = listener!(fixture)
+  # `options` are applied to both listeners, for example a `webhook_principal`
+  # whose trusted scope grants more resources than the profile's conversation.
+  def reply_listeners!(fixture, options \\ []) do
+    primary = listener!(fixture, options)
 
     reply =
-      listener!(fixture,
-        source_id: fixture.profile.reply_source_id,
-        signing_key: @reply_signing_key,
-        admit: fn event, trusted ->
-          Elzoo.Wave4ChannelExample.admit_reply(fixture.host, event, trusted)
-        end
+      listener!(
+        fixture,
+        Keyword.merge(options,
+          source_id: fixture.profile.reply_source_id,
+          signing_key: @reply_signing_key,
+          admit: fn event, trusted ->
+            Elzoo.Wave4ChannelExample.admit_reply(fixture.host, event, trusted)
+          end
+        )
       )
 
     {primary, reply}

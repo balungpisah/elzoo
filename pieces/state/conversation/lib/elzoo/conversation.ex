@@ -23,7 +23,6 @@ defmodule Elzoo.Conversation do
   @max_conflicts 8
   @read_page 1_000
   @max_count 1_000
-  @max_intents 1_000
   @max_resources 64
   @max_sequence 9_223_372_036_854_775_807
 
@@ -47,8 +46,8 @@ defmodule Elzoo.Conversation do
     do: write(owner, :answer, dto, timeout)
 
   @doc """
-  Decide intents in order without appending. `intents` is a non-empty list of
-  at most 1,000 `{:input | :association | :answer, dto}`. Returns
+  Decide intents in order without appending. `intents` is a non-empty proper
+  list of `{:input | :association | :answer, dto}`. Returns
   `{:ok, decisions}` with one `:ok`, `{:ok, :already_present}` or
   `{:refused, code}` per intent, or
   `{:error, :invalid_request | :timeout | :unavailable | :damaged}`.
@@ -170,7 +169,7 @@ defmodule Elzoo.Conversation do
   end
 
   defp prepare(intents) do
-    with {:ok, intents} <- bounded_list(intents, @max_intents),
+    with true <- proper_list?(intents),
          true <- intents != [],
          true <-
            Enum.all?(intents, &match?({mode, _} when mode in [:input, :association, :answer], &1)) do
@@ -186,11 +185,37 @@ defmodule Elzoo.Conversation do
     end
   end
 
+  defp proper_list?([]), do: true
+  defp proper_list?([_ | tail]), do: proper_list?(tail)
+  defp proper_list?(_), do: false
+
   defp attempt(state, entry, completed, conflicts) do
     case History.decide(state.model, entry, completed) do
       :proceed -> append(state, entry, completed, conflicts)
       :already_present -> {{:ok, :already_present}, state}
-      {:refused, code} -> {{:refused, code}, state}
+      {:refused, code} -> refuse(state, entry, completed, conflicts, code)
+    end
+  end
+
+  # A refusal decided on the owner's model can be stale: rows that another
+  # writer appended after the owner's head can make the same record identical
+  # (already present) or admissible. The owner reads them before it refuses
+  # and decides once more on the refreshed model; a refresh that cannot read
+  # or finds damage returns its error and appends nothing.
+  defp refuse(state, entry, completed, conflicts, code) do
+    case refresh(state) do
+      {:ok, state, nil} ->
+        {{:refused, code}, state}
+
+      {:ok, state, _first} ->
+        case History.decide(state.model, entry, completed) do
+          :proceed -> append(state, entry, completed, conflicts)
+          :already_present -> {{:ok, :already_present}, state}
+          {:refused, code} -> {{:refused, code}, state}
+        end
+
+      {:error, reason} ->
+        {{:error, reason}, state}
     end
   end
 
