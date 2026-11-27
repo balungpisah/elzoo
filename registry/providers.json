@@ -6,10 +6,10 @@
       "package": "lua_source",
       "compile": false,
       "app": false,
-      "version": "5.4.9",
-      "revision": "312b9efaa1061c2c4cad08554dbc1351c3270eef",
+      "version": "5.5.1",
+      "revision": "7579fc9d7ed90240487251dfb69168f8e64e9294",
       "url": "https://github.com/lua/lua.git",
-      "reference": "https://github.com/lua/lua/tree/312b9efaa1061c2c4cad08554dbc1351c3270eef",
+      "reference": "https://github.com/lua/lua/tree/7579fc9d7ed90240487251dfb69168f8e64e9294",
       "license": "MIT"
     },
     "cure": {
