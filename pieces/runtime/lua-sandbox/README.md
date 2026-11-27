@@ -561,9 +561,10 @@ outside that checkout. `examples/elzoo/lua_sandbox.exs` shows the call and evalu
     - `table.unpack` of a nonempty string and `table.move` from a string to a
       table over a nonempty range (`table.move('abc', 1, 1, 1, {})`) reached the
       sticky `unlisted_name` under 5.4.9; both are catchable argument errors now.
-    - Empty ranges are errors now: `table.unpack('')` returned zero values,
-      `table.move('abc', 2, 1, 1, {})` returned the destination, and
-      `select('#', table.unpack(false, 2, 1))` returned 0 under 5.4.9; each is
-      an argument error now.
+    - Empty ranges over a non-table argument are errors now: `table.unpack('')`
+      returned zero values, `table.move('abc', 2, 1, 1, {})` returned the
+      destination, and `select('#', table.unpack(false, 2, 1))` returned 0 under
+      5.4.9; each is an argument error now. An empty range over a table is
+      unchanged (`table.unpack({})` still returns zero values).
     - A direct index of a string, such as `('abc')[1]`, and the first step of
       `ipairs('abc')` are still the sticky `unlisted_name`, as in 5.4.9.
