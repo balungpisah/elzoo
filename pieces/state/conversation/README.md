@@ -223,11 +223,21 @@ is not claimed bounded (the Memory Store scans its map).
   An unreadable row is retried, a row with other content is the refusal
   fence, and an acknowledgement under another nonce is the superseded fence.
   Detection covers the items the channel holds: live once it has observed
-  the item, and after a fenced reopen the items of a round whose custody it
-  persisted. An acknowledgement before the channel first observes an item
-  leaves no pending item and no custody, so nothing the channel reads shows
-  it: the Need excludes it, as it excludes an identical outside write, and
-  later deliveries to that conversation proceed without that item.
+  the item; after a fenced reopen, the acknowledged items that it can name
+  from durable evidence: associations and answers (version 1 and 2) and
+  reply associations, through their retained commands, and version 2
+  primary and reply inputs, through their custody facts. It cannot name a
+  version 1 primary input, a version 2 reply input before its custody facts
+  exist, or any item acknowledged before the channel first saw it: such an
+  acknowledgement leaves no pending item and no custody, so nothing the
+  channel reads shows it. The Need excludes these cases, as it excludes an
+  identical outside write, and later deliveries to that conversation
+  proceed without that item. A version 2 reply input acknowledged without
+  its row before the channel observed its item keeps the reply observation
+  fenced live (`{:reply_observation, :unproven}`); after a fenced reopen the
+  round is restored without that reply, its wait keeps waiting with an
+  ambiguous reply cursor, and the Run's expiry ends in the reply-ambiguity
+  fence (`{:reply_ambiguity, :expiry}`).
 
 ## Migration from version 1
 
