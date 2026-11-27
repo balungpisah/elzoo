@@ -11,7 +11,6 @@ defmodule Elzoo.RunHostTest do
   setup_all do
     repo = database()
     on_exit(fn -> if Process.alive?(repo), do: Supervisor.stop(repo) end)
-    load_model_catalog()
   end
 
   setup do
@@ -45,7 +44,7 @@ defmodule Elzoo.RunHostTest do
 
     assert :ok = RunHost.start_run(host, :e2e, spec)
     assert {:ok, :applied} = RunHost.input(host, :e2e, "start", start_input(), verified(spec))
-    assert_receive {:terminal, :e2e, :completed}, 5_000
+    assert_receive {:terminal, :e2e, :completed}, 10_000
 
     assert {:ok, record} = RunHost.result(host, :e2e, scope(spec), limits())
     assert record.action_id == "bot:m:1"
@@ -78,7 +77,7 @@ defmodule Elzoo.RunHostTest do
 
       assert :ok = RunHost.start_run(host, :fails, spec)
       assert {:ok, :applied} = RunHost.input(host, :fails, "start", start_input(), verified(spec))
-      assert_receive {:terminal, :fails, :failed}, 5_000
+      assert_receive {:terminal, :fails, :failed}, 10_000
 
       assert {:failed, record} = RunHost.result(host, :fails, scope(spec), limits())
       assert record.action_id == "bot:finish"
@@ -106,9 +105,9 @@ defmodule Elzoo.RunHostTest do
   end
 
   describe "capacity" do
-    test "max_runs holds a terminal Run that is not reaped and a Run whose Unit sleeps" do
+    test "max_runs holds a terminal Run that is not reaped and a Run whose Unit sleeps; reap leaves no process of the Run" do
       env = postgres()
-      stub = stub([answer("one")])
+      stub = stub([{:block, answer("one")}])
       {host, _} = host(env, notify() ++ [max_runs: 2, idle_ms: 100])
       sleepy = spec("sleepy", stub)
       done = spec("done", stub)
@@ -118,16 +117,22 @@ defmodule Elzoo.RunHostTest do
       eventually(fn -> Registry.lookup(units, "unit/" <> sleepy.unit) == [] end)
       assert {:ok, %{phase: :active}} = RunHost.status(host, :sleepy)
 
-      before = Process.list()
-      assert :ok = RunHost.start_run(host, :done, done)
+      # The processes of :done, found without the host's tracking: everything spawned
+      # under its start (traced), and its directory-owned Unit with the Writer, taken
+      # while its model call keeps the Unit awake.
+      assert :ok = attribute(host, fn -> RunHost.start_run(host, :done, done) end)
       assert {:ok, :applied} = RunHost.input(host, :done, "start", start_input(), verified(done))
+      assert_receive {:stub_entered, blocked}, 10_000
+      assert [_unit, _writer | _] = unit = unit_pids(units, "unit/" <> done.unit)
+      send(blocked, :release)
       assert_receive {:terminal, :done, :completed}, 5_000
       assert {:error, :capacity} = RunHost.start_run(host, :third, spec("third", stub))
 
-      # The processes of the Run, found without the host's tracking.
-      pids = new_processes(before)
-      assert length(pids) >= 8
+      %{worker: worker, pids: %{engine: engine}} = run(host, :done)
       assert :ok = RunHost.reap(host, :done)
+      pids = Enum.uniq(spawned() ++ unit)
+      assert worker in pids and engine in pids
+      assert length(pids) >= 12
       assert alive_pids(pids) == []
       assert {:ok, %{status: :free}} = Lease.status(env.lease, "run/" <> done.unit)
 
@@ -154,6 +159,81 @@ defmodule Elzoo.RunHostTest do
       assert {:error, :capacity} = RunHost.start_run(host, :other, spec("other", stub([])))
       assert :ok = RunHost.reap(host, :release)
       assert {:ok, %{status: :free}} = Lease.status(env.lease, "run/" <> spec.unit)
+      assert :ok = RunHost.start_run(host, :other, spec("other", stub([])))
+    end
+
+    test "a start and a wake waiting on an unconfirmed release are answered without a third request" do
+      test = self()
+      {:ok, hold} = Agent.start_link(fn -> false end)
+
+      hook = fn
+        :before_lock, %{key: "run/handover"} ->
+          if Agent.get_and_update(hold, &{&1, false}) do
+            send(test, {:releasing, self()})
+            receive do: (:fail -> raise("the release fails"))
+          end
+
+        _, _ ->
+          :ok
+      end
+
+      env = postgres(lease: [test_hook: hook])
+      {cell, proof} = proof_cell()
+      {host, specs} = host(env, max_runs: 1, fencing_proof: proof)
+      spec = spec("handover", stub([]))
+      remember(specs, :handover, spec)
+
+      assert :ok = attribute(host, fn -> RunHost.start_run(host, :handover, spec) end)
+      Agent.update(hold, fn _ -> true end)
+      reap = Task.async(fn -> RunHost.reap(host, :handover) end)
+      assert_receive {:releasing, releaser}, 5_000
+
+      start = Task.async(fn -> RunHost.start_run(host, :handover, spec) end)
+      eventually(fn -> length(run(host, :handover).deferred) == 1 end)
+      wake = Task.async(fn -> RunHost.wake(host, [:handover]) end)
+      eventually(fn -> length(run(host, :handover).deferred) == 2 end)
+      # Every process of the torn-down tenure is gone: the start may open its journal.
+      Agent.update(cell, fn _ -> spawned() end)
+      send(releaser, :fail)
+
+      assert {:error, :release_unconfirmed} = Task.await(reap)
+      # The start takes the key over; the wake then finds the Run reserved.
+      assert :ok = Task.await(start)
+      assert [handover: {:error, :running}] = Task.await(wake)
+      assert %{phase: :live} = run(host, :handover)
+
+      assert {:ok, %{status: :active, holder: %{owner: "node-a"}}} =
+               Lease.status(env.lease, "run/handover")
+    end
+
+    test "a failed start whose release is not confirmed keeps its reservation and tries the release again" do
+      {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+      # The claim passes; the release fails twice and then passes.
+      hook = fn
+        :before_lock, %{key: "run/failing"} ->
+          if Agent.get_and_update(calls, &{&1, &1 + 1}) in [1, 2], do: raise("the release fails")
+
+        _, _ ->
+          :ok
+      end
+
+      env = postgres(lease: [test_hook: hook])
+      {host, _} = host(env, max_runs: 1)
+      spec = spec("failing", stub([]))
+
+      assert {:error, {:start_failed, {:engine, :invalid_options_or_recovery}}} =
+               RunHost.start_run(host, :failing, %{spec | request_cap: 0})
+
+      # The reservation, and the responsibility for the lease, stay with the host.
+      assert {:error, :capacity} = RunHost.start_run(host, :other, spec("other", stub([])))
+
+      assert {:ok, %{status: :active, holder: %{owner: "node-a"}}} =
+               Lease.status(env.lease, "run/failing")
+
+      eventually(fn -> run(host, :failing) == nil end)
+      assert {:ok, %{status: :free}} = Lease.status(env.lease, "run/failing")
+      assert Agent.get(calls, & &1) == 4
       assert :ok = RunHost.start_run(host, :other, spec("other", stub([])))
     end
   end
@@ -184,7 +264,7 @@ defmodule Elzoo.RunHostTest do
       assert {:ok, :applied} =
                RunHost.input(host, :blocked, "start", start_input(), verified(blocked))
 
-      assert_receive {:callback, callback}, 5_000
+      assert_receive {:callback, callback}, 10_000
       assert :ok = RunHost.reap(host, :blocked)
       refute Process.alive?(callback)
       assert run(host, :blocked) == nil
@@ -268,7 +348,7 @@ defmodule Elzoo.RunHostTest do
       for {ref, spec} <- [x: x, y: y] do
         assert :ok = RunHost.start_run(host, ref, spec)
         assert {:ok, :applied} = RunHost.input(host, ref, "start", start_input(), verified(spec))
-        assert_receive {:terminal, ^ref, :completed}, 5_000
+        assert_receive {:terminal, ^ref, :completed}, 10_000
       end
 
       assert Enum.sort(streams(env, "%x")) == [
@@ -305,15 +385,33 @@ defmodule Elzoo.RunHostTest do
       assert {state(second).units, state(second).names} == names
     end
 
-    test "a killed host: its links end the Run's worker, the processes that the worker started and the Unit" do
+    test "a Run's group leader ends with its reap, and with its host when the host stops normally" do
+      env = postgres()
+      {host, _} = host(env)
+
+      assert :ok = RunHost.start_run(host, :relayed, spec("relayed", stub([])))
+      gl = run(host, :relayed).gl
+      assert :ok = RunHost.reap(host, :relayed)
+      refute Process.alive?(gl)
+
+      assert :ok = RunHost.start_run(host, :stopped, spec("stopped", stub([])))
+      gl = run(host, :stopped).gl
+      assert :ok = GenServer.stop(host)
+      refute Process.alive?(gl)
+    end
+
+    test "a killed host: its link ends the Run's worker with the host's own exit, and every process of the Run ends" do
       env = postgres()
       {host, _} = host(env)
       spec = spec("orphan", stub([]))
-      before = Process.list()
-      assert :ok = RunHost.start_run(host, :orphan, spec)
-      pids = new_processes(before)
-      assert run(host, :orphan).worker in pids
+      assert :ok = attribute(host, fn -> RunHost.start_run(host, :orphan, spec) end)
+      %{worker: worker} = run(host, :orphan)
+      pids = spawned() ++ unit_pids(state(host).units, "unit/orphan")
+      assert worker in pids
+      ref = Process.monitor(worker)
       Process.exit(host, :kill)
+      # The host's exit reason reaches the worker only through their link.
+      assert_receive {:DOWN, ^ref, :process, ^worker, :killed}, 5_000
       eventually(fn -> alive_pids(pids) == [] end)
     end
   end

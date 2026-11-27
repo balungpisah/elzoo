@@ -41,12 +41,13 @@ end
 
 defmodule Elzoo.RunHost.TestPattern do
   @moduledoc """
-  Root callables of the tests. `step/2` asks its model calls in one request and, once
-  each has an outcome, finishes naming the first one. `starts/2` asks one model call
-  `m<n>` for the n-th start it is given (each Attempt sends its own start).
+  Root callables of the tests. `step/2` asks its model calls in one request (with the
+  state's `tools` declared, when it has any) and, once each has an outcome, finishes
+  naming the first one. `starts/2` asks one model call `m<n>` for the n-th start it is
+  given (each Attempt sends its own start).
   """
   def step(%{phase: :new, calls: calls} = state, %{"kind" => "start"}) do
-    {:Transition, %{state | phase: :calls}, {:some, request(calls)}}
+    {:Transition, %{state | phase: :calls}, {:some, request(calls, Map.get(state, :tools))}}
   end
 
   def step(%{phase: :calls, calls: calls, seen: seen} = state, %{
@@ -74,24 +75,26 @@ defmodule Elzoo.RunHost.TestPattern do
   def step(state, _), do: {:Transition, state, :none}
 
   def starts(%{n: n} = state, %{"kind" => "start"}),
-    do: {:Transition, %{state | n: n + 1}, {:some, request(["m#{n + 1}"])}}
+    do: {:Transition, %{state | n: n + 1}, {:some, request(["m#{n + 1}"], nil)}}
 
   def starts(state, _), do: {:Transition, state, :none}
 
-  defp request(calls) do
+  defp request(calls, tools) do
     actions =
       for id <- calls do
+        payload = %{
+          "version" => 1,
+          "model" => "claude-sonnet-4-5",
+          "max_output_tokens" => 64,
+          "messages" => [%{"role" => "user", "text" => "call " <> id}]
+        }
+
         %{
           "id" => id,
           "kind" => "model_call",
           "schema_id" => "elzoo/ai-text-request",
           "schema_version" => 1,
-          "payload" => %{
-            "version" => 1,
-            "model" => "claude-sonnet-4-5",
-            "max_output_tokens" => 64,
-            "messages" => [%{"role" => "user", "text" => "call " <> id}]
-          }
+          "payload" => if(tools, do: Map.put(payload, "tools", tools), else: payload)
         }
       end
 
@@ -137,26 +140,6 @@ defmodule Elzoo.RunHost.TestHelper do
     Process.unlink(pid)
     PostgresHarness.reachable!(TestRepo)
     pid
-  end
-
-  @doc """
-  Loads the adapter's model catalog once in this VM, through its public `translate/2`.
-  Its first load takes seconds while whichever engine input comes first waits, and three
-  tests run with an `idle_ms` far below that: loaded here, every input stays within
-  `idle_ms`, as the README asks of a deployment.
-  """
-  def load_model_catalog do
-    bytes =
-      Jason.encode!(%{
-        "version" => 1,
-        "model" => @model,
-        "messages" => [%{"role" => "user", "text" => "catalog"}],
-        "max_output_tokens" => 1
-      })
-
-    {:ok, request, _} = Elzoo.AiText.Request.decode(bytes)
-    {:ok, _} = Elzoo.AiText.Anthropic.translate(request, nil)
-    :ok
   end
 
   @doc """
@@ -426,16 +409,41 @@ defmodule Elzoo.RunHost.TestHelper do
         :ok
 
       pids ->
-        refs =
-          Enum.map(pids, fn pid ->
-            ref = Process.monitor(pid)
-            Process.exit(pid, :kill)
-            ref
-          end)
-
-        for ref <- refs, do: receive(do: ({:DOWN, ^ref, _, _, _} -> :ok))
+        fence(pids)
         fence_node(leader)
     end
+  end
+
+  @doc "Kills each of `pids` that is alive and confirms that it is gone."
+  def fence(pids) do
+    refs =
+      Enum.map(alive_pids(pids), fn pid ->
+        ref = Process.monitor(pid)
+        Process.exit(pid, :kill)
+        ref
+      end)
+
+    for ref <- refs, do: receive(do: ({:DOWN, ^ref, _, _, _} -> :ok))
+    :ok
+  end
+
+  @doc "The head revision of each stream of a Memory namespace that starts with `prefix`."
+  def heads(env, prefix) do
+    for {stream, %{revision: revision}} <- Memory.inspect_state(env.store).heads,
+        String.starts_with?(stream, prefix),
+        into: %{},
+        do: {stream, revision}
+  end
+
+  @doc """
+  The root Budget of a spec's Run, by the state that its Unit committed (read through
+  the live Unit): `%{reserved, committed, ...}` of `Elzoo.Budget`.
+  """
+  def budget(host, spec) do
+    [{unit, _}] = Registry.lookup(state(host).units, "unit/" <> spec.unit)
+    %{control: %{budgets: %{"root" => root}}} = DurableUnit.snapshot(unit)
+    {:Transition, _, {:some, {:status, status}}} = Elzoo.Budget.step(root.state, {clock(), :status})
+    status
   end
 
   ## Stub
@@ -650,6 +658,17 @@ defmodule Elzoo.RunHost.TestHelper do
   def two_calls, do: {TestPattern, :step, %{phase: :new, calls: ["a", "b"], seen: []}}
   def starts, do: {TestPattern, :starts, %{n: 0}}
 
+  @doc "One model call `id` that declares the tool `lookup` with any object as its input."
+  def tool_call(id) do
+    tool = %{
+      "name" => "lookup",
+      "description" => "Looks a thing up.",
+      "input_schema" => %{"type" => "object"}
+    }
+
+    {TestPattern, :step, %{phase: :new, calls: [id], seen: [], tools: [tool]}}
+  end
+
   def start_input(text \\ "Say hello.", extra \\ %{}),
     do: %{
       "type" => "input",
@@ -691,10 +710,126 @@ defmodule Elzoo.RunHost.TestHelper do
   def alive_pids(pids), do: Enum.filter(pids, &Process.alive?/1)
 
   @doc """
-  The processes that exist now and did not before `before` (a `Process.list/0`): the
-  scoped set of one tested Run, independent of the host's own tracking.
+  A fencing_proof and its cell. The proof answers what the cell holds: `:unproven`
+  (no proof, the start), `:fenced`, or a list of processes, which proves fencing only
+  once each of them has ended (the test sets the predecessor's processes found by
+  attribute/2, so the proof is demonstrated, not assumed).
   """
-  def new_processes(before), do: Process.list() -- before
+  def proof_cell do
+    {:ok, cell} = Agent.start_link(fn -> :unproven end)
+
+    proof = fn _run_ref ->
+      case Agent.get(cell, & &1) do
+        pids when is_list(pids) -> if alive_pids(pids) == [], do: :fenced, else: :unproven
+        answer -> answer
+      end
+    end
+
+    {cell, proof}
+  end
+
+  ## Processes of one Run, without the host's tracking
+
+  @doc """
+  Runs `start` (a start or wake of one Run) with spawn tracing on the host, set on every
+  process that the host spawns meanwhile and on everything that those spawn later, at
+  any depth: the Run's group leader, its worker and all that the worker starts. The
+  processes are then known to the test independently of the host (spawned/0).
+  """
+  def attribute(host, start) do
+    :erlang.trace(host, true, [:procs, :set_on_spawn, {:tracer, self()}])
+
+    try do
+      start.()
+    after
+      :erlang.trace(host, false, [:procs, :set_on_spawn])
+    end
+  end
+
+  @doc "Every process whose spawn was traced in this test so far (attribute/2)."
+  def spawned do
+    ref = :erlang.trace_delivered(:all)
+    receive do: ({:trace_delivered, :all, ^ref} -> :ok)
+    pids = collect_spawns(Process.get({__MODULE__, :spawned}, []))
+    Process.put({__MODULE__, :spawned}, pids)
+    pids
+  end
+
+  @process_events [
+    :exit,
+    :register,
+    :unregister,
+    :link,
+    :unlink,
+    :getting_linked,
+    :getting_unlinked
+  ]
+
+  defp collect_spawns(acc) do
+    receive do
+      {:trace, _, :spawn, pid, _} -> collect_spawns(acc ++ [pid])
+      {:trace, _, :spawned, _, _} -> collect_spawns(acc)
+      {:trace, _, event, _} when event in @process_events -> collect_spawns(acc)
+    after
+      0 -> acc
+    end
+  end
+
+  @doc """
+  The directory-owned Unit of `identity`, found in the directory's Registry, and the
+  linked processes that it started (its Writer).
+  """
+  def unit_pids(units, identity) do
+    case Registry.lookup(units, identity) do
+      [{unit, _}] ->
+        {:links, links} = Process.info(unit, :links) || {:links, []}
+        [unit | for(pid <- links, is_pid(pid), started_by?(pid, unit), do: pid)]
+
+      [] ->
+        []
+    end
+  end
+
+  defp started_by?(pid, parent) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, d} -> List.first(d[:"$ancestors"] || []) == parent
+      _ -> false
+    end
+  end
+
+  @doc """
+  Holds the next engine registered under `identity`: a suspension queued while it
+  starts takes effect when its init has ended, so the first call that the Run's worker
+  makes to it waits until the test resumes it. Sends `{:engine_held, pid}`.
+  """
+  def hold_engine(names, identity) do
+    test = self()
+
+    spawn_link(fn ->
+      pid = registered(names, identity)
+      :sys.suspend(pid, :infinity)
+      send(test, {:engine_held, pid})
+    end)
+  end
+
+  defp registered(names, identity) do
+    case Registry.lookup(names, identity) do
+      [{pid, _}] ->
+        pid
+
+      [] ->
+        :erlang.yield()
+        registered(names, identity)
+    end
+  end
+
+  @doc "A PostgreSQL stream whose history is kept only after `through`: a pruned journal."
+  def prune!(env, stream, through \\ 1),
+    do:
+      sql!(
+        "UPDATE #{Postgres.identifier(env.prefix)}.elzoo_log_heads SET low_water = $2 WHERE stream = $1",
+        [stream, through]
+      )
 
   ## Observation
 
@@ -708,7 +843,7 @@ defmodule Elzoo.RunHost.TestHelper do
 
     for {m, _, _} = mfa <- mfas do
       Code.ensure_loaded!(m)
-      :erlang.trace_pattern(mfa, [{:_, [], [{:return_trace}]}], [:global])
+      :erlang.trace_pattern(mfa, [{:_, [], [{:exception_trace}]}], [:global])
     end
 
     ExUnit.Callbacks.on_exit(fn ->

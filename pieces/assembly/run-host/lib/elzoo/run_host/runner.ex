@@ -3,10 +3,11 @@ defmodule Elzoo.RunHost.Runner do
   @moduledoc """
   The worker of one Run of `Elzoo.RunHost`, under the Run's own group leader: it
   starts the Run (lease claim, Run owner, Run and Attempt, predecessor check, evidence
-  Writer, AsyncWork, engine), then serializes every engine input of the Run: the
-  caller's inputs and controls, the outcomes that the sink of its AI bindings receives
-  and the wakes at its committed deadlines. It reads the deadlines, the current
-  Attempt and the terminal phase again after each, and keeps the Unit awake while a
+  Writer, AsyncWork, keep-alive, engine, route), then serializes every engine input of
+  the Run: the caller's inputs and controls, the outcomes that the sink of its AI
+  bindings receives and the wakes at its committed deadlines. It reads the deadlines,
+  the current Attempt and the terminal phase again after each. The Run's keep-alive, a
+  process beside it, keeps the Unit awake while an engine input is in progress or a
   model call is in flight. The host links it and tears it down with the Run.
   """
   use GenServer, restart: :temporary
@@ -56,6 +57,7 @@ defmodule Elzoo.RunHost.Runner do
     Process.group_leader(self(), args.group_leader)
     Process.flag(:trap_exit, true)
     table = :ets.new(__MODULE__, [:set, :public, read_concurrency: true])
+    true = :ets.insert(table, [{:busy, false}, {:in_flight, false}])
 
     s =
       Map.merge(args, %{
@@ -72,6 +74,7 @@ defmodule Elzoo.RunHost.Runner do
         engine: nil,
         table: table,
         attempt: nil,
+        confirmed: false,
         route: %{},
         verified: false,
         pending: [],
@@ -82,8 +85,7 @@ defmodule Elzoo.RunHost.Runner do
         terminal: false,
         timer: nil,
         fired: nil,
-        refreshing: false,
-        keep_alive: nil
+        refreshing: false
       })
 
     {:ok, s, {:continue, :start}}
@@ -92,13 +94,21 @@ defmodule Elzoo.RunHost.Runner do
   @impl true
   def handle_continue(:start, s) do
     case start(s) do
+      {:ok, %{verified: true} = s} ->
+        {:noreply, started(s)}
+
+      # The route is read again shortly; the start is answered once it is known.
       {:ok, s} ->
-        send(s.host, {:started, s.run_ref, s.token})
-        {:noreply, refresh(s)}
+        {:noreply, s}
 
       {:error, reason} ->
         {:stop, {:shutdown, reason}, s}
     end
+  end
+
+  defp started(s) do
+    send(s.host, {:started, s.run_ref, s.token})
+    refresh(s)
   end
 
   ## Start
@@ -112,15 +122,16 @@ defmodule Elzoo.RunHost.Runner do
          s = provision(s),
          {:ok, s} <- start_owner(s),
          {:ok, fresh} <- fresh(s),
-         :ok <- if(fresh, do: host(s, :clean), else: :ok),
          :ok <- open_run(s),
-         :ok <- if(fresh, do: :ok, else: predecessor(s)),
+         :ok <- if(fresh, do: :ok, else: proof(s.c.fencing_proof, s.run_ref)),
          {:ok, attempt} <- current_attempt(s),
          true <- :ets.insert(s.table, {:attempt, attempt}),
          :ok <- host(s, :grant),
          {:ok, s} <- start_child(s, :evidence, fn -> evidence(s) end),
          {:ok, s} <- start_child(s, :async, fn -> async(s) end),
-         {:ok, s} <- start_engine(%{s | attempt: attempt}) do
+         {:ok, s} <- start_child(s, :keep_alive, fn -> keep_alive(s) end),
+         s = %{s | attempt: attempt, confirmed: true},
+         {:ok, s} <- busy(s, fn -> start_engine(s) end) do
       verify(s)
     end
   end
@@ -237,20 +248,16 @@ defmodule Elzoo.RunHost.Runner do
   end
 
   # Runs inside an EffectIntent process, in its init: the host grants an activation
-  # only to a Run whose predecessor check has passed, while its lease is live by a
-  # sample of the lease clock taken here.
+  # only to a Run whose predecessor check has passed, while a reading of the lease
+  # taken here shows it held by this owner and live.
   defp authorize(s) do
     %{host: host, run_ref: run_ref, token: token, stream: key} = s
     lease = s.c.lease
 
     fn request, generation ->
-      now =
-        case Lease.status(lease, key) do
-          {:ok, %{now: now}} -> now
-          _ -> nil
-        end
+      read = Lease.status(lease, key)
 
-      case GenServer.call(host, {:authorize, run_ref, token, now}) do
+      case GenServer.call(host, {:authorize, run_ref, token, read}) do
         :granted ->
           if request.revision == 0 and generation == 0,
             do: :fresh,
@@ -271,8 +278,8 @@ defmodule Elzoo.RunHost.Runner do
   end
 
   # A Run with no Run record and an empty Unit journal has no predecessor that could
-  # still act; it is marked clean before its first write, so that an interrupted
-  # start is retried by confirmed teardown.
+  # still act or write: its start needs no predecessor check. Any other start or wake
+  # opens an existing journal and needs a fresh :fenced (Recovery).
   defp fresh(%{mode: :wake}), do: {:ok, false}
 
   defp fresh(s) do
@@ -359,43 +366,9 @@ defmodule Elzoo.RunHost.Runner do
     end
   end
 
-  # Before any engine starts on an existing journal: confirmed teardown by this host
-  # (its marker, with only this owner's own lease records after it up to this claim),
-  # or a fresh `:fenced` from the caller's fencing proof, asked again each time.
-  defp predecessor(s) do
-    marker = host(s, :marker)
-
-    with :ok <- if(confirmed?(s, marker), do: :ok, else: proof(s.c.fencing_proof, s.run_ref)),
-         do: host(s, :clean)
-  end
-
-  defp confirmed?(s, marker) when is_integer(marker) do
-    revision = s.held.live.revision
-
-    case Elzoo.DurableLog.read(s.c.run_store, s.stream, marker + 1, revision - marker) do
-      {:ok, rows, _} ->
-        rows = Enum.filter(rows, &(&1.sequence <= revision))
-
-        marker < revision and length(rows) == revision - marker and
-          Enum.all?(rows, &own_lease?(&1, s.c.owner_id))
-
-      _ ->
-        false
-    end
-  end
-
-  defp confirmed?(_, _), do: false
-
-  # A claim or renewal of this owner, or a release that this owner wrote (its own
-  # release, or the release of its own stale lease at its next claim).
-  defp own_lease?(%{kind: kind, payload: payload}, owner) do
-    case {kind, Jason.decode(payload)} do
-      {k, {:ok, %{"owner" => ^owner}}} when k in ["lease_claimed", "lease_renewed"] -> true
-      {"lease_released", {:ok, %{"by" => ^owner, "owner" => prior}}} -> prior in [owner, nil]
-      _ -> false
-    end
-  end
-
+  # The predecessor check before any engine starts on an existing Run or Unit journal:
+  # a fresh :fenced from the caller's fencing_proof, asked again each time. The host's
+  # own teardown is no proof (a Store write submitted before it can commit after it).
   defp proof(nil, _), do: {:error, :fencing_unproven}
 
   defp proof(fencing_proof, run_ref) do
@@ -429,6 +402,27 @@ defmodule Elzoo.RunHost.Runner do
       task_supervisor: s.pids.tasks,
       max_concurrency: 1
     )
+  end
+
+  defp keep_alive(s) do
+    args = [s.table, s.directory, s.unit, max(div(s.c.idle_ms, 4), 1)]
+    {:ok, spawn_link(__MODULE__, :keep_alive, args)}
+  end
+
+  @doc false
+  # The Run's keep-alive, a process of the Run beside its worker: every quarter of
+  # idle_ms it touches the Unit through the directory while the worker has an engine
+  # start, input or control in progress, or a model call is ready or running by the
+  # worker's last read. It never waits on the worker, so a worker held by an engine call
+  # (a long input, a transcript read) does not let the Unit sleep under a call; a Run
+  # with neither is left to sleep.
+  def keep_alive(table, directory, unit, interval) do
+    Process.sleep(interval)
+
+    if :ets.lookup_element(table, :busy, 2) or :ets.lookup_element(table, :in_flight, 2),
+      do: catch_exit(fn -> DynamicUnits.start(directory, unit) end)
+
+    keep_alive(table, directory, unit, interval)
   end
 
   defp start_engine(s) do
@@ -533,15 +527,34 @@ defmodule Elzoo.RunHost.Runner do
 
   defp retry_route(s, _), do: s
 
-  # The deliveries held while the route was unread, in their order of arrival.
+  # The deliveries held while the route was unread, in their order of arrival, each by
+  # its own kind: an outcome by the route just read, any other delivery as it is
+  # handled live (a sink failure is reported and gives no input).
   defp flush(s) do
     {pending, s} = {s.pending, %{s | pending: []}}
 
-    Enum.reduce(pending, s, fn {key, delivery}, acc ->
-      case acc.route[key] do
-        nil -> report(acc, "an outcome with no route", key)
-        route -> outcome(acc, route, delivery)
-      end
+    Enum.reduce(pending, s, fn
+      {key, {:outcome, _, _} = delivery}, acc ->
+        case acc.route[key] do
+          nil -> report(acc, "an outcome with no route", key)
+          route -> outcome(acc, route, delivery)
+        end
+
+      {key, delivery}, acc ->
+        deliver(acc, key, delivery)
+    end)
+  end
+
+  # A route that cannot be read for good: each held delivery is reported.
+  defp unroutable(s, reason) do
+    {pending, s} = {s.pending, %{s | pending: []}}
+
+    Enum.reduce(pending, s, fn
+      {key, {:outcome, _, _}}, acc ->
+        report(acc, "an outcome that cannot be routed (#{inspect(reason)})", key)
+
+      {key, delivery}, acc ->
+        deliver(acc, key, delivery)
     end)
   end
 
@@ -551,7 +564,9 @@ defmodule Elzoo.RunHost.Runner do
   def handle_call(_, _, %{terminal: true} = s), do: {:reply, {:error, :terminal}, s}
 
   def handle_call({:input, id, input, context}, _, s) do
-    reply = pass(s, fn -> RunEngine.input(s.engine, id, input, context) end)
+    {reply, s} =
+      forward(s, fn -> pass(s, fn -> RunEngine.input(s.engine, id, input, context) end) end)
+
     {:reply, reply, refresh(s)}
   end
 
@@ -559,9 +574,34 @@ defmodule Elzoo.RunHost.Runner do
   def handle_call({:control, _, %{kind: :approval_evidence}, _}, _, s),
     do: {:reply, {:error, :outside_profile}, s}
 
+  # A control can move the current Attempt: until a read confirms it again, no input
+  # is forwarded (forward/2).
   def handle_call({:control, id, command, context}, _, s) do
-    reply = pass(s, fn -> RunEngine.control(s.engine, id, command, context) end)
-    {:reply, reply, refresh(s)}
+    {reply, s} =
+      forward(s, fn -> pass(s, fn -> RunEngine.control(s.engine, id, command, context) end) end)
+
+    {:reply, reply, refresh(%{s | confirmed: false})}
+  end
+
+  # Every engine input and control of the Run goes through here. The gate and facts/1
+  # derive the key of each action that the engine admits from the current Attempt that
+  # the worker last read; after a control that read must succeed again before anything
+  # is forwarded, so no action is admitted under an Attempt that the worker has not
+  # confirmed. While it cannot be read, nothing is forwarded: {:error, :unavailable}.
+  defp forward(s, fun) do
+    s = if s.confirmed, do: s, else: refresh(s)
+    if s.confirmed, do: {busy(s, fun), s}, else: {{:error, :unavailable}, s}
+  end
+
+  # An engine start, input or control in progress, for the keep-alive.
+  defp busy(s, fun) do
+    true = :ets.insert(s.table, {:busy, true})
+
+    try do
+      fun.()
+    after
+      :ets.insert(s.table, {:busy, false})
+    end
   end
 
   # The engine's own result; an exit (its call limit) is given back to the caller as
@@ -584,18 +624,18 @@ defmodule Elzoo.RunHost.Runner do
 
     case route(s) do
       {:ok, route} ->
-        {:noreply, flush(%{s | route: route, verified: true})}
+        s = flush(%{s | route: route, verified: true})
+        {:noreply, if(message == :verify, do: started(s), else: s)}
 
       {:error, :transient} ->
         {:noreply, retry_route(s, message)}
 
-      {:error, {:permanent, reason}} ->
-        s =
-          Enum.reduce(s.pending, s, fn {key, _}, acc ->
-            report(acc, "an outcome that cannot be routed (#{inspect(reason)})", key)
-          end)
+      # A start or wake whose route cannot be read fails; a live Run reports.
+      {:error, {:permanent, reason}} when message == :verify ->
+        {:stop, {:shutdown, {:route, reason}}, unroutable(s, reason)}
 
-        {:noreply, %{s | pending: [], verified: true}}
+      {:error, {:permanent, reason}} ->
+        {:noreply, unroutable(s, reason)}
     end
   end
 
@@ -607,13 +647,6 @@ defmodule Elzoo.RunHost.Runner do
   end
 
   def handle_info(:refresh, s), do: {:noreply, refresh(%{s | refreshing: false})}
-
-  def handle_info({:keep_alive, ref}, %{keep_alive: ref} = s) do
-    %{directory: directory, unit: unit} = s
-    spawn(fn -> catch_exit(fn -> DynamicUnits.start(directory, unit) end) end)
-    Process.send_after(self(), {:keep_alive, ref}, max(div(s.c.idle_ms, 4), 1))
-    {:noreply, s}
-  end
 
   def handle_info({:wake_timer, ref}, %{timer: %{ref: ref, target: target}} = s) do
     s = %{s | timer: nil}
@@ -777,7 +810,10 @@ defmodule Elzoo.RunHost.Runner do
   defp submit(s, id, entry) do
     s = put_in(s.inputs[id], entry)
 
-    case call(fn -> RunEngine.input(s.engine, id, entry.frame, entry.context) end) do
+    {reply, s} =
+      forward(s, fn -> call(fn -> RunEngine.input(s.engine, id, entry.frame, entry.context) end) end)
+
+    case reply do
       {:ok, _} ->
         refresh(%{
           s
@@ -794,17 +830,24 @@ defmodule Elzoo.RunHost.Runner do
             :error -> entry
           end
 
-        retry(put_in(s.inputs[id], entry), id)
+        again(put_in(s.inputs[id], entry), id)
 
       # Nothing is known about the input: it is sent again with the same frame and context.
       reply when reply in [{:error, :unavailable}, :exit] ->
-        retry(s, id)
+        again(s, id)
 
       other ->
         s = report(s, "an input the engine refused (#{inspect(other)})", id)
         refresh(%{s | inputs: Map.delete(s.inputs, id)})
     end
   end
+
+  # A host input that the engine did not take is sent again: an outcome by the input
+  # retry; a wake only by its timer, which reads the committed deadline and the current
+  # Attempt again before it fires, no sooner than a second later (arm/2), so a wake for
+  # an Attempt or a deadline that is no longer current is never sent again.
+  defp again(s, "wake:" <> _), do: refresh(s)
+  defp again(s, id), do: retry(s, id)
 
   defp retry(s, id) do
     n = Map.get(s.retries, id, 0)
@@ -848,33 +891,22 @@ defmodule Elzoo.RunHost.Runner do
     end
   end
 
-  # The current Attempt (the key of each later admission) and the Unit kept awake while
-  # a model call is in flight.
+  # The current Attempt (the key of each later admission, confirmed by this read) and
+  # whether a model call is in flight, for the keep-alive.
   defp observe(s, view) do
-    true = :ets.insert(s.table, {:attempt, view.attempt_id})
-
     in_flight =
       Enum.any?(view.slots, fn {_, slot} ->
         slot.kind == "model_call" and slot.phase in @in_flight
       end)
 
-    cond do
-      in_flight and s.keep_alive == nil ->
-        ref = make_ref()
-        send(self(), {:keep_alive, ref})
-        %{s | keep_alive: ref, attempt: view.attempt_id}
-
-      in_flight ->
-        %{s | attempt: view.attempt_id}
-
-      true ->
-        %{s | keep_alive: nil, attempt: view.attempt_id}
-    end
+    true = :ets.insert(s.table, [{:attempt, view.attempt_id}, {:in_flight, in_flight}])
+    %{s | attempt: view.attempt_id, confirmed: true}
   end
 
   defp terminal(s, outcome) do
     send(s.host, {:terminal, s.run_ref, s.token, outcome})
-    %{disarm(s) | terminal: true, keep_alive: nil}
+    true = :ets.insert(s.table, {:in_flight, false})
+    %{disarm(s) | terminal: true}
   end
 
   defp target_of(%{phase: :paused, run_deadline: run, pause_deadline: pause})
@@ -930,8 +962,13 @@ defmodule Elzoo.RunHost.Runner do
         frame = %{"type" => "input", "version" => 1, "kind" => "wake"}
 
         case entry(s, frame, %{run_id: spec.run_id, attempt_id: s.attempt}) do
-          {:error, reason} -> s |> report(reason, id) |> schedule(target, 1_000)
-          entry -> submit(s, id, entry)
+          {:error, reason} ->
+            s |> report(reason, id) |> schedule(target, 1_000)
+
+          # A kept wake of another Attempt or deadline is obsolete: never sent again.
+          entry ->
+            stale = for {"wake:" <> _ = other, _} <- s.inputs, other != id, do: other
+            submit(%{s | inputs: Map.drop(s.inputs, stale)}, id, entry)
         end
     end
   end

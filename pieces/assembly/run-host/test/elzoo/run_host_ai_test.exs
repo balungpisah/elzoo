@@ -17,7 +17,6 @@ defmodule Elzoo.RunHostAiTest do
   setup_all do
     repo = database()
     on_exit(fn -> if Process.alive?(repo), do: Supervisor.stop(repo) end)
-    load_model_catalog()
   end
 
   setup do
@@ -264,8 +263,44 @@ defmodule Elzoo.RunHostAiTest do
                dispatch: "dispatched"
              }
 
+      # No actual: the call's reservation stays reserved.
+      assert [%{outcome: "refused", actual: :unknown}] =
+               settlements(transcript(host, :large, spec), "bot:m:1")
+
       assert {:failed, %{payload: %{"reason" => "model_call_not_completed"}}} =
                RunHost.result(host, :large, scope(spec), limits())
+
+      assert length(requests(stub)) == 1
+    end
+
+    test "a completion deeper than the engine's 32 levels is refused too_large, dispatched, with no actual" do
+      env = postgres()
+      deep = Enum.reduce(1..40, %{"leaf" => true}, fn _, acc -> %{"next" => acc} end)
+      tool_use = AiText.AnthropicStub.message([AiText.AnthropicStub.tool_use(deep)], "tool_use")
+      stub = stub([AiText.AnthropicStub.ok(tool_use)])
+      {host, _} = host(env, notify())
+      spec = spec("deep", stub, pattern: tool_call("deep"))
+
+      assert :ok = RunHost.start_run(host, :deep, spec)
+      assert {:ok, :applied} = RunHost.input(host, :deep, "start", start_input(), verified(spec))
+      eventually(fn -> settlements(transcript(host, :deep, spec), "deep") != [] end)
+
+      assert [{_, record}] = ai_inputs(env, spec)
+      assert record.input["outcome"] == "refused"
+
+      assert record.input["payload"] == %{
+               "reason" => "too_large",
+               "retry_after" => nil,
+               "candidate" => nil
+             }
+
+      assert record.correlation == %{
+               occurrence: record.correlation.occurrence,
+               dispatch: "dispatched"
+             }
+
+      assert [%{outcome: "refused", actual: :unknown}] =
+               settlements(transcript(host, :deep, spec), "deep")
 
       assert length(requests(stub)) == 1
     end
@@ -406,6 +441,189 @@ defmodule Elzoo.RunHostAiTest do
 
       assert :ok = RunHost.reap(host, :attempts)
     end
+  end
+
+  describe "unit_awake" do
+    test "a cold first dispatch with a short idle_ms: the Unit stays awake through the catalog load, with no caller warm-up" do
+      env = postgres()
+      stub = stub([answer("cold")])
+      {host, _} = host(env, notify() ++ [idle_ms: 300])
+      spec = spec("cold", stub)
+      assert :ok = RunHost.start_run(host, :cold, spec)
+
+      # The adapter's model catalog is unloaded: the first admission loads it again
+      # while the engine's input waits, far longer than idle_ms.
+      LLMDB.Store.clear!()
+
+      {micros, reply} =
+        :timer.tc(fn -> RunHost.input(host, :cold, "start", start_input(), verified(spec)) end)
+
+      assert reply == {:ok, :applied}
+      assert micros > 300_000
+      assert_receive {:terminal, :cold, :completed}, 5_000
+      assert [%{outcome: "completed"}] = settlements(transcript(host, :cold, spec), "bot:m:1")
+    end
+
+    test "a transcript read that holds the worker past idle_ms while a call is in flight: the Unit stays awake and the call settles completed" do
+      env = postgres()
+      stub = stub([{:block, answer("after the held read")}])
+      {host, _} = host(env, notify() ++ [idle_ms: 300])
+      spec = spec("held-read", stub)
+      units = state(host).units
+
+      assert :ok = RunHost.start_run(host, :held_read, spec)
+
+      assert {:ok, :applied} =
+               RunHost.input(host, :held_read, "start", start_input(), verified(spec))
+
+      assert_receive {:stub_entered, blocked}, 5_000
+      %{worker: worker, pids: %{engine: engine}} = run(host, :held_read)
+      [{unit, _}] = Registry.lookup(units, "unit/held-read")
+
+      # The delivery's key is not in the route read at the start: the worker reads the
+      # transcript, and that read waits in the suspended engine for five idle periods.
+      :sys.suspend(engine)
+      send(blocked, :release)
+
+      eventually(fn ->
+        {:messages, messages} = Process.info(engine, :messages)
+        Enum.any?(messages, &match?({:"$gen_call", {^worker, _}, {:transcript, _, _}}, &1))
+      end)
+
+      Process.sleep(1_500)
+      assert [{^unit, _}] = Registry.lookup(units, "unit/held-read")
+      :sys.resume(engine)
+      assert_receive {:terminal, :held_read, :completed}, 5_000
+
+      assert [%{outcome: "completed"}] =
+               settlements(transcript(host, :held_read, spec), "bot:m:1")
+    end
+
+    test "an idle Run sleeps: with no input in progress and no call in flight its keep-alive touches nothing" do
+      env = postgres()
+      {host, _} = host(env, notify() ++ [idle_ms: 200])
+      spec = spec("idle", stub([]))
+      units = state(host).units
+
+      assert :ok = RunHost.start_run(host, :idle_unit, spec)
+      %{pids: %{keep_alive: keep_alive}} = run(host, :idle_unit)
+      eventually(fn -> Registry.lookup(units, "unit/idle") == [] end)
+      assert Process.alive?(keep_alive)
+      assert {:ok, %{phase: :active}} = RunHost.status(host, :idle_unit)
+      assert :ok = RunHost.reap(host, :idle_unit)
+    end
+  end
+
+  describe "route_verification" do
+    test "a wake whose route cannot be read is {:route, :history}, never woken, and leaves no Run" do
+      {host, env, _} = woken_once("unread")
+      hold_engine(state(host).names, "unit/unread")
+      wake = Task.async(fn -> RunHost.wake(host, [:unread]) end)
+      assert_receive {:engine_held, engine}, 10_000
+      prune!(env, "unit/unread")
+      :sys.resume(engine)
+      assert [unread: {:error, {:route, :history}}] = Task.await(wake)
+      assert run(host, :unread) == nil
+    end
+
+    test "a wake whose route read fails for a moment and then for good is {:route, :history}, never woken" do
+      {host, env, _} = woken_once("flaky", harness: true)
+      hold_engine(state(host).names, "unit/flaky")
+      wake = Task.async(fn -> RunHost.wake(host, [:flaky]) end)
+      assert_receive {:engine_held, engine}, 10_000
+      # The first read finds the Unit view unavailable; the next one a pruned history.
+      PostgresHarness.hook(env.stores[:unit_store], :inject, [:read, :unavailable])
+      prune!(env, "unit/flaky")
+      :sys.resume(engine)
+      assert [flaky: {:error, {:route, :history}}] = Task.await(wake)
+      assert run(host, :flaky) == nil
+    end
+
+    test "a live Run whose route cannot be read for good reports its delivery and gives no input" do
+      env = postgres()
+      stub = stub([{:block, answer("unroutable")}])
+      {host, _} = host(env, notify())
+      spec = spec("lost-route", stub)
+      trace([{AiText.Sink, :deliver, 4}])
+      assert :ok = RunHost.start_run(host, :lost_route, spec)
+
+      assert {:ok, :applied} =
+               RunHost.input(host, :lost_route, "start", start_input(), verified(spec))
+
+      assert_receive {:stub_entered, blocked}, 5_000
+      prune!(env, "unit/lost-route")
+
+      log =
+        capture_log(fn ->
+          send(blocked, :release)
+          assert_receive {:trace, _, :return_from, {AiText.Sink, :deliver, 4}, :ok}, 5_000
+          _ = :sys.get_state(run(host, :lost_route).worker)
+        end)
+
+      assert log =~ "an outcome that cannot be routed (:history)"
+      assert ai_inputs(env, spec) == []
+      assert {:ok, %{slots: slots, outcome: nil}} = RunHost.status(host, :lost_route)
+      assert [%{phase: :running}] = for({_, %{action_id: "bot:m:1"} = slot} <- slots, do: slot)
+      assert %{phase: :live} = run(host, :lost_route)
+    end
+
+    test "a sink failure held during a wake's route verification is reported once the route is read; the worker goes on" do
+      {host, env, spec} = woken_once("buffered", harness: true)
+      inputs = ai_inputs(env, spec)
+      hold_engine(state(host).names, "unit/buffered")
+      trace([{AiText, :configure, 1}])
+      {:ok, binding} = AiText.Binding.load(Elzoo.RunHost.TestBinding)
+
+      key =
+        Model.key([
+          "tenant",
+          binding.provider_account,
+          binding.id,
+          "generate",
+          Ai.ref(spec.run_id, spec.attempt_id, "bot:m:1")
+        ])
+
+      log =
+        capture_log(fn ->
+          wake = Task.async(fn -> RunHost.wake(host, [:buffered]) end)
+
+          assert_receive {:trace, _, :return_from, {AiText, :configure, 1}, {:ok, config}},
+                         5_000
+
+          assert_receive {:engine_held, engine}, 10_000
+          # The worker waits in its first route read; the Run's own sink hands it a sink
+          # failure for the routed call, and the read then fails for a moment.
+          assert :ok = config.sink.(key, {:sink_failed, "attempt-1"})
+          PostgresHarness.hook(env.stores[:unit_store], :inject, [:read, :unavailable])
+          :sys.resume(engine)
+          assert [buffered: :woken] = Task.await(wake)
+          _ = :sys.get_state(run(host, :buffered).worker)
+        end)
+
+      assert log =~ "a sink failure"
+      %{phase: :live, worker: worker} = run(host, :buffered)
+      assert Process.alive?(worker)
+      assert ai_inputs(env, spec) == inputs
+    end
+  end
+
+  # A Run answered once and reaped, its every process gone (attributed without the
+  # host): a wake of it passes the predecessor check with that demonstrated proof.
+  defp woken_once(name, opts \\ []) do
+    env = postgres(Keyword.take(opts, [:harness]))
+    stub = stub([answer("first")])
+    {cell, proof} = proof_cell()
+    {host, specs} = host(env, notify() ++ [fencing_proof: proof])
+    ref = String.to_atom(name)
+    spec = spec(name, stub)
+    remember(specs, ref, spec)
+
+    assert :ok = attribute(host, fn -> RunHost.start_run(host, ref, spec) end)
+    assert {:ok, :applied} = RunHost.input(host, ref, "start", start_input(), verified(spec))
+    assert_receive {:terminal, ^ref, :completed}, 5_000
+    assert :ok = RunHost.reap(host, ref)
+    Agent.update(cell, fn _ -> spawned() end)
+    {host, env, spec}
   end
 
   describe "translation" do

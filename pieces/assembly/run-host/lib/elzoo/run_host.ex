@@ -96,6 +96,11 @@ defmodule Elzoo.RunHost do
         reply ->
           reply
       end
+    else
+      # A renewal was confirmed (or the Run replaced) after this admission's snapshot:
+      # its observation decides nothing, and the input is admitted again.
+      :stale -> business(host, run_ref, request)
+      error -> error
     end
   end
 
@@ -106,9 +111,10 @@ defmodule Elzoo.RunHost do
   end
 
   # The lease must be held by this host's owner and live at a sample of the lease clock
-  # taken now (Unix microseconds, compared with the last confirmed `until`). A lease that
-  # is not is lost for the Run; an unreadable lease clock admits nothing.
-  defp live(host, run_ref, %{lease: lease, key: key, owner: owner, until: until, token: token}) do
+  # taken now (Unix microseconds, compared with the last confirmed `until` of the
+  # admission's snapshot). A lease that is not is reported to the host with the
+  # snapshot's renewal generation; an unreadable lease clock admits nothing.
+  defp live(host, run_ref, %{lease: lease, key: key, owner: owner, until: until} = snapshot) do
     case lease_state(Lease.status(lease, key), owner, until) do
       :live ->
         :ok
@@ -117,8 +123,7 @@ defmodule Elzoo.RunHost do
         {:error, :unavailable}
 
       reason ->
-        GenServer.cast(host, {:lost, run_ref, token, reason})
-        {:error, :lease_lost}
+        GenServer.call(host, {:observed, run_ref, snapshot.token, snapshot.generation, reason})
     end
   end
 
@@ -143,12 +148,13 @@ defmodule Elzoo.RunHost do
   # that runs no slower than this node's: the lease clock is sampled after `t0`.
   def lease_deadline(lease, key, until) do
     t0 = now()
-
-    case Lease.status(lease, key) do
-      {:ok, %{now: lease_now}} when is_integer(lease_now) -> t0 + div(until - lease_now, 1_000)
-      _ -> t0
-    end
+    deadline(t0, Lease.status(lease, key), until)
   end
+
+  defp deadline(t0, {:ok, %{now: lease_now}}, until) when is_integer(lease_now),
+    do: t0 + div(until - lease_now, 1_000)
+
+  defp deadline(t0, _, _), do: t0
 
   # Reads go to the live engine directly; an engine that is gone is a Run that is not
   # live on this host.
@@ -200,7 +206,6 @@ defmodule Elzoo.RunHost do
          tasks: tasks,
          infrastructure: [units_registry, names_registry, supervisor, directory, tasks],
          runs: %{},
-         markers: %{},
          receipts: %{},
          lost: %{},
          batches: %{},
@@ -327,7 +332,8 @@ defmodule Elzoo.RunHost do
              key: run.stream,
              owner: s.c.owner_id,
              until: run.lease.until,
-             token: run.token
+             token: run.token,
+             generation: run.lease.generation
            }}
 
         %{phase: :live, admission: :terminal} ->
@@ -343,6 +349,19 @@ defmodule Elzoo.RunHost do
     {:reply, reply, s}
   end
 
+  # A caller's reading of a lost or expired lease, against the snapshot of one renewal
+  # generation: a loss only while that snapshot is still the Run's own. After a renewal
+  # was confirmed (or for another tenure) the caller is admitted again from a fresh one.
+  def handle_call({:observed, run_ref, token, generation, reason}, _, s) do
+    case s.runs[run_ref] do
+      %{token: ^token, lease: %{generation: ^generation}} ->
+        {:reply, {:error, :lease_lost}, lost(s, run_ref, reason)}
+
+      _ ->
+        {:reply, :stale, s}
+    end
+  end
+
   def handle_call({:engine, run_ref}, _, s) do
     case s.runs[run_ref] do
       %{phase: :live, pids: %{engine: engine}} -> {:reply, {:ok, engine}, s}
@@ -350,21 +369,24 @@ defmodule Elzoo.RunHost do
     end
   end
 
-  # From the activation callback, inside an EffectIntent process, with a sample of the
-  # lease clock: an activation is granted only to the current incarnation of a Run whose
-  # predecessor check passed, while its lease is live by that sample.
-  def handle_call({:authorize, run_ref, token, lease_now}, _, s) do
-    reply =
-      case s.runs[run_ref] do
-        %{token: ^token, granted: true, admission: admission, lease: %{until: until}}
-        when admission != :lease_lost and is_integer(lease_now) and lease_now < until ->
-          :granted
+  # From the activation callback, inside an EffectIntent process, with a reading of the
+  # lease taken there: an activation is granted only to the current incarnation of a Run
+  # whose predecessor check passed, while that reading shows its lease held by this
+  # owner and live by the last confirmed `until`. A reading that shows the lease lost or
+  # expired loses the Run.
+  def handle_call({:authorize, run_ref, token, read}, _, s) do
+    case s.runs[run_ref] do
+      %{token: ^token, granted: true, admission: admission, lease: %{until: until}}
+      when admission != :lease_lost ->
+        case lease_state(read, s.c.owner_id, until) do
+          :live -> {:reply, :granted, s}
+          :unknown -> {:reply, :denied, s}
+          reason -> {:reply, :denied, lost(s, run_ref, reason)}
+        end
 
-        _ ->
-          :denied
-      end
-
-    {:reply, reply, s}
+      _ ->
+        {:reply, :denied, s}
+    end
   end
 
   # The start sequence of a worker.
@@ -399,23 +421,8 @@ defmodule Elzoo.RunHost do
     {:ok, %{run | pids: Map.put(run.pids, role, pid)}, s}
   end
 
-  # The marker of this Run's last confirmed teardown, taken once.
-  defp runner(:marker, run_ref, run, s) do
-    {marker, markers} = Map.pop(s.markers, run_ref)
-    {marker, run, %{s | markers: markers}}
-  end
-
-  # The tenure has no predecessor that could still act (a fresh Run, or a passed check).
-  defp runner(:clean, _run_ref, run, s), do: {:ok, %{run | clean: true}, s}
+  # The predecessor check passed (or the Run is fresh): activations may be granted.
   defp runner(:grant, _run_ref, run, s), do: {:ok, %{run | granted: true}, s}
-
-  @impl true
-  def handle_cast({:lost, run_ref, token, reason}, s) do
-    case s.runs[run_ref] do
-      %{token: ^token} -> {:noreply, lost(s, run_ref, reason)}
-      _ -> {:noreply, s}
-    end
-  end
 
   @impl true
   def handle_info({:started, run_ref, token}, s) do
@@ -430,9 +437,10 @@ defmodule Elzoo.RunHost do
     end
   end
 
+  # Only a live Run calls on_terminal: once a teardown began, no callback starts.
   def handle_info({:terminal, run_ref, token, outcome}, s) do
     case s.runs[run_ref] do
-      %{token: ^token, admission: :open} = run ->
+      %{token: ^token, phase: :live, admission: :open} = run ->
         {s, run} = callback(s, run_ref, run, s.c.on_terminal, [run_ref, outcome])
         {:noreply, put_in(s.runs[run_ref], %{run | admission: :terminal})}
 
@@ -490,6 +498,13 @@ defmodule Elzoo.RunHost do
     end
   end
 
+  def handle_info({:retry_release, run_ref, token}, s) do
+    case s.runs[run_ref] do
+      %{token: ^token, phase: :releasing, busy: false} = run -> {:noreply, finish(s, run_ref, run)}
+      _ -> {:noreply, s}
+    end
+  end
+
   def handle_info({ref, result}, s) when is_reference(ref) and is_map_key(s.jobs, ref) do
     Process.demonitor(ref, [:flush])
     {job, jobs} = Map.pop(s.jobs, ref)
@@ -532,12 +547,16 @@ defmodule Elzoo.RunHost do
 
   def handle_info(_, s), do: {:noreply, s}
 
-  # Best effort when the host stops: every process of every Run, then the host's own
-  # infrastructure, so that a restarted host finds its names free. A replacement host
-  # still recovers each Run through wake/2 and its predecessor check.
+  # Best effort when the host stops: every process of every Run and its group leader,
+  # then the host's own infrastructure, so that a restarted host finds its names free.
+  # A replacement host still recovers each Run through wake/2 and its predecessor check.
   @impl true
   def terminate(_reason, s) do
-    for {_, run} <- s.runs, do: kill_group(run.gl)
+    for {_, run} <- s.runs do
+      kill_group(run.gl)
+      kill([run.gl])
+    end
+
     for pid <- Enum.reverse(s.infrastructure), do: stop_now(pid)
     :ok
   end
@@ -549,7 +568,8 @@ defmodule Elzoo.RunHost do
       %{phase: phase} = run when phase in [:tearing_down, :awaiting] ->
         put_in(s.runs[run_ref], %{run | deferred: run.deferred ++ [{mode, waiter}]})
 
-      # A release that is not confirmed is no longer wanted by a new start of the Run.
+      # A release that is not confirmed is no longer wanted by a new start of the Run:
+      # the new tenure takes the key over.
       %{phase: :releasing, busy: false} = run ->
         s |> free(run_ref, run) |> request(run_ref, mode, waiter)
 
@@ -600,7 +620,6 @@ defmodule Elzoo.RunHost do
       stream: nil,
       held: nil,
       lease: nil,
-      clean: false,
       granted: false,
       result: nil,
       release: false,
@@ -666,20 +685,23 @@ defmodule Elzoo.RunHost do
     renew_in = max(deadline - div(ttl, 2) - now(), 0)
     Process.send_after(self(), {:renew, run_ref, run.token, generation}, renew_in)
     Process.send_after(self(), {:expiry, run_ref, run.token, generation}, max(deadline - now(), 0))
-    %{run | lease: %{generation: generation, until: until, renewing: false}}
+    %{run | lease: %{generation: generation, until: until, deadline: deadline, renewing: false}}
   end
 
   @doc false
+  # One renewal through the live owner. A confirmed renewal comes back with a reading
+  # of the lease clock taken after the reply, which decides whether it came in time.
   def renewal(owner, lease, key, ttl) do
     case Owner.renew(owner, ttl) do
       {:ok, _revision, %{until: until}} when is_integer(until) ->
-        {:renewed, until, lease_deadline(lease, key, until)}
+        t0 = now()
+        {:renewed, until, Lease.status(lease, key), t0}
 
       other ->
         other
     end
   catch
-    # A renewal that exits on its caller timeout is unconfirmed.
+    # A renewal that exits (its caller timeout, or the owner ending) is unconfirmed.
     :exit, _ -> {:unknown, :no_receipt}
   end
 
@@ -696,14 +718,18 @@ defmodule Elzoo.RunHost do
 
   defp job(s, {:renew, run_ref, token, generation}, result) do
     case s.runs[run_ref] do
-      %{token: ^token} = run -> renewed(s, run_ref, run, generation, result)
-      _ -> s
+      %{token: ^token} = run ->
+        s |> renewed(run_ref, run, generation, result) |> proceed(run_ref, token)
+
+      _ ->
+        s
     end
   end
 
   defp job(s, {:expiry, run_ref, token, generation}, result) do
     case s.runs[run_ref] do
-      %{token: ^token, lease: %{generation: ^generation}} ->
+      %{token: ^token, phase: phase, lease: %{generation: ^generation}}
+      when phase in [:starting, :live] ->
         case result do
           {:later, deadline} ->
             message = {:expiry, run_ref, token, generation}
@@ -719,6 +745,9 @@ defmodule Elzoo.RunHost do
             s
         end
 
+      %{token: ^token} ->
+        proceed(s, run_ref, token)
+
       _ ->
         s
     end
@@ -733,7 +762,7 @@ defmodule Elzoo.RunHost do
 
   defp job(s, {:callbacks, run_ref, token}, _) do
     case s.runs[run_ref] do
-      %{token: ^token} = run -> finish(s, run_ref, %{run | callbacks: %{}, busy: false})
+      %{token: ^token} = run -> finish(s, run_ref, %{run | busy: false})
       _ -> s
     end
   end
@@ -742,40 +771,36 @@ defmodule Elzoo.RunHost do
     case s.runs[run_ref] do
       %{token: ^token, phase: :releasing} = run ->
         run = %{run | busy: false}
-
-        cond do
-          result == :released ->
-            free(s, run_ref, run)
-
-          # Not confirmed: the reservation stays, each waiting reap gets the error and a
-          # later reap tries again.
-          run.reap ->
-            {reaps, waiters} = Enum.split_with(run.waiters, &match?({:reap, _}, &1))
-            s = Enum.reduce(reaps, s, &answer(&2, &1, {:error, :release_unconfirmed}))
-            put_in(s.runs[run_ref], %{run | waiters: waiters, reap: false})
-
-          # A failed start: the lease ends by its TTL.
-          true ->
-            free(s, run_ref, run)
-        end
+        if result == :released, do: free(s, run_ref, run), else: unreleased(s, run_ref, run)
 
       _ ->
         s
     end
   end
 
-  defp renewed(s, run_ref, run, generation, {:renewed, until, deadline}) do
-    if run.lease.generation == generation and run.phase in [:starting, :live] and
-         run.admission != :lease_lost,
-       do: put_in(s.runs[run_ref], schedule_lease(run, run_ref, until, deadline, s.c.lease_ttl_ms)),
-       # A late renewal reopens nothing.
-       else: s
+  # A renewal confirmed before the last confirmed until passed (by its own reading of the
+  # lease clock after the reply, or by this node's clock without one) moves the expiry;
+  # one confirmed at or after it stops the Run (:expired). A late renewal reopens
+  # nothing, and after a teardown began a result is no loss of a live Run (lost/3).
+  defp renewed(s, run_ref, run, generation, {:renewed, until, read, t0}) do
+    cond do
+      run.lease.generation != generation or run.phase not in [:starting, :live] or
+          run.admission == :lease_lost ->
+        s
+
+      passed?(run.lease, read, t0) ->
+        lost(s, run_ref, :expired)
+
+      true ->
+        run = schedule_lease(run, run_ref, until, deadline(t0, read, until), s.c.lease_ttl_ms)
+        put_in(s.runs[run_ref], run)
+    end
   end
 
   # A definite no-write error keeps the token and the expiry deadline; the renewal is
   # tried again within it.
   defp renewed(s, run_ref, run, generation, {:error, _}) do
-    if run.lease.generation == generation do
+    if run.lease.generation == generation and run.phase in [:starting, :live] do
       delay = max(div(s.c.lease_ttl_ms, 12), 1)
       Process.send_after(self(), {:renew, run_ref, run.token, generation}, delay)
       put_in(s.runs[run_ref].lease.renewing, false)
@@ -788,25 +813,27 @@ defmodule Elzoo.RunHost do
   defp renewed(s, run_ref, _, _, {:indeterminate, _} = reason), do: lost(s, run_ref, reason)
   defp renewed(s, run_ref, _, _, _), do: lost(s, run_ref, {:unknown, :no_receipt})
 
-  # Stops admission, calls on_lost and fences every process of the Run, whichever of the
-  # renewal result, the owner's exit or the worker's exit comes first. Each later report
-  # adds only its receipt: an indeterminate result keeps one for `reconcile:`.
+  defp passed?(%{until: until}, {:ok, %{now: lease_now}}, _) when is_integer(lease_now),
+    do: lease_now >= until
+
+  defp passed?(%{deadline: deadline}, _, t0), do: t0 >= deadline
+
+  # A loss of a live (or starting) Run stops admission, calls on_lost and fences every
+  # process of the Run, whichever of the renewal result, an observation, the owner's
+  # exit or the worker's exit comes first. Every later report, and every report after a
+  # teardown began (a reap, a failed start, a crash), adds only its receipt: an
+  # indeterminate result keeps one for `reconcile:`.
   defp lost(s, run_ref, reason) do
     case s.runs[run_ref] do
-      %{admission: :lease_lost} ->
-        receipt(s, run_ref, reason)
-
-      %{} = run ->
+      %{phase: phase, admission: admission} = run
+      when phase in [:starting, :live] and admission != :lease_lost ->
         s = %{receipt(s, run_ref, reason) | lost: Map.put(s.lost, run_ref, reason)}
         {s, run} = callback(s, run_ref, run, s.c.on_lost, [run_ref, reason])
         run = %{run | admission: :lease_lost, result: run.result || {:error, :lease_lost}}
+        teardown(s, run_ref, run)
 
-        if run.phase in [:starting, :live],
-          do: teardown(s, run_ref, run),
-          else: put_in(s.runs[run_ref], run)
-
-      nil ->
-        s
+      _ ->
+        receipt(s, run_ref, reason)
     end
   end
 
@@ -816,17 +843,14 @@ defmodule Elzoo.RunHost do
   ## Teardown
 
   defp down(s, run_ref, token, role, ref, reason) do
+    loss = loss(role, reason)
+
     case s.runs[run_ref] do
       %{token: ^token} = run ->
-        loss = loss(role, reason)
-
         cond do
           role == :callback ->
             run = %{run | callbacks: Map.delete(run.callbacks, ref)}
-
-            if run.phase == :awaiting and run.callbacks == %{} and not run.busy,
-              do: finish(s, run_ref, run),
-              else: put_in(s.runs[run_ref], run)
+            s |> put_in([:runs, run_ref], run) |> proceed(run_ref, token)
 
           loss != nil ->
             lost(s, run_ref, loss)
@@ -850,8 +874,10 @@ defmodule Elzoo.RunHost do
             teardown(s, run_ref, run)
         end
 
+      # The tenure ended before this report reached the host: an indeterminate receipt
+      # is still kept for the next start.
       _ ->
-        s
+        receipt(s, run_ref, loss)
     end
   end
 
@@ -871,11 +897,7 @@ defmodule Elzoo.RunHost do
       engine: run.pids[:engine],
       unit: run.unit,
       units: s.units,
-      directory: s.directory,
-      lease: s.c.lease,
-      key: run.stream,
-      owner_id: s.c.owner_id,
-      marker: run.held != nil and run.clean
+      directory: s.directory
     }
 
     job = Task.Supervisor.async_nolink(s.tasks, fn -> confirm(t) end)
@@ -883,18 +905,9 @@ defmodule Elzoo.RunHost do
     put_in(s.runs[run_ref], run)
   end
 
-  defp torn_down(s, run_ref, run, %{confirmed: true, marker: marker}) do
+  defp torn_down(s, run_ref, run, :confirmed) do
     if run.unit, do: :ets.delete(s.table, run.unit)
-
-    # A start that ended before its claim wrote nothing: an earlier marker stays.
-    markers =
-      cond do
-        is_integer(marker) -> Map.put(s.markers, run_ref, marker)
-        run.held != nil -> Map.delete(s.markers, run_ref)
-        true -> s.markers
-      end
-
-    finish(%{s | markers: markers}, run_ref, run)
+    finish(s, run_ref, run)
   end
 
   # Not confirmed (the Unit's stop, or the teardown itself, failed): the Run keeps its
@@ -905,7 +918,8 @@ defmodule Elzoo.RunHost do
   end
 
   # Every process of the Run is gone. A callback that still runs is stopped by a reap
-  # and waited for otherwise; then a reap (or a failed start) releases the lease.
+  # and waited for otherwise, and a renewal or expiry job of the Run is waited for (a
+  # teardown starts no new one); then a reap (or a failed start) releases the lease.
   defp finish(s, run_ref, run) do
     alive = for {ref, pid} <- run.callbacks, Process.alive?(pid), into: %{}, do: {ref, pid}
     run = %{run | callbacks: alive}
@@ -917,7 +931,7 @@ defmodule Elzoo.RunHost do
         s = put_in(s.jobs[job.ref], {:callbacks, run_ref, run.token})
         put_in(s.runs[run_ref], %{run | phase: :awaiting, busy: true})
 
-      alive != %{} ->
+      alive != %{} or jobs?(s, run_ref, run.token) ->
         put_in(s.runs[run_ref], %{run | phase: :awaiting})
 
       run.release and run.held != nil ->
@@ -932,9 +946,45 @@ defmodule Elzoo.RunHost do
     end
   end
 
+  # A teardown that waits for a callback or a job of the Run goes on when it ends.
+  defp proceed(s, run_ref, token) do
+    case s.runs[run_ref] do
+      %{token: ^token, phase: :awaiting, busy: false} = run -> finish(s, run_ref, run)
+      _ -> s
+    end
+  end
+
+  defp jobs?(s, run_ref, token),
+    do:
+      Enum.any?(s.jobs, fn {_, job} ->
+        match?({kind, ^run_ref, ^token, _} when kind in [:renew, :expiry], job)
+      end)
+
+  # A release that is not confirmed keeps the reservation, and with it the
+  # responsibility for the lease: each waiting reap gets {:error, :release_unconfirmed}
+  # and a failed start's caller its start error. A start or wake of the Run already
+  # waiting takes the key over; otherwise a later reap tries the release again, and
+  # after a failed start the host tries it again every second.
+  defp unreleased(s, run_ref, run) do
+    {reaps, waiters} = Enum.split_with(run.waiters, &match?({:reap, _}, &1))
+    s = Enum.reduce(reaps, s, &answer(&2, &1, {:error, :release_unconfirmed}))
+    s = Enum.reduce(waiters, s, &answer(&2, &1, run.result || {:error, :not_running}))
+    run = %{run | waiters: [], reap: false}
+
+    cond do
+      run.deferred != [] ->
+        free(s, run_ref, run)
+
+      reaps != [] ->
+        put_in(s.runs[run_ref], run)
+
+      true ->
+        Process.send_after(self(), {:retry_release, run_ref, run.token}, 1_000)
+        put_in(s.runs[run_ref], run)
+    end
+  end
+
   defp free(s, run_ref, run) do
-    Process.unlink(run.gl)
-    Process.exit(run.gl, :kill)
     s = %{s | runs: Map.delete(s.runs, run_ref)}
     result = run.result || {:error, :not_running}
     s = Enum.reduce(run.waiters, s, &answer(&2, &1, result))
@@ -943,26 +993,25 @@ defmodule Elzoo.RunHost do
 
   @doc false
   # Runs in a host task: kills the engine first (so it starts nothing more), then every
-  # process whose group leader is the Run's (the worker, the Run owner, the evidence
-  # Writer, AsyncWork, the task supervisor, every task and every EffectIntent owner, at
-  # any depth), confirms each is gone, stops the Unit through its directory and waits
-  # for the processes that the Unit started. Then it takes the predecessor marker.
+  # process whose group leader is the Run's (the worker, the keep-alive, the Run owner,
+  # the evidence Writer, AsyncWork, the task supervisor, every task and every
+  # EffectIntent owner, at any depth), confirms each is gone, stops the Unit through its
+  # directory and waits for the processes that the Unit started. Last, the group leader
+  # itself is stopped and confirmed gone.
   def confirm(t) do
     kill([t.engine])
     kill_group(t.gl)
-    unit = if t.unit, do: stop_unit(t), else: :ok
-    %{confirmed: unit == :ok, marker: if(unit == :ok and t.marker, do: marker(t))}
-  catch
-    _, _ -> %{confirmed: false, marker: nil}
-  end
 
-  # The Run stream's revision when the latest lease record is this owner's own. The
-  # predecessor check later accepts only this owner's lease records after it.
-  defp marker(t) do
-    case Lease.status(t.lease, t.key) do
-      {:ok, %{holder: %{owner: owner}, revision: revision}} when owner == t.owner_id -> revision
-      _ -> nil
+    case if(t.unit, do: stop_unit(t), else: :ok) do
+      :ok ->
+        kill([t.gl])
+        :confirmed
+
+      _ ->
+        :unconfirmed
     end
+  catch
+    _, _ -> :unconfirmed
   end
 
   @doc false
