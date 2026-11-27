@@ -1784,6 +1784,84 @@ defmodule Elzoo.RunApprovalReleaseTest do
     end
   end
 
+  describe "renewed_since" do
+    test "status reports the latest revision that is not a renewal: renewals keep it, Run, child and death writes move it",
+         c do
+      p = owner(c)
+      create(p, c)
+      base = snapshot(p).revision
+      assert snapshot(p).renewed_since == base
+      assert {:ok, r1, _} = Run.renew(p, @ttl)
+      assert {:ok, r2, _} = Run.renew(p, @ttl)
+      assert {r1, r2} == {base + 1, base + 2}
+      assert %{revision: ^r2, renewed_since: ^base} = snapshot(p)
+
+      # A Run write on a revision from before the renewals moves it to its own revision;
+      # every Run of the owner reports the same stream boundary.
+      assert {:ok, created, "child"} =
+               command(
+                 p,
+                 :create,
+                 %{operation_id: "operation", provider_refs: %{}, expected_revision: base},
+                 "child"
+               )
+
+      assert %{revision: ^created, renewed_since: ^created} = snapshot(p)
+      assert %{revision: ^created, renewed_since: ^created} = snapshot(p, "child")
+      assert {:ok, r3, _} = Run.renew(p, @ttl)
+      assert %{revision: ^r3, renewed_since: ^created} = snapshot(p)
+      child = spawn(fn -> receive(do: (:stop -> :ok)) end)
+
+      assert {:ok, attached, "child"} =
+               command(p, :attach_child, %{
+                 attempt_id: "attempt-1",
+                 child_run_id: "child",
+                 child_pid: child
+               })
+
+      assert %{revision: ^attached, renewed_since: ^attached} = snapshot(p)
+      assert {:ok, r4, _} = Run.renew(p, @ttl)
+      send(child, :stop)
+      eventually(fn -> snapshot(p).children["child"].dead end)
+      dead = snapshot(p).revision
+      assert dead == r4 + 1
+      assert %{revision: ^dead, renewed_since: ^dead} = snapshot(p)
+    end
+
+    test "a new owner reads it from the stream: the record before the renewals, or the lease record of a release and claim or of a seize",
+         c do
+      p = owner(c)
+      create(p, c)
+      base = snapshot(p).revision
+      assert {:ok, _, _} = Run.renew(p, @ttl)
+      assert {:ok, renewed, _} = Run.renew(p, @ttl)
+      # The replacement's floor is its startup revision; the boundary stays where it was.
+      p = restart(c, p)
+      assert %{revision: ^renewed, renewed_since: ^base} = snapshot(p)
+
+      # A release and a claim are lease records, not renewals.
+      GenServer.stop(p)
+      assert {:free, _} = Lease.release(c.lease, "runs", "owner")
+      assert {:held, %{live: %{revision: claimed}}} = Lease.claim(c.lease, "runs", "owner", @ttl)
+      assert claimed == renewed + 2
+      p = owner(c)
+      assert %{revision: ^claimed, renewed_since: ^claimed} = snapshot(p)
+      assert {:ok, again, _} = Run.renew(p, @ttl)
+      p = restart(c, p)
+      assert %{revision: ^again, renewed_since: ^claimed} = snapshot(p)
+
+      # So is a seize, which appends a release and the seize.
+      GenServer.stop(p)
+
+      assert {:held, %{live: %{revision: seized}}} =
+               Lease.seize(c.lease, "runs", "owner", @ttl, :operator_takeover)
+
+      assert seized == again + 2
+      p = owner(c)
+      assert %{revision: ^seized, renewed_since: ^seized} = snapshot(p)
+    end
+  end
+
   # Renews at least once, then until it receives :stop.
   defp renew_until_stopped(p, renewals) do
     renewals = [Run.renew(p, @ttl) | renewals]

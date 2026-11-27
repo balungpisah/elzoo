@@ -763,6 +763,32 @@ a host input with the ID `"expire:" <> occurrence` is ordinary. The readers that
 rerun pure engine code, `transcript/3` and `event_waits/3`, project a `:resume_input`
 with the same phase switch, so they reach the state of the fold.
 
+Run views. The engine keeps the revision of the Run owner's stream that it took last
+as `control.run_revision`. Each time it reads the owner's `status/2` to bring its
+view up to date (at startup and recovery, before every input and control, after a
+control or a completion that it sends to the owner, and before a dispatch), it
+learns the owner's held (fenced) revision from `revision` and, from
+`renewed_since`, the revision of the owner's latest committed record that is not a
+lease renewal (ELZ-429). An equal `revision` is no change. When its recorded
+revision is at or above `renewed_since` and below `revision`, everything after it
+is a renewal of the owner's lease (`RunApprovalRelease.renew/2`), which changes no
+Run fact: the engine commits no record, keeps its recorded revision, settles nothing
+and does not close a slot for it. Its next owner command reads `revision` afresh,
+so the renewals do not make it conflict (and a live owner also accepts a revision
+separated from its current one by its own renewals, ELZ-422). Every other change of
+`revision` is a Run transition, as before: the engine commits one `:run_view` record
+with the Run ID, operation, current Attempt, `revision` and outcome read and the
+engine clock as `at_ms`, and its fold takes the new facts with the closes below.
+That includes a Run record that leaves those facts as they were (an Approval
+request, evidence or release, an intent or effect record, a child record, a command
+of another Run of a shared owner), a release, claim or seize of the lease, and any
+renewals read with them; one record covers all that the read found. An owner view
+without `renewed_since` is no proof: the engine then journals every change of
+`revision`, as before. The owner rebuilds `renewed_since` from its whole stream
+when it starts, so a replacement owner started on the token that renewals left
+gives a reopened engine the same answer, and the engine's startup commits no record
+for those renewals.
+
 At a change of Attempt the engine settles, in the same fold step and at the
 time of the view record, every slot of the older Attempt that is not settled,
 in the root and in each nested child, deepest callable first; every nested child
@@ -1631,6 +1657,43 @@ committed Run deadline, the pause deadline read in every phase, the pause deadli
 read from a new context sample, and the 5,000 ms default call limit. Listed
 finite scenarios, not a proof.
 
+`test/elzoo/run_engine_test.exs` exercises renewals of the Run owner (ELZ-429) on
+disposable PostgreSQL. A second test of
+`retained_slot_closes_after_its_deadline (one step)` renews the owner through
+`RunApprovalRelease.renew/2` before the child's result at 15,000 ms: the parent
+gets the child amount 5 in the same step, the child Budget commits 5, no
+`:nested_actual` and no outcome record is written, and the result's own record is
+the one record that the input adds. The group `renewal_is_not_a_transition` has six
+tests. `several renewals between the commands of a live Run`: an ASK tool call and a
+finish that names it, with two renewals after the start, the request, the consent
+and the result, give the journal (record kinds, occurrences, actuals, times and
+phases) and the Run records of the same Run without renewals; every `:run_view`
+follows an owner record that is not a renewal, and the Run is completed.
+`an Approval request and its evidence among renewals`: the request, with the intent
+that the dispatch path binds, gets one `:run_view` at the engine's next read after
+the renewals, the evidence one at its own revision right after the command, a wake
+after renewals alone none, and the journal and views equal those without renewals
+but for the revision read. `a release and a re-claim`: after renewals, a released
+and re-claimed lease and a new owner, the reopened engine journals one `:run_view`
+at the claim revision with unchanged facts, and a later wake none.
+`a replacement owner after renewals`: the replacement on the renewed token reports
+the revision of the last Run record before the renewals as `renewed_since`, the
+reopened engine adds no row, the replacement refuses `conflict` to commands that
+name the revision before the renewals or between them, and the engine's consent
+applies on a freshly read revision with its `:run_view` at the evidence revision.
+`a new Attempt after renewals` and `an outcome after renewals`: a `begin_attempt` or
+a completion on the owner between renewals is journaled at the next wake, with the
+slots, Budgets and journal of the same change without renewals (the dispatched tool
+call `unknown`, no actual, its reservation held). Four temporary negative controls
+each made named tests fail and were reverted: a `:run_view` committed for a
+renewal-only change (the one-step test with a renewal fails: a `nested_actual`
+record is written; so do the first, second and fourth tests of the group), the
+owner's `renewed_since` set from its startup floor (the replacement test fails: the
+reopened engine commits a record), `renewed_since` counted from Run records only
+(the release test fails: no `:run_view` after recovery) and the suppression without
+its boundary check (every test of the group, both one-step tests and the document
+publication test fail). Listed finite scenarios, not a proof.
+
 ## Changes
 
 - ELZ-416 (2026-11-26): the README names the current platform pins, Elixir
@@ -1665,3 +1728,18 @@ finite scenarios, not a proof.
   the recovered state after a restart. Not breaking: `status/1`, the control
   state, the journal format and the fingerprint are unchanged, so recorded
   journals replay as recorded and no move is needed.
+- ELZ-429 (2026-11-27): breaking for a host that renews the Run owner through
+  `RunApprovalRelease.renew/2` (ELZ-422). The engine took every change of the
+  owner's revision as a Run transition, so a renewal added a `:run_view` record whose
+  fold settled what was due at its time: a retained parent past its deadline closed
+  before a child's result was folded, and a separate `:nested_actual` record
+  followed. Now it reads the owner's new `renewed_since` and commits no record when
+  only renewals came after its recorded revision (Run views); every other change is
+  journaled as before, as is every change when the owner view has no
+  `renewed_since`. Histories without renewals keep their journal, transcripts,
+  results, frozen fixtures and cold-recovery results; the control state, the journal
+  format and the fingerprint are unchanged, and journals recorded before, with their
+  `:run_view` records of renewals, replay as recorded. How to move: nothing for a
+  host that does not renew; a host that renews takes `workflow/run-approval-release`
+  with `renewed_since` (ELZ-429) and expects no `:run_view` record, and nothing that
+  its fold settled, for an interval of renewals alone.

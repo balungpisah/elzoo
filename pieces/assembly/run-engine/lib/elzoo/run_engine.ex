@@ -2972,12 +2972,15 @@ defmodule Elzoo.RunEngine do
       {:error, :ownership_unknown, %{s | halted: :ownership_unknown, state: nil, decoded: %{}}}
   end
 
+  # A view whose revision differs from the recorded one is a Run transition and is
+  # journaled as a `:run_view` record, unless the owner proves that it holds only
+  # lease renewals after the recorded revision (see renewals_only?/2).
   defp sync_run(s) do
     with {:ok, view} <- Run.status(s.opts.run_owner, s.opts.run_id) do
       {state, s} = read_state(s)
       c = state.control
 
-      if c.run_revision == view.revision do
+      if c.run_revision == view.revision or renewals_only?(c.run_revision, view) do
         if view.outcome, do: end_resources(s, view.outcome), else: {:ok, s}
       else
         with {:ok, _, s} <-
@@ -3001,6 +3004,16 @@ defmodule Elzoo.RunEngine do
       _ -> {:error, :run_unavailable, %{s | halted: :run_unavailable, state: nil, decoded: %{}}}
     end
   end
+
+  # The owner's `renewed_since` is the revision of its latest committed record that
+  # is not a lease renewal. When it is at or below the recorded revision, every
+  # revision after the recorded one up to the view's is a renewal: no Run fact moved,
+  # so nothing is journaled. A view without it is no proof and keeps the record.
+  defp renewals_only?(recorded, %{renewed_since: since, revision: revision})
+       when is_integer(since) and is_integer(recorded) and is_integer(revision),
+       do: since <= recorded and recorded < revision
+
+  defp renewals_only?(_, _), do: false
 
   defp recover_local(s) do
     {state, s} = read_state(s)

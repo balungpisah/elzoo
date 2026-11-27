@@ -70,13 +70,14 @@ defmodule Elzoo.RunApprovalRelease do
          :ok <- reconcile(lease, opts[:reconcile]),
          {:held, current} <- Lease.hold(lease, stream, owner),
          true <- current.live.revision == held.live.revision,
-         {:ok, snapshot} <- load(lease.store, stream, 1, []),
+         {:ok, snapshot, renewed_since} <- load(lease.store, stream, 1, []),
          true <- elem(snapshot.cursor, 0) == held.live.revision do
       s = %{
         store: lease.store,
         lease: lease,
         held: held,
         floor: held.live.revision,
+        renewed_since: renewed_since,
         stream: stream,
         model: snapshot.model,
         bindings: opts[:effect_intent],
@@ -112,14 +113,28 @@ defmodule Elzoo.RunApprovalRelease do
       if length(rows) == 1_000 do
         load(store, stream, List.last(rows).sequence + 1, acc ++ rows)
       else
-        case Log.replay(acc ++ rows, head, fold()) do
-          %{cursor: {_, false, []}, tail: :intact} = snapshot -> {:ok, snapshot}
-          _ -> {:error, :damaged_log}
+        all = acc ++ rows
+
+        case Log.replay(all, head, fold()) do
+          %{cursor: {_, false, []}, tail: :intact} = snapshot ->
+            {:ok, snapshot, renewed_since(all)}
+
+          _ ->
+            {:error, :damaged_log}
         end
       end
     else
       _ -> {:error, :unavailable_history}
     end
+  end
+
+  # The revision of the latest record whose kind is not `lease_renewed` (a Run
+  # record or another lease record): every record after it, up to the held
+  # revision, is a renewal. Rows come in sequence order.
+  defp renewed_since(rows) do
+    Enum.reduce(rows, 0, fn row, since ->
+      if row.kind == "lease_renewed", do: since, else: row.sequence
+    end)
   end
 
   @impl true
@@ -758,7 +773,14 @@ defmodule Elzoo.RunApprovalRelease do
 
     case Lease.write(s.lease, s.held, [{"run", 1, payload}]) do
       {:held, held} ->
-        next = %{s | held: held, floor: held.live.revision, model: apply_event(s.model, event)}
+        next = %{
+          s
+          | held: held,
+            floor: held.live.revision,
+            renewed_since: held.live.revision,
+            model: apply_event(s.model, event)
+        }
+
         {{:ok, held.live.revision, result}, next}
 
       {:fenced, _} ->
@@ -912,6 +934,7 @@ defmodule Elzoo.RunApprovalRelease do
     run
     |> Map.drop([:evidence, :requests, :effects])
     |> Map.put(:revision, s.held.live.revision)
+    |> Map.put(:renewed_since, s.renewed_since)
     |> Map.put(
       :approvals,
       for(
