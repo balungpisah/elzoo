@@ -268,6 +268,27 @@ defmodule Elzoo.ConversationStoreTest do
     end)
   end
 
+  test "a check's timeout is one deadline that also covers preparing a long list" do
+    text = String.duplicate("x", 300)
+    intents = for n <- 1..150_000, do: {:input, H.input("long-#{n}", text: text)}
+
+    H.each_store(fn _kind, store ->
+      owner = H.owner!(store)
+      before = H.head!(store)
+
+      # Validating and encoding 150,000 intents takes far longer than 50 ms;
+      # the deadline stops the preparation itself, not only the owner call.
+      started = System.monotonic_time(:millisecond)
+      assert {:error, :timeout} = Conversation.check(owner, intents, 50)
+      elapsed = System.monotonic_time(:millisecond) - started
+      assert elapsed < 300, "check returned after #{elapsed} ms"
+
+      assert H.head!(store) == before
+      assert {:ok, [:ok]} = Conversation.check(owner, [{:input, H.input("after-timeout")}])
+      GenServer.stop(owner)
+    end)
+  end
+
   test "check refreshes after an independent append and admits a chain of undelivered intents" do
     H.each_store(fn _kind, store ->
       owner = H.owner!(store)

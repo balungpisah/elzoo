@@ -5,7 +5,9 @@ defmodule Elzoo.Wave4ChannelTest.ReadProbe do
 
   def attach({_module, inner} = store) do
     {:ok, observer} =
-      Agent.start_link(fn -> %{calls: [], counts: %{}, transforms: %{}, faults: %{}} end)
+      Agent.start_link(fn ->
+        %{calls: [], counts: %{}, transforms: %{}, faults: %{}, rollbacks: []}
+      end)
 
     # A transparent wrapper presents the wrapped store's declared fold and
     # limits: the durable log validates outbox items and confirmations
@@ -17,23 +19,32 @@ defmodule Elzoo.Wave4ChannelTest.ReadProbe do
   def calls(observer), do: Agent.get(observer, &Enum.reverse(&1.calls))
 
   def reset(observer),
-    do: Agent.update(observer, &%{&1 | calls: [], counts: %{}, transforms: %{}, faults: %{}})
+    do:
+      Agent.update(
+        observer,
+        &%{&1 | calls: [], counts: %{}, transforms: %{}, faults: %{}, rollbacks: []}
+      )
 
   def transform(observer, operation, fun),
     do: Agent.update(observer, &put_in(&1.transforms[operation], fun))
 
   # Faults targeted at one outbox key, consumed one per matching call in the
   # given order: `:pass` lets one call through, `:ack` takes `:rollback`
-  # (nothing commits, the write is unknown) or `:reply_loss` (the write
-  # commits, its reply is lost), and `:read_ack` takes `:unavailable` or
-  # `:malformed`. Other keys and operations are never touched, unlike the
-  # PostgreSQL harness's next-call faults.
+  # (the PostgreSQL rollback hook is armed for exactly this write, which is
+  # forwarded, reaches `:before_commit` and rolls back; see `rollbacks/1`) or
+  # `:reply_loss` (the write commits, its reply is lost), and `:read_ack`
+  # takes `:unavailable` or `:malformed`. Other keys and operations are never
+  # touched, unlike the PostgreSQL harness's next-call faults.
   def fault(observer, operation, key, modes) when is_list(modes),
     do: Agent.update(observer, &put_in(&1.faults[{operation, key}], modes))
 
   def fault(observer, operation, key, mode), do: fault(observer, operation, key, [mode])
 
   def faults(observer), do: Agent.get(observer, & &1.faults)
+
+  # `{key, barrier_phases}` of each forwarded `:rollback` ack, oldest first:
+  # the PostgreSQL barriers the write passed on its way to the rollback.
+  def rollbacks(observer), do: Agent.get(observer, &Enum.reverse(&1.rollbacks))
 
   def rewrite_item(item, payload) do
     rebuilt =
@@ -104,13 +115,27 @@ defmodule Elzoo.Wave4ChannelTest.ReadProbe do
   end
 
   def append({__MODULE__, state}, stream, revision, records, checkpoints) do
+    record(state.observer, :append)
     store_write(state.store, :append, [stream, revision, records, checkpoints])
   end
 
   def ack({__MODULE__, state}, id, nonce) do
+    record(state.observer, :ack)
+
     case take_fault(state.observer, :ack, id) do
       :rollback ->
-        Store.unknown(Codec.ack_receipt(id, nonce), :unavailable)
+        {_postgres, inner} = state.store
+        seen = length(Elzoo.DurableLog.PostgresHarness.history(inner.controller))
+        :ok = Elzoo.DurableLog.PostgresHarness.hook(state.store, :inject, [:ack, :rollback])
+        result = store_write(state.store, :ack, [id, nonce])
+
+        phases =
+          inner.controller
+          |> Elzoo.DurableLog.PostgresHarness.history()
+          |> Enum.drop(seen)
+
+        Agent.update(state.observer, &%{&1 | rollbacks: [{id, phases} | &1.rollbacks]})
+        result
 
       :reply_loss ->
         _committed = store_write(state.store, :ack, [id, nonce])
@@ -2820,6 +2845,16 @@ defmodule Elzoo.Wave4ChannelTest do
     assert Map.take(Agent.get(fixture.native_controller, & &1.faults), [:ack, :read_ack]) == %{}
     assert {:unknown, :ack} = Wave4ChannelExample.advance(fixture.host)
     assert Elzoo.Wave4ChannelTest.ReadProbe.faults(probe) == %{}
+
+    # A SQL rollback: the forwarded acknowledgement reached its commit barrier,
+    # rolled back there, and left the item pending.
+    assert [{^ack_key, phases}] = Elzoo.Wave4ChannelTest.ReadProbe.rollbacks(probe)
+    assert {:ack, :before_commit} in phases
+    assert Map.get(Agent.get(fixture.controller, & &1.faults), :ack) == nil
+
+    assert {:ok, %{state: :pending, nonce: ^ack_nonce}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [ack_key])
+
     assert Map.take(Agent.get(fixture.native_controller, & &1.faults), [:ack, :read_ack]) == %{}
     assert {:ack, ^ack_key, ^ack_nonce, _receipt} = :sys.get_state(fixture.host).poison
 
@@ -2901,6 +2936,15 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert {:unknown, :ack} = Wave4ChannelExample.advance(fixture.host)
     assert Elzoo.Wave4ChannelTest.ReadProbe.faults(probe) == %{}
+
+    # A SQL rollback: the forwarded acknowledgement reached its commit barrier,
+    # rolled back there, and left the item pending.
+    assert [{^original_key, phases}] = Elzoo.Wave4ChannelTest.ReadProbe.rollbacks(probe)
+    assert {:ack, :before_commit} in phases
+    assert Map.get(Agent.get(fixture.controller, & &1.faults), :ack) == nil
+
+    assert {:ok, %{state: :pending, nonce: ^original_nonce}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [original_key])
 
     assert {:committed, _sequence} =
              Elzoo.Outbox.ack(fixture.command_store, original_key, other_nonce)
@@ -4959,6 +5003,16 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
     assert {:delivery_ack, ^key, ^nonce, _reason} = :sys.get_state(fixture.host).poison
+
+    # A SQL rollback: the forwarded acknowledgement reached its commit barrier,
+    # rolled back there, and left the item pending.
+    assert [{^key, phases}] = Elzoo.Wave4ChannelTest.ReadProbe.rollbacks(probe)
+    assert {:ack, :before_commit} in phases
+    assert Map.get(Agent.get(fixture.controller, & &1.faults), :ack) == nil
+
+    assert {:ok, %{state: :pending, nonce: ^nonce}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [key])
+
     assert {:committed, _} = Elzoo.Outbox.ack(fixture.command_store, key, other_nonce)
     assert {:ok, head_before} = conversation_head(fixture)
 
@@ -4971,6 +5025,78 @@ defmodule Elzoo.Wave4ChannelTest do
     assert {:ok, ^head_before} = conversation_head(fixture)
 
     assert {:ok, %{state: :acked, nonce: ^nonce, ack_nonce: ^other_nonce}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [key])
+
+    # Across a fenced reopen the original key and nonce are no longer in host
+    # memory: recovery rebuilds them from the durable outbox item of the
+    # completed association command, finds another nonce's acknowledgement,
+    # and stays fenced instead of moving on to Run creation.
+    assert {:ok, fixture} = Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, [listener])
+    assert :sys.get_state(fixture.host).poison == nil
+
+    assert {:blocked, :delivery_ack_superseded} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_ack, ^key, ^nonce, :superseded} = :sys.get_state(fixture.host).poison
+    assert {:blocked, :delivery_ack_superseded} = Wave4ChannelExample.advance(fixture.host)
+    assert :sys.get_state(fixture.host).phase == :idle
+    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
+    assert {:ok, ^head_before} = conversation_head(fixture)
+  end
+
+  @tag timeout: 300_000
+  test "a delivery acknowledgement paused before its commit is confirmed, never written twice", %{
+    fixture: fixture
+  } do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+    run_id = run_id_of(fixture, event)
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+
+    {:ok, items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [item] = Enum.filter(items, &(&1.destination == "wave4-channel-delivery"))
+    key = item.idempotency_key
+    nonce = item.nonce
+
+    # The association's delivery acknowledgement pauses before its commit: its
+    # writer is alive and the item still reads pending everywhere else.
+    probe = probe_host_command_store!(fixture)
+    token = :wave4_delivery_ack_writer
+
+    assert :ok =
+             Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :inject, [
+               :ack,
+               {:pause, token}
+             ])
+
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_ack, ^key, ^nonce, _reason} = :sys.get_state(fixture.host).poison
+    writer = Elzoo.DurableLog.PostgresHarness.paused(fixture.controller, token)
+    assert writer.operation == :ack
+    assert Process.alive?(writer.pid)
+
+    assert {:ok, %{state: :pending}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [key])
+
+    # Confirmation by the original receipt is read-only: no second
+    # acknowledgement starts while the first one's writer is alive.
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+    assert Enum.count(Elzoo.Wave4ChannelTest.ReadProbe.calls(probe), &(&1 == :ack)) == 1
+    assert Process.alive?(writer.pid)
+    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
+
+    # The original acknowledgement commits; its receipt (key, nonce and
+    # digest) is confirmed and the round continues without another write.
+    assert {:committed, _} =
+             Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :release, [token])
+
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+    assert Enum.count(Elzoo.Wave4ChannelTest.ReadProbe.calls(probe), &(&1 == :ack)) == 1
+
+    assert {:ok, %{state: :acked, ack_nonce: ^nonce}} =
              Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [key])
   end
 
@@ -10116,10 +10242,20 @@ defmodule Elzoo.Wave4ChannelTest do
     refute other_nonce == reply_item.nonce
 
     probe = probe_host_command_store!(fixture)
-    Elzoo.Wave4ChannelTest.ReadProbe.fault(probe, :ack, reply_item.idempotency_key, :rollback)
+    reply_key = reply_item.idempotency_key
+    Elzoo.Wave4ChannelTest.ReadProbe.fault(probe, :ack, reply_key, :rollback)
 
     assert {:unknown, :reply_ack} = Elzoo.Wave4ChannelExample.advance(fixture.host)
     assert Elzoo.Wave4ChannelTest.ReadProbe.faults(probe) == %{}
+
+    # A SQL rollback: the forwarded acknowledgement reached its commit barrier,
+    # rolled back there, and left the item pending.
+    assert [{^reply_key, phases}] = Elzoo.Wave4ChannelTest.ReadProbe.rollbacks(probe)
+    assert {:ack, :before_commit} in phases
+    assert Map.get(Agent.get(fixture.controller, & &1.faults), :ack) == nil
+
+    assert {:ok, %{state: :pending, nonce: ^reply_nonce}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [reply_key])
 
     assert {:committed, _} =
              Elzoo.Outbox.ack(fixture.command_store, reply_item.idempotency_key, other_nonce)
@@ -12015,9 +12151,40 @@ defmodule Elzoo.Wave4ChannelTest do
 
     # The terminal reply has no reply association, so its custody facts (the
     # reply item's original key and nonce and the reply input's conversation
-    # sequence) are persisted first; the item is still pending then.
+    # sequence) are persisted first; the item is still pending then. The
+    # custody command's append pauses after its head compare-and-set: its
+    # writer lives and the command reads as not observed, so reconciliation
+    # stays read-only and submits nothing again.
+    custody_token = :wave4_reply_custody_writer
+
+    assert :ok =
+             Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :inject, [
+               :append,
+               {:pause, custody_token}
+             ])
+
+    assert {:unknown, :reply_custody} = Wave4ChannelExample.advance(fixture.host)
+    assert {:reply_custody, custody_operation} = poison = :sys.get_state(fixture.host).poison
+    custody_writer = Elzoo.DurableLog.PostgresHarness.paused(fixture.controller, custody_token)
+    assert custody_writer.operation == :append
+    assert Process.alive?(custody_writer.pid)
+    custody_identity = {fixture.profile.tenant, fixture.profile.actor, custody_operation}
+
+    assert {:unknown, :not_observed} =
+             CheckedCommand.result(fixture.handles.reply_custody, result_scope, custody_identity)
+
+    assert {:unknown, :reply_custody} = Wave4ChannelExample.advance(fixture.host)
+    assert {:unknown, :reply_custody} = Wave4ChannelExample.advance(fixture.host)
+    assert :sys.get_state(fixture.host).poison == poison
+    assert Process.alive?(custody_writer.pid)
+
+    # The original command commits; reconciliation confirms it.
+    assert {:committed, _} =
+             Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :release, [custody_token])
+
     assert {:reply_custody, custody_revision} = Wave4ChannelExample.advance(fixture.host)
     assert custody_revision == reply_revision + 1
+    assert :sys.get_state(fixture.host).poison == nil
 
     assert {:ok, custody_snapshot} =
              CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)

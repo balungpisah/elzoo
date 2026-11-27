@@ -50,18 +50,31 @@ defmodule Elzoo.Conversation do
   list of `{:input | :association | :answer, dto}`. Returns
   `{:ok, decisions}` with one `:ok`, `{:ok, :already_present}` or
   `{:refused, code}` per intent, or
-  `{:error, :invalid_request | :timeout | :unavailable | :damaged}`.
+  `{:error, :invalid_request | :timeout | :unavailable | :damaged}`. The
+  timeout is one deadline for the whole call: it covers validating and
+  encoding the intents in the caller as well as the owner call.
   """
   def check(owner, intents, timeout \\ @call_timeout)
       when is_integer(timeout) and timeout > 0 do
-    case prepare(intents) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    case prepare(intents, deadline) do
       {:ok, prepared} ->
-        try do
-          GenServer.call(owner, {:check, prepared}, timeout)
-        catch
-          :exit, {:timeout, _} -> {:error, :timeout}
-          :exit, _ -> {:error, :unavailable}
+        case deadline - System.monotonic_time(:millisecond) do
+          remaining when remaining > 0 ->
+            try do
+              GenServer.call(owner, {:check, prepared}, remaining)
+            catch
+              :exit, {:timeout, _} -> {:error, :timeout}
+              :exit, _ -> {:error, :unavailable}
+            end
+
+          _ ->
+            {:error, :timeout}
         end
+
+      :timeout ->
+        {:error, :timeout}
 
       :error ->
         {:error, :invalid_request}
@@ -168,26 +181,29 @@ defmodule Elzoo.Conversation do
     end
   end
 
-  defp prepare(intents) do
-    with true <- proper_list?(intents),
-         true <- intents != [],
-         true <-
-           Enum.all?(intents, &match?({mode, _} when mode in [:input, :association, :answer], &1)) do
-      {:ok,
-       Enum.map(intents, fn {mode, dto} ->
-         case Record.intent(mode, dto) do
-           {:ok, entry, completed} -> {:ok, entry, completed}
-           :error -> :invalid
-         end
-       end)}
+  # One pass over the intents under the call's deadline, with no count
+  # ceiling: each intent is validated and encoded only while time remains.
+  defp prepare([], _deadline), do: :error
+  defp prepare(intents, deadline), do: prepare(intents, deadline, [])
+
+  defp prepare([], _deadline, acc), do: {:ok, Enum.reverse(acc)}
+
+  defp prepare([{mode, dto} | rest], deadline, acc)
+       when mode in [:input, :association, :answer] do
+    if System.monotonic_time(:millisecond) >= deadline do
+      :timeout
     else
-      _ -> :error
+      prepared =
+        case Record.intent(mode, dto) do
+          {:ok, entry, completed} -> {:ok, entry, completed}
+          :error -> :invalid
+        end
+
+      prepare(rest, deadline, [prepared | acc])
     end
   end
 
-  defp proper_list?([]), do: true
-  defp proper_list?([_ | tail]), do: proper_list?(tail)
-  defp proper_list?(_), do: false
+  defp prepare(_intents, _deadline, _acc), do: :error
 
   defp attempt(state, entry, completed, conflicts) do
     case History.decide(state.model, entry, completed) do

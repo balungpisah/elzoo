@@ -1525,26 +1525,25 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   # The append of a delivery-only item is proven and only its acknowledgement
-  # is unknown. Its original key and nonce decide before anything advances:
-  # an acknowledgement with that nonce is confirmed, a still-pending item is
-  # acknowledged again with it, and an item acknowledged with another nonce
-  # stays fenced. An unreadable item keeps the acknowledgement unknown.
+  # is unknown. The original acknowledgement receipt (key, nonce and digest)
+  # decides, read-only, before anything advances: an acknowledgement committed
+  # with that receipt is confirmed, one with another nonce is reported as
+  # superseded, and a pending, unreadable or mismatching item stays fenced.
+  # A pending item is never acknowledged again here: an acknowledgement paused
+  # before its commit still reads pending elsewhere, so a second write would
+  # race it. Only a fenced reopen, which ends that writer, acknowledges again.
   defp confirm_delivery_ack(state, key, nonce) do
-    case read_original_item(state, key, @delivery_destination) do
-      {:ok, %{state: :acked, nonce: ^nonce, ack_nonce: ^nonce}} ->
-        advance_once(%{state | poison: nil})
+    receipt = Elzoo.DurableLog.Codec.ack_receipt(key, nonce)
 
-      {:ok, %{state: :acked, nonce: ^nonce}} ->
-        {{:blocked, :delivery_ack_superseded}, state}
-
-      {:ok, %{state: :pending, nonce: ^nonce}} ->
-        case acknowledge_original_item(state, key, nonce, @delivery_destination) do
-          :ok ->
-            advance_once(%{state | poison: nil})
-
-          {:error, reason} ->
-            {{:unknown, :delivery}, %{state | poison: {:delivery_ack, key, nonce, reason}}}
+    case DurableLog.confirm_ack(state.command_store, receipt) do
+      {:committed, _} ->
+        case acknowledged_outbox_item(state, key, nonce, @delivery_destination) do
+          :ok -> advance_once(%{state | poison: nil})
+          _ -> {{:unknown, :delivery}, state}
         end
+
+      :superseded ->
+        {{:blocked, :delivery_ack_superseded}, state}
 
       _ ->
         {{:unknown, :delivery}, state}
@@ -1553,6 +1552,65 @@ defmodule Elzoo.Wave4ChannelExample do
     _ -> {{:unknown, :delivery}, state}
   catch
     _, _ -> {{:unknown, :delivery}, state}
+  end
+
+  # A restarted host has no memory of a delivery acknowledgement, so before
+  # recovery moves past a completed delivery-only command it rebuilds that
+  # command's delivery identity from durable evidence: the stream row that
+  # notified it lies at or after its resource revision, so the outbox items
+  # from there to the stream head are read until the one whose notice names
+  # this operation at that revision. Its original key and nonce then decide
+  # like an unknown acknowledgement: only an acknowledgement committed with
+  # that receipt lets recovery continue; another nonce's is superseded.
+  defp delivery_ack_verified(state, operation, revision) do
+    stream = checked_stream(state.profile.tenant)
+
+    with {:ok, head} <- DurableLog.Store.read(state.command_store, :head, [stream]),
+         {:ok, item} <-
+           find_delivery_item(state, stream, operation, revision, revision, head.revision) do
+      receipt = Elzoo.DurableLog.Codec.ack_receipt(item.idempotency_key, item.nonce)
+
+      case DurableLog.confirm_ack(state.command_store, receipt) do
+        {:committed, _} -> :ok
+        :superseded -> {:superseded, item.idempotency_key, item.nonce}
+        _ -> {:error, :delivery_ack}
+      end
+    else
+      _ -> {:error, :delivery_ack}
+    end
+  rescue
+    _ -> {:error, :delivery_ack}
+  catch
+    _, _ -> {:error, :delivery_ack}
+  end
+
+  defp find_delivery_item(_state, _stream, _operation, _revision, from, through)
+       when from > through,
+       do: {:error, :absent}
+
+  defp find_delivery_item(state, stream, operation, revision, from, through) do
+    key = Elzoo.DurableLog.Codec.item_key(stream, from, 1)
+
+    case DurableLog.Store.read(state.command_store, :read_ack, [key]) do
+      {:ok, :absent} ->
+        find_delivery_item(state, stream, operation, revision, from + 1, through)
+
+      {:ok, item} when is_map(item) ->
+        if delivery_item_for?(item, state.profile, operation, revision),
+          do: read_original_item(state, key, @delivery_destination),
+          else: find_delivery_item(state, stream, operation, revision, from + 1, through)
+
+      _ ->
+        {:error, :unavailable}
+    end
+  end
+
+  defp delivery_item_for?(item, profile, operation, revision) do
+    item.destination == @delivery_destination and
+      match?(
+        {:ok, %{"operation_id" => ^operation, "revision" => ^revision}},
+        delivery_notice(item, profile)
+      )
   end
 
   defp deliver_then_step(state) do
@@ -2066,6 +2124,10 @@ defmodule Elzoo.Wave4ChannelExample do
                ) do
           {{:observed, input}, %{state | current: current, phase: phase, approval: nil}}
         else
+          {:superseded, key, nonce} ->
+            {{:blocked, :delivery_ack_superseded},
+             %{state | poison: {:delivery_ack, key, nonce, :superseded}}}
+
           _ ->
             {{:unknown, :input_observation}, %{state | poison: {:input_observation, :unknown}}}
         end
@@ -2124,6 +2186,12 @@ defmodule Elzoo.Wave4ChannelExample do
          true <- association_revision == resource_revision + 1,
          true <- association_receipt?(association_response, input, run_id),
          true <- conversation_association?(state, input, run_id),
+         :ok <-
+           delivery_ack_verified(
+             state,
+             association_operation(operation_id, input, state.profile),
+             association_revision
+           ),
          {:ok, reply} <- recover_v2_reply(state, metadata, pending, run_id, input),
          current <- %{
            event: event,
@@ -2172,6 +2240,10 @@ defmodule Elzoo.Wave4ChannelExample do
           {{:unknown, :recovery}, %{state | poison: {:v2_recovery, operation_id}}}
       end
     else
+      {:superseded, key, nonce} ->
+        {{:blocked, :delivery_ack_superseded},
+         %{state | poison: {:delivery_ack, key, nonce, :superseded}}}
+
       _ ->
         {{:unknown, :recovery}, %{state | poison: {:v2_recovery, :metadata}}}
     end
@@ -2451,9 +2523,14 @@ defmodule Elzoo.Wave4ChannelExample do
         associated? = conversation_association?(state, current.input_id, current.run_id)
 
         if association_receipt?(response, current.input_id, current.run_id) and associated? do
-          if reply_profile?(state.profile),
-            do: {:error, :metadata_required},
-            else: retained_answer_phase(state, current, snapshot)
+          if reply_profile?(state.profile) do
+            {:error, :metadata_required}
+          else
+            case delivery_ack_verified(state, current.association_operation, revision) do
+              :ok -> retained_answer_phase(state, current, snapshot)
+              other -> other
+            end
+          end
         else
           {:error, :association}
         end
@@ -4005,9 +4082,13 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
-  # An unknown custody command is resolved by its own retained result: a
-  # completed command lets the acknowledgement proceed, an unobserved one is
-  # executed again with the identical operation on the next advance.
+  # An unknown custody command is reconciled read-only, by its own retained
+  # result: a completed command lets the acknowledgement proceed. An
+  # unobserved result is not proof that nothing will commit (an append paused
+  # after its head compare-and-set reads exactly so while its writer lives),
+  # so the command is never submitted again here. The host stays fenced until
+  # the original command is confirmed, or until a fenced reopen has ended its
+  # writer and recovery decides from the durable custody facts.
   defp reconcile_reply_custody(state, operation) do
     case CheckedCommand.result(
            state.handles.reply_custody,
@@ -4016,9 +4097,6 @@ defmodule Elzoo.Wave4ChannelExample do
          ) do
       {:completed, %{revision: revision}} ->
         {{:reply_custody, revision}, %{state | poison: nil}}
-
-      {:unknown, :not_observed} ->
-        {{:unknown, :reply_custody}, %{state | poison: nil}}
 
       _ ->
         {{:unknown, :reply_custody}, state}

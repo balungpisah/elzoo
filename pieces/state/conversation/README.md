@@ -91,8 +91,11 @@ that model, applying each admitted intent before the next. It returns
 record, or the decision the write would give against the same history,
 `{:ok, :already_present}` or `{:refused, code}` (a malformed DTO is
 `{:refused, "invalid_request"}`). It never appends or reserves a sequence or
-a message ID. Errors: `{:error, :invalid_request}` for a malformed list,
-`{:error, :timeout}` when the call times out, `{:error, :unavailable}` when
+a message ID. The call's timeout is one deadline for the whole call:
+validating and encoding the intents in the caller runs under it, and the
+owner call gets only the time that remains; there is no count ceiling.
+Errors: `{:error, :invalid_request}` for a malformed list,
+`{:error, :timeout}` when the deadline passes, `{:error, :unavailable}` when
 the refresh cannot read the Store or the owner is down, and
 `{:error, :damaged}` when the refresh finds a failing row.
 
@@ -155,9 +158,11 @@ server with other test runs):
 | PostgreSQL (`integration/sql`) | 36.5–64.3 s | 1.3–1.5 s | 22.6–28.1 MB |
 | Memory | 2.0–2.3 s | 6.6–7.7 s (its read scans its map) | 28.2 MB |
 
-The owner decides on its model and appends one row with the head
-compare-and-set; it does not read before a write. Each call is serialized in
-the owner process.
+A write that the owner's current model admits is appended at once, one row
+with the head compare-and-set and no read before it. A write that the model
+would refuse first reads the rows after the owner's head and decides again
+(see Write results), and a write after a lost compare-and-set reads only the
+new rows. Each call is serialized in the owner process.
 
 ## Reads without an owner
 
@@ -202,9 +207,11 @@ is not claimed bounded (the Memory Store scans its map).
 - Wave 4: the signed channel is the sole writer of the conversation streams
   that it delivers to. `check/2` does not reserve a message ID. If an outside
   writer commits the same ID with different content before delivery, the
-  delivery is refused, and the channel blocks later deliveries for that
-  tenant. An identical outside write cannot be told from a redelivery, so
-  `check/2` does not enforce this exclusivity.
+  delivery is refused, and the channel blocks later deliveries to that
+  conversation; deliveries to other conversations continue, and only the
+  tenant's outbox window is shared (admission and observation refuse while
+  it is full). An identical outside write cannot be told from a redelivery,
+  so `check/2` does not enforce this exclusivity.
 
 ## Migration from version 1
 
