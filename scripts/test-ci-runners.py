@@ -558,35 +558,56 @@ class RunnerPolicyTest(unittest.TestCase):
                         self.tearDown()
                         self.setUp()
 
-    def test_gleam_beam_setup_step_must_come_before_setup_node(self):
-        # Moved below the Gleam tests, or below the setup-node step: the step text is intact but its position is not.
-        for marker in ("      - run: ./scripts/check.sh\n", "          node-version: '26.13.1'\n",
-                       "        run: ./scripts/setup.sh\n"):
-            with self.subTest(below=marker.strip()):
+    def test_gleam_beam_setup_step_must_immediately_follow_the_runtime_step(self):
+        message = "pinned BEAM setup step must immediately follow the runtime step"
+        runtime = "        run: sudo python3 \"$GITHUB_WORKSPACE/scripts/ci-install-runtime.py\"\n"
+        checkout = "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
+        node = "      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n" \
+               "        with:\n          node-version: '26.13.1'\n"
+        cases = [
+            # Moved below the Gleam tests, the setup-node step or the Gleam setup step: text intact, position not.
+            ("below", marker) for marker in ("      - run: ./scripts/check.sh\n", "          node-version: '26.13.1'\n",
+                                             "        run: ./scripts/setup.sh\n")
+        ] + [
+            # Any step before it, a Gleam check under any spelling included, runs on an unpinned runtime.
+            ("before", step) for step in ("      - run: scripts/check.sh\n", "      - run: ./scripts/check.sh\n",
+                                          "      - run: cd . && scripts/check.sh\n", "      - run: echo ready\n",
+                                          "      - name: Report BEAM capacity\n        run: erl -noshell -s init stop\n",
+                                          node)
+        ] + [
+            ("before checkout", "      - run: scripts/check.sh\n"),
+            ("before checkout", "      - run: echo ready\n"),
+        ]
+        for where, text in cases:
+            with self.subTest(where=where, text=text):
                 try:
                     path = self.root / ".github" / "workflows" / "symbolic-gleam.yml"
                     source = path.read_text()
                     self.assertEqual(1, source.count(self.BEAM_STEP))
-                    self.assertEqual(1, source.count(marker))
-                    path.write_text(source.replace(self.BEAM_STEP, "").replace(marker, marker + self.BEAM_STEP))
-                    self.assertIn("pinned BEAM setup step must come before the setup-node step", self.check(1).stderr)
+                    if where == "below":
+                        self.assertEqual(1, source.count(text))
+                        source = source.replace(self.BEAM_STEP, "").replace(text, text + self.BEAM_STEP)
+                    elif where == "before":
+                        source = source.replace(self.BEAM_STEP, text + self.BEAM_STEP)
+                    else:
+                        self.assertEqual(1, source.count(checkout))
+                        source = source.replace(checkout, text + checkout)
+                    path.write_text(source)
+                    self.assertIn(message, self.check(1).stderr)
                 finally:
                     self.tearDown()
                     self.setUp()
-        # setup-node and the Gleam setup step moved below check.sh, with the BEAM step still before setup-node:
-        # check.sh would run before the pinned runtime is set up.
-        node = "      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n" \
-               "        with:\n          node-version: '26.13.1'\n"
+        # setup-node and the Gleam setup step moved below check.sh, with the BEAM step between: check.sh would run
+        # before the pinned runtime is set up.
         marker = "      - run: ./scripts/check.sh\n"
         path = self.root / ".github" / "workflows" / "symbolic-gleam.yml"
         source = path.read_text()
-        self.assertEqual(1, source.count(self.BEAM_STEP))
+        self.assertEqual(1, source.count(runtime + self.BEAM_STEP))
         self.assertEqual(1, source.count(node + self.GLEAM_STEP))
         self.assertEqual(1, source.count(marker))
         source = source.replace(self.BEAM_STEP, "").replace(node + self.GLEAM_STEP, "")
         path.write_text(source.replace(marker, marker + self.BEAM_STEP + node + self.GLEAM_STEP))
-        self.assertIn("pinned BEAM setup step must come before the setup-node step and every step that runs",
-                      self.check(1).stderr)
+        self.assertIn(message, self.check(1).stderr)
 
     def test_gleam_otp_version_follows_the_root_jobs(self):
         # Bumping only the Gleam job, or only the root jobs, is refused: the pin is the spike job's OTP version.
