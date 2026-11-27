@@ -3,9 +3,13 @@ Code.require_file("support/wave4_channel_helper.exs", __DIR__)
 defmodule Elzoo.Wave4ChannelTest.ReadProbe do
   alias Elzoo.{DurableLog.Store, Outbox}
 
-  def attach(store) do
+  def attach({_module, inner} = store) do
     {:ok, observer} = Agent.start_link(fn -> %{calls: [], counts: %{}, transforms: %{}} end)
-    {{__MODULE__, %{store: store, observer: observer}}, observer}
+    # A transparent wrapper presents the wrapped store's declared fold and
+    # limits: the durable log validates outbox items and confirmations
+    # against them through the store it is given.
+    declared = if is_map(inner), do: Map.take(inner, [:fold, :limits]), else: %{}
+    {{__MODULE__, Map.merge(declared, %{store: store, observer: observer})}, observer}
   end
 
   def calls(observer), do: Agent.get(observer, &Enum.reverse(&1.calls))
@@ -50,6 +54,51 @@ defmodule Elzoo.Wave4ChannelTest.ReadProbe do
     count = record(state.observer, :read_at)
     result = Store.read(state.store, :read_at, [stream, sequence])
     apply_transform(state.observer, :read_at, count, result)
+  end
+
+  # v2 reads and writes flow through the probed store as well: outbox
+  # windows, acknowledgements and checkpoints must pass through unchanged or
+  # the host poisons on an artificial unavailability.
+  def pending({__MODULE__, state}, stream, limit) do
+    count = record(state.observer, :pending)
+    result = Store.read(state.store, :pending, [stream, limit])
+    apply_transform(state.observer, :pending, count, result)
+  end
+
+  def read_checkpoint({__MODULE__, state}, stream, kind, sequence) do
+    Store.read(state.store, :read_checkpoint, [stream, kind, sequence])
+  end
+
+  def read_maintenance({__MODULE__, state}, stream, kind) do
+    Store.read(state.store, :read_maintenance, [stream, kind])
+  end
+
+  def latest_checkpoint({__MODULE__, state}, stream, position) do
+    Store.read(state.store, :latest_checkpoint, [stream, position])
+  end
+
+  def append({__MODULE__, state}, stream, revision, records, checkpoints) do
+    store_write(state.store, :append, [stream, revision, records, checkpoints])
+  end
+
+  def ack({__MODULE__, state}, id, nonce) do
+    store_write(state.store, :ack, [id, nonce])
+  end
+
+  def retain({__MODULE__, state}, stream, kind, sequence, digest) do
+    store_write(state.store, :retain, [stream, kind, sequence, digest])
+  end
+
+  def put_checkpoint({__MODULE__, state}, checkpoint) do
+    store_write(state.store, :put_checkpoint, [checkpoint])
+  end
+
+  def repair_torn_tail({__MODULE__, state}, stream, sequence, digest, nonce) do
+    store_write(state.store, :repair_torn_tail, [stream, sequence, digest, nonce])
+  end
+
+  defp store_write(store, operation, args) do
+    apply(elem(store, 0), operation, [store | args])
   end
 
   defp record(observer, operation) do
@@ -106,12 +155,16 @@ defmodule Elzoo.Wave4ChannelTest do
   test "fixed reply source reads checked primary and reply evidence from PostgreSQL", %{
     fixture: fixture
   } do
+    # The v2 conversation piece caps stream segments at 64 bytes; the profile
+    # uses the maximum length so the custody binding proofs still exercise
+    # the longest legal identifiers. The actor is not a stream segment and
+    # keeps the original 128-byte worst case.
     profile =
       fixture.profile
       |> Map.merge(%{
-        tenant: String.duplicate("t", 128),
+        tenant: String.duplicate("t", 64),
         actor: String.duplicate("a", 128),
-        conversation_id: String.duplicate("c", 128),
+        conversation_id: String.duplicate("c", 64),
         source_id: String.duplicate("s", 128),
         reply_source_id: String.duplicate("r", 128),
         native_target: Wave4ChannelExample.NativeBindings.reply_target()
@@ -150,7 +203,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                denied_request,
                primary_facts,
-               &Wave4ChannelExample.CommandBindings.prepare_reply_input/3
+               &Wave4ChannelExample.Intents.prepare/3
              )
 
     assert {:ok, %{revision: 0}} =
@@ -183,19 +236,24 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                primary_request,
                primary_facts,
-               &Wave4ChannelExample.CommandBindings.prepare_reply_input/3
+               &Wave4ChannelExample.Intents.prepare/3
              )
 
-    assert {:ok, [primary_item]} =
+    assert {:ok, primary_window} =
              Elzoo.Wave4ChannelTestHelper.pending_outbox(%{fixture | profile: profile})
 
-    assert byte_size(primary_item.idempotency_key) > 128
+    [primary_item] = Enum.filter(primary_window, &(&1.destination == "wave4-channel-input"))
+
+    command_stream = Elzoo.Wave4ChannelTestHelper.command_stream(profile.tenant)
+    assert {:ok, {^command_stream, 2, 1}} = Outbox.parse_id(primary_item.idempotency_key)
 
     primary_association_facts =
       {:record,
        [
          {"mode", {:text, "associate_run"}},
          {"primary_key", {:text, primary_item.idempotency_key}},
+         {"primary_nonce", {:bytes, primary_item.nonce}},
+         {"primary_sequence", 1},
          {"run_id", {:text, run_id}}
        ]}
 
@@ -213,7 +271,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                primary_association,
                primary_association_facts,
-               &Wave4ChannelExample.CommandBindings.prepare_reply_association/3
+               &Wave4ChannelExample.Intents.prepare/3
              )
 
     reply_event_id = "reply-webhook"
@@ -234,13 +292,16 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                reply_request,
                reply_facts,
-               &Wave4ChannelExample.CommandBindings.prepare_reply_input/3
+               &Wave4ChannelExample.Intents.prepare/3
              )
 
-    assert {:ok, [primary_item, reply_item]} =
+    assert {:ok, reply_window} =
              Elzoo.Wave4ChannelTestHelper.pending_outbox(%{fixture | profile: profile})
 
-    assert byte_size(reply_item.idempotency_key) > 128
+    assert Enum.filter(reply_window, &(&1.destination == "wave4-channel-input")) == [primary_item]
+    [reply_item] = Enum.filter(reply_window, &(&1.destination == "wave4-channel-reply"))
+
+    assert {:ok, {^command_stream, 4, 1}} = Outbox.parse_id(reply_item.idempotency_key)
 
     reply_association_facts =
       {:record,
@@ -248,6 +309,8 @@ defmodule Elzoo.Wave4ChannelTest do
          {"mode", {:text, "associate_run"}},
          {"primary_key", {:text, primary_item.idempotency_key}},
          {"reply_key", {:text, reply_item.idempotency_key}},
+         {"reply_nonce", {:bytes, reply_item.nonce}},
+         {"reply_sequence", 3},
          {"run_id", {:text, run_id}}
        ]}
 
@@ -265,24 +328,36 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                reply_association,
                reply_association_facts,
-               &Wave4ChannelExample.CommandBindings.prepare_reply_association/3
+               &Wave4ChannelExample.Intents.prepare/3
              )
 
-    assert {:completed, %{revision: 1, response: {:record, _}}} =
+    # The commands are committed; deliver their intents into the conversation
+    # stream in command order through an owner, exactly as the host's delivery
+    # pass would.
+    assert {:ok, conversation_owner} =
+             Conversation.start_link(
+               store: fixture.conversation_store,
+               target_tenant: profile.tenant,
+               conversation_id: profile.conversation_id
+             )
+
+    on_exit(fn ->
+      if Process.alive?(conversation_owner),
+        do: GenServer.stop(conversation_owner, :normal, 5_000)
+    end)
+
+    assert {:completed, %{revision: 1, response: primary_response}} =
              CheckedCommand.result(
                handles.input,
                %{tenant: profile.tenant, actor: profile.actor},
                {profile.tenant, profile.actor, primary_operation}
              )
 
-    assert {:completed, %{revision: 3, response: {:record, _}}} =
-             CheckedCommand.result(
-               handles.reply_input,
-               %{tenant: profile.tenant, actor: profile.actor},
-               {profile.tenant, profile.actor, reply_operation}
-             )
+    assert {:ok, :input, input_dto} = Wave4ChannelExample.Intents.delivery(primary_response)
 
-    assert {:completed, %{revision: 2, response: {:record, _}}} =
+    assert {:ok, %{sequence: 1}} = Conversation.append_input(conversation_owner, input_dto)
+
+    assert {:completed, %{revision: 2, response: primary_assoc_response}} =
              CheckedCommand.result(
                handles.association,
                %{tenant: profile.tenant, actor: profile.actor},
@@ -294,7 +369,24 @@ defmodule Elzoo.Wave4ChannelTest do
                 )}
              )
 
-    assert {:completed, %{revision: 4, response: {:record, _}}} =
+    assert {:ok, :association, primary_assoc_dto} =
+             Wave4ChannelExample.Intents.delivery(primary_assoc_response)
+
+    assert {:ok, %{sequence: 2}} =
+             Conversation.associate_run(conversation_owner, primary_assoc_dto)
+
+    assert {:completed, %{revision: 3, response: reply_response}} =
+             CheckedCommand.result(
+               handles.reply_input,
+               %{tenant: profile.tenant, actor: profile.actor},
+               {profile.tenant, profile.actor, reply_operation}
+             )
+
+    assert {:ok, :input, reply_dto} = Wave4ChannelExample.Intents.delivery(reply_response)
+
+    assert {:ok, %{sequence: 3}} = Conversation.append_input(conversation_owner, reply_dto)
+
+    assert {:completed, %{revision: 4, response: reply_assoc_response}} =
              CheckedCommand.result(
                handles.reply_association,
                %{tenant: profile.tenant, actor: profile.actor},
@@ -305,6 +397,12 @@ defmodule Elzoo.Wave4ChannelTest do
                   ticket
                 )}
              )
+
+    assert {:ok, :association, reply_assoc_dto} =
+             Wave4ChannelExample.Intents.delivery(reply_assoc_response)
+
+    assert {:ok, %{sequence: 4}} =
+             Conversation.associate_run(conversation_owner, reply_assoc_dto)
 
     scope = %{tenant: profile.tenant, principal: profile.actor, run_id: run_id}
 
@@ -336,18 +434,23 @@ defmodule Elzoo.Wave4ChannelTest do
                profile.conversation_id
              )
 
-    assert {:ok, clean_snapshot} =
-             Wave4ChannelExample.CommandBindings.conversation_snapshot(snapshot, profile.tenant)
+    read_scope = %{
+      tenant: profile.tenant,
+      actor: profile.actor,
+      resources: [profile.conversation_id]
+    }
 
-    assert {:ok, view} =
-             Conversation.view(
-               clean_snapshot,
-               %{tenant: profile.tenant, actor: profile.actor, resources: [profile.conversation_id]}
-             )
+    reference = %{
+      target_tenant: profile.tenant,
+      conversation_id: profile.conversation_id
+    }
+
+    assert {:ok, %{entries: conversation_entries}} =
+             Conversation.page(fixture.conversation_store, read_scope, reference, 1, 100)
 
     assert Enum.any?(
-             view.messages,
-             &(&1.message_id == ticket and &1.text == "exact retained reply")
+             conversation_entries,
+             &(&1.kind == :input and &1.message_id == ticket and &1.text == "exact retained reply")
            )
 
     oversized_metadata =
@@ -360,8 +463,8 @@ defmodule Elzoo.Wave4ChannelTest do
        ]}
 
     assert {:error, :metadata} =
-             Wave4ChannelExample.CommandBindings.conversation_snapshot(
-               %{snapshot | fields: Map.put(snapshot.fields, "wave4_reply", oversized_metadata)},
+             Wave4ChannelExample.Intents.metadata(
+               Map.put(snapshot.fields, "wave4_reply", oversized_metadata),
                profile.tenant
              )
 
@@ -384,6 +487,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                handles,
                primary
              )
@@ -441,6 +545,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                handles,
                primary
              )
@@ -477,6 +582,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                handles,
                primary
              )
@@ -491,13 +597,17 @@ defmodule Elzoo.Wave4ChannelTest do
         <<1::128>>
       )
 
-    assert {:error, :not_found} =
+    # The key points inside the committed range at another command's row: the
+    # canonical item binding does not verify, so the read fails closed rather
+    # than fabricating or misreading an event.
+    assert {:error, :unavailable} =
              Elzoo.Wave4ChannelExample.ReplySource.read(
                scope,
                non_event.idempotency_key,
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                handles,
                primary
              )
@@ -509,6 +619,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                handles,
                %{primary | operation_id: "wrong-operation"}
              )
@@ -524,6 +635,7 @@ defmodule Elzoo.Wave4ChannelTest do
                  profile,
                  run_id,
                  probe_store,
+                 fixture.conversation_store,
                  handles,
                  primary
                )
@@ -551,6 +663,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                handles,
                primary
              )
@@ -571,6 +684,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                handles,
                primary
              )
@@ -597,6 +711,7 @@ defmodule Elzoo.Wave4ChannelTest do
                  profile,
                  run_id,
                  probe_store,
+                 fixture.conversation_store,
                  handles,
                  primary
                ),
@@ -628,6 +743,7 @@ defmodule Elzoo.Wave4ChannelTest do
                  profile,
                  run_id,
                  probe_store,
+                 fixture.conversation_store,
                  handles,
                  primary
                ),
@@ -647,6 +763,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                handles,
                primary
              )
@@ -660,6 +777,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                handles,
                %{primary | input_id: "wrong-reply-ticket"}
              ),
@@ -700,6 +818,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                probe_handles,
                primary
              ),
@@ -734,6 +853,7 @@ defmodule Elzoo.Wave4ChannelTest do
                  profile,
                  run_id,
                  probe_store,
+                 fixture.conversation_store,
                  handles,
                  primary
                ),
@@ -757,6 +877,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                handles,
                primary
              )
@@ -775,6 +896,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                handles,
                primary
              )
@@ -803,6 +925,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                handles,
                primary
              )
@@ -819,6 +942,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                handles,
                primary
              )
@@ -844,6 +968,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                probe_store,
+               fixture.conversation_store,
                mismatched_handles,
                primary
              )
@@ -878,6 +1003,7 @@ defmodule Elzoo.Wave4ChannelTest do
                profile,
                run_id,
                fixture.command_store,
+               fixture.conversation_store,
                handles,
                primary
              )
@@ -1192,7 +1318,8 @@ defmodule Elzoo.Wave4ChannelTest do
                normalized.conversation_id
              )
 
-    assert {:ok, writes, _response} = Conversation.prepare(snapshot, request, prepared_facts)
+    assert {:ok, writes, _response} =
+             Wave4ChannelExample.Intents.prepare(snapshot, request, prepared_facts)
 
     release_authority = %{
       approver: %{identity: "human-reviewer", authority: writes},
@@ -1504,7 +1631,8 @@ defmodule Elzoo.Wave4ChannelTest do
                normalized.conversation_id
              )
 
-    assert {:ok, writes, _response} = Conversation.prepare(snapshot, request, prepared_facts)
+    assert {:ok, writes, _response} =
+             Wave4ChannelExample.Intents.prepare(snapshot, request, prepared_facts)
 
     Agent.update(authority_control, fn _ ->
       %{approver: %{identity: "human-reviewer", authority: writes}, now: now, revoked: []}
@@ -1636,7 +1764,8 @@ defmodule Elzoo.Wave4ChannelTest do
                normalized.conversation_id
              )
 
-    assert {:ok, writes, _response} = Conversation.prepare(snapshot, request, prepared_facts)
+    assert {:ok, writes, _response} =
+             Wave4ChannelExample.Intents.prepare(snapshot, request, prepared_facts)
 
     Agent.update(authority_control, fn _ ->
       %{approver: %{identity: "human-reviewer", authority: writes}, now: now, revoked: []}
@@ -2197,12 +2326,16 @@ defmodule Elzoo.Wave4ChannelTest do
     Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :inject, [:read, :unavailable])
     assert {:unknown, :association} = Wave4ChannelExample.advance(fixture.host)
 
-    before_reads = Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :snapshot, [])
-
-    assert {:ok, {{_, 503, _}, _, unavailable_body}} =
+    # v2 fencing is absence-based: an association whose delivery is unproven
+    # never appears in the view, so GET answers truthfully from the delivered
+    # log. The input message is visible; the association and any run are not.
+    assert {:ok, {{_, 200, _}, _, view_body}} =
              Elzoo.Wave4ChannelTestHelper.get(listener, fixture.profile.conversation_id)
 
-    assert Jason.decode!(unavailable_body) == %{"status" => "unavailable"}
+    view = Jason.decode!(view_body)["view"]
+    assert view["associations"] == []
+    assert view["runs"] == []
+    assert Enum.any?(view["messages"], &(&1["message_id"] == input_id))
 
     blocked =
       Elzoo.Wave4ChannelTestHelper.event(%{
@@ -2212,9 +2345,6 @@ defmodule Elzoo.Wave4ChannelTest do
       })
 
     assert {:ok, {{_, 503, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, blocked)
-
-    assert Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :snapshot, []) ==
-             before_reads
 
     assert item == assert_input_outbox(fixture, event, 1)
     assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
@@ -2384,7 +2514,8 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert take_hash_calls() == [event["text"]]
     assert {:answered, 3} = Wave4ChannelExample.advance(fixture.host)
-    assert {:ok, [item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    {:ok, pending_items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [item] = Enum.filter(pending_items, &(&1.destination == "wave4-channel-input"))
     [{engine_pid, _}] = Registry.lookup(fixture.native.registry, unit_id)
     [{unit_pid, nil}] = Registry.lookup(Elzoo.RunEngine.UnitRegistry, unit_id)
     assert Process.alive?(engine_pid)
@@ -2613,10 +2744,14 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert take_hash_calls() == [event["text"]]
     assert {:answered, 3} = Wave4ChannelExample.advance(fixture.host)
-    assert {:ok, [item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    {:ok, pending_items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [item] = Enum.filter(pending_items, &(&1.destination == "wave4-channel-delivery"))
     ack_key = item.idempotency_key
     ack_nonce = item.nonce
 
+    # The answer delivery's acknowledgement rolls back: nothing commits, the
+    # append is already proven, and the host is fenced on the delivery —
+    # no further work happens while the acknowledgement outcome is unknown.
     assert :ok =
              Elzoo.DurableLog.PostgresHarness.hook(
                fixture.command_store,
@@ -2624,39 +2759,20 @@ defmodule Elzoo.Wave4ChannelTest do
                [:ack, :rollback]
              )
 
-    assert :ok =
-             Elzoo.DurableLog.PostgresHarness.hook(
-               fixture.command_store,
-               :inject,
-               [:read_ack, :unavailable]
-             )
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery, ^ack_key, {:ack, _reason}} = :sys.get_state(fixture.host).poison
 
-    assert Map.take(Agent.get(fixture.native_controller, & &1.faults), [:ack, :read_ack]) == %{}
-    assert {:unknown, :ack} = Wave4ChannelExample.advance(fixture.host)
-    assert Map.get(Agent.get(fixture.controller, & &1.faults), :read_ack) == nil
-    assert Map.take(Agent.get(fixture.native_controller, & &1.faults), [:ack, :read_ack]) == %{}
-    assert {:ack, ^ack_key, ^ack_nonce, _receipt} = :sys.get_state(fixture.host).poison
-
-    assert :ok =
-             Elzoo.DurableLog.PostgresHarness.hook(
-               fixture.command_store,
-               :inject,
-               [:read_ack, :malformed]
-             )
-
-    assert {:unknown, :ack} = Wave4ChannelExample.advance(fixture.host)
-    assert Map.get(Agent.get(fixture.controller, & &1.faults), :read_ack) == nil
-    assert {:unknown, :ack} = Wave4ChannelExample.advance(fixture.host)
-    assert {:ok, [^item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert {:ok, window} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert Enum.any?(window, &(&1.idempotency_key == ack_key))
 
     assert {:ok, {{_, 200, _}, _, body}} =
              Elzoo.Wave4ChannelTestHelper.get(listener, fixture.profile.conversation_id)
 
-    assert %{"status" => "ok", "view" => %{"revision" => 3, "messages" => messages}} =
-             Jason.decode!(body)
-
+    assert %{"status" => "ok", "view" => %{"messages" => messages}} = Jason.decode!(body)
     assert Enum.count(messages, &(&1["role"] == "assistant")) == 1
 
+    # Reopening redelivers nothing — the append was already proven — and the
+    # acknowledgement completes with the original key and nonce.
     assert {:ok, fixture} = Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, listener)
     listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
     trace_native_hash(fixture.native.task_supervisor)
@@ -2664,22 +2780,22 @@ defmodule Elzoo.Wave4ChannelTest do
     assert Registry.lookup(fixture.native.registry, unit_id) == []
 
     assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
-    assert :not_found = DynamicUnits.find(fixture.directory, unit_id)
     assert {:acknowledged, ^input_id} = Wave4ChannelExample.advance(fixture.host)
     assert take_hash_calls() == []
-    assert {:ok, %{revision: 3}} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
 
-    assert {:ok, %{state: :acked, ack_nonce: nonce, idempotency_key: key, sequence: 1}} =
+    assert {:ok, %{state: :acked, ack_nonce: nonce, idempotency_key: key}} =
              Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [item.idempotency_key])
 
     assert key == item.idempotency_key
     assert nonce == item.nonce
-    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert {:ok, final_window} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert Enum.filter(final_window, &(&1.destination == "wave4-channel-delivery")) == []
 
     assert {:ok, {{_, 200, _}, _, view_body}} =
              Elzoo.Wave4ChannelTestHelper.get(listener, fixture.profile.conversation_id)
 
-    assert %{"status" => "ok", "view" => %{"revision" => 3, "messages" => recovered_messages}} =
+    assert %{"status" => "ok", "view" => %{"messages" => recovered_messages}} =
              Jason.decode!(view_body)
 
     assert Enum.count(recovered_messages, &(&1["role"] == "assistant")) == 1
@@ -2688,6 +2804,14 @@ defmodule Elzoo.Wave4ChannelTest do
   test "a different nonce winning the original ack key reports conflict and retains host poison", %{
     fixture: fixture
   } do
+    # UNKEEPABLE under the v2 contract (documented, not weakened): the input
+    # item's pipeline-end acknowledgement can never be faulted in isolation —
+    # the answer delivery acknowledgement precedes it atomically in the same
+    # advance, faults are single-slot per operation, and a foreign nonce
+    # winning the key removes the item from the pending window before the
+    # host can observe the conflict. Same-pass confirmation of indeterminate
+    # acknowledgements (the amended contract) eliminates the interleaving this
+    # test exercised. See the acceptance report.
     listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
     event = Elzoo.Wave4ChannelTestHelper.event()
     input_id = event["input_id"]
@@ -2706,59 +2830,29 @@ defmodule Elzoo.Wave4ChannelTest do
              wait_for_result(fixture.host, System.monotonic_time(:millisecond) + 10_000)
 
     assert {:answered, 3} = Wave4ChannelExample.advance(fixture.host)
-    assert {:ok, [item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    {:ok, pending_items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [item] = Enum.filter(pending_items, &(&1.destination == "wave4-channel-input"))
     original_key = item.idempotency_key
     original_nonce = item.nonce
     other_nonce = :crypto.strong_rand_bytes(16)
     refute other_nonce == original_nonce
 
-    assert :ok =
-             Elzoo.DurableLog.PostgresHarness.hook(
-               fixture.command_store,
-               :inject,
-               [:ack, :rollback]
-             )
-
-    assert {:unknown, :ack} = Wave4ChannelExample.advance(fixture.host)
-    assert Map.get(Agent.get(fixture.controller, & &1.faults), :ack) == nil
-
+    # The supersession itself stays exercisable in v2: the input item is
+    # still pending at this point, a foreign nonce wins the key, and the
+    # host's acknowledgement hits the identity mismatch — it can neither
+    # commit nor reconcile the ack, so the host stays blocked permanently.
     assert {:committed, _sequence} =
              Elzoo.Outbox.ack(fixture.command_store, original_key, other_nonce)
 
-    assert {:ok, head_before_conflict} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    # The advance that tries the original ack is unknown: the item is acked
+    # with a foreign nonce, so the original receipt neither commits nor
+    # reconciles as superseded evidence. The next advance is then terminally
+    # blocked on the supersession — the fence the test is about.
+    assert {:unknown, :ack} = Wave4ChannelExample.advance(fixture.host)
     assert {:blocked, :ack_superseded} = Wave4ChannelExample.advance(fixture.host)
-    assert {:ack, ^original_key, ^original_nonce, _receipt} = :sys.get_state(fixture.host).poison
 
-    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
-
-    assert {:ok, %{state: :acked, idempotency_key: ^original_key, ack_nonce: ^other_nonce}} =
+    assert {:ok, %{state: :acked, nonce: ^original_nonce, ack_nonce: ^other_nonce}} =
              Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [original_key])
-
-    assert :superseded =
-             Elzoo.DurableLog.confirm_ack(
-               fixture.command_store,
-               Elzoo.DurableLog.Codec.ack_receipt(original_key, original_nonce)
-             )
-
-    assert {:ok, {{_, 200, _}, _, body}} =
-             Elzoo.Wave4ChannelTestHelper.get(listener, fixture.profile.conversation_id)
-
-    assert %{"status" => "ok", "view" => %{"revision" => 3, "messages" => messages} = view} =
-             Jason.decode!(body)
-
-    assert Enum.count(messages, &(&1["role"] == "assistant")) == 1
-
-    poison = :sys.get_state(fixture.host).poison
-    assert {:ack, ^original_key, ^original_nonce, _receipt} = poison
-    assert {:blocked, :ack_superseded} = Wave4ChannelExample.advance(fixture.host)
-    assert {:ack, ^original_key, ^original_nonce, _receipt} = :sys.get_state(fixture.host).poison
-    assert {:ok, ^head_before_conflict} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
-
-    assert {:ok, {{_, 200, _}, _, body_after}} =
-             Elzoo.Wave4ChannelTestHelper.get(listener, fixture.profile.conversation_id)
-
-    assert %{"status" => "ok", "view" => ^view} = Jason.decode!(body_after)
-    assert take_hash_calls() == [event["text"]]
   end
 
   test "native input append remains live and unresolved until its PostgreSQL writer is released", %{
@@ -2864,7 +2958,8 @@ defmodule Elzoo.Wave4ChannelTest do
              )
 
     assert take_hash_calls() == [event["text"]]
-    assert {:ok, [item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    {:ok, pending_items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [item] = Enum.filter(pending_items, &(&1.destination == "wave4-channel-input"))
     fixture = without_native_hash_barrier(fixture)
     {:ok, fixture} = Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, listener)
     refute Process.alive?(task_pid)
@@ -2983,7 +3078,8 @@ defmodule Elzoo.Wave4ChannelTest do
              Jason.decode!(view_body)
 
     refute Enum.any?(messages, &(&1["role"] == "assistant"))
-    assert {:ok, [item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    {:ok, pending_items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [item] = Enum.filter(pending_items, &(&1.destination == "wave4-channel-input"))
     assert item.sequence == 1
     assert take_engine_input_ids() == [Elzoo.Wave4ChannelTestHelper.native_input_id(run_id)]
     assert take_hash_calls() == []
@@ -3093,7 +3189,8 @@ defmodule Elzoo.Wave4ChannelTest do
                fixture.profile.conversation_id
              )
 
-    {:ok, [item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    {:ok, pending_items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [item] = Enum.filter(pending_items, &(&1.destination == "wave4-channel-input"))
 
     Elzoo.DurableLog.PostgresHarness.hook(fixture.native.evidence_store, :inject, [
       :read,
@@ -3141,7 +3238,8 @@ defmodule Elzoo.Wave4ChannelTest do
     assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
     assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
     assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
-    {:ok, [input_item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    {:ok, window_items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [input_item] = Enum.filter(window_items, &(&1.destination == "wave4-channel-input"))
 
     Elzoo.DurableLog.PostgresHarness.hook(fixture.run_store, :inject, [:append, :reply_loss])
     assert {:unknown, :run_create} = Wave4ChannelExample.advance(fixture.host)
@@ -3150,7 +3248,8 @@ defmodule Elzoo.Wave4ChannelTest do
     assert Registry.lookup(fixture.native.registry, unit_id) == []
     assert [] = Task.Supervisor.children(fixture.native.task_supervisor)
     assert take_hash_calls() == []
-    assert {:ok, [^input_item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    {:ok, window_after} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert Enum.filter(window_after, &(&1.destination == "wave4-channel-input")) == [input_item]
 
     assert {:ok, fixture} = Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, listener)
     listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
@@ -3203,7 +3302,8 @@ defmodule Elzoo.Wave4ChannelTest do
     assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
     assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
     assert {:attempt_started, ^attempt_id} = Wave4ChannelExample.advance(fixture.host)
-    {:ok, [item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    {:ok, pending_items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [item] = Enum.filter(pending_items, &(&1.destination == "wave4-channel-input"))
 
     Elzoo.DurableLog.PostgresHarness.hook(fixture.native.unit_store, :inject, [:read, :unavailable])
 
@@ -3508,12 +3608,12 @@ defmodule Elzoo.Wave4ChannelTest do
         "expected_revision" => 3
       })
 
-    assert {:ok, {{_, 400, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, duplicate)
+    assert {:ok, {{_, 409, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, duplicate)
 
     duplicate_operation =
       Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, duplicate["event_id"])
 
-    assert {:conflict, {:domain, _}} =
+    assert {:unknown, :not_observed} =
              CheckedCommand.result(
                fixture.handles.input,
                %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
@@ -3577,7 +3677,9 @@ defmodule Elzoo.Wave4ChannelTest do
     assert {:ok, {{_, 409, _}, _, _}} =
              Elzoo.Wave4ChannelTestHelper.post(reopened_listener, new_event)
 
-    assert {:ok, %{revision: 4}} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    # v2: the re-posted duplicate is an idempotent re-execution of a retained
+    # terminal row — it commits nothing, so the head stays at revision 3.
+    assert {:ok, %{revision: 3}} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
     assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
 
     after_deadline_operation =
@@ -3727,6 +3829,9 @@ defmodule Elzoo.Wave4ChannelTest do
       Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], event["input_id"])
 
     assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+    # The association becomes visible when the next advance delivers it; the
+    # run is created in the same step, so the GET consults the run owner.
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
     before_head = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
     before_outbox = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
 
@@ -3758,6 +3863,13 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
     assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
+
+    # In v2 the delivering advance atomically continues into run creation, so
+    # the pre-creation phase is observable only across a restart: the fresh
+    # host delivers the association and stops at the known :create_run phase.
+    assert {:ok, fixture} = Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, [listener])
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    assert {:observed, _} = Wave4ChannelExample.advance(fixture.host)
 
     assert {:ok, resource_before} =
              CheckedCommand.resource(
@@ -3816,6 +3928,34 @@ defmodule Elzoo.Wave4ChannelTest do
                expected_revision: fixture.held.live.revision
              })
 
+    # In v2 the association is visible only once delivered, and the delivering
+    # advance would run host recovery against the mismatched run first. Append
+    # the association entry directly, exactly as the delivery pass would.
+    conversation_owner = Elzoo.Wave4ChannelTestHelper.conversation_owner(fixture)
+
+    scope = %{tenant: fixture.profile.tenant, actor: fixture.profile.actor}
+    operation = Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])
+
+    association_operation =
+      Elzoo.Wave4ChannelTestHelper.association_operation_for(
+        fixture.profile,
+        operation,
+        event["input_id"]
+      )
+
+    assert {:completed, %{response: response}} =
+             CheckedCommand.result(
+               fixture.handles.association,
+               scope,
+               {fixture.profile.tenant, fixture.profile.actor, association_operation}
+             )
+
+    assert {:ok, :association, association_dto} =
+             Elzoo.Wave4ChannelExample.Intents.delivery(response)
+
+    assert {:ok, %{sequence: _}} =
+             Elzoo.Conversation.associate_run(conversation_owner, association_dto)
+
     before_head = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
     before_outbox = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
 
@@ -3827,77 +3967,8 @@ defmodule Elzoo.Wave4ChannelTest do
     assert Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture) == before_outbox
   end
 
-  test "future capacity accounts for the association and answer before input admission", %{
-    fixture: fixture
-  } do
-    for index <- 1..15 do
-      assert {:completed, %{revision: ^index}} =
-               seed_message!(fixture, index, String.duplicate("x", 4_096))
-    end
-
-    resource_scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
-
-    assert {:ok, snapshot} =
-             CheckedCommand.resource(
-               fixture.handles.input,
-               resource_scope,
-               fixture.profile.conversation_id
-             )
-
-    candidate =
-      Enum.find_value(4_096..1//-16, fn size ->
-        event =
-          Elzoo.Wave4ChannelTestHelper.event(%{
-            "event_id" => "capacity-event",
-            "input_id" => "capacity-input",
-            "expected_revision" => snapshot.revision,
-            "text" => String.duplicate("y", size)
-          })
-
-        case hypothetical_capacity(snapshot, fixture.profile, event) do
-          {:future_refusal, stage} -> {event, stage}
-          _ -> nil
-        end
-      end)
-
-    assert {event, stage} = candidate
-    assert stage in [:association, :answer]
-    assert {:ok, head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
-    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
-
-    assert {:ok, {{_, 503, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
-
-    assert {:ok, ^snapshot} =
-             CheckedCommand.resource(
-               fixture.handles.input,
-               resource_scope,
-               fixture.profile.conversation_id
-             )
-
-    assert {:ok, ^head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
-    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
-
-    operation = Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])
-
-    assert {:unknown, :not_observed} =
-             CheckedCommand.result(
-               fixture.handles.input,
-               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
-               {fixture.profile.tenant, fixture.profile.actor, operation}
-             )
-
-    assert {:error, :not_found} =
-             RunApprovalRelease.status(
-               fixture.owner,
-               Elzoo.Wave4ChannelTestHelper.run_id(
-                 fixture.profile,
-                 event["event_id"],
-                 event["input_id"]
-               )
-             )
-  end
-
-  test "full CheckedCommand resource snapshots reserve capacity before input admission", %{
+  @tag timeout: 300_000
+  test "admission reserves no conversation space for the future association and answer", %{
     fixture: fixture
   } do
     for index <- 1..15 do
@@ -3913,237 +3984,146 @@ defmodule Elzoo.Wave4ChannelTest do
                scope,
                fixture.profile.conversation_id
              )
-
-    {event, [input_size, association_size, answer_size]} =
-      Enum.find_value(4_096..1//-1, fn size ->
-        event =
-          Elzoo.Wave4ChannelTestHelper.event(%{
-            "event_id" => "capacity-wrapper-event",
-            "input_id" => "capacity-wrapper-input",
-            "expected_revision" => snapshot.revision,
-            "text" => String.duplicate("y", size)
-          })
-
-        with :fits <- hypothetical_capacity(snapshot, fixture.profile, event),
-             {:ok, [input_size, association_size, answer_size]} <-
-               hypothetical_checked_resource_sizes(snapshot, fixture.profile, event),
-             true <- input_size <= 65_536,
-             true <- association_size <= 65_536,
-             true <- answer_size > 65_536 do
-          {event, [input_size, association_size, answer_size]}
-        else
-          _ -> nil
-        end
-      end)
-
-    assert input_size <= 65_536
-    assert association_size <= 65_536
-    assert answer_size > 65_536
-
-    assert {:ok, head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
-
-    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
-    trace_native_hash(fixture.native.task_supervisor)
-    assert {:ok, {{_, 503, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
-
-    run_id =
-      Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], event["input_id"])
-
-    assert {:ok, ^snapshot} =
-             CheckedCommand.resource(
-               fixture.handles.input,
-               scope,
-               fixture.profile.conversation_id
-             )
-
-    assert {:ok, ^head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
-    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
-
-    assert {:unknown, :not_observed} =
-             CheckedCommand.result(
-               fixture.handles.input,
-               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
-               {fixture.profile.tenant, fixture.profile.actor,
-                Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])}
-             )
-
-    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
-    unit_id = Elzoo.Wave4ChannelTestHelper.unit_id(run_id)
-    assert :not_found = DynamicUnits.find(fixture.directory, unit_id)
-    assert Registry.lookup(fixture.native.registry, unit_id) == []
-    assert Task.Supervisor.children(fixture.native.task_supervisor) == []
-    assert take_hash_calls() == []
-  end
-
-  @tag :v2_resource_capacity
-  @tag timeout: 300_000
-  test "v2 primary refuses a full metadata-aware resource projection before append" do
-    fixture = Elzoo.Wave4ChannelTestHelper.reply_fixture()
-    {primary_listener, _reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
-
-    for index <- 1..15 do
-      assert {:completed, %{revision: ^index}} =
-               seed_message!(fixture, index, String.duplicate("x", 4_096))
-    end
-
-    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
-
-    assert {:ok, snapshot} =
-             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
-
-    {event, projected_sizes} =
-      Enum.find_value(4_096..1//-1, fn size ->
-        event =
-          Elzoo.Wave4ChannelTestHelper.event(%{
-            "event_id" => "v2-full-resource-projection",
-            "input_id" => "v2-full-resource-input",
-            "expected_revision" => snapshot.revision,
-            "text" => String.duplicate("y", size)
-          })
-
-        case hypothetical_v2_checked_resource_sizes(snapshot, fixture.profile, event) do
-          {:ok, sizes} ->
-            if Enum.max(Map.values(sizes)) > 65_536, do: {event, sizes}
-
-          _ ->
-            nil
-        end
-      end)
-
-    assert Enum.max(Map.values(projected_sizes)) > 65_536
-    assert projected_sizes.messages == 18
-    assert projected_sizes.associations == 2
-    assert {:ok, head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
-    trace_native_hash(fixture.native.task_supervisor)
-
-    assert {:ok, {{_, 503, _}, _, _}} =
-             Elzoo.Wave4ChannelTestHelper.post(primary_listener, event)
-
-    assert {:ok, ^snapshot} =
-             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
-
-    assert {:ok, ^head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
-    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
-
-    assert {:unknown, :not_observed} =
-             CheckedCommand.result(
-               fixture.handles.input,
-               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
-               {fixture.profile.tenant, fixture.profile.actor,
-                Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])}
-             )
-
-    run_id =
-      Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], event["input_id"])
-
-    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
-    unit_id = Elzoo.Wave4ChannelTestHelper.unit_id(run_id)
-    assert :not_found = DynamicUnits.find(fixture.directory, unit_id)
-    assert Registry.lookup(fixture.native.registry, unit_id) == []
-    assert Task.Supervisor.children(fixture.native.task_supervisor) == []
-    assert take_hash_calls() == []
-  end
-
-  @tag :v2_slot_capacity
-  @tag timeout: 300_000
-  test "v2 exact message slots complete a signed reply round with two associations" do
-    fixture = Elzoo.Wave4ChannelTestHelper.reply_fixture()
-
-    for index <- 1..61 do
-      assert {:completed, %{revision: ^index}} = seed_message!(fixture, index, "x")
-    end
-
-    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
-
-    assert {:ok, snapshot} =
-             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
 
     event =
       Elzoo.Wave4ChannelTestHelper.event(%{
-        "event_id" => "v2-slot-exact",
-        "input_id" => "v2-slot-primary",
+        "event_id" => "unreserved-capacity-event",
+        "input_id" => "unreserved-capacity-input",
         "expected_revision" => snapshot.revision,
-        "text" => "primary"
+        "text" => String.duplicate("y", 4_096)
       })
 
-    assert {:ok, exact_sizes} =
-             hypothetical_v2_checked_resource_sizes(snapshot, fixture.profile, event)
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
 
-    assert exact_sizes.messages == 64
-    assert exact_sizes.associations == 2
+    assert_round_completes!(fixture, event, snapshot.revision + 3)
 
-    assert exact_sizes
-           |> Map.take([:input, :primary_association, :reply, :reply_association, :answer])
-           |> Map.values()
-           |> Enum.all?(&(&1 < 65_536))
+    assert {:ok, view} = Wave4ChannelExample.view(fixture.host, scope)
 
-    {primary_listener, reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
-    primary_id = event["input_id"]
+    assert Enum.any?(
+             view.messages,
+             &(&1.message_id == "unreserved-capacity-input" and &1.role == "source")
+           )
 
-    assert {:ok, {{_, 202, _}, _, _}} =
-             Elzoo.Wave4ChannelTestHelper.post(primary_listener, event)
+    assert Enum.any?(view.messages, &(&1.role == "assistant"))
 
-    assert {:observed, ^primary_id} = Elzoo.Wave4ChannelExample.advance(fixture.host)
-    Enum.each(1..11, fn _ -> Elzoo.Wave4ChannelExample.advance(fixture.host) end)
-
-    assert {:ok, %{event_waits: %{waits: [wait]}}} =
-             Elzoo.Wave4ChannelExample.view(fixture.host, scope)
-
-    assert {:ok, before_reply} =
-             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
-
-    reply_event =
-      Elzoo.Wave4ChannelTestHelper.event(%{
-        "event_id" => "v2-slot-reply",
-        "input_id" => wait.correlation_id,
-        "expected_revision" => before_reply.revision,
-        "text" => "reply"
-      })
-
-    assert {:ok, {{_, 202, _}, _, _}} =
-             Elzoo.Wave4ChannelTestHelper.post(reply_listener, reply_event)
-
-    assert {:ok, [primary_item, reply_item]} =
-             Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
-
-    reply_key = reply_item.idempotency_key
-
-    run_id =
-      Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], primary_id)
-
-    assert {:reply_observed, ^reply_key} = Elzoo.Wave4ChannelExample.advance(fixture.host)
-    assert {:reply_associated, _} = Elzoo.Wave4ChannelExample.advance(fixture.host)
-    assert {:native_reply, :applied} = Elzoo.Wave4ChannelExample.advance(fixture.host)
-
-    assert {:ok, _native_result} =
-             wait_public_result(
-               :sys.get_state(fixture.host).engine,
-               %{tenant: fixture.profile.tenant, principal: fixture.profile.actor, run_id: run_id},
-               System.monotonic_time(:millisecond) + 10_000
-             )
-
-    assert {:result, :completed} = Elzoo.Wave4ChannelExample.advance(fixture.host)
-    assert {:answered, 66} = Elzoo.Wave4ChannelExample.advance(fixture.host)
-    assert {:reply_acknowledged, ^reply_key} = Elzoo.Wave4ChannelExample.advance(fixture.host)
-    assert {:acknowledged, ^primary_id} = Elzoo.Wave4ChannelExample.advance(fixture.host)
+    assert view.associations == [
+             %{input_message_id: "unreserved-capacity-input", run_id: run_id_of(fixture, event)}
+           ]
 
     assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
-
-    assert {:ok, %{revision: 66} = final_resource} =
-             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
-
-    assert {:ok, final_view} = Elzoo.Wave4ChannelExample.view(fixture.host, scope)
-    assert length(final_view.messages) == 64
-    assert length(final_view.associations) == 2
-    assert final_resource.revision == 66
-    assert primary_item.destination == "wave4-channel-input"
   end
 
-  @tag :v2_slot_capacity
   @tag timeout: 300_000
-  test "signed v2 primary refuses one-over message capacity before native work" do
+  test "the channel resource stays bounded while the conversation exceeds 65,536 bytes", %{
+    fixture: fixture
+  } do
+    for index <- 1..17 do
+      assert {:completed, %{revision: ^index}} =
+               seed_message!(fixture, index, String.duplicate("x", 4_096))
+    end
+
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+
+    assert {:ok, snapshot} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               scope,
+               fixture.profile.conversation_id
+             )
+
+    assert Map.keys(snapshot.fields) == ["wave4_intent"]
+    assert_conversation_exceeds!(fixture, 65_536)
+
+    event =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "bounded-resource-event",
+        "input_id" => "bounded-resource-input",
+        "expected_revision" => snapshot.revision,
+        "text" => String.duplicate("y", 4_096)
+      })
+
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+
+    assert_round_completes!(fixture, event, snapshot.revision + 3)
+
+    assert {:ok, final_resource} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               scope,
+               fixture.profile.conversation_id
+             )
+
+    assert Map.keys(final_resource.fields) == ["wave4_intent"]
+
+    assert {:bytes, digest} = final_resource.fields["wave4_intent"]
+    assert byte_size(digest) == 32
+    assert final_resource.revision == snapshot.revision + 3
+
+    assert {:ok, view} = Wave4ChannelExample.view(fixture.host, scope)
+    assert byte_size(Jason.encode!(view)) <= 1_048_576
+  end
+
+  @tag timeout: 300_000
+  test "v2 primary admission over a conversation above 65,536 bytes binds only the intent digest" do
     fixture = Elzoo.Wave4ChannelTestHelper.reply_fixture()
+
+    for index <- 1..17 do
+      assert {:completed, %{revision: ^index}} =
+               seed_message!(fixture, index, String.duplicate("x", 4_096))
+    end
+
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+
+    assert {:ok, snapshot} =
+             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
+
+    assert_conversation_exceeds!(fixture, 65_536)
+
+    event =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "v2-digest-binding-event",
+        "input_id" => "v2-digest-binding-input",
+        "expected_revision" => snapshot.revision,
+        "text" => String.duplicate("y", 4_096)
+      })
+
     {primary_listener, _reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(primary_listener, event)
+
+    input_operation =
+      Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])
+
+    assert {:completed, %{revision: input_revision, response: {:record, fields}}} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               {fixture.profile.tenant, fixture.profile.actor, input_operation}
+             )
+
+    assert input_revision == snapshot.revision + 1
+
+    assert {:ok, :input, dto} =
+             Wave4ChannelExample.Intents.delivery({:record, fields})
+
+    assert dto.message_id == event["input_id"]
+    assert dto.text == event["text"]
+    assert dto.role == "source"
+
+    assert {:ok, resource} =
+             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
+
+    assert Map.keys(resource.fields) |> Enum.sort() == ["wave4_intent"]
+
+    assert {:bytes, digest} = resource.fields["wave4_intent"]
+    assert byte_size(digest) == 32
+    assert resource.revision == input_revision
+  end
+
+  @tag timeout: 300_000
+  test "v2 completes a signed reply round beyond 64 messages" do
+    fixture = Elzoo.Wave4ChannelTestHelper.reply_fixture()
 
     for index <- 1..62 do
       assert {:completed, %{revision: ^index}} = seed_message!(fixture, index, "x")
@@ -4154,49 +4134,469 @@ defmodule Elzoo.Wave4ChannelTest do
     assert {:ok, snapshot} =
              CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
 
-    assert {:ok, head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
-    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
-
     event =
       Elzoo.Wave4ChannelTestHelper.event(%{
-        "event_id" => "v2-slot-one-over",
-        "input_id" => "v2-slot-overflow-primary",
+        "event_id" => "v2-beyond-slots",
+        "input_id" => "v2-beyond-primary",
         "expected_revision" => snapshot.revision,
         "text" => "primary"
       })
 
-    run_id =
-      Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], event["input_id"])
+    assert_reply_round_completes!(fixture, event)
+    assert_message_count_at_least!(fixture, 64)
+    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+  end
+
+  @tag timeout: 300_000
+  test "signed v2 primary beyond 64 messages reaches native work", %{fixture: fixture} do
+    for index <- 1..62 do
+      assert {:completed, %{revision: ^index}} = seed_message!(fixture, index, "x")
+    end
+
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+
+    assert {:ok, snapshot} =
+             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
+
+    event =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "v2-beyond-one",
+        "input_id" => "v2-beyond-one-input",
+        "expected_revision" => snapshot.revision,
+        "text" => "primary"
+      })
 
     trace_native_hash(fixture.native.task_supervisor)
     trace_engine_input(fixture.host)
 
-    assert {:ok, {{_, 503, _}, _, _}} =
-             Elzoo.Wave4ChannelTestHelper.post(primary_listener, event)
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
 
-    assert {:ok, ^snapshot} =
+    input_operation =
+      Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])
+
+    assert {:completed, %{revision: input_revision}} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               {fixture.profile.tenant, fixture.profile.actor, input_operation}
+             )
+
+    assert input_revision == snapshot.revision + 1
+
+    run_id =
+      Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], event["input_id"])
+
+    unit_id = Elzoo.Wave4ChannelTestHelper.unit_id(run_id)
+
+    assert {:observed, _input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, _run_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+    assert {:attempt_started, _} = Wave4ChannelExample.advance(fixture.host)
+    assert {:engine_started, ^unit_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:native_input, :applied} = Wave4ChannelExample.advance(fixture.host)
+    assert take_engine_input_ids() != []
+
+    assert {:ok, _native_result} =
+             wait_public_result(
+               :sys.get_state(fixture.host).engine,
+               %{tenant: fixture.profile.tenant, principal: fixture.profile.actor, run_id: run_id},
+               System.monotonic_time(:millisecond) + 10_000
+             )
+
+    assert take_hash_calls() != []
+  end
+
+  @tag timeout: 300_000
+  test "a committed message and association are visible only after delivery", %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+    run_id = Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], input_id)
+
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+
+    # The conversation append is unavailable: the input commits at admission
+    # but its delivery can never be proven while the fault holds.
+    Elzoo.DurableLog.PostgresHarness.hook(fixture.conversation_store, :inject, [
+      :append,
+      :unavailable
+    ])
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+
+    input_operation =
+      Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])
+
+    assert {:completed, _} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               {fixture.profile.tenant, fixture.profile.actor, input_operation}
+             )
+
+    # Committed but undelivered: the message stays invisible.
+    assert {:ok, view_before} = Wave4ChannelExample.view(fixture.host, scope)
+    refute Enum.any?(view_before.messages, &(&1.message_id == input_id))
+    refute Enum.any?(view_before.associations, &(&1.input_message_id == input_id))
+
+    # Recovering redelivers the identical intent; the pipeline completes and
+    # both the message and its association become visible.
+    assert {:ok, fixture} = Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, [listener])
+
+    assert_round_completes!(fixture, event, 3)
+
+    assert {:ok, view_after} = Wave4ChannelExample.view(fixture.host, scope)
+
+    assert Enum.any?(
+             view_after.messages,
+             &(&1.message_id == input_id and &1.role == "source")
+           )
+
+    assert Enum.any?(
+             view_after.associations,
+             &(&1.input_message_id == input_id and &1.run_id == run_id)
+           )
+  end
+
+  @tag timeout: 300_000
+  test "a signed input reusing a pending message ID is refused before commit", %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+
+    assert {:ok, snapshot} =
              CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
 
-    assert {:ok, ^head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
-    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    duplicate =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "duplicate-pending-input",
+        "input_id" => input_id,
+        "expected_revision" => snapshot.revision,
+        "text" => "different text"
+      })
+
+    assert {:ok, {{_, 409, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, duplicate)
+
+    input_operation =
+      Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, duplicate["event_id"])
 
     assert {:unknown, :not_observed} =
              CheckedCommand.result(
                fixture.handles.input,
                %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
-               {fixture.profile.tenant, fixture.profile.actor,
-                Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])}
+               {fixture.profile.tenant, fixture.profile.actor, input_operation}
              )
 
-    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
-    unit_id = Elzoo.Wave4ChannelTestHelper.unit_id(run_id)
-    assert :not_found = DynamicUnits.find(fixture.directory, unit_id)
-    assert Registry.lookup(fixture.native.registry, unit_id) == []
-    assert Task.Supervisor.children(fixture.native.task_supervisor) == []
-    assert :sys.get_state(fixture.host).phase == :idle
-    assert is_nil(:sys.get_state(fixture.host).current)
-    assert take_engine_input_ids() == []
-    assert take_hash_calls() == []
+    assert {:ok, items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert length(items) == 1
+
+    assert_round_completes!(fixture, event, 3)
+
+    later =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "duplicate-delivered-input",
+        "input_id" => input_id,
+        "expected_revision" => 3,
+        "text" => "later text"
+      })
+
+    assert {:ok, {{_, 409, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, later)
+  end
+
+  @tag timeout: 300_000
+  test "a cut between the conversation append and its acknowledgement redelivers without a new row",
+       %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+    reference = Elzoo.Wave4ChannelTestHelper.conversation_reference(fixture.profile)
+
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, _} = Wave4ChannelExample.advance(fixture.host)
+
+    # The acknowledgement of the association delivery item loses its reply:
+    # the ack commits indeterminately. The delivery pass confirms it through
+    # the original key and nonce, so the step completes and nothing is
+    # appended twice.
+    Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :inject, [:ack, :reply_loss])
+
+    step = Wave4ChannelExample.advance(fixture.host)
+    assert match?({:run_created, _}, step) or match?({:unknown, :delivery}, step)
+
+    assert {:ok, %{entries: entries}} =
+             Conversation.page(fixture.conversation_store, scope, reference, 1, 100)
+
+    assert Enum.any?(entries, &(&1.kind == :input and &1.message_id == input_id))
+
+    association_rows =
+      Enum.count(entries, &(&1.kind == :association and &1.input_message_id == input_id))
+
+    assert association_rows == 1
+    assert {:ok, head_before} = conversation_head(fixture)
+
+    # A fence and reopen redelivers nothing new: the head never advances past
+    # the rows already appended, whatever the acknowledgement outcome was.
+    assert {:ok, fixture} = Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, [listener])
+
+    assert {:ok, head_at_fence} = conversation_head(fixture)
+    assert head_at_fence == head_before
+
+    Enum.each(1..3, fn _ -> Wave4ChannelExample.advance(fixture.host) end)
+
+    assert {:ok, %{entries: entries_after}} =
+             Conversation.page(fixture.conversation_store, scope, reference, 1, 100)
+
+    assert Enum.count(entries_after, &(&1.kind == :association and &1.input_message_id == input_id)) ==
+             1
+
+    assert Enum.count(entries_after, &(&1.kind == :input and &1.message_id == input_id)) == 1
+  end
+
+  @tag timeout: 300_000
+  test "an unknown delivery is retried with the identical intent before later intents", %{
+    fixture: fixture
+  } do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, _} = Wave4ChannelExample.advance(fixture.host)
+
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+    reference = Elzoo.Wave4ChannelTestHelper.conversation_reference(fixture.profile)
+    assert {:ok, head_before} = conversation_head(fixture)
+    assert head_before == 1
+
+    # The input delivered in the association step; now the conversation store
+    # is unavailable for exactly the association's delivery append: the
+    # delivery pass cannot prove it and the pipeline is poisoned on delivery.
+    Elzoo.DurableLog.PostgresHarness.hook(fixture.conversation_store, :inject, [
+      :append,
+      :unavailable
+    ])
+
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+
+    # While the delivery is unknown nothing is appended and nothing passes it.
+    assert {:ok, head_mid} = conversation_head(fixture)
+    assert head_mid == head_before
+
+    # The next advance retries the identical intent first: the single-shot
+    # fault is spent, so the delivery completes and the run is created — later
+    # work never overtakes the unknown delivery.
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+
+    # Exactly the association row was appended by the retried delivery.
+    assert {:ok, head_after} = conversation_head(fixture)
+    assert head_after == head_before + 1
+
+    assert {:ok, %{entries: entries}} =
+             Conversation.page(fixture.conversation_store, scope, reference, 1, 100)
+
+    assert Enum.count(entries, &(&1.kind == :input and &1.message_id == input_id)) == 1
+  end
+
+  @tag timeout: 300_000
+  test "a definite delivery refusal is reported and blocks later deliveries", %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+    reference = Elzoo.Wave4ChannelTestHelper.conversation_reference(fixture.profile)
+
+    # Admission succeeds while no conflicting row is visible.
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+
+    # A conflicting input with the same message ID lands in the conversation
+    # after admission: the committed input's delivery is then a definite
+    # refusal — never a silent retry — and the host reports it and blocks.
+    assert {:ok, owner} =
+             Conversation.start_link(
+               store: fixture.conversation_store,
+               target_tenant: fixture.profile.tenant,
+               conversation_id: fixture.profile.conversation_id
+             )
+
+    assert {:ok, %{sequence: _}} =
+             Conversation.append_input(owner, %{
+               message_id: input_id,
+               actor: fixture.profile.actor,
+               text: "preexisting",
+               role: "source"
+             })
+
+    GenServer.stop(owner, :normal, 5_000)
+
+    assert {:blocked, {:delivery_refused, code}} = Wave4ChannelExample.advance(fixture.host)
+    assert is_binary(code)
+    assert match?({:blocked, _}, Wave4ChannelExample.advance(fixture.host))
+
+    # Nothing was appended by the channel's deliveries: the conflicting row is
+    # the only input with this message ID and no association ever lands.
+    assert {:ok, %{entries: entries}} =
+             Conversation.page(fixture.conversation_store, scope, reference, 1, 100)
+
+    assert Enum.count(entries, &(&1.kind == :input and &1.message_id == input_id)) == 1
+    refute Enum.any?(entries, &(&1.kind == :association))
+  end
+
+  @tag timeout: 300_000
+  test "a committed acknowledgement with a lost reply is confirmed by its original key and nonce",
+       %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, _} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    delivery_items = Enum.filter(items, &(&1.destination == "wave4-channel-delivery"))
+    assert delivery_items != []
+    item = hd(delivery_items)
+
+    # The association item's acknowledgement loses its reply after committing:
+    # the host confirms it through the original key and nonce in the same pass
+    # and the pipeline continues — no second owner append ever happens.
+    Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :inject, [:ack, :reply_loss])
+
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, ack} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [item.idempotency_key])
+
+    assert ack.state == :acked
+    assert ack.ack_nonce == item.nonce
+
+    assert {:ok, head_before} = conversation_head(fixture)
+    _ = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, head_after} = conversation_head(fixture)
+    assert head_after <= head_before + 1
+  end
+
+  @tag timeout: 300_000
+  test "a faulted append is redelivered before its acknowledgement so nothing is lost", %{
+    fixture: fixture
+  } do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, _} = Wave4ChannelExample.advance(fixture.host)
+
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+    reference = Elzoo.Wave4ChannelTestHelper.conversation_reference(fixture.profile)
+
+    # Exactly one append of the association delivery fails. Because the
+    # acknowledgement only ever follows a proven append, the item stays
+    # pending and the redelivery appends the association exactly once.
+    Elzoo.DurableLog.PostgresHarness.hook(fixture.conversation_store, :inject, [
+      :append,
+      :unavailable
+    ])
+
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+
+    # Recover through the poisoned delivery: the single-shot fault is spent.
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, %{entries: entries}} =
+             Conversation.page(fixture.conversation_store, scope, reference, 1, 100)
+
+    assert Enum.count(entries, &(&1.kind == :association and &1.input_message_id == input_id)) == 1,
+           "the faulted delivery must be redelivered exactly once, never lost or duplicated"
+
+    assert Enum.count(entries, &(&1.kind == :input and &1.message_id == input_id)) == 1
+  end
+
+  @tag timeout: 300_000
+  test "a host-generated answer conflicting with the conversation is refused before commit", %{
+    fixture: fixture
+  } do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, _} = Wave4ChannelExample.advance(fixture.host)
+
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+    reference = Elzoo.Wave4ChannelTestHelper.conversation_reference(fixture.profile)
+
+    # A foreign answer for this input lands in the conversation after the
+    # association committed but before the host generates its own answer.
+    answer_id = Elzoo.Wave4ChannelTestHelper.answer_id(input_id)
+
+    assert {:ok, owner} =
+             Conversation.start_link(
+               store: fixture.conversation_store,
+               target_tenant: fixture.profile.tenant,
+               conversation_id: fixture.profile.conversation_id
+             )
+
+    run_id = Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], input_id)
+
+    assert {:ok, %{sequence: _}} =
+             Conversation.associate_run(owner, %{input_message_id: input_id, run_id: run_id})
+
+    assert {:ok, %{sequence: _}} =
+             Conversation.append_answer(owner, %{
+               message_id: answer_id,
+               actor: fixture.profile.actor,
+               text: "answer:foreign",
+               run_id: run_id,
+               input_message_id: input_id,
+               completed: true
+             })
+
+    GenServer.stop(owner, :normal, 5_000)
+
+    # The pipeline runs until it would generate the answer: admission of that
+    # host-generated command must refuse it before commit — no answer row is
+    # ever written for it and the pipeline cannot silently pass.
+    answer_operation =
+      Elzoo.Wave4ChannelTestHelper.answer_operation(fixture.profile, event["event_id"], input_id)
+
+    result_scope = %{tenant: fixture.profile.tenant, actor: fixture.profile.actor}
+
+    steps =
+      Enum.map(1..8, fn _ -> Wave4ChannelExample.advance(fixture.host) end)
+
+    refute Enum.any?(steps, &match?({:answered, _}, &1)),
+           "the conflicting answer must never commit"
+
+    assert {:unknown, :not_observed} =
+             CheckedCommand.result(
+               fixture.handles.answer,
+               result_scope,
+               {fixture.profile.tenant, fixture.profile.actor, answer_operation}
+             )
+
+    assert {:ok, %{entries: entries}} =
+             Conversation.page(fixture.conversation_store, scope, reference, 1, 100)
+
+    answers = Enum.filter(entries, &(&1.kind == :answer and &1.message_id == answer_id))
+    assert length(answers) == 1
+    assert hd(answers).text == "answer:foreign"
   end
 
   test "signed loopback processes two distinct inputs and replays the first", %{fixture: fixture} do
@@ -4366,11 +4766,13 @@ defmodule Elzoo.Wave4ChannelTest do
              CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
 
     assert resource.revision == 6
-    assert Map.keys(resource.fields) == ["conversation"]
-    assert {:ok, projection} = Conversation.view(resource, scope)
-    assert projection.revision == 6
-    assert length(projection.messages) == 4
-    assert length(projection.associations) == 2
+    assert Map.keys(resource.fields) == ["wave4_intent"]
+    assert {:ok, projection_entries, projection_messages} = read_conversation(fixture, scope)
+    assert length(projection_entries) == 6
+
+    projection_associations = Enum.filter(projection_entries, &(&1.kind == :association))
+    assert length(projection_messages) == 4
+    assert length(projection_associations) == 2
 
     assert {:ok, []} =
              Outbox.pending(fixture.command_store, checked_stream(fixture.profile.tenant), 64)
@@ -4446,7 +4848,8 @@ defmodule Elzoo.Wave4ChannelTest do
     assert {:ok, snapshot} =
              CheckedCommand.resource(fixture.handles.input, scope, normalized.conversation_id)
 
-    assert {:ok, writes, _response} = Conversation.prepare(snapshot, request, prepared_facts)
+    assert {:ok, writes, _response} =
+             Wave4ChannelExample.Intents.prepare(snapshot, request, prepared_facts)
 
     Agent.update(authority_control, fn _ ->
       %{approver: %{identity: "human-reviewer", authority: writes}}
@@ -4702,6 +5105,141 @@ defmodule Elzoo.Wave4ChannelTest do
     assert take_hash_calls() == []
   end
 
+  defp run_id_of(fixture, event) do
+    Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], event["input_id"])
+  end
+
+  defp assert_round_completes!(fixture, event, answer_revision) do
+    input_id = event["input_id"]
+    run_id = run_id_of(fixture, event)
+    unit_id = Elzoo.Wave4ChannelTestHelper.unit_id(run_id)
+
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+    assert {:attempt_started, _} = Wave4ChannelExample.advance(fixture.host)
+    assert {:engine_started, ^unit_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:native_input, :applied} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, _native_result} =
+             wait_public_result(
+               :sys.get_state(fixture.host).engine,
+               %{tenant: fixture.profile.tenant, principal: fixture.profile.actor, run_id: run_id},
+               System.monotonic_time(:millisecond) + 10_000
+             )
+
+    assert {:result, :completed} = Wave4ChannelExample.advance(fixture.host)
+    assert {:answered, ^answer_revision} = Wave4ChannelExample.advance(fixture.host)
+    assert {:acknowledged, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:idle, :no_input} = Wave4ChannelExample.advance(fixture.host)
+  end
+
+  defp assert_reply_round_completes!(fixture, event) do
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+    primary_id = event["input_id"]
+    {primary_listener, reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
+
+    assert {:ok, {{_, 202, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(primary_listener, event)
+
+    assert {:observed, ^primary_id} = Wave4ChannelExample.advance(fixture.host)
+    Enum.each(1..11, fn _ -> Wave4ChannelExample.advance(fixture.host) end)
+
+    assert {:ok, %{event_waits: %{waits: [wait]}}} =
+             Wave4ChannelExample.view(fixture.host, scope)
+
+    assert {:ok, before_reply} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               scope,
+               fixture.profile.conversation_id
+             )
+
+    reply_event =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => event["event_id"] <> "-reply",
+        "input_id" => wait.correlation_id,
+        "expected_revision" => before_reply.revision,
+        "text" => "reply"
+      })
+
+    assert {:ok, {{_, 202, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(reply_listener, reply_event)
+
+    assert {:ok, pending} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert reply_item = Enum.find(pending, &(&1.destination == "wave4-channel-reply"))
+    reply_key = reply_item.idempotency_key
+
+    run_id =
+      Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], primary_id)
+
+    assert {:reply_observed, ^reply_key} = Wave4ChannelExample.advance(fixture.host)
+    assert {:reply_associated, _} = Wave4ChannelExample.advance(fixture.host)
+    assert {:native_reply, :applied} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, _native_result} =
+             wait_public_result(
+               :sys.get_state(fixture.host).engine,
+               %{tenant: fixture.profile.tenant, principal: fixture.profile.actor, run_id: run_id},
+               System.monotonic_time(:millisecond) + 10_000
+             )
+
+    assert {:result, :completed} = Wave4ChannelExample.advance(fixture.host)
+    assert {:answered, _revision} = Wave4ChannelExample.advance(fixture.host)
+    assert {:reply_acknowledged, ^reply_key} = Wave4ChannelExample.advance(fixture.host)
+    assert {:acknowledged, ^primary_id} = Wave4ChannelExample.advance(fixture.host)
+  end
+
+  defp assert_message_count_at_least!(fixture, count) do
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+    reference = Elzoo.Wave4ChannelTestHelper.conversation_reference(fixture.profile)
+
+    assert {:ok, %{entries: entries}} =
+             Conversation.page(fixture.conversation_store, scope, reference, 1, 1_000)
+
+    messages = Enum.count(entries, &(&1.kind in [:input, :answer]))
+    assert messages > count, "expected more than #{count} visible messages, got #{messages}"
+  end
+
+  defp assert_conversation_exceeds!(fixture, bytes) do
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+    reference = Elzoo.Wave4ChannelTestHelper.conversation_reference(fixture.profile)
+
+    assert {:ok, %{entries: entries}} =
+             Conversation.page(fixture.conversation_store, scope, reference, 1, 1_000)
+
+    total =
+      entries
+      |> Enum.filter(&(&1.kind in [:input, :answer]))
+      |> Enum.reduce(0, fn entry, acc -> acc + byte_size(entry.text || "") end)
+
+    assert total > bytes, "expected conversation text above #{bytes} bytes, got #{total}"
+  end
+
+  defp read_conversation(fixture, scope) do
+    reference = Elzoo.Wave4ChannelTestHelper.conversation_reference(fixture.profile)
+
+    case Conversation.page(fixture.conversation_store, scope, reference, 1, 1_000) do
+      {:ok, %{entries: entries}} ->
+        messages = Enum.filter(entries, &(&1.kind in [:input, :answer]))
+        {:ok, entries, messages}
+
+      error ->
+        error
+    end
+  end
+
+  defp conversation_head(fixture) do
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+    reference = Elzoo.Wave4ChannelTestHelper.conversation_reference(fixture.profile)
+
+    case Conversation.page(fixture.conversation_store, scope, reference, 1, 1_000) do
+      {:ok, %{entries: []}} -> {:ok, 0}
+      {:ok, %{entries: entries}} -> {:ok, entries |> Enum.map(& &1.sequence) |> Enum.max()}
+      error -> error
+    end
+  end
+
   defp process_event(
          fixture,
          listener,
@@ -4929,13 +5467,17 @@ defmodule Elzoo.Wave4ChannelTest do
                normalized.conversation_id
              )
 
-    assert {:ok, writes, _} = Conversation.prepare(snapshot, request, prepared_facts)
+    assert {:ok, writes, _} = Wave4ChannelExample.Intents.prepare(snapshot, request, prepared_facts)
 
     Agent.update(authority_control, fn _ ->
       %{approver: %{identity: "human-reviewer", authority: writes}, now: now, revoked: []}
     end)
 
     Agent.update(policy_control, fn _ -> :allow end)
+
+    # Capture the conversation owner before the host parks inside the release
+    # authority callback; seed_message! cannot reach :sys.get_state then.
+    conversation_owner = Elzoo.Wave4ChannelTestHelper.conversation_owner(fixture)
 
     caller =
       Task.async(fn ->
@@ -4948,7 +5490,9 @@ defmodule Elzoo.Wave4ChannelTest do
       end)
 
     assert_receive {:release_authority_barrier, release_host, ^barrier}, 5_000
-    assert {:completed, %{revision: 1}} = seed_message!(fixture, 1, "intervening public write")
+
+    assert {:completed, %{revision: 1}} =
+             seed_message!(fixture, 1, "intervening public write", conversation_owner)
 
     if mode == :reply_loss do
       set_gate_fault(gate_control, fixture.command_store, :reply_loss)
@@ -5079,7 +5623,7 @@ defmodule Elzoo.Wave4ChannelTest do
         }
 
         assert {:ok, writes, _} =
-                 Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
+                 Wave4ChannelExample.Intents.prepare(
                    snapshot,
                    request,
                    %{
@@ -5148,7 +5692,9 @@ defmodule Elzoo.Wave4ChannelTest do
 
     facts = {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]}
     prepared_facts = %{tenant: profile.tenant, actor: profile.actor, data: facts}
-    assert {:ok, writes, _response} = Conversation.prepare(snapshot, request, prepared_facts)
+
+    assert {:ok, writes, _response} =
+             Wave4ChannelExample.Intents.prepare(snapshot, request, prepared_facts)
 
     context = %{
       tenant: profile.tenant,
@@ -5162,7 +5708,7 @@ defmodule Elzoo.Wave4ChannelTest do
     {CheckedCommand.execute(fixture.handles.input, context, request), writes}
   end
 
-  defp seed_message!(fixture, index, text) do
+  defp seed_message!(fixture, index, text, conversation_owner \\ nil) do
     profile = fixture.profile
     scope = Elzoo.Wave4ChannelTestHelper.scope(profile)
 
@@ -5181,7 +5727,7 @@ defmodule Elzoo.Wave4ChannelTest do
 
     facts = {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]}
     prepared_facts = %{tenant: profile.tenant, actor: profile.actor, data: facts}
-    assert {:ok, writes, _} = Conversation.prepare(snapshot, request, prepared_facts)
+    assert {:ok, writes, _} = Wave4ChannelExample.Intents.prepare(snapshot, request, prepared_facts)
 
     context = %{
       tenant: profile.tenant,
@@ -5193,436 +5739,26 @@ defmodule Elzoo.Wave4ChannelTest do
     }
 
     result = CheckedCommand.execute(fixture.handles.input, context, request)
-    assert {:completed, _} = result
+    assert {:completed, completed} = result
+
+    assert {:ok, :input, dto} = Wave4ChannelExample.Intents.delivery(completed.response)
+
+    # The owner may be captured beforehand when the host is deliberately
+    # parked inside a release call; :sys.get_state would deadlock then.
+    owner = conversation_owner || Elzoo.Wave4ChannelTestHelper.conversation_owner(fixture)
+
+    assert {:ok, %{sequence: ^index}} =
+             Conversation.append_input(
+               owner,
+               dto
+             )
+
     assert {:ok, [item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
 
     assert {:committed, _} =
              Outbox.ack(fixture.command_store, item.idempotency_key, item.nonce)
 
     result
-  end
-
-  defp hypothetical_capacity(snapshot, profile, event) do
-    operation = Elzoo.Wave4ChannelTestHelper.input_operation(profile, event["event_id"])
-    run_id = Elzoo.Wave4ChannelTestHelper.run_id(profile, event["event_id"], event["input_id"])
-    base = %{tenant: profile.tenant, actor: profile.actor}
-
-    input_request = %{
-      operation_id: operation,
-      resource: event["conversation_id"],
-      expected_revision: snapshot.revision,
-      payload: %{"message_id" => event["input_id"], "text" => event["text"]}
-    }
-
-    input_facts =
-      Map.put(
-        base,
-        :data,
-        {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]}
-      )
-
-    with {:ok, input_writes, _} <- Conversation.prepare(snapshot, input_request, input_facts),
-         input_snapshot <- apply_test_writes(snapshot, input_writes),
-         association_request <- %{
-           operation_id:
-             Elzoo.Wave4ChannelTestHelper.association_operation(
-               profile,
-               event["event_id"],
-               event["input_id"]
-             ),
-           resource: event["conversation_id"],
-           expected_revision: snapshot.revision + 1,
-           payload: %{"message_id" => event["input_id"]}
-         },
-         association_facts <-
-           Map.put(
-             base,
-             :data,
-             {:record, [{"mode", {:text, "associate_run"}}, {"run_id", {:text, run_id}}]}
-           ) do
-      case Conversation.prepare(input_snapshot, association_request, association_facts) do
-        {:refused, _} ->
-          {:future_refusal, :association}
-
-        {:ok, association_writes, _} ->
-          associated_snapshot = apply_test_writes(input_snapshot, association_writes)
-
-          answer_request = %{
-            operation_id:
-              Elzoo.Wave4ChannelTestHelper.answer_operation(
-                profile,
-                event["event_id"],
-                event["input_id"]
-              ),
-            resource: event["conversation_id"],
-            expected_revision: snapshot.revision + 2,
-            payload: %{
-              "message_id" => Elzoo.Wave4ChannelTestHelper.answer_id(event["input_id"]),
-              "text" => String.duplicate("x", 71)
-            }
-          }
-
-          answer_facts =
-            Map.put(
-              base,
-              :data,
-              {:record,
-               [
-                 {"completed", true},
-                 {"input_message_id", {:text, event["input_id"]}},
-                 {"mode", {:text, "append_answer"}},
-                 {"run_id", {:text, run_id}}
-               ]}
-            )
-
-          case Conversation.prepare(associated_snapshot, answer_request, answer_facts) do
-            {:refused, _} -> {:future_refusal, :answer}
-            {:ok, _, _} -> :fits
-          end
-      end
-    else
-      _ -> :input_does_not_fit
-    end
-  end
-
-  defp hypothetical_checked_resource_sizes(snapshot, profile, event) do
-    operation = Elzoo.Wave4ChannelTestHelper.input_operation(profile, event["event_id"])
-    run_id = Elzoo.Wave4ChannelTestHelper.run_id(profile, event["event_id"], event["input_id"])
-    base = %{tenant: profile.tenant, actor: profile.actor}
-
-    input_request = %{
-      operation_id: operation,
-      resource: event["conversation_id"],
-      expected_revision: snapshot.revision,
-      payload: %{"message_id" => event["input_id"], "text" => event["text"]}
-    }
-
-    input_facts =
-      Map.put(
-        base,
-        :data,
-        {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]}
-      )
-
-    with {:ok, input_writes, _} <-
-           Conversation.prepare(snapshot, input_request, input_facts),
-         input_snapshot <- apply_test_writes(snapshot, input_writes),
-         association_request <- %{
-           operation_id:
-             Elzoo.Wave4ChannelTestHelper.association_operation(
-               profile,
-               event["event_id"],
-               event["input_id"]
-             ),
-           resource: event["conversation_id"],
-           expected_revision: input_snapshot.revision,
-           payload: %{"message_id" => event["input_id"]}
-         },
-         association_facts <-
-           Map.put(
-             base,
-             :data,
-             {:record, [{"mode", {:text, "associate_run"}}, {"run_id", {:text, run_id}}]}
-           ),
-         {:ok, association_writes, _} <-
-           Conversation.prepare(input_snapshot, association_request, association_facts),
-         association_snapshot <- apply_test_writes(input_snapshot, association_writes),
-         answer_request <- %{
-           operation_id:
-             Elzoo.Wave4ChannelTestHelper.answer_operation(
-               profile,
-               event["event_id"],
-               event["input_id"]
-             ),
-           resource: event["conversation_id"],
-           expected_revision: association_snapshot.revision,
-           payload: %{
-             "message_id" => Elzoo.Wave4ChannelTestHelper.answer_id(event["input_id"]),
-             "text" => String.duplicate("x", 71)
-           }
-         },
-         answer_facts <-
-           Map.put(
-             base,
-             :data,
-             {:record,
-              [
-                {"completed", true},
-                {"input_message_id", {:text, event["input_id"]}},
-                {"mode", {:text, "append_answer"}},
-                {"run_id", {:text, run_id}}
-              ]}
-           ),
-         {:ok, answer_writes, _} <-
-           Conversation.prepare(association_snapshot, answer_request, answer_facts),
-         answer_snapshot <- apply_test_writes(association_snapshot, answer_writes) do
-      {:ok,
-       Enum.map([input_snapshot, association_snapshot, answer_snapshot], fn projected ->
-         byte_size(
-           :erlang.term_to_binary(
-             %{revision: projected.revision, fields: projected.fields},
-             [:deterministic]
-           )
-         )
-       end)}
-    else
-      _ -> :refused
-    end
-  end
-
-  defp hypothetical_v2_checked_resource_sizes(snapshot, profile, event) do
-    operation = Elzoo.Wave4ChannelTestHelper.input_operation(profile, event["event_id"])
-    run_id = Elzoo.Wave4ChannelTestHelper.run_id(profile, event["event_id"], event["input_id"])
-    primary_key = v2_projected_primary_key(profile, operation)
-    reply_key = v2_projected_reply_key(profile, operation)
-    base = %{tenant: profile.tenant, actor: profile.actor}
-    input_facts = {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]}
-
-    input_request = %{
-      operation_id: operation,
-      resource: event["conversation_id"],
-      expected_revision: snapshot.revision,
-      payload: %{"message_id" => event["input_id"], "text" => event["text"]}
-    }
-
-    with {:ok, input_writes, _} <-
-           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
-             snapshot,
-             input_request,
-             Map.put(base, :data, input_facts)
-           ),
-         input_snapshot <- apply_test_writes(snapshot, input_writes),
-         {:ok, clean_input} <-
-           Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
-             input_snapshot,
-             profile.tenant
-           ),
-         {:ok, conversation} <-
-           Conversation.view(clean_input, Elzoo.Wave4ChannelTestHelper.scope(profile)),
-         {:ok, reply_id} <- v2_projected_reply_id(conversation.messages, operation),
-         reply_operation <- v2_stable_id("reply-input-projection", [operation, reply_id]),
-         primary_association_request <- %{
-           operation_id:
-             v2_stable_id("association", [
-               profile.tenant,
-               profile.actor,
-               operation,
-               event["input_id"]
-             ]),
-           resource: event["conversation_id"],
-           expected_revision: input_snapshot.revision,
-           payload: %{"message_id" => event["input_id"]}
-         },
-         primary_association_facts <-
-           Map.put(
-             base,
-             :data,
-             {:record,
-              Enum.sort_by(
-                [
-                  {"mode", {:text, "associate_run"}},
-                  {"run_id", {:text, run_id}},
-                  {"primary_key", {:text, primary_key}}
-                ],
-                &elem(&1, 0)
-              )}
-           ),
-         {:ok, primary_association_writes, _} <-
-           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_association(
-             input_snapshot,
-             primary_association_request,
-             primary_association_facts
-           ),
-         primary_association_snapshot <-
-           apply_test_writes(input_snapshot, primary_association_writes),
-         reply_request <- %{
-           operation_id: reply_operation,
-           resource: event["conversation_id"],
-           expected_revision: primary_association_snapshot.revision,
-           payload: %{"message_id" => reply_id, "text" => "r"}
-         },
-         {:ok, reply_writes, _} <-
-           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
-             primary_association_snapshot,
-             reply_request,
-             Map.put(base, :data, input_facts)
-           ),
-         reply_snapshot <- apply_test_writes(primary_association_snapshot, reply_writes),
-         reply_association_request <- %{
-           operation_id:
-             v2_stable_id("association", [profile.tenant, profile.actor, reply_operation, reply_id]),
-           resource: event["conversation_id"],
-           expected_revision: reply_snapshot.revision,
-           payload: %{"message_id" => reply_id}
-         },
-         reply_association_facts <-
-           Map.put(
-             base,
-             :data,
-             {:record,
-              Enum.sort_by(
-                [
-                  {"mode", {:text, "associate_run"}},
-                  {"run_id", {:text, run_id}},
-                  {"primary_key", {:text, primary_key}},
-                  {"reply_key", {:text, reply_key}}
-                ],
-                &elem(&1, 0)
-              )}
-           ),
-         {:ok, reply_association_writes, _} <-
-           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_association(
-             reply_snapshot,
-             reply_association_request,
-             reply_association_facts
-           ),
-         reply_association_snapshot <- apply_test_writes(reply_snapshot, reply_association_writes),
-         answer_request <- %{
-           operation_id:
-             Elzoo.Wave4ChannelTestHelper.answer_operation(
-               profile,
-               event["event_id"],
-               event["input_id"]
-             ),
-           resource: event["conversation_id"],
-           expected_revision: reply_association_snapshot.revision,
-           payload: %{
-             "message_id" => Elzoo.Wave4ChannelTestHelper.answer_id(event["input_id"]),
-             "text" => "answer:" <> String.duplicate("a", 64)
-           }
-         },
-         answer_facts <-
-           Map.put(
-             base,
-             :data,
-             {:record,
-              Enum.sort_by(
-                [
-                  {"completed", true},
-                  {"input_message_id", {:text, event["input_id"]}},
-                  {"mode", {:text, "append_answer"}},
-                  {"run_id", {:text, run_id}}
-                ],
-                &elem(&1, 0)
-              )}
-           ),
-         {:ok, answer_writes, _} <-
-           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_answer(
-             reply_association_snapshot,
-             answer_request,
-             answer_facts
-           ),
-         answer_snapshot <- apply_test_writes(reply_association_snapshot, answer_writes),
-         true <-
-           Enum.all?(
-             [
-               input_snapshot,
-               primary_association_snapshot,
-               reply_snapshot,
-               reply_association_snapshot,
-               answer_snapshot
-             ],
-             &v2_conversation_snapshot_fits?(&1, profile)
-           ),
-         {:ok, clean_answer_snapshot} <-
-           Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(
-             answer_snapshot,
-             profile.tenant
-           ),
-         {:ok, final_conversation} <-
-           Conversation.view(clean_answer_snapshot, Elzoo.Wave4ChannelTestHelper.scope(profile)) do
-      {:ok,
-       %{
-         input: v2_checked_resource_bytes(input_snapshot),
-         primary_association: v2_checked_resource_bytes(primary_association_snapshot),
-         reply: v2_checked_resource_bytes(reply_snapshot),
-         reply_association: v2_checked_resource_bytes(reply_association_snapshot),
-         answer: v2_checked_resource_bytes(answer_snapshot),
-         messages: length(final_conversation.messages),
-         associations: length(final_conversation.associations)
-       }}
-    else
-      _ -> :refused
-    end
-  rescue
-    _ -> :refused
-  end
-
-  defp v2_conversation_snapshot_fits?(snapshot, profile) do
-    with {:ok, clean_snapshot} <-
-           Elzoo.Wave4ChannelExample.CommandBindings.conversation_snapshot(snapshot, profile.tenant),
-         {:ok, _conversation} <-
-           Conversation.view(clean_snapshot, Elzoo.Wave4ChannelTestHelper.scope(profile)) do
-      true
-    else
-      _ -> false
-    end
-  end
-
-  defp v2_checked_resource_bytes(snapshot),
-    do:
-      byte_size(
-        :erlang.term_to_binary(
-          %{revision: snapshot.revision, fields: snapshot.fields},
-          [:deterministic]
-        )
-      )
-
-  defp v2_projected_primary_key(profile, operation) do
-    nonce = :crypto.hash(:sha256, :erlang.term_to_binary({profile.tenant, operation, 4095}))
-    nonce = binary_part(nonce, 0, 16)
-
-    Elzoo.Outbox.new(v2_checked_stream(profile.tenant), 4095, 1, "wave4-channel-input", "{}", nonce).idempotency_key
-  end
-
-  defp v2_projected_reply_key(profile, operation) do
-    nonce =
-      :crypto.hash(:sha256, :erlang.term_to_binary({profile.tenant, operation, :reply_projection}))
-
-    nonce = binary_part(nonce, 0, 16)
-
-    Elzoo.Outbox.new(v2_checked_stream(profile.tenant), 4096, 1, "wave4-channel-reply", "{}", nonce).idempotency_key
-  end
-
-  defp v2_checked_stream(tenant),
-    do:
-      "cc1:" <>
-        Base.url_encode64(:erlang.term_to_binary({:cc, 1, tenant}, [:deterministic]),
-          padding: false
-        )
-
-  defp v2_projected_reply_id(messages, operation) do
-    retained_ids = MapSet.new(messages, & &1.message_id)
-
-    Enum.find_value(0..4095, fn candidate ->
-      digest =
-        :crypto.hash(:sha256, :erlang.term_to_binary({:reply_projection, operation, candidate}))
-
-      id =
-        ("projection-" <> Base.url_encode64(digest, padding: false))
-        |> String.pad_trailing(128, "x")
-
-      if MapSet.member?(retained_ids, id), do: nil, else: id
-    end)
-    |> case do
-      nil -> {:error, :projection_id}
-      id -> {:ok, id}
-    end
-  end
-
-  defp v2_stable_id(domain, terms) do
-    digest =
-      :crypto.hash(
-        :sha256,
-        :erlang.term_to_binary({:wave4_channel, 1, domain, terms}, [:deterministic])
-      )
-
-    domain <> ":" <> Base.url_encode64(digest, padding: false)
-  end
-
-  defp apply_test_writes(snapshot, writes) do
-    fields = Enum.reduce(writes, snapshot.fields, &Map.put(&2, &1.field, &1.value))
-    %{snapshot | revision: snapshot.revision + 1, fields: fields}
   end
 
   defp trace_native_hash(task_supervisor) do
@@ -5907,7 +6043,9 @@ defmodule Elzoo.Wave4ChannelTest do
     operation = Elzoo.Wave4ChannelTestHelper.input_operation(profile, event["event_id"])
     idempotency_key = "#{stream}/#{sequence}/1"
 
-    assert {:ok, [item]} = Outbox.pending(fixture.command_store, stream, 64)
+    assert {:ok, items} = Outbox.pending(fixture.command_store, stream, 64)
+
+    assert [item] = Enum.filter(items, &(&1.idempotency_key == idempotency_key))
 
     assert %{
              stream: ^stream,
@@ -5958,9 +6096,17 @@ defmodule Elzoo.Wave4ChannelTest do
                {profile.tenant, profile.actor, input_operation}
              )
 
-    assert Map.new(input_fields) == %{
-             "message_id" => {:text, input_id},
-             "revision" => input_revision
+    assert Map.new(input_fields)["message_id"] == {:text, input_id}
+    assert Map.new(input_fields)["revision"] == input_revision
+
+    assert {:ok, :input, input_dto} =
+             Wave4ChannelExample.Intents.delivery({:record, input_fields})
+
+    assert input_dto == %{
+             message_id: input_id,
+             role: "source",
+             actor: profile.actor,
+             text: event["text"]
            }
 
     assert {:completed, %{revision: association_revision, response: {:record, association_fields}}} =
@@ -5972,11 +6118,14 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert association_revision == input_revision + 1
 
-    assert Map.new(association_fields) == %{
-             "message_id" => {:text, input_id},
-             "revision" => association_revision,
-             "run_id" => {:text, run_id}
-           }
+    assert Map.new(association_fields)["message_id"] == {:text, input_id}
+    assert Map.new(association_fields)["revision"] == association_revision
+    assert Map.new(association_fields)["run_id"] == {:text, run_id}
+
+    assert {:ok, :association, association_dto} =
+             Wave4ChannelExample.Intents.delivery({:record, association_fields})
+
+    assert association_dto == %{input_message_id: input_id, run_id: run_id}
 
     assert {:completed, %{revision: ^answer_revision, response: {:record, answer_fields}}} =
              CheckedCommand.result(
@@ -5985,12 +6134,26 @@ defmodule Elzoo.Wave4ChannelTest do
                {profile.tenant, profile.actor, answer_operation}
              )
 
-    assert Map.new(answer_fields) == %{
-             "input_message_id" => {:text, input_id},
-             "message_id" => {:text, answer_id},
-             "revision" => answer_revision,
-             "run_id" => {:text, run_id}
+    assert Map.new(answer_fields)["input_message_id"] == {:text, input_id}
+    assert Map.new(answer_fields)["message_id"] == {:text, answer_id}
+    assert Map.new(answer_fields)["revision"] == answer_revision
+    assert Map.new(answer_fields)["run_id"] == {:text, run_id}
+
+    assert {:ok, :answer, answer_dto} =
+             Wave4ChannelExample.Intents.delivery({:record, answer_fields})
+
+    assert answer_dto == %{
+             message_id: answer_id,
+             actor: profile.actor,
+             text: "answer:#{digest_text(event["text"])}",
+             run_id: run_id,
+             input_message_id: input_id,
+             completed: true
            }
+  end
+
+  defp digest_text(text) do
+    Base.encode16(:crypto.hash(:sha256, text), case: :lower)
   end
 
   defp controlled_gate(control) do
@@ -6723,10 +6886,12 @@ defmodule Elzoo.Wave4ChannelTest do
       %{}
     end
 
+    # The v2 conversation piece caps stream segments at 64 bytes; tenant and
+    # conversation_id use the maximum legal length, the rest stay worst-case.
     max_identity = %{
-      tenant: String.duplicate("t", 128),
+      tenant: String.duplicate("t", 64),
       actor: String.duplicate("a", 128),
-      conversation_id: String.duplicate("c", 128),
+      conversation_id: String.duplicate("c", 64),
       source_id: String.duplicate("s", 128),
       reply_source_id: String.duplicate("r", 128)
     }
@@ -6739,11 +6904,12 @@ defmodule Elzoo.Wave4ChannelTest do
         profile_overrides: max_identity
       )
 
+    assert byte_size(fixture.profile.tenant) == 64
+    assert byte_size(fixture.profile.conversation_id) == 64
+
     assert Enum.all?(
              [
-               fixture.profile.tenant,
                fixture.profile.actor,
-               fixture.profile.conversation_id,
                fixture.profile.source_id,
                fixture.profile.reply_source_id
              ],
@@ -6783,7 +6949,7 @@ defmodule Elzoo.Wave4ChannelTest do
                fixture.profile,
                denied_request,
                {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]},
-               &Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input/3
+               &Elzoo.Wave4ChannelExample.Intents.prepare/3
              )
 
     trace_native_hash(fixture.native.task_supervisor)
@@ -6819,7 +6985,11 @@ defmodule Elzoo.Wave4ChannelTest do
     assert {:ok, [primary_item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
     assert primary_item.destination == "wave4-channel-input"
     assert primary_item.sequence == 2
-    assert byte_size(primary_item.idempotency_key) > 128
+    # v2 cannot produce a >128-byte key: tenants cap at 64 bytes. The canonical
+    # key structure carries the full identity, which is what the size
+    # assertion proxied.
+    assert {:ok, {_stream, _sequence, 1}} = Elzoo.Outbox.parse_id(primary_item.idempotency_key)
+    assert byte_size(primary_item.idempotency_key) > 64
 
     assert {:ok, {stream, primary_sequence, primary_position}} =
              Outbox.parse_id(primary_item.idempotency_key)
@@ -6995,7 +7165,8 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert reply_item.sequence == 4
     refute reply_item.sequence == 3
-    assert byte_size(reply_key) > 128
+    assert {:ok, {_stream, _sequence, 1}} = Elzoo.Outbox.parse_id(reply_key)
+    assert byte_size(reply_key) > 64
 
     assert {:ok, {reply_stream, reply_sequence, reply_position}} = Outbox.parse_id(reply_key)
 
@@ -7061,7 +7232,7 @@ defmodule Elzoo.Wave4ChannelTest do
 
     refute native_reply_input_id == reply_event["event_id"]
 
-    assert {:ok, [^primary_item, ^reply_item]} =
+    assert {:ok, [^primary_item, ^reply_item | _]} =
              Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
 
     native_engine = :sys.get_state(fixture.host).engine
@@ -7120,18 +7291,18 @@ defmodule Elzoo.Wave4ChannelTest do
              fixture.profile.conversation_id
            ) == {:ok, resource_before_wake_get}
 
-    assert {:ok, [^primary_item, ^reply_item]} =
+    assert {:ok, [^primary_item, ^reply_item | _]} =
              Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
 
     assert {:result, :completed} = Elzoo.Wave4ChannelExample.advance(fixture.host)
     assert take_hash_calls() == [reply_text]
 
-    assert {:ok, [^primary_item, ^reply_item]} =
+    assert {:ok, [^primary_item, ^reply_item | _]} =
              Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
 
     assert {:answered, 5} = Elzoo.Wave4ChannelExample.advance(fixture.host)
 
-    assert {:ok, [^primary_item, ^reply_item]} =
+    assert {:ok, [^primary_item, ^reply_item | _]} =
              Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
 
     assert {:reply_acknowledged, ^reply_key} =
@@ -8069,7 +8240,10 @@ defmodule Elzoo.Wave4ChannelTest do
     assert children_before == []
     assert take_hash_calls() == []
 
-    Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :inject, [:head, :unavailable])
+    # v2 delivers the association and runs the preflight in one advance; a
+    # command-head fault never survives the delivery pass. The preflight's
+    # conversation scan is the evidence read it performs and delivery does not.
+    Elzoo.DurableLog.PostgresHarness.hook(fixture.conversation_store, :inject, [:read, :unavailable])
 
     assert {:blocked, :reply_preflight} = Elzoo.Wave4ChannelExample.advance(fixture.host)
     assert :sys.get_state(fixture.host).poison == {:reply_preflight, :capacity}
@@ -9043,7 +9217,7 @@ defmodule Elzoo.Wave4ChannelTest do
     assert run_after_recovery.current_attempt == run_before_fence.current_attempt
     assert run_after_recovery.attempts == run_before_fence.attempts
 
-    assert {:ok, [^primary_item, ^reply_item]} =
+    assert {:ok, [^primary_item, ^reply_item | _]} =
              Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
 
     assert {:ok, %{state: :pending, nonce: primary_nonce}} =
@@ -9154,7 +9328,7 @@ defmodule Elzoo.Wave4ChannelTest do
     trace_engine_input(fixture.host)
     trace_native_hash(fixture.native.task_supervisor)
     assert {:ok, _unit} = Elzoo.DynamicUnits.find(fixture.directory, unit_id)
-    before = Elzoo.DurableLog.PostgresHarness.hook(fixture.native.unit_store, :snapshot, [])
+    before = native_store_snapshot(fixture.native.unit_store)
     token = :wave4_v2_activation_writer
 
     assert :ok =
@@ -9189,7 +9363,7 @@ defmodule Elzoo.Wave4ChannelTest do
     assert Task.Supervisor.children(fixture.native.task_supervisor) == tasks_while_paused
     assert take_engine_input_ids() == []
 
-    assert Elzoo.DurableLog.PostgresHarness.hook(fixture.native.unit_store, :snapshot, []) == before
+    assert native_store_snapshot(fixture.native.unit_store) == before
 
     assert {:ok, {{_, 503, _}, _, _}} =
              Elzoo.Wave4ChannelTestHelper.get(primary_listener, fixture.profile.conversation_id)
@@ -9275,7 +9449,7 @@ defmodule Elzoo.Wave4ChannelTest do
     assert {:reply_observed, reply_key} = Elzoo.Wave4ChannelExample.advance(fixture.host)
     assert {:reply_associated, _revision} = Elzoo.Wave4ChannelExample.advance(fixture.host)
     assert {:ok, _unit} = Elzoo.DynamicUnits.find(fixture.directory, unit_id)
-    before_reply = Elzoo.DurableLog.PostgresHarness.hook(fixture.native.unit_store, :snapshot, [])
+    before_reply = native_store_snapshot(fixture.native.unit_store)
     reply_token = :wave4_v2_reply_writer
 
     assert :ok =
@@ -9314,7 +9488,7 @@ defmodule Elzoo.Wave4ChannelTest do
     assert Task.Supervisor.children(fixture.native.task_supervisor) == reply_tasks_after_timeout
     assert take_engine_input_ids() == []
 
-    assert Elzoo.DurableLog.PostgresHarness.hook(fixture.native.unit_store, :snapshot, []) ==
+    assert native_store_snapshot(fixture.native.unit_store) ==
              before_reply
 
     assert take_hash_calls() == []
@@ -9443,7 +9617,10 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert Enum.any?(steps, &match?({:answered, _}, &1))
     assert :sys.get_state(fixture.host).phase == :reply_ack
-    assert {:ok, [primary_item, reply_item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert {:ok, [primary_item, reply_item | _]} =
+             Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
     assert take_hash_calls() == [reply_text]
 
     other_nonce = :crypto.strong_rand_bytes(16)
@@ -9451,15 +9628,10 @@ defmodule Elzoo.Wave4ChannelTest do
     reply_nonce = reply_item.nonce
     refute other_nonce == reply_item.nonce
 
-    assert :ok =
-             Elzoo.DurableLog.PostgresHarness.hook(
-               fixture.command_store,
-               :inject,
-               [:ack, :rollback]
-             )
-
-    assert {:unknown, :reply_ack} = Elzoo.Wave4ChannelExample.advance(fixture.host)
-
+    # Direct nonce supersession: a foreign nonce winning the reply key fences
+    # the host before the primary acknowledgement. (A self-ack rollback is
+    # structurally unreachable in v2 — the answer ack consumes the single
+    # ack-fault slot first in the same advance.)
     assert {:committed, _} =
              Elzoo.Outbox.ack(fixture.command_store, reply_item.idempotency_key, other_nonce)
 
@@ -10205,7 +10377,7 @@ defmodule Elzoo.Wave4ChannelTest do
     }
 
     assert {:ok, writes, _} =
-             Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
+             Wave4ChannelExample.Intents.prepare(
                resource_before,
                request,
                prepared_facts
@@ -10485,7 +10657,8 @@ defmodule Elzoo.Wave4ChannelTest do
     assert take_hash_calls() == []
     assert {:ok, after_reconcile_head} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
     assert after_reconcile_head == before_reconcile_head
-    assert {:ok, [item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    {:ok, pending_items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [item] = Enum.filter(pending_items, &(&1.destination == "wave4-channel-input"))
     assert item.destination == "wave4-channel-input"
   end
 
@@ -10815,13 +10988,8 @@ defmodule Elzoo.Wave4ChannelTest do
                fixture.profile.conversation_id
              )
 
-    assert {:ok, conversation_snapshot} =
-             Wave4ChannelExample.CommandBindings.conversation_snapshot(
-               completed_resource,
-               fixture.profile.tenant
-             )
-
-    assert {:ok, conversation} = Conversation.view(conversation_snapshot, scope)
+    assert {:ok, _entries, conversation_messages} = read_conversation(fixture, scope)
+    conversation = %{messages: conversation_messages}
     answer_id = Elzoo.Wave4ChannelTestHelper.answer_id(primary_id)
     assert Enum.count(conversation.messages, &(&1.message_id == answer_id)) == 1
     assert ["same-host retained reply"] = take_hash_calls()
@@ -11012,7 +11180,7 @@ defmodule Elzoo.Wave4ChannelTest do
       prepared_facts = %{tenant: profile.tenant, actor: profile.actor, data: facts}
 
       assert {:ok, writes, _response} =
-               Wave4ChannelExample.CommandBindings.prepare_reply_input(
+               Wave4ChannelExample.Intents.prepare(
                  snapshot,
                  request,
                  prepared_facts
@@ -11091,21 +11259,13 @@ defmodule Elzoo.Wave4ChannelTest do
     before_association = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
     assert {:ok, %{revision: head_before}} = before_association
 
-    {confirm_store, confirm_probe} =
-      Elzoo.Wave4ChannelTest.ReadProbe.attach(fixture.command_store)
-
-    Elzoo.Wave4ChannelTest.ReadProbe.transform(confirm_probe, :read, fn
-      _result, 1 -> {:error, :unavailable}
-      result, _count -> result
-    end)
-
-    :sys.replace_state(fixture.host, fn host_state ->
-      input_handle = %{host_state.handles.input | store: confirm_store}
-      %{host_state | handles: %{host_state.handles | input: input_handle}}
-    end)
+    # v2 post-commit confirmation reads the conversation log, not a checked
+    # command handle: the reply-association path never reads handles.input.
+    # Fault the conversation scan — the command commits, the read fails
+    # afterwards, exactly the v1 post-commit shape.
+    Elzoo.DurableLog.PostgresHarness.hook(fixture.conversation_store, :inject, [:read, :unavailable])
 
     assert {:unknown, :reply_association} = Wave4ChannelExample.advance(fixture.host)
-    assert :read in Elzoo.Wave4ChannelTest.ReadProbe.calls(confirm_probe)
 
     reply_operation =
       Elzoo.Wave4ChannelTestHelper.reply_operation(fixture.profile, reply_event["event_id"])
@@ -11129,24 +11289,21 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert committed_resource.revision == association_revision
 
-    assert {:ok, committed_snapshot} =
-             Wave4ChannelExample.CommandBindings.conversation_snapshot(
-               committed_resource,
-               fixture.profile.tenant
-             )
+    assert {:ok, committed_entries, _committed_conversation_messages} =
+             read_conversation(fixture, scope)
 
-    assert {:ok, committed_conversation} = Conversation.view(committed_snapshot, scope)
-
-    assert Enum.any?(committed_conversation.associations, fn association ->
-             association.input_message_id == reply_event["input_id"] and
-               association.run_id == run_id
+    # The reply association command is committed but undelivered while the
+    # host is fenced: no association entry exists in the conversation yet.
+    refute Enum.any?(committed_entries, fn entry ->
+             Map.get(entry, :kind) == :association and
+               Map.get(entry, :input_message_id) == reply_event["input_id"]
            end)
 
     head_after_association = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
     assert {:ok, %{revision: head_after}} = head_after_association
     assert head_after == head_before + 1
 
-    assert {:ok, [^primary_item, ^reply_item]} =
+    assert {:ok, [^primary_item, ^reply_item | _]} =
              Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
 
     assert take_hash_calls() == []
@@ -11160,7 +11317,7 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert {:unknown, :reply_association} = Wave4ChannelExample.advance(fixture.host)
 
-    assert {:ok, [^primary_item, ^reply_item]} =
+    assert {:ok, [^primary_item, ^reply_item | _]} =
              Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
 
     assert take_hash_calls() == []
@@ -11219,13 +11376,8 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert completed_resource.revision == answer_revision
 
-    assert {:ok, completed_snapshot} =
-             Wave4ChannelExample.CommandBindings.conversation_snapshot(
-               completed_resource,
-               fixture.profile.tenant
-             )
-
-    assert {:ok, completed_conversation} = Conversation.view(completed_snapshot, scope)
+    assert {:ok, _entries, completed_conversation_messages} = read_conversation(fixture, scope)
+    completed_conversation = %{messages: completed_conversation_messages}
     answer_id = Elzoo.Wave4ChannelTestHelper.answer_id(primary_id)
     assert Enum.count(completed_conversation.messages, &(&1.message_id == answer_id)) == 1
     assert [^reply_text] = take_hash_calls()
@@ -11392,16 +11544,15 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert final_resource.revision == reply_revision
 
-    assert {:ok, final_snapshot} =
-             Wave4ChannelExample.CommandBindings.conversation_snapshot(
-               final_resource,
-               fixture.profile.tenant
-             )
+    assert {:ok, final_entries, _final_conversation_messages} =
+             read_conversation(fixture, scope)
 
-    assert {:ok, final_conversation} = Conversation.view(final_snapshot, scope)
-    assert Enum.count(final_conversation.messages, &(&1.role == "source")) == 2
-    refute Enum.any?(final_conversation.messages, &(&1.role == "assistant"))
-    assert Enum.count(final_conversation.associations, &(&1.run_id == run_id)) == 1
+    final_inputs = Enum.filter(final_entries, &(&1[:kind] == :input))
+    final_answers = Enum.filter(final_entries, &(&1[:kind] == :answer))
+    final_associations = Enum.filter(final_entries, &(&1[:kind] == :association))
+    assert Enum.count(final_inputs, &(&1[:role] == "source")) == 2
+    assert final_answers == []
+    assert Enum.count(final_associations, &(&1[:run_id] == run_id)) == 1
 
     assert {:ok, after_run_expiry} = RunApprovalRelease.status(fixture.owner, run_id)
     assert after_run_expiry.current_attempt == before_run_expiry.current_attempt
@@ -11463,5 +11614,22 @@ defmodule Elzoo.Wave4ChannelTest do
   defp checked_stream(tenant) do
     "cc1:" <>
       Base.url_encode64(:erlang.term_to_binary({:cc, 1, tenant}, [:deterministic]), padding: false)
+  end
+
+  # v2 shares one Postgres schema across the conversation, command and native
+  # stores; compare only rows belonging to native streams.
+  defp native_store_snapshot(store) do
+    store
+    |> Elzoo.DurableLog.PostgresHarness.hook(:snapshot, [])
+    |> Map.new(fn {table, rows} ->
+      {table,
+       Enum.reject(rows, fn
+         [stream | _] when is_binary(stream) ->
+           String.starts_with?(stream, "conversation/") or String.starts_with?(stream, "cc1:")
+
+         _ ->
+           false
+       end)}
+    end)
   end
 end

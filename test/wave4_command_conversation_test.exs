@@ -3,7 +3,8 @@ Code.require_file("support/wave4_command_conversation_helper.exs", __DIR__)
 defmodule Elzoo.Wave4.CommandConversationTest do
   use ExUnit.Case, async: false
 
-  alias Elzoo.{CheckedCommand, Conversation, RunEngine}
+  alias Elzoo.{CheckedCommand, RunEngine}
+  alias Elzoo.Wave4ChannelExample.Intents
   alias Elzoo.DurableLog.PostgresHarness
   alias Elzoo.RunEngine.TestHelper
   alias Elzoo.Wave4.CommandConversationHelper, as: Fixture
@@ -41,9 +42,8 @@ defmodule Elzoo.Wave4.CommandConversationTest do
       handle = Fixture.handle(store)
       initial = Fixture.read(handle)
       assert {:ok, []} = Fixture.pending_outbox(store)
-      assert {:ok, empty} = Conversation.view(initial, scope())
 
-      assert empty == %{
+      assert Fixture.view(handle) == %{
                tenant: Fixture.tenant(),
                resource: Fixture.resource(),
                revision: 0,
@@ -55,13 +55,13 @@ defmodule Elzoo.Wave4.CommandConversationTest do
       input_request = Fixture.request("input-one", 0, "message-one", "hello")
 
       {:ok, writes, _response} =
-        Conversation.prepare(initial, input_request, %{
+        Intents.prepare(initial, input_request, %{
           tenant: Fixture.tenant(),
           actor: Fixture.actor(),
           data: input_facts
         })
 
-      assert [%{target: target, field: "conversation"}] = writes
+      assert [%{target: target, field: "wave4_intent"}] = writes
       assert target == Fixture.resource()
       assert Fixture.read(handle) == initial
       assert {:ok, []} = Fixture.pending_outbox(store)
@@ -124,6 +124,22 @@ defmodule Elzoo.Wave4.CommandConversationTest do
       assert {:completed, %{revision: 8}} = third_answer
 
       handle = Fixture.handle(store)
+
+      assert {:ok, committed_outbox} = Fixture.pending_outbox(store)
+      assert length(committed_outbox) == 8
+      assert Enum.all?(committed_outbox, &(&1.destination == "conversation-notify"))
+
+      assert Fixture.view(handle) == %{
+               tenant: Fixture.tenant(),
+               resource: Fixture.resource(),
+               revision: 0,
+               messages: [],
+               associations: []
+             }
+
+      assert Fixture.deliver!(handle) == :ok
+      assert {:ok, []} = Fixture.pending_outbox(store)
+
       view = Fixture.view(handle)
       assert view.revision == 8
 
@@ -167,10 +183,6 @@ defmodule Elzoo.Wave4.CommandConversationTest do
                ]
              }
 
-      assert {:ok, outbox} = Fixture.pending_outbox(store)
-      assert length(outbox) == 8
-      assert Enum.all?(outbox, &(&1.destination == "conversation-notify"))
-
       assert {:completed, %{revision: 1}} =
                CheckedCommand.result(
                  handle,
@@ -196,7 +208,7 @@ defmodule Elzoo.Wave4.CommandConversationTest do
       end
 
       if kind == :postgres do
-        assert Fixture.counts(pg) == %{records: 8, outbox: 8}
+        assert Fixture.counts(pg) == %{records: 16, outbox: 8}
       end
     end
   end
@@ -286,6 +298,7 @@ defmodule Elzoo.Wave4.CommandConversationTest do
         Fixture.append_input(changed, 0, "accepted", "same-id", "same text")
 
       assert {:completed, %{revision: 1}} = completed
+      assert Fixture.deliver!(changed) == :ok
       counts = if kind == :postgres, do: Fixture.counts(pg)
       completed_view = Fixture.view(changed)
       {:ok, completed_outbox} = Fixture.pending_outbox(store)
@@ -309,21 +322,17 @@ defmodule Elzoo.Wave4.CommandConversationTest do
 
       if kind == :postgres, do: assert(Fixture.counts(pg) == counts)
 
-      duplicate = Fixture.request("duplicate-id", 1, "same-id", "same text")
+      duplicate = Fixture.request("duplicate-id", 1, "same-id", "different text")
 
-      assert {:refused, "duplicate_message_id"} =
-               Conversation.prepare(Fixture.read(changed), duplicate, %{
+      assert {:ok, _writes, _response} =
+               Intents.prepare(Fixture.read(changed), duplicate, %{
                  tenant: Fixture.tenant(),
                  actor: Fixture.actor(),
                  data: completed_facts
                })
 
       duplicate_result =
-        CheckedCommand.execute(
-          changed,
-          Fixture.context(duplicate, completed_facts, Fixture.read(changed)),
-          duplicate
-        )
+        Fixture.execute(changed, duplicate, completed_facts)
 
       assert duplicate_result == {:conflict, {:domain, "duplicate_message_id"}}
       assert Fixture.view(changed) == completed_view
@@ -333,21 +342,27 @@ defmodule Elzoo.Wave4.CommandConversationTest do
                changed,
                %{tenant: Fixture.tenant(), actor: Fixture.actor()},
                {Fixture.tenant(), Fixture.actor(), "duplicate-id"}
-             ) == duplicate_result
+             ) == {:unknown, :not_observed}
 
       if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 4, outbox: 1})
 
       {association, _, _} = Fixture.associate(changed, 1, "associate", "same-id", "run-one")
       assert {:completed, %{revision: 2}} = association
+
+      assert {:ok, pending_after_associate} = Fixture.pending_outbox(store)
+      assert length(pending_after_associate) == 1
+      assert Fixture.view(changed) == completed_view
+
+      assert Fixture.deliver!(changed) == :ok
       associated_view = Fixture.view(changed)
       {:ok, associated_outbox} = Fixture.pending_outbox(store)
-      if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 5, outbox: 2})
+      if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 6, outbox: 2})
 
       {incomplete, incomplete_request, incomplete_facts} =
         Fixture.answer(changed, 2, "incomplete", "answer-bad", "same-id", "run-one", "bad", false)
 
-      assert {:refused, "run_not_completed"} =
-               Conversation.prepare(Fixture.read(changed), incomplete_request, %{
+      assert {:ok, _writes, _response} =
+               Intents.prepare(Fixture.read(changed), incomplete_request, %{
                  tenant: Fixture.tenant(),
                  actor: Fixture.actor(),
                  data: incomplete_facts
@@ -361,7 +376,7 @@ defmodule Elzoo.Wave4.CommandConversationTest do
                changed,
                %{tenant: Fixture.tenant(), actor: Fixture.actor()},
                {Fixture.tenant(), Fixture.actor(), "incomplete"}
-             ) == incomplete
+             ) == {:unknown, :not_observed}
 
       if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 6, outbox: 2})
 
@@ -376,11 +391,10 @@ defmodule Elzoo.Wave4.CommandConversationTest do
 
       mismatch_snapshot = Fixture.read(changed)
       host_facts = %{tenant: Fixture.tenant(), actor: Fixture.actor(), data: mismatch_facts}
-      pure_preparation = Conversation.prepare(mismatch_snapshot, mismatch_request, host_facts)
-      assert {:refused, "association_mismatch"} = pure_preparation
+      pure_preparation = Intents.prepare(mismatch_snapshot, mismatch_request, host_facts)
+      assert {:ok, _writes, _response} = pure_preparation
 
-      mismatch_context = Fixture.context(mismatch_request, mismatch_facts, mismatch_snapshot)
-      mismatch = CheckedCommand.execute(changed, mismatch_context, mismatch_request)
+      mismatch = Fixture.execute(changed, mismatch_request, mismatch_facts)
 
       assert mismatch == {:conflict, {:domain, "association_mismatch"}}
 
@@ -394,27 +408,22 @@ defmodule Elzoo.Wave4.CommandConversationTest do
                changed,
                %{tenant: Fixture.tenant(), actor: Fixture.actor()},
                {Fixture.tenant(), Fixture.actor(), "mismatch"}
-             ) == mismatch
+             ) == {:unknown, :not_observed}
 
-      if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 7, outbox: 2})
+      if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 6, outbox: 2})
       after_association = associated_view
       after_association_outbox = associated_outbox
       reassociation_request = Fixture.request("reassociate", 2, "same-id")
       reassociation_facts = Fixture.facts("associate_run", %{"run_id" => {:text, "run-two"}})
 
-      assert {:refused, "already_associated"} =
-               Conversation.prepare(Fixture.read(changed), reassociation_request, %{
+      assert {:ok, _writes, _response} =
+               Intents.prepare(Fixture.read(changed), reassociation_request, %{
                  tenant: Fixture.tenant(),
                  actor: Fixture.actor(),
                  data: reassociation_facts
                })
 
-      reassociation =
-        CheckedCommand.execute(
-          changed,
-          Fixture.context(reassociation_request, reassociation_facts, Fixture.read(changed)),
-          reassociation_request
-        )
+      reassociation = Fixture.execute(changed, reassociation_request, reassociation_facts)
 
       assert reassociation == {:conflict, {:domain, "already_associated"}}
       assert Fixture.view(changed) == after_association
@@ -424,9 +433,9 @@ defmodule Elzoo.Wave4.CommandConversationTest do
                changed,
                %{tenant: Fixture.tenant(), actor: Fixture.actor()},
                {Fixture.tenant(), Fixture.actor(), "reassociate"}
-             ) == reassociation
+             ) == {:unknown, :not_observed}
 
-      if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 8, outbox: 2})
+      if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 6, outbox: 2})
 
       identity = {Fixture.tenant(), Fixture.actor(), "accepted"}
       wrong_resource = %{completed_request | resource: "other-resource"}
@@ -461,7 +470,7 @@ defmodule Elzoo.Wave4.CommandConversationTest do
 
       assert Fixture.view(changed) == after_association
       assert Fixture.pending_outbox(store) == {:ok, after_association_outbox}
-      if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 8, outbox: 2})
+      if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 6, outbox: 2})
     end
   end
 
@@ -469,7 +478,7 @@ defmodule Elzoo.Wave4.CommandConversationTest do
     parent = self()
 
     prepare = fn snapshot, request, facts ->
-      result = Conversation.prepare(snapshot, request, facts)
+      result = Intents.prepare(snapshot, request, facts)
 
       send(
         parent,
@@ -523,6 +532,9 @@ defmodule Elzoo.Wave4.CommandConversationTest do
       text: winner_request.payload["text"]
     }
 
+    assert Fixture.deliver!(handle) == :ok
+    assert {:ok, []} = Fixture.pending_outbox(pg.store)
+
     assert Fixture.view(Fixture.handle(pg.store)) == %{
              tenant: Fixture.tenant(),
              resource: Fixture.resource(),
@@ -543,10 +555,9 @@ defmodule Elzoo.Wave4.CommandConversationTest do
              {Fixture.tenant(), Fixture.actor(), loser_request.operation_id}
            ) == loser_result
 
-    assert Fixture.counts(pg) == %{records: 2, outbox: 1}
+    assert Fixture.counts(pg) == %{records: 3, outbox: 1}
     {:ok, winner_outbox} = Fixture.pending_outbox(pg.store)
-    assert length(winner_outbox) == 1
-    assert Enum.all?(winner_outbox, &(&1.destination == "conversation-notify"))
+    assert length(winner_outbox) == 0
 
     current = Fixture.handle(pg.store)
 
@@ -565,6 +576,21 @@ defmodule Elzoo.Wave4.CommandConversationTest do
                retry
                | operation_id: loser_request.operation_id
              })
+
+    assert {:ok, retry_outbox} = Fixture.pending_outbox(pg.store)
+    assert length(retry_outbox) == 1
+    assert Enum.all?(retry_outbox, &(&1.destination == "conversation-notify"))
+
+    assert Fixture.view(current) == %{
+             tenant: Fixture.tenant(),
+             resource: Fixture.resource(),
+             revision: 1,
+             messages: [winner_message],
+             associations: []
+           }
+
+    assert Fixture.deliver!(current) == :ok
+    assert {:ok, []} = Fixture.pending_outbox(pg.store)
 
     retry_message = %{
       actor: Fixture.actor(),
@@ -593,17 +619,14 @@ defmodule Elzoo.Wave4.CommandConversationTest do
              {Fixture.tenant(), Fixture.actor(), loser_request.operation_id}
            ) == loser_result
 
-    assert Fixture.counts(pg) == %{records: 3, outbox: 2}
-    assert {:ok, retry_outbox} = Fixture.pending_outbox(pg.store)
-    assert length(retry_outbox) == 2
-    assert Enum.all?(retry_outbox, &(&1.destination == "conversation-notify"))
+    assert Fixture.counts(pg) == %{records: 5, outbox: 2}
   end
 
   test "PostgreSQL lost response, readback outage, reopen and rollback are distinct", %{pg: pg} do
     parent = self()
 
     prepare = fn snapshot, request, facts ->
-      result = Conversation.prepare(snapshot, request, facts)
+      result = Intents.prepare(snapshot, request, facts)
       PostgresHarness.hook(pg.store, :inject, [:read_at, :unavailable])
       send(parent, {:prepared_after_read, request.operation_id})
       result
@@ -636,6 +659,9 @@ defmodule Elzoo.Wave4.CommandConversationTest do
              )
 
     assert Fixture.counts(pg) == %{records: 1, outbox: 1}
+    assert Fixture.view(reopened).messages == []
+    assert Fixture.deliver!(reopened) == :ok
+    assert Fixture.counts(pg) == %{records: 2, outbox: 1}
     assert Fixture.view(reopened).messages |> Enum.map(& &1.message_id) == ["message-loss"]
 
     other = Fixture.pg_fixture()
@@ -685,9 +711,10 @@ defmodule Elzoo.Wave4.CommandConversationTest do
       )
 
     assert {:approval_pending, %{key: key}} = pending
+    assert Fixture.deliver!(handle) == :ok
     before = Fixture.view(handle)
     assert before.revision == 2
-    assert Fixture.counts(pg) == %{records: 3, outbox: 2}
+    assert Fixture.counts(pg) == %{records: 5, outbox: 2}
 
     evidence = %{
       verifier: "command-reviewer",
@@ -724,27 +751,9 @@ defmodule Elzoo.Wave4.CommandConversationTest do
     assert elem(wrong_purpose_evidence.request, 1) == action_id
 
     changed_prepare = fn snapshot, pending_request, host_facts ->
-      case Conversation.prepare(snapshot, pending_request, host_facts) do
-        {:ok, [%{value: {:record, state_fields}} = write], response} ->
-          {"messages", {:list, messages}} = List.keyfind(state_fields, "messages", 0)
-          {:record, answer_fields} = List.last(messages)
-
-          changed_answer_fields =
-            Enum.map(answer_fields, fn
-              {"text", {:text, _}} -> {"text", {:text, "changed answer"}}
-              field -> field
-            end)
-
-          changed_messages =
-            List.replace_at(messages, -1, {:record, changed_answer_fields})
-
-          changed_fields =
-            Enum.map(state_fields, fn
-              {"messages", _} -> {"messages", {:list, changed_messages}}
-              field -> field
-            end)
-
-          {:ok, [%{write | value: {:record, changed_fields}}], response}
+      case Intents.prepare(snapshot, pending_request, host_facts) do
+        {:ok, [%{value: {:bytes, _digest}} = write], response} ->
+          {:ok, [%{write | value: {:bytes, :crypto.hash(:sha256, "changed answer")}}], response}
 
         other ->
           other
@@ -828,14 +837,12 @@ defmodule Elzoo.Wave4.CommandConversationTest do
     reopened_store = PostgresHarness.hook(pg.store, :reopen, [])
     reopened = Fixture.handle(reopened_store)
 
-    released_response =
-      {:record,
-       [
-         {"input_message_id", {:text, "approval-input"}},
-         {"message_id", {:text, "approval-answer"}},
-         {"revision", 3},
-         {"run_id", {:text, run_id}}
-       ]}
+    {:ok, _release_writes, released_response} =
+      Intents.prepare(Fixture.read(reopened), request, %{
+        tenant: Fixture.tenant(),
+        actor: Fixture.actor(),
+        data: facts
+      })
 
     released_result = {:completed, %{revision: 3, response: released_response}}
     assert ^released_result = CheckedCommand.release(reopened, release_context, identity, envelope)
@@ -846,6 +853,24 @@ defmodule Elzoo.Wave4.CommandConversationTest do
                %{tenant: Fixture.tenant(), actor: Fixture.actor()},
                identity
              )
+
+    assert {:ok, released_outbox} = Fixture.pending_outbox(reopened_store)
+    assert length(released_outbox) == 1
+    assert [release_item] = Enum.filter(released_outbox, &(&1.sequence == 4))
+    assert release_item.destination == "conversation-notify"
+
+    assert Jason.decode!(release_item.payload) == %{
+             "type" => "checked_command",
+             "version" => 1,
+             "tenant" => Fixture.tenant(),
+             "actor" => Fixture.actor(),
+             "operation_id" => "approval-answer",
+             "resource" => Fixture.resource(),
+             "revision" => 3
+           }
+
+    assert Fixture.deliver!(reopened) == :ok
+    assert {:ok, []} = Fixture.pending_outbox(reopened_store)
 
     assert Fixture.view(reopened) == %{
              tenant: Fixture.tenant(),
@@ -870,24 +895,9 @@ defmodule Elzoo.Wave4.CommandConversationTest do
              associations: [%{input_message_id: "approval-input", run_id: run_id}]
            }
 
-    assert {:ok, released_outbox} = Fixture.pending_outbox(reopened_store)
-    assert length(released_outbox) == 3
-    assert [release_item] = Enum.filter(released_outbox, &(&1.sequence == 4))
-    assert release_item.destination == "conversation-notify"
-
-    assert Jason.decode!(release_item.payload) == %{
-             "type" => "checked_command",
-             "version" => 1,
-             "tenant" => Fixture.tenant(),
-             "actor" => Fixture.actor(),
-             "operation_id" => "approval-answer",
-             "resource" => Fixture.resource(),
-             "revision" => 3
-           }
-
     assert ^released_result = CheckedCommand.release(reopened, release_context, identity, envelope)
-    assert {:ok, ^released_outbox} = Fixture.pending_outbox(reopened_store)
-    assert Fixture.counts(pg) == %{records: 4, outbox: 3}
+    assert {:ok, []} = Fixture.pending_outbox(reopened_store)
+    assert Fixture.counts(pg) == %{records: 7, outbox: 3}
 
     {second_input, _, _} =
       Fixture.append_input(
@@ -925,6 +935,7 @@ defmodule Elzoo.Wave4.CommandConversationTest do
       )
 
     assert {:approval_pending, %{key: second_key}} = second_pending
+    assert Fixture.deliver!(reopened) == :ok
     second_identity = {Fixture.tenant(), Fixture.actor(), "approval-answer-two"}
     second_reopened_store = PostgresHarness.hook(pg.store, :reopen, [])
     reopened = Fixture.handle(second_reopened_store)
@@ -980,19 +991,17 @@ defmodule Elzoo.Wave4.CommandConversationTest do
                second_identity
              )
 
-    assert Fixture.counts(pg) == %{records: 7, outbox: 5}
+    assert Fixture.counts(pg) == %{records: 12, outbox: 5}
 
     fresh_evidence = %{consumed_evidence | evidence_id: "conversation-approval-fresh"}
     fresh_envelope = %{consumed_envelope | evidence: fresh_evidence}
 
-    second_released_response =
-      {:record,
-       [
-         {"input_message_id", {:text, "approval-input-two"}},
-         {"message_id", {:text, "approval-answer-two"}},
-         {"revision", 6},
-         {"run_id", {:text, run_id}}
-       ]}
+    {:ok, _second_writes, second_released_response} =
+      Intents.prepare(Fixture.read(reopened), second_request, %{
+        tenant: Fixture.tenant(),
+        actor: Fixture.actor(),
+        data: second_facts
+      })
 
     second_released_result = {:completed, %{revision: 6, response: second_released_response}}
 
@@ -1010,6 +1019,24 @@ defmodule Elzoo.Wave4.CommandConversationTest do
                %{tenant: Fixture.tenant(), actor: Fixture.actor()},
                second_identity
              )
+
+    assert {:ok, final_outbox} = Fixture.pending_outbox(second_reopened_store)
+    assert length(final_outbox) == 1
+    assert [second_release_item] = Enum.filter(final_outbox, &(&1.sequence == 8))
+    assert second_release_item.destination == "conversation-notify"
+
+    assert Jason.decode!(second_release_item.payload) == %{
+             "type" => "checked_command",
+             "version" => 1,
+             "tenant" => Fixture.tenant(),
+             "actor" => Fixture.actor(),
+             "operation_id" => "approval-answer-two",
+             "resource" => Fixture.resource(),
+             "revision" => 6
+           }
+
+    assert Fixture.deliver!(reopened) == :ok
+    assert {:ok, []} = Fixture.pending_outbox(second_reopened_store)
 
     assert Fixture.view(reopened) == %{
              tenant: Fixture.tenant(),
@@ -1051,22 +1078,7 @@ defmodule Elzoo.Wave4.CommandConversationTest do
              ]
            }
 
-    assert {:ok, final_outbox} = Fixture.pending_outbox(second_reopened_store)
-    assert length(final_outbox) == 6
-    assert [second_release_item] = Enum.filter(final_outbox, &(&1.sequence == 8))
-    assert second_release_item.destination == "conversation-notify"
-
-    assert Jason.decode!(second_release_item.payload) == %{
-             "type" => "checked_command",
-             "version" => 1,
-             "tenant" => Fixture.tenant(),
-             "actor" => Fixture.actor(),
-             "operation_id" => "approval-answer-two",
-             "resource" => Fixture.resource(),
-             "revision" => 6
-           }
-
-    assert Fixture.counts(pg) == %{records: 8, outbox: 6}
+    assert Fixture.counts(pg) == %{records: 14, outbox: 6}
   end
 
   @tag :postgres
@@ -1135,12 +1147,14 @@ defmodule Elzoo.Wave4.CommandConversationTest do
                identity
              )
 
+    assert Fixture.deliver!(handle) == :ok
+
     assert Enum.map(Fixture.view(handle).messages, & &1.message_id) == [
              "stale-input",
              "later-input"
            ]
 
-    assert Fixture.counts(pg) == %{records: 5, outbox: 3}
+    assert Fixture.counts(pg) == %{records: 8, outbox: 3}
   end
 
   test "RunEngine and CheckedCommand send the same PatternStep frame to their real gates", %{
@@ -1185,8 +1199,9 @@ defmodule Elzoo.Wave4.CommandConversationTest do
     assert {:ok, ^run_records_before, ^run_head_before} =
              Elzoo.DurableLog.read(run_store, "runs", 1, 1000)
 
-    assert [%{field: "conversation", value: authorized_value}] = command_context.own
-    assert Fixture.read(command).fields["conversation"] == authorized_value
+    assert [%{field: "wave4_intent", value: authorized_value}] = command_context.own
+    assert Fixture.read(command).fields["wave4_intent"] == authorized_value
+    assert Fixture.deliver!(command) == :ok
 
     assert Fixture.view(command) == %{
              tenant: Fixture.tenant(),
@@ -1652,11 +1667,12 @@ defmodule Elzoo.Wave4.CommandConversationTest do
                  command_identity
                ) == command_release_result
 
-        assert [%{target: target, field: "conversation", value: authorized_value}] =
+        assert [%{target: target, field: "wave4_intent", value: authorized_value}] =
                  command_context.own
 
         assert target == Fixture.resource()
-        assert Fixture.read(command).fields["conversation"] == authorized_value
+        assert Fixture.read(command).fields["wave4_intent"] == authorized_value
+        assert Fixture.deliver!(command) == :ok
 
         assert Fixture.view(command) == %{
                  tenant: Fixture.tenant(),
@@ -1783,6 +1799,139 @@ defmodule Elzoo.Wave4.CommandConversationTest do
 
       refute_receive {:local_work, _, _}
     end)
+  end
+
+  test "commands are invisible until their delivery", %{pg: pg} do
+    memory = Fixture.memory_fixture()
+    on_exit(fn -> Fixture.stop_memory(memory) end)
+
+    for {kind, store} <- [{:memory, memory.store}, {:postgres, pg.store}] do
+      handle = Fixture.handle(store)
+
+      empty = %{
+        tenant: Fixture.tenant(),
+        resource: Fixture.resource(),
+        revision: 0,
+        messages: [],
+        associations: []
+      }
+
+      assert Fixture.view(handle) == empty
+
+      {input, _, _} = Fixture.append_input(handle, 0, "invisible-input", "invisible-input", "one")
+      assert {:completed, %{revision: 1}} = input
+
+      {association, _, _} =
+        Fixture.associate(handle, 1, "invisible-association", "invisible-input", "invisible-run")
+
+      assert {:completed, %{revision: 2}} = association
+
+      {answer, _, _} =
+        Fixture.answer(
+          handle,
+          2,
+          "invisible-answer",
+          "invisible-answer",
+          "invisible-input",
+          "invisible-run",
+          "done"
+        )
+
+      assert {:completed, %{revision: 3}} = answer
+
+      assert Fixture.view(handle) == empty
+      assert {:ok, pending} = Fixture.pending_outbox(store)
+      assert length(pending) == 3
+      if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 3, outbox: 3})
+
+      assert Fixture.deliver!(handle) == :ok
+      assert {:ok, []} = Fixture.pending_outbox(store)
+
+      delivered = Fixture.view(handle)
+      assert delivered.revision == 3
+
+      assert Enum.map(delivered.messages, & &1.message_id) == [
+               "invisible-input",
+               "invisible-answer"
+             ]
+
+      assert delivered.associations == [
+               %{input_message_id: "invisible-input", run_id: "invisible-run"}
+             ]
+
+      if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 6, outbox: 3})
+    end
+  end
+
+  test "an answer with the wrong association is refused before commit", %{pg: pg} do
+    memory = Fixture.memory_fixture()
+    on_exit(fn -> Fixture.stop_memory(memory) end)
+
+    for {kind, store} <- [{:memory, memory.store}, {:postgres, pg.store}] do
+      handle = Fixture.handle(store)
+
+      {input, _, _} = Fixture.append_input(handle, 0, "guarded-input", "guarded-input", "question")
+      assert {:completed, %{revision: 1}} = input
+
+      {association, _, _} =
+        Fixture.associate(handle, 1, "guarded-association", "guarded-input", "guarded-run")
+
+      assert {:completed, %{revision: 2}} = association
+
+      {:ok, before_pending} = Fixture.pending_outbox(store)
+      assert length(before_pending) == 2
+      if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 2, outbox: 2})
+
+      wrong_facts =
+        Fixture.facts("append_answer", %{
+          "run_id" => {:text, "another-run"},
+          "input_message_id" => {:text, "guarded-input"},
+          "completed" => true
+        })
+
+      wrong_request = Fixture.request("guarded-answer", 2, "guarded-answer", "answer")
+
+      assert Fixture.execute(handle, wrong_request, wrong_facts) ==
+               {:conflict, {:domain, "association_mismatch"}}
+
+      assert Fixture.pending_outbox(store) == {:ok, before_pending}
+
+      assert CheckedCommand.result(
+               handle,
+               %{tenant: Fixture.tenant(), actor: Fixture.actor()},
+               {Fixture.tenant(), Fixture.actor(), "guarded-answer"}
+             ) == {:unknown, :not_observed}
+
+      if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 2, outbox: 2})
+
+      right_facts =
+        Fixture.facts("append_answer", %{
+          "run_id" => {:text, "guarded-run"},
+          "input_message_id" => {:text, "guarded-input"},
+          "completed" => true
+        })
+
+      right_request = Fixture.request("guarded-answer", 2, "guarded-answer", "answer")
+      context = Fixture.context(right_request, right_facts, Fixture.read(handle))
+      assert {:completed, %{revision: 3}} = CheckedCommand.execute(handle, context, right_request)
+
+      assert Fixture.deliver!(handle) == :ok
+      assert {:ok, []} = Fixture.pending_outbox(store)
+
+      delivered = Fixture.view(handle)
+      assert delivered.revision == 3
+
+      assert Enum.map(delivered.messages, &{&1.message_id, &1.role}) == [
+               {"guarded-input", "user"},
+               {"guarded-answer", "assistant"}
+             ]
+
+      assert delivered.associations == [
+               %{input_message_id: "guarded-input", run_id: "guarded-run"}
+             ]
+
+      if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 6, outbox: 3})
+    end
   end
 
   defp scope do

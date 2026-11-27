@@ -31,7 +31,7 @@ end
 
 defmodule Elzoo.Wave4ChannelTestHelper do
   alias Ecto.Adapters.SQL
-  alias Elzoo.{DurableUnit, DynamicUnits, Lease, RunApprovalRelease}
+  alias Elzoo.{Conversation, DurableUnit, DynamicUnits, Lease, RunApprovalRelease}
   alias Elzoo.DurableLog.{Postgres, PostgresHarness, TestMigration}
   alias Elzoo.RunEngine.TestRepo
 
@@ -61,12 +61,16 @@ defmodule Elzoo.Wave4ChannelTestHelper do
 
     command_fold = %{
       initial: %{},
-      kinds: %{"checked_command" => :state_bearing},
+      kinds:
+        Map.merge(
+          %{"checked_command" => :state_bearing},
+          Map.new(Conversation.Record.kinds(), &{&1, :non_state_bearing})
+        ),
       versions: [1],
       destinations:
         if(reply_profile?,
-          do: ["wave4-channel-input", "wave4-channel-reply"],
-          else: ["wave4-channel-input"]
+          do: ["wave4-channel-input", "wave4-channel-reply", "wave4-channel-delivery"],
+          else: ["wave4-channel-input", "wave4-channel-delivery"]
         ),
       reduce: fn model, _, _, _ -> model end
     }
@@ -79,6 +83,18 @@ defmodule Elzoo.Wave4ChannelTestHelper do
 
     command_store =
       PostgresHarness.attach(TestRepo, prefix, command_fold, command_limits, controller)
+
+    {:ok, conversation_controller} = PostgresHarness.start_link([])
+    Process.unlink(conversation_controller)
+
+    conversation_store =
+      PostgresHarness.attach(
+        TestRepo,
+        prefix,
+        command_fold,
+        command_limits,
+        conversation_controller
+      )
 
     default_gates = %{
       input: fn _frame, _context -> :allow end,
@@ -242,6 +258,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       profile: profile,
       bindings: Keyword.get(options, :bindings, [trigger_binding(profile)]),
       command_store: command_store,
+      conversation_store: conversation_store,
       handles: handles,
       native: native,
       authority: authority,
@@ -257,6 +274,8 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       prefix: prefix,
       controller: controller,
       native_controller: native_controller,
+      conversation_controller: conversation_controller,
+      conversation_store: conversation_store,
       owner: owner,
       held: held,
       lease: lease,
@@ -470,6 +489,10 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     true = Enum.all?(unit_child_pids, &(not Process.alive?(&1)))
 
     command_store = Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :reopen, [])
+
+    conversation_store =
+      Elzoo.DurableLog.PostgresHarness.hook(fixture.conversation_store, :reopen, [])
+
     run_store = Elzoo.DurableLog.PostgresHarness.hook(fixture.run_store, :reopen, [])
     unit_store = Elzoo.DurableLog.PostgresHarness.hook(fixture.native.unit_store, :reopen, [])
     evidence_store = Elzoo.DurableLog.PostgresHarness.hook(fixture.evidence_store, :reopen, [])
@@ -539,6 +562,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
         lease: lease,
         directory: directory,
         command_store: command_store,
+        conversation_store: conversation_store,
         run_store: run_store,
         handles: handles,
         native: native,
@@ -567,6 +591,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     host_options =
       Keyword.merge(fixture.host_options,
         command_store: command_store,
+        conversation_store: conversation_store,
         handles: handles,
         native: native,
         authority: authority
@@ -600,6 +625,82 @@ defmodule Elzoo.Wave4ChannelTestHelper do
 
   def pending_outbox(fixture) do
     Elzoo.Outbox.pending(fixture.command_store, command_stream(fixture.profile.tenant), 64)
+  end
+
+  def conversation_reference(profile),
+    do: %{target_tenant: profile.tenant, conversation_id: profile.conversation_id}
+
+  def conversation_entries(fixture) do
+    case Conversation.page(
+           fixture.conversation_store,
+           scope(fixture.profile),
+           conversation_reference(fixture.profile),
+           1,
+           1_000
+         ) do
+      {:ok, page} -> {:ok, page.entries}
+      other -> other
+    end
+  end
+
+  def conversation_head(fixture) do
+    Elzoo.DurableLog.Store.read(fixture.conversation_store, :head, [
+      Conversation.Record.stream(fixture.profile.tenant, fixture.profile.conversation_id)
+    ])
+  end
+
+  # The pid of the host's conversation owner, for direct seeds of inputs that
+  # no command will ever reference.
+  def conversation_owner(fixture) do
+    state = :sys.get_state(fixture.host)
+    state.conversation.owner
+  end
+
+  # Deliver every pending delivery-only item of this conversation exactly as
+  # the host's delivery pass does: the committed intent is appended through
+  # the owner and the item is acknowledged with its original key and nonce.
+  # Input items stay pending (they are acknowledged at the end of their
+  # pipeline); use this only for seeds that no pipeline will claim.
+  def deliver_pending!(fixture) do
+    {:ok, items} = pending_outbox(fixture)
+
+    Enum.each(items, fn item ->
+      notice = Jason.decode!(item.payload)
+
+      completed =
+        Elzoo.CheckedCommand.result(
+          fixture.handles.input,
+          %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+          {fixture.profile.tenant, fixture.profile.actor, notice["operation_id"]}
+        )
+
+      with {:completed, %{response: response}} <- completed,
+           {:ok, mode, dto} <- Elzoo.Wave4ChannelExample.Intents.delivery(response) do
+        owner = conversation_owner(fixture)
+
+        appended =
+          case mode do
+            :input -> Conversation.append_input(owner, dto)
+            :association -> Conversation.associate_run(owner, dto)
+            :answer -> Conversation.append_answer(owner, dto)
+          end
+
+        case appended do
+          {:ok, %{sequence: _}} -> :ok
+          {:ok, :already_present} -> :ok
+          other -> raise "seed delivery refused: #{inspect(other)}"
+        end
+
+        case Elzoo.Outbox.ack(fixture.command_store, item.idempotency_key, item.nonce) do
+          {:committed, _} -> :ok
+          other -> raise "seed acknowledgement failed: #{inspect(other)}"
+        end
+      else
+        other -> raise "undeliverable pending seed: #{inspect(other)}"
+      end
+    end)
+
+    :ok
   end
 
   def event(overrides \\ %{}) do
@@ -695,6 +796,11 @@ defmodule Elzoo.Wave4ChannelTestHelper do
 
     PostgresHarness.cleanup(fixture.controller)
     if Process.alive?(fixture.controller), do: GenServer.stop(fixture.controller)
+    PostgresHarness.cleanup(fixture.conversation_controller)
+
+    if Process.alive?(fixture.conversation_controller),
+      do: GenServer.stop(fixture.conversation_controller)
+
     PostgresHarness.cleanup(fixture.native_controller)
     if Process.alive?(fixture.native_controller), do: GenServer.stop(fixture.native_controller)
 
@@ -728,7 +834,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
              profile.conversation_id
            ),
          {:ok, writes, _} <-
-           Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
+           Elzoo.Wave4ChannelExample.Intents.prepare(
              snapshot,
              request,
              prepared_facts

@@ -90,7 +90,7 @@ defmodule Elzoo.Wave4ChannelDemo do
     SQL.query!(repo, "CREATE SCHEMA #{Postgres.identifier(prefix)}", [], log: false)
   end
 
-  defp migrate_schema!(repo, prefix) do
+  defp migrate_schema!(_repo, prefix) do
     :ok = Ecto.Migrator.up(Repo, 1, Migration, prefix: prefix, log: false)
   end
 
@@ -135,6 +135,13 @@ defmodule Elzoo.Wave4ChannelDemo do
     command_store =
       Postgres.store(repo, prefix: prefix, fold: command_fold(mode), limits: command_limits())
 
+    conversation_store =
+      Postgres.store(repo,
+        prefix: prefix,
+        fold: conversation_fold(),
+        limits: conversation_limits()
+      )
+
     {:ok, handles} = build_handles(mode, command_store)
 
     unit_options = unit_options(mode)
@@ -162,6 +169,7 @@ defmodule Elzoo.Wave4ChannelDemo do
        signing_key: :crypto.strong_rand_bytes(32),
        reply_signing_key: if(mode == :reply_v2, do: :crypto.strong_rand_bytes(32)),
        command_store: command_store,
+       conversation_store: conversation_store,
        handles: handles,
        run_store: run_store,
        lease: lease,
@@ -264,6 +272,7 @@ defmodule Elzoo.Wave4ChannelDemo do
       profile: resources.profile,
       bindings: [trigger_binding(resources.profile)],
       command_store: resources.command_store,
+      conversation_store: resources.conversation_store,
       handles: resources.handles,
       native: native,
       authority: authority(resources),
@@ -391,8 +400,8 @@ defmodule Elzoo.Wave4ChannelDemo do
       versions: [1],
       destinations:
         if(mode == :reply_v2,
-          do: ["wave4-channel-input", "wave4-channel-reply"],
-          else: ["wave4-channel-input"]
+          do: ["wave4-channel-input", "wave4-channel-reply", "wave4-channel-delivery"],
+          else: ["wave4-channel-input", "wave4-channel-delivery"]
         ),
       reduce: fn model, _, _, _ -> model end
     }
@@ -400,6 +409,23 @@ defmodule Elzoo.Wave4ChannelDemo do
 
   defp command_limits,
     do: %{max_record_bytes: 1_048_576, max_batch_size: 1, max_checkpoint_bytes: 1_048_576}
+
+  defp conversation_fold do
+    %{
+      initial: %{},
+      kinds: Map.new(Elzoo.Conversation.Record.kinds(), &{&1, :non_state_bearing}),
+      versions: [1],
+      destinations: [],
+      reduce: fn model, _, _, _ -> model end
+    }
+  end
+
+  defp conversation_limits,
+    do: %{
+      max_record_bytes: Elzoo.Conversation.Record.max_payload_bytes(),
+      max_batch_size: 1_000,
+      max_checkpoint_bytes: 65_536
+    }
 
   defp evidence_fold do
     %{
@@ -486,7 +512,7 @@ defmodule Elzoo.Wave4ChannelDemo do
                  profile.conversation_id
                ),
              {:ok, writes, _response} <-
-               Elzoo.Wave4ChannelExample.CommandBindings.prepare_reply_input(
+               Elzoo.Wave4ChannelExample.Intents.prepare(
                  snapshot,
                  request,
                  prepared_facts

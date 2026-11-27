@@ -29,6 +29,7 @@ defmodule Elzoo.Wave4ChannelExample do
     TriggerBinding,
     WebhookIn
   }
+
   alias Elzoo.Wave4ChannelExample.Intents
 
   @destination "wave4-channel-input"
@@ -481,8 +482,27 @@ defmodule Elzoo.Wave4ChannelExample do
   @impl true
   def terminate(_reason, state) do
     fence_native(state)
+    stop_conversation_owner(state)
     :ok
   end
+
+  # The owner is linked to this host; a normal stop would not propagate, so
+  # terminate stops it with the host's own reason shape.
+  defp stop_conversation_owner(%{conversation: %{owner: owner}}) when is_pid(owner) do
+    if Process.alive?(owner) do
+      Process.unlink(owner)
+      GenServer.stop(owner, :normal, 5_000)
+    end
+
+    :ok
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
+    _, _ -> :ok
+  end
+
+  defp stop_conversation_owner(_), do: :ok
 
   @impl true
   def format_status(status) do
@@ -592,12 +612,44 @@ defmodule Elzoo.Wave4ChannelExample do
     Map.drop(before, [:capabilities]) == Map.drop(after_head, [:capabilities])
   end
 
+  # Admission governs commands that have not committed their writes. A
+  # command whose identity already holds a terminal or unresolved result is
+  # an idempotent re-execution of its own retained row, never a fresh claim
+  # of its message IDs, so the admitted-state check does not apply to it. An
+  # approval-pending command has committed nothing yet: admission still
+  # decides it, and its release revalidates against the state as it is then.
+  defp admission_fresh?(state, operation_id) do
+    case CheckedCommand.result(
+           state.handles.input,
+           result_scope(state.profile),
+           {state.profile.tenant, state.profile.actor, operation_id}
+         ) do
+      {:unknown, :not_observed} -> true
+      {:approval_pending, _} -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
+  catch
+    _, _ -> false
+  end
+
   # Before a Conversation-writing command commits, its exact intent must be a
   # new admissible record after this conversation's earlier committed,
   # undelivered intents, which must all still be admissible or present
   # (`Elzoo.Conversation.check/2`). An `{:ok, :already_present}` candidate is
   # a conflict: delivery of an earlier command is not admission for this one.
+  # A command whose identity is already recorded is its own re-execution and
+  # is exempt.
   defp admission_intent(state, request, facts) do
+    if admission_fresh?(state, request.operation_id) do
+      admission_check(state, request, facts)
+    else
+      :ok
+    end
+  end
+
+  defp admission_check(state, request, facts) do
     with {:ok, mode, dto} <- Intents.candidate(request, prepare_facts(state.profile, facts)),
          {:ok, earlier} <- undelivered_intents(state),
          {:ok, decisions} <-
@@ -775,6 +827,7 @@ defmodule Elzoo.Wave4ChannelExample do
              ),
            :ok <- valid_admission_scope(state.profile, event, trusted_scope),
            true <- before_deadline?(state),
+           :ok <- release_admission(state, event, operation_id),
            {:ok, facts, request, context} <-
              release_context(state, event, operation_id, evidence) do
         {:ready, operation_id, facts, request, context}
@@ -782,7 +835,9 @@ defmodule Elzoo.Wave4ChannelExample do
         false -> {:reply, {:rejected, :conflict}}
         nil -> {:reply, {:rejected, :conflict}}
         {:error, :profile_scope} -> {:reply, {:rejected, :forbidden}}
+        {:error, :intent} -> {:reply, {:rejected, :conflict}}
         {:error, :evidence} -> {:reply, {:error, :unavailable}}
+        {:error, :intent_unavailable} -> {:reply, {:error, :unavailable}}
         _ -> {:reply, {:rejected, :invalid}}
       end
     else
@@ -841,6 +896,17 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ ->
       {{:unknown, :unavailable},
        %{state | poison: {:release, operation_id, facts, request, :exception}}}
+  end
+
+  # The release commit of an approval-gated input is a Conversation-writing
+  # commit, so the exact intent is validated against the ordered admitted
+  # state again: the check at admission is not proof at release time.
+  defp release_admission(state, event, operation_id) do
+    case admission_intent(state, input_request(event, operation_id), input_facts()) do
+      :ok -> :ok
+      {:error, {:conflict, _}} -> {:error, :intent}
+      _ -> {:error, :intent_unavailable}
+    end
   end
 
   defp release_context(state, event, operation_id, evidence) do
@@ -1426,13 +1492,13 @@ defmodule Elzoo.Wave4ChannelExample do
   defp deliver_pending(state) do
     stream = checked_stream(state.profile.tenant)
 
+    # The window holds the lowest pending sequences, so delivering what it
+    # shows keeps command sequence order; a full window hides only later
+    # intents. Admission and the observation step keep their own full-window
+    # refusals.
     case Outbox.pending(state.command_store, stream, @outbox_limit) do
       {:ok, items} ->
-        if pending_window_full?(items) do
-          fail_delivery(state, {:input_observation, :pending_window_full}, {:unknown, :delivery})
-        else
-          deliver_items(state, items)
-        end
+        deliver_items(state, items)
 
       _ ->
         fail_delivery(state, {:input_observation, :read}, {:unknown, :delivery})
@@ -1463,16 +1529,19 @@ defmodule Elzoo.Wave4ChannelExample do
     {:error, %{state | poison: poison}, reply}
   end
 
-  # One item: foreign or unreadable items block this tenant's ordered
-  # delivery; our items are rebuilt from their committed receipts, verified
-  # against their bound digest and appended through the conversation owner.
+  # One item: an unreadable item blocks this tenant's ordered delivery; our
+  # items are rebuilt from their committed receipts, verified against their
+  # bound digest and appended through the conversation owner. A well-formed
+  # item of another conversation is not one of this conversation's intents:
+  # it is neither delivered nor allowed to block them (admission skips it the
+  # same way), and the observation step keeps its own rules for it.
   defp deliver_item(state, item) do
     case delivery_intent(state, item) do
       {:ok, mode, dto} ->
         deliver_owner(state, item, mode, dto)
 
       {:error, :foreign} ->
-        fail_delivery(state, {:input_observation, :foreign_item}, {:unknown, :delivery})
+        {:ok, state}
 
       {:error, reason} ->
         fail_delivery(state, {:delivery, item.idempotency_key, reason}, {:unknown, :delivery})
@@ -1642,7 +1711,6 @@ defmodule Elzoo.Wave4ChannelExample do
     end)
   end
 
-
   # Scan the conversation forward in bounded pages until `match?` holds for
   # one entry or the head is reached: `{:ok, entry}`, `{:error, :absent}` or
   # the page read's error.
@@ -1698,7 +1766,7 @@ defmodule Elzoo.Wave4ChannelExample do
     }
 
     scan_pages(state, reference, 1, fn entry ->
-      entry.message_id == message_id and
+      Map.get(entry, :message_id) == message_id and
         ((entry.kind == :input and entry.role == role) or
            (entry.kind == :answer and role == "assistant"))
     end)
@@ -1926,7 +1994,6 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> {{:unknown, :input_observation}, %{state | poison: {:input_observation, :exit}}}
   end
 
-
   defp retained_reply_metadata(snapshot, profile) do
     case Intents.metadata(snapshot.fields, profile.tenant) do
       {:ok, nil} ->
@@ -1946,7 +2013,6 @@ defmodule Elzoo.Wave4ChannelExample do
   rescue
     _ -> {:error, :metadata}
   end
-
 
   defp completed_pair_matches_metadata?(pair, metadata) when is_map(pair) do
     pair.run_id == metadata.run_id and pair.primary_key == metadata.primary_key
@@ -2344,8 +2410,7 @@ defmodule Elzoo.Wave4ChannelExample do
     facts_result =
       if reply_profile?(state.profile) do
         with {:ok, sequence} <- input_sequence(state, c.item.key, c.input_id) do
-          {:ok,
-           reply_primary_association_facts(c.run_id, c.item.key, c.item.nonce, sequence)}
+          {:ok, reply_primary_association_facts(c.run_id, c.item.key, c.item.nonce, sequence)}
         end
       else
         {:ok, association_facts(c.run_id)}
@@ -2986,21 +3051,38 @@ defmodule Elzoo.Wave4ChannelExample do
         %{"message_id" => reply.ticket}
       )
 
-    facts =
+    facts_result =
       case input_sequence(state, reply.item.idempotency_key, reply.ticket) do
         {:ok, sequence} ->
-          reply_association_facts(
-            current.run_id,
-            current.item.key,
-            reply.item.idempotency_key,
-            reply.item.nonce,
-            sequence
-          )
+          {:ok,
+           reply_association_facts(
+             current.run_id,
+             current.item.key,
+             reply.item.idempotency_key,
+             reply.item.nonce,
+             sequence
+           )}
 
         _ ->
-          raise "reply input sequence unavailable"
+          :error
       end
 
+    case facts_result do
+      {:ok, facts} ->
+        classify_reply_association(state, reply, current, request, facts)
+
+      _ ->
+        {{:error, :unavailable}, state}
+    end
+  rescue
+    _ -> {{:unknown, :reply_association}, %{state | poison: {:reply_association, :exception}}}
+  catch
+    _, _ -> {{:unknown, :reply_association}, %{state | poison: {:reply_association, :exception}}}
+  end
+
+  defp associate_reply(state), do: {{:blocked, :reply_state}, state}
+
+  defp classify_reply_association(state, reply, current, request, facts) do
     case execute_checked(state, :reply_association, reply.event, request, facts) do
       {:completed, %{revision: revision, response: response}}
       when revision == reply.resource_revision + 1 ->
@@ -3036,8 +3118,6 @@ defmodule Elzoo.Wave4ChannelExample do
   catch
     _, _ -> {{:unknown, :reply_association}, %{state | poison: {:reply_association, :exception}}}
   end
-
-  defp associate_reply(state), do: {{:blocked, :reply_state}, state}
 
   defp reconcile_reply_association(%{reply: reply, current: current} = state)
        when is_map(reply) and is_map(current) do
@@ -3110,7 +3190,6 @@ defmodule Elzoo.Wave4ChannelExample do
   catch
     _, _ -> false
   end
-
 
   defp submit_reply_input(%{reply: reply, current: current, engine: engine} = state)
        when is_map(reply) and is_map(current) and is_map(reply.item) and is_pid(engine) do
@@ -3671,6 +3750,9 @@ defmodule Elzoo.Wave4ChannelExample do
       {:unavailable, _} ->
         {{:error, :unavailable}, state}
 
+      {:intent_conflict, code} ->
+        {{:blocked, {:intent, code}}, %{state | poison: {:intent, :answer, code}}}
+
       other ->
         {{:blocked, :answer}, %{state | poison: {:answer, other}}}
     end
@@ -3876,7 +3958,8 @@ defmodule Elzoo.Wave4ChannelExample do
           reply_ticket: state.reply.ticket,
           reply_key: state.reply.item.idempotency_key,
           reply_nonce: state.reply.item.nonce,
-          reply_sequence: custody_sequence(state, state.reply.item.idempotency_key, state.reply.ticket)
+          reply_sequence:
+            custody_sequence(state, state.reply.item.idempotency_key, state.reply.ticket)
         }
 
         latest_native = %{
@@ -4514,7 +4597,8 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp view_associations(entries) do
-    for entry <- entries, entry.kind == :association,
+    for entry <- entries,
+        entry.kind == :association,
         do: %{input_message_id: entry.input_message_id, run_id: entry.run_id}
   end
 
@@ -5440,7 +5524,6 @@ defmodule Elzoo.Wave4ChannelExample do
         "reply_sequence" => reply_sequence
       })
 
-
   defp answer_facts(run_id, input_id, completed),
     do:
       portable_facts(%{
@@ -5454,7 +5537,6 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp prepare_facts(profile, facts),
     do: %{tenant: profile.tenant, actor: profile.actor, data: facts}
-
 
   defp result_scope(profile), do: %{tenant: profile.tenant, actor: profile.actor}
 
@@ -5955,7 +6037,17 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
             {:error, :gap}
 
           true ->
-            read_event(store, before, event_id, sequence, profile, run_id, conv_store, handles, primary)
+            read_event(
+              store,
+              before,
+              event_id,
+              sequence,
+              profile,
+              run_id,
+              conv_store,
+              handles,
+              primary
+            )
         end
 
       stable_result(store, target_stream, before, result)
@@ -6013,7 +6105,8 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
     else
       {:ok, item} when is_map(item) ->
         with :ok <- valid_item(item, event_id, sequence, profile, @destination),
-             {:ok, event} <- source_event(item, event_id, profile, run_id, conv_store, handles, primary) do
+             {:ok, event} <-
+               source_event(item, event_id, profile, run_id, conv_store, handles, primary) do
           {:ok, event}
         else
           _ -> {:error, :unavailable}
@@ -6241,6 +6334,7 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
           field_value(fields, "message_id") == {:text, message_id} and
           field_value(fields, "revision") == revision and
           field_value(fields, "run_id") == {:text, run_id}
+
       _ ->
         false
     end
@@ -6269,8 +6363,6 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
 
   defp resource_snapshot(handle, profile),
     do: CheckedCommand.resource(handle, resource_scope(profile), profile.conversation_id)
-
-
 
   defp notice(%{payload: payload, destination: item_destination}, destination, profile) do
     with {:ok, notice} <- Jason.decode(payload),
