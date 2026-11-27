@@ -11368,6 +11368,56 @@
       "issue": 1048,
       "url": "https://github.com/balungpisah/elzoo/issues/1048",
       "issue_body_sha256": "d84e19cf27bbf6e993ce1f5159883317bd410e0f5f37db59f288f04395e6c6c4"
+    },
+    {
+      "id": "ELZ-434",
+      "title": "ELZ-434 — assembly/run-engine: a failed replacement recovery is retried before the next input",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-433"
+      ],
+      "status": "published 2026-11-27",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-434-run-engine-keep-recovery-after-failed-current.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "assembly/run-engine",
+          "role": "In-place fix under the same ID: every caller of current/1 keeps a halt's state and otherwise its pre-call state, so a failed replacement recovery is retried before the next input."
+        }
+      ],
+      "acceptance": "ingest/4, control/4, the v1 durable-unit input and the v2 outside-event path keep a halt's state and otherwise the pre-call state; tests per caller with a recovery failing without a halt (no own record; recovery rerun before the next input; no duplicate recovery record) and a halt case; negative controls for ingest and control; Piece gate, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1055,
+      "url": "https://github.com/balungpisah/elzoo/issues/1055",
+      "issue_body_sha256": "c0a3f7880ead85b8cc19ef51188f2714f35be0e79ffaee257848775150dc6f29"
+    },
+    {
+      "id": "ELZ-435",
+      "title": "ELZ-435 — CI: the runtime-library fallback updates only the Ubuntu archive source",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [],
+      "status": "published 2026-11-27",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-435-ci-runtime-fallback-ubuntu-sources-only.md"
+      ],
+      "outputs": [],
+      "acceptance": "The runtime-library fallback's update and install read only the rewritten Ubuntu source with Error-Mode=any; stubbed apt test of the exact arguments with a negative control; guard tests, full local gate and full hosted check; independent review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1056,
+      "url": "https://github.com/balungpisah/elzoo/issues/1056",
+      "issue_body_sha256": "e166fbb09fe552870fbccab4403e5c79f8e49bb09d79e254c92b894d7b270480"
     }
   ],
   "entries": [

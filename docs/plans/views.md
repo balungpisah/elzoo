@@ -482,6 +482,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-431](https://github.com/balungpisah/elzoo/issues/1039) | V2 / later | none | published 2026-11-26 | coordinator-owned CI repair; one PR carries publication and implementation; coordinator owns independent review and merge queue |
 | [ELZ-432](https://github.com/balungpisah/elzoo/issues/1046) | V2 / later | ELZ-425 | published 2026-11-27 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-433](https://github.com/balungpisah/elzoo/issues/1048) | V2 / later | ELZ-420 | published 2026-11-27 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-434](https://github.com/balungpisah/elzoo/issues/1055) | V2 / later | ELZ-433 | published 2026-11-27 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-435](https://github.com/balungpisah/elzoo/issues/1056) | V2 / later | none | published 2026-11-27 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -5820,3 +5822,25 @@ Publication copy: [tasks/ELZ-433-run-engine-journal-read-failure.md](../../tasks
 **Acceptance:** find_input/4 returns {:error, :unavailable} for a failed or incomplete read (:unavailable, :malformed, {:pruned, _}, low_water > 0); input/4 and control/4 (pause, continue, cancel) return {:error, :unavailable} and commit nothing for the submitted ID; a failed admitted_action/2 lookup on a settled retry is not discarded; after :input_id_conflict a failed winner read halts :unavailable, while no winner or a differing winner stays :integrity_failure; negative controls; Piece gate, strongest other-family review.
 
 **Secondary contribution:** assembly/run-engine — In-place fix under the same ID: a failed read of the engine's own journal ends in a defined result, never a match error.
+
+### ELZ-434
+
+ELZ-434 — assembly/run-engine: a failed replacement recovery is retried before the next input
+
+Publication copy: [tasks/ELZ-434-run-engine-keep-recovery-after-failed-current.md](../../tasks/ELZ-434-run-engine-keep-recovery-after-failed-current.md).
+
+**Product aims:** P09.
+
+**Acceptance:** ingest/4, control/4, the v1 durable-unit input and the v2 outside-event path keep a halt's state and otherwise the pre-call state; tests per caller with a recovery failing without a halt (no own record; recovery rerun before the next input; no duplicate recovery record) and a halt case; negative controls for ingest and control; Piece gate, strongest other-family review.
+
+**Secondary contribution:** assembly/run-engine — In-place fix under the same ID: every caller of current/1 keeps a halt's state and otherwise its pre-call state, so a failed replacement recovery is retried before the next input.
+
+### ELZ-435
+
+ELZ-435 — CI: the runtime-library fallback updates only the Ubuntu archive source
+
+Publication copy: [tasks/ELZ-435-ci-runtime-fallback-ubuntu-sources-only.md](../../tasks/ELZ-435-ci-runtime-fallback-ubuntu-sources-only.md).
+
+**Product aims:** P09.
+
+**Acceptance:** The runtime-library fallback's update and install read only the rewritten Ubuntu source with Error-Mode=any; stubbed apt test of the exact arguments with a negative control; guard tests, full local gate and full hosted check; independent review.
