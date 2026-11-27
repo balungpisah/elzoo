@@ -35,21 +35,21 @@ jobs:
           test "$ID" = ubuntu
           test "$VERSION_ID" = 24.04
           echo "Hosted runner: $RUNNER_NAME"
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install runtime libraries
         working-directory: /
         run: sudo python3 "$GITHUB_WORKSPACE/scripts/ci-install-runtime.py"
-      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
         with:
-          otp-version: '29.1.2'
+          otp-version: '29.1.3'
       - name: Report BEAM capacity
         run: |
           erl -noshell -eval 'io:format("BEAM schedulers=~p online=~p dirty_cpu=~p dirty_io=~p~n", [erlang:system_info(schedulers), erlang:system_info(schedulers_online), erlang:system_info(dirty_cpu_schedulers_online), erlang:system_info(dirty_io_schedulers)]), halt().'
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24.16.0'
+          node-version: '26.13.1'
       - name: Install the pinned Gleam compiler
         env:
           GITHUB_TOKEN: ${{ github.token }}

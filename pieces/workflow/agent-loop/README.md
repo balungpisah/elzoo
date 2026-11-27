@@ -377,8 +377,10 @@ removes that entry; no images in older turns. With
 `integration/ai-token-count` as the estimate, an image build stops
 `request_not_built`. `answered` is not evidence that the work is
 done. No engine claim: the ready `assembly/run-engine` completes a Run with a root
-`finish` only when it names a completed action (a `stopped` finish comes back
-refused), gives a pattern no `cancel` or late outcome while an action is open, gives
+`finish` that names a completed action and fails the Run with a root `finish` whose
+`action_id` is `null` or absent (a `stopped` finish ends the Run `:failed`, and its
+`result/3` gives that finish's payload), refuses a root `finish` that names another
+action, gives a pattern no `cancel` or late outcome while an action is open, gives
 it no `message` while an action is open unless the host starts the engine with
 `messages: :while_active` (then a `message` reaches the root pattern only, never a
 nested callable, and an agent-loop root takes the row "the text waits; no
@@ -393,3 +395,11 @@ Telemetry, Config and Control are not applicable: pure functions over intrinsic
 operands. Modules are application-owned under `Elzoo.AgentLoop` and
 `Cure.Elzoo.AgentLoop`; redistributors rename them. Apache-2.0; no new dependency
 or pin.
+
+## Changes
+
+- ELZ-420 (2026-11-26): wording only. The engine sentence of "Needs and limits" and
+  the matching `piece.json` limit now say that the ready `assembly/run-engine` ends
+  a Run `:failed` with a `stopped` root finish (its `action_id` is `null`) instead
+  of refusing it; the named-source and nested-callable rules are unchanged. The
+  step, its payloads and its tests do not change.

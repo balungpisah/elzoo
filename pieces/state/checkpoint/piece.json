@@ -20,7 +20,7 @@
     "Size grows O(applied) with the seen index; oversize snapshots are refused, not truncated.",
     "Storage guarantees are inherited from the supplied Store; no disk durability, exactly-once or universal refold-equivalence proof.",
     "Readers never repair or mutate storage. A damaged snapshot cannot anchor retention; pruned recovery without an anchor fails closed.",
-    "Fallback after an invalid latest checkpoint probes earlier sequences one read at a time; cost grows with the gap (no indexed predecessor lookup)."
+    "Fallback after an invalid latest checkpoint probes earlier sequences one read at a time; cost grows with the gap (no indexed predecessor lookup). The probes stop below the stream's low_water read with the head (ELZ-427): a checkpoint exactly at low_water stays eligible, and on a pruned stream (low_water > 0) with none from the failed checkpoint down to low_water recovery returns the pruned result, so the probes are bounded by that distance, not by the pruned sequences; an unpruned stream still replays from sequence 1."
   ],
   "files": [
     "lib/elzoo/checkpoint.ex",
@@ -30,7 +30,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/checkpoint_test.exs",
-      "claim": "Finite take/recover, version/digest fallback, complete-seed preservation, checkpoint_too_large, terminal damage, pruned recovery and reader-write audit scenarios."
+      "claim": "Finite take/recover, version/digest fallback, complete-seed preservation, checkpoint_too_large, terminal damage, pruned recovery and reader-write audit scenarios; ELZ-427: after a retention through N, a rejected checkpoint at N gives the pruned result with no fallback read, and a checkpoint exactly at low-water still seeds, counted through the Store calls."
     },
     {
       "kind": "upstream",
