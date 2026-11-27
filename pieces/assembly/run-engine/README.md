@@ -920,8 +920,8 @@ answer to a gap reply, or `{:error, {:pruned, low_water}}`) or a page whose head
 has `low_water` above zero cannot show the whole history, and the lookup gives
 no answer. For the first two lookups, `input/4` and `control/4` (pause, continue
 and cancel alike, never `:invalid_control` or `:cancel_unknown`) return
-`{:error, :unavailable}`: the failed call adds no record (an earlier record of
-the same ID, such as a recorded outcome sent again, stays as it was), the engine
+`{:error, :unavailable}`: the failed call adds no new record for the submitted
+ID (an earlier record of the same ID, such as a recorded outcome sent again, stays as it was), the engine
 goes on with no halt, `status/1` shows `reconciliation: nil`, and the caller
 sends the same call again under the same ID, never another. What `current/1`
 committed before the lookup stays committed: a Run-view synchronization and,
@@ -1782,7 +1782,7 @@ applies, is a duplicate, or leaves no halt). Listed finite scenarios, not a proo
   was dropped before. A v2 outside event can now return `{:error, :unavailable}`
   (its lookup after the source read). How to move: a caller that gets
   `{:error, :unavailable}` reads `reconciliation` in `status/1`: `nil` means the
-  failed call added no record (an earlier record of the ID stays), and the caller
+  failed call added no new record for the submitted ID (an earlier record of the ID stays), and the caller
   sends the same ID again later, never another, as after an exit of the call;
   `:unavailable` is a storage halt, and the host restarts the engine. No stored
   format changes; recorded journals replay as recorded.
