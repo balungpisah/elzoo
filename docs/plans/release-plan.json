@@ -12310,12 +12310,12 @@
     {
       "id": "state/conversation",
       "job": "ELZ-250",
-      "note": "Pure version-1 preparation and bounded projection over one conversation resource field. Exact host facts select immutable input messages, input-to-Run associations and completed assistant answers; message IDs are unique within one conversation across all roles and several inputs may share one Run. The checked portable state has exact sorted record/list shapes, at most 64 messages and associations, and at most 65,536 bytes by pinned OTP term_to_binary/1. view/2 requires the host-vouched tenant/actor/resource read scope. No I/O, authentication, authorization, Run creation, persistence or CheckedCommand integration claim.",
+      "note": "One caller-supervised owner per conversation appends immutable, self-contained input, input-to-Run association and completed-answer records to the event-log stream conversation/<target_tenant>/<conversation_id> through the Store's head compare-and-set. Exact host-vouched DTOs; an identical record is {:ok, :already_present}; every other write follows the Cure decision table with today's refusal codes and precedence; a lost compare-and-set reads only the new rows and decides again, at most 9 attempts; an unknown append is resolved by its own nonce and bytes or by the identical record, never by the referenced input. check/2 decides ordered intents against a copy of the refreshed history without appending. Owner-free page/5 and tail/4 validate scope and grant before any Store call and every row they return. import_v1/3 migrates a version 1 field snapshot offline. No message cap; owner memory and start time grow with the conversation. No authentication, authorization, Run creation, retention or writer exclusivity.",
       "baseline_status": "planned",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/conversation/piece.json",
-      "manifest_sha256": "363f0bcb1587d10de1ad7c87b46991b2910cdb7129f1ec2e4e6f0bd3839470ab"
+      "manifest_sha256": "811447583f1872884ea62858e037482aedcd73e0b779d7539425182083b7e4bf"
     },
     {
       "id": "state/crdt",
