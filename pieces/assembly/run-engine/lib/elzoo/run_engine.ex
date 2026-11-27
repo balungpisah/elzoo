@@ -2003,7 +2003,8 @@ defmodule Elzoo.RunEngine do
             {:noreply, s}
         end
 
-      _ ->
+      # A halt of current/1 (a failed winner read included) stays: status/1 shows it.
+      {:error, _, s} ->
         {:noreply, s}
     end
   end

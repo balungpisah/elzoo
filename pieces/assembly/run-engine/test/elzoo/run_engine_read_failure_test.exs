@@ -37,14 +37,8 @@ defmodule Elzoo.RunEngineReadFailureTest.ReadFaultStore do
   defp reply(:malformed, _), do: {:error, :gap}
   defp reply(:pruned, _), do: {:error, {:pruned, 1}}
   defp reply(:low_water, {:ok, rows, head}), do: {:ok, rows, %{head | low_water: 1}}
-
-  defp reply({:without, id}, {:ok, rows, head}),
-    do: {:ok, Enum.reject(rows, &(&1.kind == "input" and input_id(&1) == id)), head}
-
-  defp input_id(row) do
-    {1, {id, _}} = :erlang.binary_to_term(row.payload, [:safe])
-    id
-  end
+  # A whole earlier page and its head, as the Store gave them: a complete older history.
+  defp reply({:page, page}, _), do: page
 
   def capabilities(adapter), do: delegate(adapter, :capabilities, [])
   def head(adapter, stream), do: delegate(adapter, :head, [stream])
@@ -197,6 +191,166 @@ defmodule Elzoo.RunEngineReadFailureTest do
     end
   end
 
+  describe "cancel_halts_after_commit" do
+    test "a cancel that commits and then halts on a failed winner read gives cancel_unknown" do
+      for fault <- @faults do
+        c =
+          fixture(
+            pattern: {TestPattern, :step, %{requests: [request([action("ask", "ask_person")])]}}
+          )
+
+        {engine, store} = start_faulty(c)
+        assert {:ok, :applied} = send_input(engine)
+        # The cancel's drain completes the Run owner and commits the Run view of the next
+        # owner revision, whose ID already holds an earlier Run view.
+        {:ok, owner} = Run.status(c.run, "run")
+        {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+        next = "run:#{owner.revision + 1}"
+        assert {:ok, :applied} = DurableUnit.step(unit, next, run_view(owner.revision, 1))
+        # The lookup of the cancel ID reads; the winner read in its drain fails.
+        ReadFaultStore.fail_next_scan(store, fault, 1)
+        cancel = %{kind: :cancel, attempt_id: "attempt"}
+
+        assert {:error, :cancel_unknown} = RunEngine.control(engine, "cancel", cancel, verified())
+
+        refute ReadFaultStore.armed?(store)
+        assert "cancel" in input_ids(c)
+        assert view(engine).reconciliation == :unavailable
+      end
+    end
+  end
+
+  describe "local_work_delivery_halts" do
+    test "a v2 local-work delivery that halts on a failed winner read keeps the halt" do
+      parent = self()
+
+      for fault <- @faults do
+        c =
+          fixture(
+            protocol_version: 2,
+            pattern: {TestPattern, :step, %{requests: [request_v2([action("slow")])]}}
+          )
+
+        bindings =
+          Map.update!(
+            c.opts[:bindings],
+            "local_work",
+            &Map.put(&1, :work, fn a -> {TestPattern, :blocked, [parent, a["payload"]]} end)
+          )
+
+        {engine, store} = start_faulty(c, bindings: bindings)
+        assert {:ok, :applied} = RunEngine.input(engine, "start", start_input_v2(), verified())
+        assert_receive {:local_started, task}, 5_000
+        # The delivery's current/1 commits the Run view of the moved owner revision, whose
+        # ID already holds an earlier Run view.
+        {:ok, owner} = Run.status(c.run, "run")
+        id = "run:#{move_owner_revision(c, "other")}"
+        {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+        assert {:ok, :applied} = DurableUnit.step(unit, id, run_view(owner.revision, 2))
+        # The fenced lookup of the delivered ID reads; the winner read fails.
+        ReadFaultStore.fail_next_scan(store, fault, 1)
+        send(task, :finish)
+
+        assert wait_for(engine, &(&1.reconciliation == :unavailable))
+        refute ReadFaultStore.armed?(store)
+        refute stable_id("local:", {1, "run", {1, 0}}) in input_ids(c)
+      end
+    end
+  end
+
+  describe "fresh_event_lookup_fails" do
+    test "a v2 outside event whose lookup fails after the source read gives unavailable with no halt" do
+      requests = [
+        request_v2([action("wait", "wait_event")]),
+        request_v2([action("after", "ask_person")])
+      ]
+
+      c = fixture(protocol_version: 2, pattern: {TestPattern, :step, %{requests: requests}})
+      store = ReadFaultStore.new(c.store)
+      # The source read arms the fault that the test hands it, so the fault meets the
+      # lookups after the read and never the fenced lookup before it.
+      read = start_supervised!({Agent, fn -> %{arm: nil, reply: nil, reads: 0} end}, id: make_ref())
+
+      source = %{
+        id: "events",
+        version: 1,
+        head: fn _ -> {:ok, %{revision: 0, low_water: 0}} end,
+        read: fn _, _ ->
+          {arm, reply} =
+            Agent.get_and_update(read, &{{&1.arm, &1.reply}, %{&1 | arm: nil, reads: &1.reads + 1}})
+
+          with {fault, skip} <- arm, do: ReadFaultStore.fail_next_scan(store, fault, skip)
+          reply
+        end
+      }
+
+      engine = start(c, store: store, event_source: source)
+      assert {:ok, :applied} = RunEngine.input(engine, "start", start_input_v2(), verified())
+      scope = %{tenant: "tenant", principal: "principal", run_id: "run"}
+      limits = %{max_records: 65_536, max_bytes: 536_870_912}
+      {:ok, %{waits: [wait]}} = RunEngine.event_waits(engine, scope, limits)
+      payload = %{"accepted" => true}
+
+      event = %{
+        id: "event",
+        source_id: wait.source_id,
+        correlation_id: wait.correlation_id,
+        sequence: 1,
+        schema_id: "result",
+        schema_version: 1,
+        payload: payload
+      }
+
+      Agent.update(read, &%{&1 | reply: {:ok, %{head: %{revision: 1, low_water: 0}, event: event}}})
+
+      input = %{
+        "type" => "input",
+        "version" => 2,
+        "kind" => "outside_event",
+        "action_id" => wait.action_id,
+        "source_id" => wait.source_id,
+        "correlation_id" => wait.correlation_id,
+        "event_id" => "event",
+        "schema_id" => "result",
+        "schema_version" => 1,
+        "payload" => payload
+      }
+
+      context = verified(%{occurrence: wait.occurrence, actual: 0, dispatch: "not_dispatched"})
+
+      for fault <- @faults do
+        # current/1 after the source read commits the Run view of the moved revision.
+        revision = move_owner_revision(c, "other-#{fault}")
+        before = input_ids(c)
+        Agent.update(read, &%{&1 | arm: {fault, 0}})
+
+        assert {:error, :unavailable} = RunEngine.input(engine, "event-input", input, context)
+        refute ReadFaultStore.armed?(store)
+        assert input_ids(c) == before ++ ["run:#{revision}"]
+        assert view(engine).reconciliation == nil
+      end
+
+      # The same reply after the event commits: the root asks request 2, whose gate
+      # record meets an earlier record under its ID, and the read of that winner fails.
+      gate_id = stable_id("gate:", {1, {c.prefix, "run"}, 2})
+      {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+      assert {:ok, :applied} = DurableUnit.step(unit, gate_id, gate_record(2, 1))
+      Agent.update(read, &%{&1 | arm: {:unavailable, 1}})
+
+      assert {:error, :unavailable} = RunEngine.input(engine, "event-input", input, context)
+      refute ReadFaultStore.armed?(store)
+      assert "event-input" in input_ids(c)
+      assert view(engine).reconciliation == :unavailable
+
+      # Replays answer from the journal, not with the halt, and leave it in place.
+      assert {:ok, :unchanged} = RunEngine.input(engine, "event-input", input, context)
+      changed = %{input | "payload" => %{"accepted" => false}}
+      assert {:error, :input_id_conflict} = RunEngine.input(engine, "event-input", changed, context)
+      assert view(engine).reconciliation == :unavailable
+      assert Agent.get(read, & &1.reads) == 5
+    end
+  end
+
   describe "settled_retry_lookup_fails" do
     test "a failed admission lookup of a settled retry gives unavailable and commits nothing; cleared, it is a duplicate" do
       Process.register(self(), :run_engine_observer)
@@ -250,7 +404,7 @@ defmodule Elzoo.RunEngineReadFailureTest do
   describe "winner_read_fails" do
     test "after input_id_conflict a failed read of the winner halts unavailable; a winner read equal is taken" do
       for fault <- @faults do
-        {c, engine, store} = conflict(&run_view/2, fault)
+        {c, engine, store} = conflict(&earlier_view/2, fault)
         before = rows(c)
 
         assert {:error, :unavailable} = RunEngine.input(engine, "after", wake(), verified())
@@ -264,7 +418,7 @@ defmodule Elzoo.RunEngineReadFailureTest do
 
       # The same conflict with the winner read: a Run view, equal on kind, request and
       # occurrence, is taken.
-      {c, engine, _} = conflict(&run_view/2)
+      {c, engine, _} = conflict(&earlier_view/2)
       assert {:ok, :applied} = RunEngine.input(engine, "after", wake(), verified())
       assert view(engine).reconciliation == nil
       assert "after" in input_ids(c)
@@ -273,7 +427,9 @@ defmodule Elzoo.RunEngineReadFailureTest do
 
   describe "winner_contradicts" do
     test "a complete scan with no winner halts integrity_failure" do
-      {c, engine, store} = conflict(&run_view/2, :without_winner)
+      # The scan gets the whole page and head that the Store gave just before the winner
+      # was committed.
+      {c, engine, store} = conflict(&earlier_view/2, :without_winner)
       before = rows(c)
 
       assert {:error, :integrity_failure} = RunEngine.input(engine, "after", wake(), verified())
@@ -290,20 +446,10 @@ defmodule Elzoo.RunEngineReadFailureTest do
 
       # Request: the gate record of request 2 names request 1. Occurrence: the admission
       # of occurrence {2, 0} names {1, 0}. Both change nothing in the state they meet.
-      gate = %{
-        version: 1,
-        kind: :gate,
-        schema_id: "elzoo.run-engine.gate-verdict",
-        schema_version: 1,
-        request: 1,
-        entries: [],
-        at_ms: 2_000
-      }
-
       admission = %{version: 1, kind: :admission, occurrence: {1, 0}, facts: %{}, at_ms: 2_000}
 
       for {id, winner} <- [
-            {fn prefix -> stable_id("gate:", {1, {prefix, "run"}, 2}) end, gate},
+            {fn prefix -> stable_id("gate:", {1, {prefix, "run"}, 2}) end, gate_record(1, 1)},
             {fn _ -> stable_id("admit:", {"run", {2, 0}}) end, admission}
           ] do
         c =
@@ -362,22 +508,35 @@ defmodule Elzoo.RunEngineReadFailureTest do
     assert {:ok, :applied} = send_input(engine)
     {:ok, owner} = Run.status(c.run, "run")
     id = "run:#{move_owner_revision(c, "other")}"
+    {module, _} = c.store
+    page = module.read(c.store, c.prefix, 1, 1_000)
     {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
     assert {:ok, :applied} = DurableUnit.step(unit, id, winner.(id, owner.revision))
 
     case fault do
-      nil -> :ok
-      :without_winner -> ReadFaultStore.fail_next_scan(store, {:without, id})
-      fault -> ReadFaultStore.fail_next_scan(store, fault)
+      nil ->
+        :ok
+
+      :without_winner ->
+        # Every sequence up to the head, low-water zero, and no record of the ID.
+        {:ok, rows, %{revision: revision, low_water: 0}} = page
+        assert Enum.map(rows, & &1.sequence) == Enum.to_list(1..revision)
+        refute id in ids(rows)
+        ReadFaultStore.fail_next_scan(store, {:page, page})
+
+      fault ->
+        ReadFaultStore.fail_next_scan(store, fault)
     end
 
     {c, engine, store}
   end
 
-  # A Run view record of `revision` (under any ID), as the engine writes it.
-  defp run_view(_id, revision) do
+  defp earlier_view(_id, revision), do: run_view(revision, 1)
+
+  # A Run view record of `revision`, as the engine writes it in protocol `version`.
+  defp run_view(revision, version) do
     %{
-      version: 1,
+      version: version,
       kind: :run_view,
       view: %{
         id: "run",
@@ -387,6 +546,19 @@ defmodule Elzoo.RunEngineReadFailureTest do
         outcome: nil,
         at_ms: 2_000
       }
+    }
+  end
+
+  # A gate record of `request` with no entries: it changes nothing but the classification.
+  defp gate_record(version, request) do
+    %{
+      version: version,
+      kind: :gate,
+      schema_id: "elzoo.run-engine.gate-verdict",
+      schema_version: 1,
+      request: request,
+      entries: [],
+      at_ms: 2_000
     }
   end
 
@@ -407,8 +579,10 @@ defmodule Elzoo.RunEngineReadFailureTest do
   end
 
   # The IDs of the journal's input records, in commit order.
-  defp input_ids(c) do
-    for row <- rows(c), row.kind == "input" do
+  defp input_ids(c), do: ids(rows(c))
+
+  defp ids(rows) do
+    for row <- rows, row.kind == "input" do
       {1, {id, _}} = :erlang.binary_to_term(row.payload, [:safe])
       id
     end
