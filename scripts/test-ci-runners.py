@@ -618,6 +618,11 @@ class RunnerPolicyTest(unittest.TestCase):
                 (gate_end, "          scripts/check.sh\n", "identity gate step must end at its pinned text"),
                 (gate_end, "\n          scripts/check.sh\n", "identity gate step must end at its pinned text"),
                 (gate_end, "          echo ready\n", "identity gate step must end at its pinned text"),
+                # a `#` line inside the block is a shell comment, but ${{ }} still expands into the script
+                (gate_end, "          # ${{ github.event.pull_request.title }}\n", "identity gate step must end at its pinned text"),
+                # a YAML comment is refused too: only empty lines may follow the pinned text
+                (gate_end, "# the checkout follows\n", "identity gate step must end at its pinned text"),
+                (gate_end, "      # the checkout follows\n", "identity gate step must end at its pinned text"),
                 # appended to the runtime step's run: line, as a continuation or after a blank line
                 (runtime, "          ./scripts/check.sh\n", "pinned BEAM setup step must immediately follow the runtime step"),
                 (runtime, "\n          ./scripts/check.sh\n", "pinned BEAM setup step must immediately follow the runtime step")):
@@ -630,8 +635,8 @@ class RunnerPolicyTest(unittest.TestCase):
                 finally:
                     self.tearDown()
                     self.setUp()
-        # A comment line after the gate's pinned text is still allowed.
-        self.change("symbolic-gleam.yml", gate_end, gate_end + "      # the checkout follows\n")
+        # Empty lines after the gate's pinned text are still allowed.
+        self.change("symbolic-gleam.yml", gate_end, gate_end + "\n\n")
         self.check(0)
 
     def test_gleam_otp_version_follows_the_root_jobs(self):
