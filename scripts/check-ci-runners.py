@@ -417,6 +417,13 @@ GLEAM_SETUP_STEP = """      - name: Install the pinned Gleam compiler
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/setup.sh"""
+# ELZ-432: the Gleam job sets up the BEAM with the action and the OTP version of the root jobs, both taken from
+# the pinned spike job, so an OTP bump there moves this pin too. Its with: block is the OTP version alone.
+GLEAM_BEAM_STEP = '\n'.join([
+    next(line for line in SPIKE_JOB.split('\n') if line.startswith('      - uses: erlef/setup-beam@')),
+    '        with:',
+    next(line for line in SPIKE_JOB.split('\n') if line.startswith('          otp-version: ')),
+])
 TOKEN_EXPRESSION = re.compile(
     r"github\s*\.\s*token|github\s*\.\s*\*|github\s*\[|\bsecrets\b|tojson\s*\(\s*(?:github|secrets)\b",
     re.IGNORECASE)
@@ -818,6 +825,21 @@ for file in files:
                                       or len(after) - len(after.lstrip(' ')) <= 4))
         if not pinned:
             errors.append(f'{file}: the pinned Gleam setup step is missing or changed, or the token appears elsewhere')
+        # ELZ-432: exactly one BEAM setup step, the pinned one, and it ends where the next step starts, so no
+        # input (elixir-version:, version-file:) and no step key can be added to it. Script text and comments
+        # that spell the action count too, which fails closed.
+        beam = GLEAM_BEAM_STEP.split('\n')
+        beam_starts = [i for i, line in enumerate(lines)
+                       if re.match(r'\s*(?:-\s+)?uses\s*:\s*erlef/setup-beam\b', line, re.IGNORECASE)]
+        beam_rest = ([line for line in lines[beam_starts[0] + len(beam):]
+                      if line.strip() and not line.lstrip().startswith('#')] if len(beam_starts) == 1 else [])
+        beam_after = beam_rest[0] if beam_rest else ''
+        if (not shape_ok or len(beam_starts) != 1 or not any(beam_starts[0] in r for r in job_ranges)
+                or beam_starts[0] in skip or lines[beam_starts[0]:beam_starts[0] + len(beam)] != beam
+                or not (not beam_after or beam_after.startswith('      - ')
+                        or len(beam_after) - len(beam_after.lstrip(' ')) <= 4)):
+            errors.append(f'{file}: the pinned BEAM setup step (with: exactly {beam[-1].strip()}, '
+                          f'the OTP version of the root jobs) is missing or changed')
     elif token_lines != pinned_tokens:
         errors.append(f'{file}: github.token and secrets are not allowed in this workflow outside the pinned decision and S3 test server steps')
     # Token permissions: one top-level contents: read block, plus actions: read and pull-requests: read on check-plan only; never write.

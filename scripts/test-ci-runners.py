@@ -505,6 +505,47 @@ class RunnerPolicyTest(unittest.TestCase):
         path.write_text(source.replace(marker, step + marker, 1))
         self.assertIn("pinned Gleam setup step is missing or changed", self.check(1).stderr)
 
+    BEAM_STEP = """      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: '29.1.3'
+"""
+
+    def test_gleam_beam_setup_step_is_pinned_to_the_root_otp_version(self):
+        source = (self.root / ".github" / "workflows" / "symbolic-gleam.yml").read_text()
+        self.assertEqual(1, source.count(self.BEAM_STEP))
+        otp = "          otp-version: '29.1.3'\n"
+        for new in (self.BEAM_STEP.replace(otp, "          otp-version: '29.1.2'\n"),
+                    self.BEAM_STEP.replace(otp, "          otp-version: '28.3.1'\n"),
+                    self.BEAM_STEP.replace(otp, "          otp-version: 29.1.3\n"),
+                    self.BEAM_STEP.replace(otp, ""),
+                    self.BEAM_STEP.replace(otp, "          version-file: .tool-versions\n          version-type: strict\n"),
+                    self.BEAM_STEP + "          elixir-version: '1.20.5'\n",
+                    self.BEAM_STEP.replace("        with:\n", "        with:\n          gleam-version: '1.14.0'\n"),
+                    # after a blank line or a comment line, the key still belongs to the step
+                    self.BEAM_STEP + "\n          elixir-version: '1.20.5'\n",
+                    self.BEAM_STEP + "# note\n          elixir-version: '1.20.5'\n",
+                    self.BEAM_STEP + "        id: beam\n",
+                    self.BEAM_STEP.replace("@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1", "@v1.24.1"),
+                    "",
+                    self.BEAM_STEP + self.BEAM_STEP.replace(otp, "          otp-version: '28.3.1'\n")):
+            with self.subTest(new=new):
+                self.change("symbolic-gleam.yml", self.BEAM_STEP, new)
+                self.assertIn("pinned BEAM setup step (with: exactly otp-version: '29.1.3', the OTP version of the root jobs)",
+                              self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_gleam_otp_version_follows_the_root_jobs(self):
+        # Bumping only the Gleam job, or only the root jobs, is refused: the pin is the spike job's OTP version.
+        guard = self.root / "check-ci-runners.py"
+        guard.write_text(GUARD.read_text().replace("          otp-version: '29.1.3'\n", "          otp-version: '29.2.0'\n"))
+        result = subprocess.run(["python3", str(guard)], cwd=self.root, capture_output=True, text=True, check=False)
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("with: exactly otp-version: '29.2.0'", result.stderr)
+        self.change("symbolic-gleam.yml", "          otp-version: '29.1.3'\n", "          otp-version: '29.2.0'\n")
+        result = subprocess.run(["python3", str(guard)], cwd=self.root, capture_output=True, text=True, check=False)
+        self.assertNotIn("pinned BEAM setup step", result.stderr)
+
     def test_token_or_secrets_in_backend_workflow_rejected(self):
         for text in ("github.token", "secrets.ANYTHING"):
             with self.subTest(text=text):
