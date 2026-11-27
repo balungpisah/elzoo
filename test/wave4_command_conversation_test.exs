@@ -1934,10 +1934,6 @@ defmodule Elzoo.Wave4.CommandConversationTest do
     end
   end
 
-  defp scope do
-    %{tenant: Fixture.tenant(), actor: Fixture.actor(), resources: [Fixture.resource()]}
-  end
-
   defp start_native_engine(c, parent, request, own, policy, gate_result) do
     Agent.update(c.context, fn context ->
       Map.merge(context, %{
