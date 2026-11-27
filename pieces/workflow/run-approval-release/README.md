@@ -14,8 +14,9 @@ The owner runtime last changed in `d4320d49f3a66e23c8b3adc9941df295bec748bd`;
 the copied helper includes the later sibling-first SQL-helper repair. Public
 owner and test namespaces are renamed. The runtime additions are
 `release_approved`, with a minimal private waiting-result translation that
-preserves `dispatch_approved`, and `renew/2` with its `expected_revision` rule
-(ELZ-422, see Lease renewal). No Cure source or ready dependency is changed.
+preserves `dispatch_approved`, `renew/2` with its `expected_revision` rule
+(ELZ-422, see Lease renewal) and the `renewed_since` field of `status/2`
+(ELZ-429, same section). No Cure source or ready dependency is changed.
 
 Construct the guarded Store with this variant's `fold/0` and `limits/0`, create
 its ready Lease, claim the stream, and start:
@@ -157,9 +158,21 @@ owner installed is accepted. Nothing is normalized across another writer or an
 owner restart. Replies carry the current held revision, which `status/2`
 reports. A renewal does not write kept deaths; they wait for the next command.
 
-Limit: a renewal changes the held revision that `status/2` reports without any
-Run transition. A caller that treats every revision change as a Run transition
-must tell a renewal apart; `assembly/run-engine` does not yet.
+A renewal changes the held revision that `status/2` reports without any Run
+transition. So `status/2` also reports `renewed_since` (ELZ-429): the revision of
+the latest committed record of the stream, as this owner holds it, whose kind is
+not `lease_renewed` (a Run record, or a `lease_claimed`, `lease_released` or
+`lease_seized` record). Every revision after it, up to `revision`, is a renewal;
+with no renewal since the last other record it equals `revision`. The owner
+rebuilds it from the whole stream at startup, so a replacement started on the
+token that renewals left reports the record before them, not its own floor; every
+successful Run append (each append that moves the floor) moves it to the new
+revision, and a renewal leaves it as it was. Like `revision` it belongs to the
+whole stream: every Run of the owner reports the same value, a command of any of
+them moves it, and it says nothing about rows that another writer appended. A
+caller that last took revision `r` has seen only renewals since when
+`renewed_since <= r < revision`; `assembly/run-engine` journals no Run view for
+such an interval (ELZ-429).
 
 ## Resource caller and checked example
 
@@ -227,6 +240,20 @@ with `{:refused, :conflict}`; mutations of the floor reset, of the floor's
 lower bound, of the next-revision check, of the Memory error classification
 and of the token check each fail their case. All are restored.
 
+Group `renewed_since` (ELZ-429) adds two finite cases on PostgreSQL: `status/2`
+reports the revision of the latest record that is not a renewal, kept across
+renewals and moved by a Run write on a revision from before them, by a child
+attachment and by a death write, the same for every Run of the owner; and a new
+owner reads it from the stream: after renewals a replacement reports the record
+before them, after a release and a claim the claim (also after a later renewal and
+a restart), and after another holder's seize the seize (also after that holder's
+renewal). The `lease_renewal` cases of a renewal outside the owner and of a renewal
+unknown after commit check it too: a replacement after the fence, and the owner
+recovered with the receipt, report the renewed revision with the record before the
+renewals. A temporary mutation that sets it from the startup floor fails the second
+case and those two cases, and one that counts Run records only fails the second
+case at the claim; both are restored.
+
 - **Needs:** authenticated caller/approver evidence and fresh policy/authority;
   canonical arguments and exact descriptor binding; host serialization of
   cancellation/admission/dispatch; exclusive owners, renewal through `renew/2`
@@ -236,7 +263,8 @@ and of the token check each fail their case. All are restored.
 - **Telemetry:** inherited OTP diagnostics; consumer redacts, no exporter or
   payload telemetry. **Config:** retained construction-only bindings, no new
   options/hot changes. **Control:** inherited commands plus release-only, with
-  the precise commit/no-send meaning above, and `renew/2` (Lease renewal).
+  the precise commit/no-send meaning above, `renew/2` and the `renewed_since` of
+  `status/2` (Lease renewal).
 - **Upstream:** pinned Elixir 1.20.4 / OTP 29.1.2 serialization, monitoring,
   deterministic safe ETF and crypto; unchanged ready dependency Contracts.
 - **Bounds:** individual events at most 128 KiB; Run identifiers at most 200 UTF-8
@@ -258,3 +286,10 @@ and of the token check each fail their case. All are restored.
   append; every other revision is still `{:refused, :conflict}`. Nothing
   breaks: without `renew/2` the floor is always the held revision, so every
   existing call behaves as before. No event, fold or stored format changes.
+- ELZ-429: `status/2` also reports `renewed_since`, the revision of the latest
+  committed record of the stream whose kind is not `lease_renewed`, rebuilt from
+  the stream at startup and moved by every successful Run append (Lease renewal),
+  so that a caller can tell renewals from Run transitions. Additive: every other
+  field, command, result, event, fold and stored format is unchanged, and the
+  owner reads no other rows than before. How to move: nothing, unless a caller
+  matches the whole status map exactly; it then adds the key.
