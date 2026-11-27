@@ -456,7 +456,7 @@ defmodule Elzoo.RunEngine do
         state
         |> close_local(view.at_ms)
         |> close_attempt(view.current_attempt, view.at_ms)
-        |> drop_stale_failure()
+        |> drop_stale_stop()
       else
         state
       end
@@ -1111,20 +1111,26 @@ defmodule Elzoo.RunEngine do
   defp close_attempt(state, current, at),
     do: close_open(state, &(&1.attempt_id != current), "attempt_closed", at)
 
-  # A pattern failure belongs to the Attempt of its finish. At a change of Attempt a
-  # failure that the Run owner has not recorded is stale: its pending stop, completion
-  # and closed generation are dropped (the charge stop keeps its own), so the new
-  # Attempt is not failed by an older finish and can generate.
-  defp drop_stale_failure(%{control: %{stop_pending: :failed} = c} = state),
+  # A pending stop belongs to the Attempt that produced it (a root failure or completion
+  # to the Attempt of its finish, a lifecycle stop to the Attempt of its step). At a change
+  # of Attempt a stop that the Run owner has not recorded is stale: its pending stop,
+  # completion and the closed generation of a finish are dropped (the charge stop keeps its
+  # own), and so is the record of a cancel of the Attempt that is left, which would keep
+  # a request-cap stop of the new Attempt from retaining its slots (retained?/1). The new
+  # Attempt is not ended by an older stop and can generate within the Run-wide deadline,
+  # Budget and request cap, none of which the change resets.
+  defp drop_stale_stop(%{control: %{stop_pending: stop} = c} = state) when not is_nil(stop),
     do:
       put_in(state.control, %{
         c
         | stop_pending: nil,
           completion: nil,
-          generation_closed: c.charge_stopped
+          generation_closed: c.charge_stopped,
+          cancelled_attempt:
+            if(c.cancelled_attempt == c.attempt_id, do: nil, else: c.cancelled_attempt)
       })
 
-  defp drop_stale_failure(state), do: state
+  defp drop_stale_stop(state), do: state
 
   # When a nested_callable slot settles, its child callable and every callable
   # below it close in the same fold step, the way close_open/4 closes callables:
@@ -1646,17 +1652,19 @@ defmodule Elzoo.RunEngine do
     })
   end
 
-  # A lifecycle stop asked for while a root failure is pending (the Run deadline, a
-  # cancel or a Budget stop, also in the step of a loss that recovery records past the
-  # deadline) does not replace it: the failure stays the stop that finish_run/3
-  # completes. Any other pending stop is replaced as before.
+  # The first pending stop wins: a lifecycle stop asked for while a stop is pending (the
+  # Run deadline, a cancel or a Budget stop, also in the step of a loss that recovery
+  # records past the deadline) does not replace it, as the input gate already refuses new
+  # work while one is pending. The pending stop stays the one that finish_run/3 completes.
   defp install_lifecycle(state, life, decision) do
     state = put_in(state.control.lifecycle, %{life | tracker: tracker(state.version, %{})})
 
     case decision do
-      {:request_outcome, _} when state.control.stop_pending == :failed -> state
-      {:request_outcome, outcome} -> put_in(state.control.stop_pending, outcome)
-      _ -> state
+      {:request_outcome, outcome} when is_nil(state.control.stop_pending) ->
+        put_in(state.control.stop_pending, outcome)
+
+      _ ->
+        state
     end
   end
 
@@ -3894,15 +3902,15 @@ defmodule Elzoo.RunEngine do
     |> Map.put("schema_version", finish.schema_version)
   end
 
-  # `:failed` comes only from a root finish that names no action (its :finish record).
-  # The failure belongs to the Attempt of that finish: the evidence row and the owner
-  # command carry it, and the reason says the pattern ended the Run. An owner whose
-  # current Attempt is newer answers `stale`; the new Run view then drops the failure.
+  # A pending stop belongs to the engine's recorded Attempt: a finish or a lifecycle step
+  # asks for one only there, and a change of Attempt drops it (drop_stale_stop/1). The
+  # evidence row of a :completed or :failed stop and the owner command carry that Attempt,
+  # so an owner whose current Attempt is newer answers `stale`, and the new Run view that
+  # the engine then takes drops the stop. `:failed` comes only from a root finish that names
+  # no action (its :finish record), and its reason says the pattern ended the Run.
   defp finish_run(s, result, key) do
     {state, s} = read_state(s)
-
-    attempt =
-      if result == :failed, do: state.slots[key].attempt_id, else: state.control.attempt_id
+    attempt = state.control.attempt_id
 
     {evidence, s} =
       if result in [:completed, :failed],
@@ -3916,8 +3924,7 @@ defmodule Elzoo.RunEngine do
         true -> "engine"
       end
 
-    fields = %{outcome: result, reason: reason, evidence_ref: evidence}
-    fields = if result == :failed, do: Map.put(fields, :attempt_id, attempt), else: fields
+    fields = %{outcome: result, reason: reason, evidence_ref: evidence, attempt_id: attempt}
 
     case run_command(s, :complete, fields) do
       {:ok, _, _} ->
@@ -3926,7 +3933,7 @@ defmodule Elzoo.RunEngine do
       {:unchanged, :duplicate, _} ->
         sync_run(s)
 
-      {:unchanged, :stale, _} when result == :failed ->
+      {:unchanged, :stale, _} ->
         sync_run(s)
 
       _ ->
@@ -6138,9 +6145,9 @@ defmodule Elzoo.RunEngine.ResultReader do
   # state before it, gives exactly the recorded state and settles a root finish that
   # names no action. Such a record that changed nothing (not permitted at its time) is
   # not one. Every other step into a pending `:failed` stop, and such a record whose
-  # replay differs, is damaged history. While a failure is pending, a record that ends
-  # it (the terminal Run view, or the Run view of a new Attempt, which drops it) or
-  # changes the Attempt must replay to exactly its recorded state, in v1 too.
+  # replay differs, is damaged history. While any stop is pending, a record that ends or
+  # replaces it (the terminal Run view, or the Run view of a new Attempt, which drops it)
+  # or changes the Attempt must replay to exactly its recorded state, in v1 too.
   defp accepted_failure(
          %{pending: {_input_id, record}, state: before},
          %{state: after_state},
@@ -6162,8 +6169,9 @@ defmodule Elzoo.RunEngine.ResultReader do
           failure_pending?(after_state) and not failure_pending?(before) ->
             {:error, :history}
 
-          failure_pending?(before) and
-              (not failure_pending?(after_state) or attempt(before) != attempt(after_state)) ->
+          stop_pending(before) != nil and
+              (stop_pending(after_state) != stop_pending(before) or
+                 attempt(before) != attempt(after_state)) ->
             if replays?(before, record, after_state),
               do: {:ok, candidates},
               else: {:error, :history}
@@ -6178,7 +6186,8 @@ defmodule Elzoo.RunEngine.ResultReader do
 
   defp accepted_failure(_, _, candidates), do: {:ok, candidates}
 
-  defp failure_pending?(state), do: get_in(state, [:control, :stop_pending]) == :failed
+  defp failure_pending?(state), do: stop_pending(state) == :failed
+  defp stop_pending(state), do: get_in(state, [:control, :stop_pending])
   defp attempt(state), do: get_in(state, [:control, :attempt_id])
 
   # The engine's own pure fold of `record` on `before` gives exactly `after_state`.
