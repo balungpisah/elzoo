@@ -18,7 +18,7 @@ defmodule Elzoo.LuaSandboxReplayTest do
   runtime identity maps.
 
   Group `replay_and_survival_with_helpers`: the same shape with sources that use each of the
-  ten helpers (policy version 3): a list of pure cases and deterministic refusals, 20 fresh
+  ten helpers (policy version 4): a list of pure cases and deterministic refusals, 20 fresh
   calls and two fresh BEAM processes with the same mechanism; after each adverse case with a
   helper the owning BEAM is alive, no child remains and a next valid call that uses a helper
   succeeds.
@@ -272,7 +272,9 @@ defmodule Elzoo.LuaSandboxReplayTest do
       assert {:refused, :lua_error} = by_name["integer division by zero"]
       assert {:refused, :invalid_result} = by_name["1 / 0 is nonfinite"]
       assert {:refused, :invalid_result} = by_name["0 / 0 is nonfinite"]
-      assert {:ok, %{value: 4}} = by_name["sparse length of a constructor"]
+      # a sparse constructor has no single length in Lua: the pinned runtime answers
+      # 2 here (5.4.9 answered 4); the case pins the answer of this build, not a rule
+      assert {:ok, %{value: 2}} = by_name["sparse length of a constructor"]
       assert {:refused, :steps} = by_name["steps: boundary - 1"]
       assert {:ok, %{value: 55}} = by_name["steps: boundary"]
       assert {:ok, %{value: 63}} = by_name["call_depth: boundary"]
@@ -435,9 +437,59 @@ defmodule Elzoo.LuaSandboxReplayTest do
       assert first_runtime.host_sha256 == Base.encode16(:crypto.hash(:sha256, copied), case: :lower)
       assert first_runtime.upstream_revision =~ ~r/\A[0-9a-f]{40}\z/
       assert first_runtime.seed == "0x4c5a5eed"
-      assert first_runtime.build_options =~ "-Dluai_makeseed(L)=0x4c5a5eedu"
-      assert first_runtime.build_options =~ "-Dl_randomizePivot()=0u"
-      assert first_runtime.lua_release == "Lua 5.4.9"
+      refute first_runtime.build_options =~ "luai_makeseed"
+      assert first_runtime.build_options =~ "-Dl_randomizePivot(L)=0u"
+      assert first_runtime.lua_release == "Lua 5.5.1"
+    end
+
+    test "a saved 5.4.9 runtime identity differs from this build's identity", %{executable: exe} do
+      # ELZ-426: the runtime identity of the Lua 5.4.9 build, as recorded under it
+      # (release, revision, host SHA-256 and build options all differ from 5.5.1).
+      saved_5_4_9 = %{
+        build_options:
+          "-std=gnu99 -O2 -Wall -Wextra -DLUA_USE_LINUX -Dluai_makeseed(L)=0x4c5a5eedu -Dl_randomizePivot()=0u",
+        host_sha256: "3212edb9197a5b37004e876a56f8d06a38102a499099d45f47448c6c70774207",
+        lua_release: "Lua 5.4.9",
+        seed: "0x4c5a5eed",
+        upstream_revision: "312b9efaa1061c2c4cad08554dbc1351c3270eef"
+      }
+
+      {:ok, %{runtime: runtime}} = Helper.run(exe, @valid)
+
+      assert runtime == Build.runtime_identity()
+      refute runtime == saved_5_4_9
+
+      # release, upstream revision and build options all differ; nothing in the
+      # saved identity is replay-compatible with this build
+      refute runtime.lua_release == saved_5_4_9.lua_release
+      refute runtime.upstream_revision == saved_5_4_9.upstream_revision
+      refute runtime.build_options == saved_5_4_9.build_options
+      refute runtime.host_sha256 == saved_5_4_9.host_sha256
+    end
+
+    test "the exact v3 identity of the 5.4.9 build is policy_mismatch in Elixir and in the host",
+         %{executable: exe} do
+      v3 = "policy-v3:sha256:79216e52ac3baac64de99b246408edacde0c9ad6c33ae6c6ee71b6db6cf21553"
+      refute v3 == LuaSandbox.policy().identity
+
+      # the Elixir validator refuses it before any process starts
+      request = %{Helper.request(@valid) | policy: v3}
+      assert LuaSandbox.run("/nonexistent/executable", request) == {:refused, :policy_mismatch}
+
+      # the host refuses it in a raw frame, before a Lua state exists
+      limits = Map.new(Helper.default_limits(), fn {key, value} -> {Atom.to_string(key), value} end)
+
+      body =
+        Jason.encode!(%{
+          "source" => @valid,
+          "input" => nil,
+          "policy" => v3,
+          "limits" => limits,
+          "calls" => %{"mode" => "none", "names" => [], "recorded" => []}
+        })
+
+      {output, 0} = Helper.raw_exchange(exe, Helper.frame(body))
+      assert Helper.decode_frame!(output) == %{"status" => "refused", "reason" => "policy_mismatch"}
     end
   end
 

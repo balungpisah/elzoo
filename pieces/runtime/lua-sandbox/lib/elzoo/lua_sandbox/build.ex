@@ -13,15 +13,22 @@ defmodule Elzoo.LuaSandbox.Build do
   @host_sha256 Base.encode16(:crypto.hash(:sha256, @host_source), case: :lower)
 
   @seed "0x4c5a5eed"
+  # Lua 5.5.1 hashes strings with the seed argument of lua_newstate (the host
+  # passes @seed there), so luai_makeseed is gone from the recipe. The sort
+  # pivot macro of ltablib.c is function-like in 5.5.1: it takes the state.
   @library_flags [
     "-std=gnu99",
     "-O2",
     "-Wall",
     "-Wextra",
     "-DLUA_USE_LINUX",
-    "-Dluai_makeseed(L)=#{@seed}u",
-    "-Dl_randomizePivot()=0u"
+    "-Dl_randomizePivot(L)=0u"
   ]
+  # Lua 5.5.1 finishes a large luaL_Buffer as an external string: its content
+  # stays in a separate raw allocation that the allocator string guard cannot
+  # see. Renaming the one internal call of lauxlib.c makes it resolve to the
+  # host's charging shim instead of the public entry point.
+  @lauxlib_rename "-Dlua_pushexternalstring=elz_laux_pushexternalstring"
   @scrub ~w(CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH LIBRARY_PATH COMPILER_PATH GCC_EXEC_PREFIX)
 
   # Computed from the descriptor module (no dependency on the public module).
@@ -29,7 +36,7 @@ defmodule Elzoo.LuaSandbox.Build do
 
   def host_sha256, do: @host_sha256
   def seed, do: @seed
-  def build_options, do: Enum.join(@library_flags, " ")
+  def build_options, do: Enum.join(@library_flags, " ") <> "; lauxlib.c " <> @lauxlib_rename
 
   @doc "Runtime identity the host reports for a successful run."
   def runtime_identity do
@@ -83,7 +90,10 @@ defmodule Elzoo.LuaSandbox.Build do
         fn name ->
           object = Path.join(build, name <> ".o")
 
-          case run(cc, flags ++ ["-c", Path.join(source, name <> ".c"), "-o", object]) do
+          object_flags =
+            if name == "lauxlib", do: flags ++ [@lauxlib_rename], else: flags
+
+          case run(cc, object_flags ++ ["-c", Path.join(source, name <> ".c"), "-o", object]) do
             :ok -> {:ok, object}
             :error -> :error
           end

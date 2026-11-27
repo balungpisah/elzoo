@@ -2,7 +2,7 @@
 defmodule Elzoo.Elz160LuaProviderTest do
   use ExUnit.Case, async: false
 
-  @revision "312b9efaa1061c2c4cad08554dbc1351c3270eef"
+  @revision "7579fc9d7ed90240487251dfb69168f8e64e9294"
   @sources ~w(lapi lcode lctype ldebug ldo ldump lfunc lgc llex lmem lobject
     lopcodes lparser lstate lstring ltable ltm lundump lvm lzio lauxlib lbaselib
     lcorolib ldblib liolib lmathlib loadlib loslib lstrlib ltablib lutf8lib linit)
@@ -18,7 +18,9 @@ defmodule Elzoo.Elz160LuaProviderTest do
     header = File.read!(Path.join(source, "lua.h"))
     assert header =~ "Permission is hereby granted, free of charge"
     assert header =~ "THE SOFTWARE IS PROVIDED"
-    assert header =~ ~s(#define LUA_VERSION_RELEASE\t"9")
+    assert header =~ ~s(#define LUA_VERSION_MAJOR_N\t5)
+    assert header =~ ~s(#define LUA_VERSION_MINOR_N\t5)
+    assert header =~ ~s(#define LUA_VERSION_RELEASE_N\t1)
     lock = Mix.Dep.Lock.read()
     assert {:git, "https://github.com/lua/lua.git", @revision, _} = lock.lua_source
     provider = Jason.decode!(File.read!("registry/providers.json"))["providers"]["lua_source"]
@@ -31,9 +33,9 @@ defmodule Elzoo.Elz160LuaProviderTest do
     host = build(context)
 
     assert run(host, ["return 42"], context.deadline) ==
-             "Lua 5.4.9\nok 1 results\ninteger 42\n"
+             "Lua 5.5.1\nok 1 results\ninteger 42\n"
 
-    IO.puts("ELZ-160: Lua 5.4.9 static archive and Port integer 42 passed")
+    IO.puts("ELZ-160: Lua 5.5.1 static archive and Port integer 42 passed")
   end
 
   test "empty_and_failed_chunk", context do
@@ -44,7 +46,7 @@ defmodule Elzoo.Elz160LuaProviderTest do
           {"return (", "load_error"},
           {"error('probe')", "call_error"}
         ] do
-      assert run(host, [chunk], context.deadline) == "Lua 5.4.9\n#{outcome}\n"
+      assert run(host, [chunk], context.deadline) == "Lua 5.5.1\n#{outcome}\n"
     end
   end
 

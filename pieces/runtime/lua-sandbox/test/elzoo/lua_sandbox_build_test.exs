@@ -29,8 +29,8 @@ defmodule Elzoo.LuaSandboxBuildTest do
     assert identity == LuaSandbox.policy().identity
     # the host reports the runtime identity of this very build
     assert runtime == Build.runtime_identity()
-    assert runtime.upstream_revision == "312b9efaa1061c2c4cad08554dbc1351c3270eef"
-    assert runtime.lua_release == "Lua 5.4.9"
+    assert runtime.upstream_revision == "7579fc9d7ed90240487251dfb69168f8e64e9294"
+    assert runtime.lua_release == "Lua 5.5.1"
 
     # the owned C bytes are the bytes the build compiled: copied C bytes and receipt
     owned = Path.expand("../../lib/elzoo/lua_sandbox/native/lua_sandbox_host.c", __DIR__)

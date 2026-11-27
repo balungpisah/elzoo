@@ -41,7 +41,7 @@ defmodule Elzoo.MixProject do
       # ELZ-160 outside-VM Lua provider (MIT), source only.
       {:lua_source,
        git: "https://github.com/lua/lua.git",
-       ref: "312b9efaa1061c2c4cad08554dbc1351c3270eef",
+       ref: "7579fc9d7ed90240487251dfb69168f8e64e9294",
        compile: false,
        app: false},
       # Jason is deliberately an external implementation at the adapter edge.
