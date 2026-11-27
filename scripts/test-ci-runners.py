@@ -505,6 +505,151 @@ class RunnerPolicyTest(unittest.TestCase):
         path.write_text(source.replace(marker, step + marker, 1))
         self.assertIn("pinned Gleam setup step is missing or changed", self.check(1).stderr)
 
+    BEAM_STEP = """      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: '29.1.3'
+"""
+
+    def test_gleam_beam_setup_step_is_pinned_to_the_root_otp_version(self):
+        source = (self.root / ".github" / "workflows" / "symbolic-gleam.yml").read_text()
+        self.assertEqual(1, source.count(self.BEAM_STEP))
+        otp = "          otp-version: '29.1.3'\n"
+        for new in (self.BEAM_STEP.replace(otp, "          otp-version: '29.1.2'\n"),
+                    self.BEAM_STEP.replace(otp, "          otp-version: '28.3.1'\n"),
+                    self.BEAM_STEP.replace(otp, "          otp-version: 29.1.3\n"),
+                    self.BEAM_STEP.replace(otp, ""),
+                    self.BEAM_STEP.replace(otp, "          version-file: .tool-versions\n          version-type: strict\n"),
+                    self.BEAM_STEP + "          elixir-version: '1.20.5'\n",
+                    self.BEAM_STEP.replace("        with:\n", "        with:\n          gleam-version: '1.14.0'\n"),
+                    # after a blank line or a comment line, the key still belongs to the step
+                    self.BEAM_STEP + "\n          elixir-version: '1.20.5'\n",
+                    self.BEAM_STEP + "# note\n          elixir-version: '1.20.5'\n",
+                    self.BEAM_STEP + "        id: beam\n",
+                    self.BEAM_STEP.replace("@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1", "@v1.24.1"),
+                    "",
+                    self.BEAM_STEP + self.BEAM_STEP.replace(otp, "          otp-version: '28.3.1'\n"),
+                    # a quoted action value is still a setup-beam step
+                    self.BEAM_STEP + "      - uses: 'erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124'\n"
+                                     "        with:\n          otp-version: '28.3.1'\n",
+                    self.BEAM_STEP + '      - uses: "erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124"\n'
+                                     "        with:\n          otp-version: '28.3.1'\n"):
+            with self.subTest(new=new):
+                try:
+                    self.change("symbolic-gleam.yml", self.BEAM_STEP, new)
+                    self.assertIn("pinned BEAM setup step (with: exactly otp-version: '29.1.3', the OTP version of the root jobs)",
+                                  self.check(1).stderr)
+                finally:
+                    self.tearDown()
+                    self.setUp()
+
+    def test_second_beam_setup_step_with_mixed_case_uses_key_and_quoted_value_rejected(self):
+        # GitHub reads step keys without regard to case: this step would install another OTP version.
+        for key in ("Uses", "USES", "uSes"):
+            for value in ("'erlef/setup-beam@v1.24.1'", '"erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124"'):
+                with self.subTest(key=key, value=value):
+                    try:
+                        self.change("symbolic-gleam.yml", self.BEAM_STEP,
+                                    self.BEAM_STEP + f"      - {key}: {value}\n        with:\n          otp-version: '28.3.1'\n")
+                        stderr = self.check(1).stderr
+                        self.assertIn("step keys must be spelled in lower case (uses:)", stderr)
+                        self.assertIn("actions must be pinned by a full commit SHA", stderr)
+                        self.assertIn("pinned BEAM setup step (with: exactly otp-version: '29.1.3'", stderr)
+                    finally:
+                        self.tearDown()
+                        self.setUp()
+
+    def test_gleam_beam_setup_step_must_immediately_follow_the_runtime_step(self):
+        message = "pinned BEAM setup step must immediately follow the runtime step"
+        runtime = "        run: sudo python3 \"$GITHUB_WORKSPACE/scripts/ci-install-runtime.py\"\n"
+        checkout = "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
+        node = "      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n" \
+               "        with:\n          node-version: '26.13.1'\n"
+        cases = [
+            # Moved below the Gleam tests, the setup-node step or the Gleam setup step: text intact, position not.
+            ("below", marker) for marker in ("      - run: ./scripts/check.sh\n", "          node-version: '26.13.1'\n",
+                                             "        run: ./scripts/setup.sh\n")
+        ] + [
+            # Any step before it, a Gleam check under any spelling included, runs on an unpinned runtime.
+            ("before", step) for step in ("      - run: scripts/check.sh\n", "      - run: ./scripts/check.sh\n",
+                                          "      - run: cd . && scripts/check.sh\n", "      - run: echo ready\n",
+                                          "      - name: Report BEAM capacity\n        run: erl -noshell -s init stop\n",
+                                          node)
+        ] + [
+            ("before checkout", "      - run: scripts/check.sh\n"),
+            ("before checkout", "      - run: echo ready\n"),
+        ]
+        for where, text in cases:
+            with self.subTest(where=where, text=text):
+                try:
+                    path = self.root / ".github" / "workflows" / "symbolic-gleam.yml"
+                    source = path.read_text()
+                    self.assertEqual(1, source.count(self.BEAM_STEP))
+                    if where == "below":
+                        self.assertEqual(1, source.count(text))
+                        source = source.replace(self.BEAM_STEP, "").replace(text, text + self.BEAM_STEP)
+                    elif where == "before":
+                        source = source.replace(self.BEAM_STEP, text + self.BEAM_STEP)
+                    else:
+                        self.assertEqual(1, source.count(checkout))
+                        source = source.replace(checkout, text + checkout)
+                    path.write_text(source)
+                    self.assertIn(message, self.check(1).stderr)
+                finally:
+                    self.tearDown()
+                    self.setUp()
+        # setup-node and the Gleam setup step moved below check.sh, with the BEAM step between: check.sh would run
+        # before the pinned runtime is set up.
+        marker = "      - run: ./scripts/check.sh\n"
+        path = self.root / ".github" / "workflows" / "symbolic-gleam.yml"
+        source = path.read_text()
+        self.assertEqual(1, source.count(runtime + self.BEAM_STEP))
+        self.assertEqual(1, source.count(node + self.GLEAM_STEP))
+        self.assertEqual(1, source.count(marker))
+        source = source.replace(self.BEAM_STEP, "").replace(node + self.GLEAM_STEP, "")
+        path.write_text(source.replace(marker, marker + self.BEAM_STEP + node + self.GLEAM_STEP))
+        self.assertIn(message, self.check(1).stderr)
+
+    def test_no_command_can_be_appended_before_the_gleam_beam_setup_step(self):
+        gate_end = '          echo "Hosted runner: $RUNNER_NAME"\n'
+        runtime = "        run: sudo python3 \"$GITHUB_WORKSPACE/scripts/ci-install-runtime.py\"\n"
+        for old, extra, message in (
+                # appended to the identity gate's run: block, the command would run before checkout and BEAM setup
+                (gate_end, "          ./scripts/check.sh\n", "identity gate step must end at its pinned text"),
+                (gate_end, "          scripts/check.sh\n", "identity gate step must end at its pinned text"),
+                (gate_end, "\n          scripts/check.sh\n", "identity gate step must end at its pinned text"),
+                (gate_end, "          echo ready\n", "identity gate step must end at its pinned text"),
+                # a `#` line inside the block is a shell comment, but ${{ }} still expands into the script
+                (gate_end, "          # ${{ github.event.pull_request.title }}\n", "identity gate step must end at its pinned text"),
+                # a YAML comment is refused too: only empty lines may follow the pinned text
+                (gate_end, "# the checkout follows\n", "identity gate step must end at its pinned text"),
+                (gate_end, "      # the checkout follows\n", "identity gate step must end at its pinned text"),
+                # appended to the runtime step's run: line, as a continuation or after a blank line
+                (runtime, "          ./scripts/check.sh\n", "pinned BEAM setup step must immediately follow the runtime step"),
+                (runtime, "\n          ./scripts/check.sh\n", "pinned BEAM setup step must immediately follow the runtime step")):
+            with self.subTest(old=old.strip(), extra=extra):
+                try:
+                    path = self.root / ".github" / "workflows" / "symbolic-gleam.yml"
+                    self.assertEqual(1, path.read_text().count(old))
+                    self.change("symbolic-gleam.yml", old, old + extra)
+                    self.assertIn(message, self.check(1).stderr)
+                finally:
+                    self.tearDown()
+                    self.setUp()
+        # Empty lines after the gate's pinned text are still allowed.
+        self.change("symbolic-gleam.yml", gate_end, gate_end + "\n\n")
+        self.check(0)
+
+    def test_gleam_otp_version_follows_the_root_jobs(self):
+        # Bumping only the Gleam job, or only the root jobs, is refused: the pin is the spike job's OTP version.
+        guard = self.root / "check-ci-runners.py"
+        guard.write_text(GUARD.read_text().replace("          otp-version: '29.1.3'\n", "          otp-version: '29.2.0'\n"))
+        result = subprocess.run(["python3", str(guard)], cwd=self.root, capture_output=True, text=True, check=False)
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("with: exactly otp-version: '29.2.0'", result.stderr)
+        self.change("symbolic-gleam.yml", "          otp-version: '29.1.3'\n", "          otp-version: '29.2.0'\n")
+        result = subprocess.run(["python3", str(guard)], cwd=self.root, capture_output=True, text=True, check=False)
+        self.assertNotIn("pinned BEAM setup step", result.stderr)
+
     def test_token_or_secrets_in_backend_workflow_rejected(self):
         for text in ("github.token", "secrets.ANYTHING"):
             with self.subTest(text=text):

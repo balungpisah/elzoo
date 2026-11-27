@@ -2015,6 +2015,12 @@ defmodule Elzoo.RunEngine do
             {:noreply, s}
         end
 
+      # A halt of current/1 (a failed winner read included) stays: status/1 shows it.
+      {:error, _, %{halted: reason} = halted} when not is_nil(reason) ->
+        {:noreply, halted}
+
+      # Without a halt the pre-call state stays, so the next call runs the recovery of a
+      # replacement Unit again, before its own input is taken.
       _ ->
         {:noreply, s}
     end
@@ -2570,26 +2576,32 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  # `admitted` gives the action of an occurrence whose slot no longer holds it.
+  # `admitted` gives the action of an occurrence whose slot no longer holds it, or
+  # {:error, :unavailable} when its journal read fails; that error is then the result.
   defp checked_ingress(s, input, context, admitted \\ fn -> nil end) do
     correlation = Map.take(context, [:occurrence, :actual, :dispatch, :loss, :resource])
     key = context[:occurrence]
     {state, s} = read_state(s)
     slot = state.slots[key]
 
-    {expected, s} =
+    expected =
       cond do
         slot && slot.kind == "local_work" &&
             correlation[:loss] in [:killed, :timed_out, :unavailable] ->
-          {{@refusal_schema, 1}, s}
+          {:ok, {@refusal_schema, 1}, s}
 
         slot ->
           choose_expected(s, state, key, slot, admitted)
 
         true ->
-          {nil, s}
+          {:ok, nil, s}
       end
 
+    with {:ok, expected, s} <- expected,
+         do: checked_against(s, input, context, correlation, slot, expected)
+  end
+
+  defp checked_against(s, input, context, correlation, slot, expected) do
     cond do
       input["kind"] in ["action_outcome", "person_answer"] and slot != nil and
           (input["action_id"] != slot.action_id or input["outcome"] == "late" or
@@ -2634,7 +2646,7 @@ defmodule Elzoo.RunEngine do
   defp choose_expected(s, state, key, slot, admitted) do
     case s.opts.bindings[slot.kind] do
       %{result: result} ->
-        {result, s}
+        {:ok, result, s}
 
       by_schema when is_map(by_schema) ->
         {act, s} =
@@ -2642,16 +2654,14 @@ defmodule Elzoo.RunEngine do
             do: read_action(s, state, key),
             else: {admitted.(), s}
 
-        binding =
-          case act do
-            %{"schema_id" => schema_id} -> Map.get(by_schema, schema_id)
-            _ -> nil
-          end
-
-        {binding[:result], s}
+        case act do
+          {:error, :unavailable} = error -> error
+          %{"schema_id" => schema_id} -> {:ok, by_schema[schema_id][:result], s}
+          _ -> {:ok, nil, s}
+        end
 
       nil ->
-        {nil, s}
+        {:ok, nil, s}
     end
   end
 
@@ -2677,19 +2687,32 @@ defmodule Elzoo.RunEngine do
   # Find the original committed or unresolved input without asking the pattern.
   # The host retains full history; a changed same-ID retry is not a fresh call.
   # `again` may give a second candidate for a recorded protocol input that differs.
+  # A failed journal read is {:error, :unavailable}: nothing is known about the ID.
   defp original_record(s, id, candidate, again \\ fn _ -> nil end) do
     case find_input(s.opts.store, s.opts.identity, id, 1) do
       nil ->
         {:ok, candidate}
 
+      {:error, :unavailable} = error ->
+        error
+
       # A candidate of another kind is a conflict: it falls to the last clause.
       %{kind: :protocol} = original when candidate.kind == :protocol ->
         comparable = fn r -> r |> put_in([:input, "at_ms"], 0) end
 
-        if comparable.(original) == comparable.(candidate) or
-             ((second = again.(original)) && comparable.(original) == comparable.(second)),
-           do: {:ok, original},
-           else: {:error, :input_id_conflict}
+        if comparable.(original) == comparable.(candidate) do
+          {:ok, original}
+        else
+          case again.(original) do
+            {:error, :unavailable} = error ->
+              error
+
+            second ->
+              if second && comparable.(original) == comparable.(second),
+                do: {:ok, original},
+                else: {:error, :input_id_conflict}
+          end
+        end
 
       %{kind: :lifecycle} = original when candidate.kind == :lifecycle ->
         comparable = fn r -> put_in(r.command.at_ms, 0) end
@@ -2716,6 +2739,8 @@ defmodule Elzoo.RunEngine do
            checked_ingress(s, input, context, fn -> admitted_action(s, key) end) do
       %{record | input: checked, correlation: correlation}
     else
+      # The admission could not be read: the retry is unanswered, not a conflict.
+      {:error, :unavailable} = error -> error
       _ -> nil
     end
   end
@@ -2727,25 +2752,32 @@ defmodule Elzoo.RunEngine do
 
     case find_input(s.opts.store, s.opts.identity, id, 1) do
       %{kind: :admission, facts: facts} -> facts[:action]
+      {:error, :unavailable} = error -> error
       _ -> nil
     end
   end
 
+  # A complete scan from the first record gives the record of `id`, or nil. A failed
+  # read, or a page whose head has low-water above zero (the history it shows is not
+  # whole), gives {:error, :unavailable} and never a guess.
   defp find_input(store, stream, id, from) do
-    {:ok, rows, head} = Elzoo.DurableLog.read(store, stream, from, 1_000)
-    true = head.low_water == 0
+    case Elzoo.DurableLog.read(store, stream, from, 1_000) do
+      {:ok, rows, %{low_water: 0}} ->
+        match =
+          Enum.find_value(rows, fn row ->
+            if row.kind == "input" do
+              {1, {input_id, record}} = :erlang.binary_to_term(row.payload, [:safe])
+              if input_id == id, do: record
+            end
+          end)
 
-    match =
-      Enum.find_value(rows, fn row ->
-        if row.kind == "input" do
-          {1, {input_id, record}} = :erlang.binary_to_term(row.payload, [:safe])
-          if input_id == id, do: record
-        end
-      end)
+        if match || length(rows) < 1_000,
+          do: match,
+          else: find_input(store, stream, id, List.last(rows).sequence + 1)
 
-    if match || length(rows) < 1_000,
-      do: match,
-      else: find_input(store, stream, id, List.last(rows).sequence + 1)
+      _ ->
+        {:error, :unavailable}
+    end
   end
 
   defp find_input_fenced(s, id) do
@@ -4216,6 +4248,8 @@ defmodule Elzoo.RunEngine do
     else
       {:error, _, _} = error -> error
       {:error, :input_id_conflict} -> {:error, :input_id_conflict, s}
+      # The lookup of the ID could not read the journal: nothing is committed.
+      {:error, :unavailable} -> {:error, :unavailable, s}
       _ -> {:error, :invalid_control, s}
     end
   end
@@ -4238,6 +4272,11 @@ defmodule Elzoo.RunEngine do
         {{:ok, _}, s} ->
           Enum.each(s.work, fn {_, ref} -> AsyncWork.cancel(s.opts.async_work, ref) end)
           {:ok, s}
+
+        # The lookup of the ID could not read the journal: nothing is committed and the
+        # engine goes on (a halt keeps :cancel_unknown).
+        {{:error, :unavailable}, %{halted: nil} = s} ->
+          {:error, :unavailable, s}
 
         {_, s} ->
           {:error, :cancel_unknown, s}
@@ -4540,14 +4579,19 @@ defmodule Elzoo.RunEngine do
 
       {:error, :input_id_conflict} ->
         # Internal logical IDs do not depend on sampled answer/time. Read the
-        # winner, never invent a new ID to evade an uncertain append.
-        winner = find_input(s.opts.store, s.opts.identity, id, 1)
+        # winner, never invent a new ID to evade an uncertain append. A failed read
+        # says nothing about the winner: it is the storage halt :unavailable.
+        case find_input(s.opts.store, s.opts.identity, id, 1) do
+          {:error, :unavailable} = error ->
+            storage_failure(%{s | state: nil}, error)
 
-        if winner &&
-             Map.take(winner, [:kind, :request, :occurrence]) ==
-               Map.take(record, [:kind, :request, :occurrence]),
-           do: {:ok, :unchanged, %{s | state: nil}},
-           else: storage_failure(%{s | state: nil}, {:error, :integrity_failure})
+          winner ->
+            if winner &&
+                 Map.take(winner, [:kind, :request, :occurrence]) ==
+                   Map.take(record, [:kind, :request, :occurrence]),
+               do: {:ok, :unchanged, %{s | state: nil}},
+               else: storage_failure(%{s | state: nil}, {:error, :integrity_failure})
+        end
 
       other ->
         storage_failure(%{s | state: nil}, other)
