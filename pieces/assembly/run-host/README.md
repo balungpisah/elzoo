@@ -227,9 +227,11 @@ model call); the binding's result is `elzoo.ai-text.result` version 1.
   worker read the transcript again. A read that fails for a moment
   (`{:error, :unavailable}` or an exit) keeps the deliveries, in order, and is read again
   200 ms later; a read that cannot succeed (`:read_limit`, `:history` or another error of
-  `transcript/3`) fails a start or wake with `{:error, {:route, reason}}` and otherwise
-  reports each delivery that it cannot route. Once the route is read, each held delivery
-  is handled by its kind: an outcome as below, a sink failure as one (Sink).
+  `transcript/3`) fails a start or wake with `{:error, {:route, reason}}`, also when reads
+  that failed for a moment came first (the start or wake is never answered `:ok` or
+  `:woken` before), and on a live Run reports each delivery that it cannot route. Once the
+  route is read, each held delivery is handled by its kind: an outcome as below, a sink
+  failure as one (Sink).
 - **Input.** Each received outcome is one engine `action_outcome` input under the ID
   `"ai:"` and the hex SHA-256 of the ETF of `{run_id, attempt_id, occurrence}` (67 bytes
   for any action ID), with the action's own Attempt in its context. Under
@@ -331,7 +333,7 @@ The other Runs of a batch go on whatever one of them gives.
 | `:no_current_attempt` | the Run owner has no current Attempt for the Run (or no Run) |
 | `:incompatible_recovery` | the engine refused the journal for another fingerprint (another gate version, request cap, binding, schema, pattern, ...) |
 | `:fencing_unproven` | no fresh `:fenced` from `fencing_proof` (or no `fencing_proof`) before an engine on an existing journal (below) |
-| `{:route, reason}` | the route of the Run's model calls cannot be read (AI model calls) |
+| `{:route, reason}` | the route of the Run's model calls cannot be read for good at the start or wake, also after reads that failed for a moment (AI model calls) |
 | `:lease_lost` | the lease was lost during the start |
 | `{:start_failed, {role, reason}}` | a process of the Run did not start (`:tasks`, `:owner`, `:evidence`, `:async`, `:engine`) or a Run command or read answered otherwise (`:create`, `:begin_attempt`, `:status`, `:unit_head`); `{:start_failed, reason}` when the worker ended otherwise |
 
@@ -425,62 +427,81 @@ that shows another holder or none (`{:lease_lost, %{reason, holder}}`), the host
 admission for that Run (`input/5` and `control/5` give `{:error, :lease_lost}`, also after
 the teardown), fences its processes and calls `on_lost.(run_ref, reason)` with that reason,
 once, whichever of the renewal result, the owner's exit and the worker's exit it learns
-first. A `renew/2` call that exits (on its caller timeout, or because the owner ended) is
+first. Any exit of a `renew/2` call (its caller timeout, the owner ending, or another) is
 an unconfirmed renewal, treated like `{:unknown, :no_receipt}`. A late successful renewal
 reopens nothing. After a teardown began (a reap, a crash, a failed start), a renewal
 result or an exit is no loss of a live Run: it calls no `on_lost` and changes no
-admission answer, so a reap that stops the owner during a renewal leaves no loss. Only an
-indeterminate result keeps a receipt, also then, given as `reconcile:` to the next start
-of the Run's owner. A host that starts or wakes a Run whose lease another live owner holds
-is refused and starts no engine. The engine treats a renewal as a fence change, not a Run
-transition (ELZ-429).
+admission answer, it adds only its receipt (an exit has none), so a reap that stops the
+owner during a renewal leaves no loss. Only an indeterminate result keeps a receipt, also
+then, given as `reconcile:` to the next start of the Run's owner. A host that starts or
+wakes a Run whose lease another live owner holds is refused and starts no engine. The
+engine treats a renewal as a fence change, not a Run transition (ELZ-429).
 
 ## Grounding
 
 Tests (disposable PostgreSQL 19, except the Memory scenarios named below; the scripted
-Req stub of `integration/ai-text-anthropic`, no network, stub keys only; each module loads
-the adapter's model catalog in `setup_all`, so that the tests with an `idle_ms` of 100 to
-300 ms meet the `idle_ms` Need above in any order):
+Req stub of `integration/ai-text-anthropic`, no network, stub keys only; no test loads
+the adapter's model catalog ahead of a call). The processes of a Run are found by the
+tests without the host's tracking: spawn tracing set on the host for a start or wake
+(every process spawned from it, at any depth, also later), with the Run's Unit and its
+Writer from the directory's Registry. Every predecessor check that a test passes is
+given a proof that the test demonstrates: every such process of the predecessor has
+ended (and, where a write is held, the write has landed).
 
 - `test/elzoo/run_host_test.exs`: an AgentLoop Run answered end to end, on PostgreSQL and
   on one Memory namespace with a manual-clock Lease (the full Memory scenario, with
   `allow_volatile`, read again after its Unit slept); a model call that does not complete
-  fails the Run with no host cancel; capacity with a terminal Run and a sleeping Unit held,
-  and reap leaving no process of the Run (the processes found as those that appeared
-  with it, not by the host's tracking), the lease free and the slot reused; a reap whose
-  release is not confirmed; callbacks stopped at reap and a callback that reaps its own
-  Run; options and profile refusals; Unit identities that would name another Run's
-  streams; a Registry exit stopping the host; the Registry names of a host without
-  `name` (the same after a restart, refused to a second host); a killed host whose
-  links end its Run's worker, the processes that the worker started and the Unit.
+  fails the Run with no host cancel; capacity with a terminal Run and a sleeping Unit
+  held, and reap leaving none of the Run's processes alive, the lease free and the slot
+  reused; a reap whose release is not confirmed; a start and a wake that wait on an
+  unconfirmed release, answered with no third request; a failed start whose release
+  fails twice, holding its reservation until the third; callbacks stopped at reap and a
+  callback that reaps its own Run; options and profile refusals; Unit identities that
+  would name another Run's streams; a Registry exit stopping the host; the Registry names
+  of a host without `name`; a Run's group leader gone after its reap and after a normal
+  stop of its host; a killed host whose link ends the Run's worker with the host's own
+  exit reason, after which every process of the Run ends.
 - `test/elzoo/run_host_ai_test.exs`: an image part refused with no intent and no stub
   call; the key derivation, the input ID and context, and a duplicate delivery giving no
   second input; the same under `budget_rule: :pause` after the context would give another
   pause deadline; acknowledged inputs after Unit dedup eviction and a retry due after
-  success; a timeout with dispatch unknown and no actual; a 70 KiB completion refused
-  `too_large`; a sink failure with no input and no settlement; an outcome kept across a
-  failed route read; a call held past `idle_ms`; a `:begin_attempt` in the middle of a Run;
-  the translation table.
-- `test/elzoo/run_host_recovery_test.exs`: crash and wake on one node after confirmed
-  teardown, and a takeover by another host after lease expiry, with the predecessor's
-  processes stopped by the test through their group-leader chain (the stand-in for
-  another node): one stub call, one `lost_outcome`, the Run failed with
-  `model_call_not_completed`; lease expiry alone with no proof (no engine started, at a
-  second wake too: a refused tenure leaves no marker); a `start_run/3` retry on an
-  existing journal on the same and on a new host incarnation; a fresh start interrupted
-  after its `create`; a lease that expired between the crash and
-  the wake; the proof asked at each check; a dead predecessor's paused Memory append that
-  lands after the marker; an untried intent recovered at wake, sent once with its outcome
-  held until the route is verified; a read-only intent owner and a trapping send task
-  stopped at teardown; fingerprint changes in a batch; wake dispositions; lease refusals
+  success; a timeout with dispatch unknown and no actual; a 70 KiB completion, and a
+  small one whose tool arguments reach 32 levels, each refused `too_large`, dispatched,
+  with no actual (the deep one with its reservation still reserved), and the same deep
+  completion one level shallower settled completed with its actual; a sink failure with
+  no input and no settlement; an outcome kept across a failed route read; a call held
+  past `idle_ms`; a `:begin_attempt` in the middle of a Run; with an `idle_ms` of 300 ms
+  and no warm-up, a first model call that waits for the catalog load, and a transcript
+  read that holds the worker past `idle_ms` with a call in flight, each keeping the Unit
+  awake, and an idle Run whose Unit sleeps; a wake whose route cannot be read
+  (immediately, and after a failed read) and a live delivery whose route cannot be read;
+  a sink failure held during a wake's route verification; the translation table.
+- `test/elzoo/run_host_recovery_test.exs`: a same-node restart refused without a proof
+  after the host's own teardown and woken with one, and a takeover by another host after
+  lease expiry whose proof stops every process of the first (found through their
+  group-leader chain): one stub call, one `lost_outcome`, the Run failed with
+  `model_call_not_completed`; lease expiry alone with no `fencing_proof` (no engine, no
+  activation record, no new send, at a second wake too); on Memory, an EffectIntent
+  settlement write held after its submission across the host's own confirmed teardown
+  (no proof while it is held), then landed and read by the recovery that the proof
+  allows; a `start_run/3` retry on an existing journal, and a fresh start interrupted
+  after its `create`, each refused without a proof and started with one; the proof asked
+  at each check; an activation after another owner seized the lease; an untried intent
+  recovered at wake, sent once with its outcome held until the route is verified; a
+  read-only intent owner and a trapping send task stopped at teardown; fingerprint
+  changes in a batch, refused first without a proof; wake dispositions; lease refusals
   on PostgreSQL and, with one shared Lease backend, on Memory.
 - `test/elzoo/run_host_time_test.exs`: the deadline wakes (idle Run, both paused
   orderings, a continue that moves the timer, a wake refused for its passed pause
-  operand), the lease clock (a Memory clock moved past `until`, a claim that waits a TTL
-  before its sample) and lease renewal (several TTLs, a lost renewal, a renewal reply
-  delayed past the caller timeout, an indeterminate renewal whose receipt is kept past
-  its late result and reconciled at the next start, and a worker's report of an
-  indeterminate owner exit that comes first).
+  operand, a refused wake sent again only by its timer for the current Attempt); engine
+  reads that end by the engine's 60 s call limit (no wake until the deadline is read, no
+  input after a `:begin_attempt` until its Attempt is read); the lease clock (a Memory
+  clock moved past `until`, a claim that waits a TTL before its sample, a caller whose
+  reading is older than a confirmed renewal) and lease renewal (several TTLs, a seized
+  lease, a renewal confirmed after the last confirmed `until`, a renewal reply delayed
+  past the caller timeout, an indeterminate renewal result that comes first and one that
+  comes last, a worker's report of an indeterminate owner exit that comes first, a reap
+  during a renewal, and a reap that waits for the renewal job).
 
 Negative controls (temporary edits, each failing its named test, then reverted) are
 listed in the task's pull request. These are finite scenarios, not proofs. No Cure

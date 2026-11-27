@@ -273,20 +273,17 @@ defmodule Elzoo.RunHostAiTest do
       assert length(requests(stub)) == 1
     end
 
-    test "a completion deeper than the engine's 32 levels is refused too_large, dispatched, with no actual" do
-      env = postgres()
-      deep = Enum.reduce(1..40, %{"leaf" => true}, fn _, acc -> %{"next" => acc} end)
-      tool_use = AiText.AnthropicStub.message([AiText.AnthropicStub.tool_use(deep)], "tool_use")
-      stub = stub([AiText.AnthropicStub.ok(tool_use)])
-      {host, _} = host(env, notify())
-      spec = spec("deep", stub, pattern: tool_call("deep"))
-
-      assert :ok = RunHost.start_run(host, :deep, spec)
-      assert {:ok, :applied} = RunHost.input(host, :deep, "start", start_input(), verified(spec))
-      eventually(fn -> settlements(transcript(host, :deep, spec), "deep") != [] end)
+    test "a small completion whose tool arguments reach the engine's 32 levels is refused too_large, dispatched, with no actual; its reservation stays reserved" do
+      # 30 nested objects in the arguments: the deepest sits at level 32 of the
+      # completed view (view 0, tool_proposals 1, proposal 2, arguments 3).
+      {host, env, spec, stub} = deep_call("deep", 30)
 
       assert [{_, record}] = ai_inputs(env, spec)
+      assert record.input["kind"] == "action_outcome"
+      assert record.input["action_id"] == "deep"
       assert record.input["outcome"] == "refused"
+      assert record.input["schema_id"] == "elzoo.ai-text.result"
+      assert record.input["schema_version"] == 1
 
       assert record.input["payload"] == %{
                "reason" => "too_large",
@@ -294,6 +291,7 @@ defmodule Elzoo.RunHostAiTest do
                "candidate" => nil
              }
 
+      # Dispatched, and no actual although the provider reported a usage that converts.
       assert record.correlation == %{
                occurrence: record.correlation.occurrence,
                dispatch: "dispatched"
@@ -302,7 +300,33 @@ defmodule Elzoo.RunHostAiTest do
       assert [%{outcome: "refused", actual: :unknown}] =
                settlements(transcript(host, :deep, spec), "deep")
 
+      # The call's reservation (its estimate of 1,000) stays reserved; nothing committed.
+      assert %{reserved: 1_000, committed: 0} = budget(host, spec)
       assert length(requests(stub)) == 1
+    end
+
+    test "the same completion one level shallower settles completed with its actual" do
+      {host, env, spec, _} = deep_call("shallow", 29)
+      assert_receive {:terminal, :shallow, :completed}, 5_000
+
+      assert [{_, record}] = ai_inputs(env, spec)
+      assert record.input["outcome"] == "completed"
+
+      assert [%{"arguments" => arguments, "malformed" => nil}] =
+               record.input["payload"]["tool_proposals"]
+
+      assert arguments == nested(29)
+
+      assert record.correlation == %{
+               occurrence: record.correlation.occurrence,
+               dispatch: "dispatched",
+               actual: 2_598
+             }
+
+      assert [%{outcome: "completed", actual: 2_598}] =
+               settlements(transcript(host, :shallow, spec), "shallow")
+
+      assert %{reserved: 0} = budget(host, spec)
     end
 
     test "a sink failure gives no input, and no delivery gives no settlement" do
@@ -625,6 +649,27 @@ defmodule Elzoo.RunHostAiTest do
     Agent.update(cell, fn _ -> spawned() end)
     {host, env, spec}
   end
+
+  # One model call `name` whose provider answers a tool proposal with `depth` nested
+  # objects as its arguments (with the stub's default usage, 2,598 tokens): the Run
+  # once its call has settled.
+  defp deep_call(name, depth) do
+    env = postgres()
+    body = AiText.AnthropicStub.message([AiText.AnthropicStub.tool_use(nested(depth))], "tool_use")
+    stub = stub([AiText.AnthropicStub.ok(body)])
+    {host, _} = host(env, notify())
+    ref = String.to_atom(name)
+    spec = spec(name, stub, pattern: tool_call(name))
+
+    assert :ok = RunHost.start_run(host, ref, spec)
+    assert {:ok, :applied} = RunHost.input(host, ref, "start", start_input(), verified(spec))
+    eventually(fn -> settlements(transcript(host, ref, spec), name) != [] end)
+    {host, env, spec, stub}
+  end
+
+  # `depth` objects, each the only member of the one around it.
+  defp nested(depth),
+    do: Enum.reduce(2..depth//1, %{"leaf" => true}, fn _, inner -> %{"next" => inner} end)
 
   describe "translation" do
     @usage %{

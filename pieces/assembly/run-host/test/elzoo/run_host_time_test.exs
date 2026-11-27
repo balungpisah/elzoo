@@ -292,19 +292,29 @@ defmodule Elzoo.RunHostTimeTest do
 
       :sys.resume(owner_b)
 
+      # The next input already waits behind the control when the worker's read after
+      # the control fails, so it is the first thing that the worker takes next.
+      second = %{confirm | attempt_id: "second"}
+
+      input =
+        Task.async(fn ->
+          RunHost.input(host, :confirm, "start-2", start_input(), verified(second))
+        end)
+
+      eventually(fn ->
+        {:messages, messages} = Process.info(worker_b, :messages)
+        Enum.any?(messages, &match?({:"$gen_call", _, {:input, "start-2", _, _}}, &1))
+      end)
+
       # Both reads end by the engine's 60 s call limit.
       assert_receive {:trace, ^worker_b, :exception_from, {RunEngine, :deadlines, 1}, _}, 75_000
       assert_receive {:trace, ^worker_a, :exception_from, {RunEngine, :deadlines, 1}, _}, 10_000
 
-      # B: the input that comes at once is forwarded only after a read confirms the new
-      # Attempt, so its model call's key is the new Attempt's and its outcome routes.
+      # B: the input is forwarded only after a read confirms the new Attempt, so its model
+      # call's key is the new Attempt's and its outcome routes.
       :sys.resume(engine_b)
-      second = %{confirm | attempt_id: "second"}
-
-      assert {:ok, :applied} =
-               RunHost.input(host, :confirm, "start-2", start_input(), verified(second))
-
       assert {:ok, :applied} = Task.await(control)
+      assert {:ok, :applied} = Task.await(input)
       eventually(fn -> length(settlements(transcript(host, :confirm, confirm), "m2")) == 1 end)
       assert [%{outcome: "completed"}] = settlements(transcript(host, :confirm, confirm), "m2")
       {:ok, binding} = Elzoo.AiText.Binding.load(Elzoo.RunHost.TestBinding)
@@ -368,7 +378,7 @@ defmodule Elzoo.RunHostTimeTest do
 
     test "a caller held after its admission while a renewal moves until: its reading against the old until is stale, and it is admitted again" do
       env = memory()
-      {host, _} = host(env, notify() ++ [lease_ttl_ms: 1_000])
+      {host, _} = host(env, notify() ++ [lease_ttl_ms: 4_000])
       spec = spec("snapshot", stub([answer("admitted")]))
       assert :ok = RunHost.start_run(host, :snapshot, spec)
       %{lease: %{generation: first, until: until}} = run(host, :snapshot)
@@ -392,11 +402,13 @@ defmodule Elzoo.RunHostTimeTest do
       :erlang.suspend_process(caller.pid)
       :sys.resume(host)
 
-      # The renewal is confirmed with a later until; the lease clock then passes the first.
-      Lease.Clock.advance(env.clock, 400_000)
+      # The lease clock moves 1.5 s before the renewal (half the TTL after the claim on
+      # the node's clock), so the renewal is confirmed with a later until; the lease
+      # clock then passes the first until, not the new one.
+      Lease.Clock.advance(env.clock, 1_500_000)
       eventually(fn -> run(host, :snapshot).lease.generation != first end)
       assert run(host, :snapshot).lease.until > until
-      Lease.Clock.advance(env.clock, 700_000)
+      Lease.Clock.advance(env.clock, 3_000_000)
       :erlang.resume_process(caller.pid)
 
       assert {:ok, :applied} = Task.await(caller)
@@ -579,7 +591,22 @@ defmodule Elzoo.RunHostTimeTest do
       # under the renewal job's reference, as the task delivers it: an indeterminate
       # receipt (for a write that a later record superseded) while the owner still runs.
       [job] = for {ref, {:renew, :first, _, _}} <- state(host).jobs, do: ref
-      receipt = %{stream: "run/first", expected: 1, nonce: :crypto.strong_rand_bytes(16), records: [:renewal]}
+
+      # A renewal record at sequence 2, a revision that the Run's create already holds
+      # under another nonce: the next owner's reconcile: finds it superseded.
+      nonce = :crypto.strong_rand_bytes(16)
+
+      renewal = %Elzoo.DurableLog.Record{
+        stream: "run/first",
+        sequence: 2,
+        kind: "lease_renewed",
+        schema_version: 1,
+        payload: "{}",
+        nonce: nonce
+      }
+
+      receipt = %{stream: "run/first", expected: 1, nonce: nonce, records: [renewal]}
+
       send(host, {job, {:indeterminate, receipt}})
 
       assert_receive {:lost, :first, {:indeterminate, ^receipt}}, 5_000
