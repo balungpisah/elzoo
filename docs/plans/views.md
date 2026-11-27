@@ -481,6 +481,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-430](https://github.com/balungpisah/elzoo/issues/1036) | V2 / later | ELZ-420, ELZ-423, ELZ-429 | published 2026-11-26 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-431](https://github.com/balungpisah/elzoo/issues/1039) | V2 / later | none | published 2026-11-26 | coordinator-owned CI repair; one PR carries publication and implementation; coordinator owns independent review and merge queue |
 | [ELZ-432](https://github.com/balungpisah/elzoo/issues/1046) | V2 / later | ELZ-425 | published 2026-11-27 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-433](https://github.com/balungpisah/elzoo/issues/1048) | V2 / later | ELZ-420 | published 2026-11-27 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -5807,3 +5808,15 @@ Publication copy: [tasks/ELZ-432-ci-guard-gleam-otp-pin.md](../../tasks/ELZ-432-
 **Product aims:** P09.
 
 **Acceptance:** check-ci-runners pins the Gleam job's setup-beam step and its otp-version to the root jobs' OTP pin; refusal cases for a changed, removed or extended otp-version block; negative control; full local gate and full hosted check; independent review.
+
+### ELZ-433
+
+ELZ-433 — assembly/run-engine: a failed journal read ends in a defined result, never a match error
+
+Publication copy: [tasks/ELZ-433-run-engine-journal-read-failure.md](../../tasks/ELZ-433-run-engine-journal-read-failure.md).
+
+**Product aims:** P09.
+
+**Acceptance:** find_input/4 returns {:error, :unavailable} for a failed or incomplete read (:unavailable, :malformed, {:pruned, _}, low_water > 0); input/4 and control/4 (pause, continue, cancel) return {:error, :unavailable} and commit nothing for the submitted ID; a failed admitted_action/2 lookup on a settled retry is not discarded; after :input_id_conflict a failed winner read halts :unavailable, while no winner or a differing winner stays :integrity_failure; negative controls; Piece gate, strongest other-family review.
+
+**Secondary contribution:** assembly/run-engine — In-place fix under the same ID: a failed read of the engine's own journal ends in a defined result, never a match error.
