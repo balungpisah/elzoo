@@ -5,9 +5,9 @@ gleam = "== 1.19.2"
 licences = ["Apache-2.0"]
 
 [dependencies]
-gleam_stdlib = "== 1.0.5"
+gleam_stdlib = "== 1.2.0"
 gleam_json = "== 3.1.0"
-lustre = "== 5.7.1"
+lustre = "== 5.8.0"
 
 [dev-dependencies]
 gleeunit = "== 1.11.0"

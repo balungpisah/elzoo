@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.LuaSandbox.Descriptor do
   @moduledoc false
-  # Policy version 3 as immutable plain data (maps with string keys, integer and
+  # Policy version 4 as immutable plain data (maps with string keys, integer and
   # string leaves). The identity is the SHA-256 of its canonical JSON.
 
   alias Elzoo.LuaSandbox.Json
@@ -50,7 +50,7 @@ defmodule Elzoo.LuaSandbox.Descriptor do
 
   def descriptor do
     %{
-      "policy_version" => 3,
+      "policy_version" => 4,
       "names" => %{
         "functions" => function_names(),
         "libraries" => library_names(),
@@ -77,7 +77,8 @@ defmodule Elzoo.LuaSandbox.Descriptor do
       },
       "numeric" => %{
         "float_bits" => 64,
-        "float_text" => "%.14g in the C locale",
+        "float_text" =>
+          "%.15g in the C locale, then %.17g when the first form does not read back as the same number; .0 is appended when the text has neither a decimal point nor an exponent",
         "hash_seed" => "fixed at build",
         "integer_bits" => 64,
         "integer_overflow" => "two's complement wrap",
@@ -115,7 +116,7 @@ defmodule Elzoo.LuaSandbox.Descriptor do
   end
 
   def identity(descriptor) do
-    "policy-v3:sha256:" <>
+    "policy-v4:sha256:" <>
       Base.encode16(:crypto.hash(:sha256, Json.encode(descriptor)), case: :lower)
   end
 end

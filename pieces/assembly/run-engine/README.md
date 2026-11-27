@@ -194,6 +194,27 @@ generic router or child-Run action exists. `status/1` exposes committed phase,
 charge count, occurrence classifications/joins and reconciliation, not payloads,
 credentials, raw consent or opaque work references.
 
+`deadlines(engine)` returns `{:ok, %{phase: phase, run_deadline: ms,
+pause_deadline: ms | nil}}`, read from the same committed state as `status/1`,
+which shows neither deadline. `phase` is the `phase` that `status/1` gives at that
+point (`:active`, `:waiting`, `:paused` or `:terminal`). `run_deadline` is the
+committed Run deadline in Unix milliseconds: the `run_deadline` start option until
+the first `continue` that resumes the Run, then the `run_deadline` of the last
+such `continue`, in every phase, also after a terminal outcome. `pause_deadline`
+is the committed pause deadline when `phase` is `:paused` and `nil` in every other
+phase: the `pause_deadline` of the `pause` control, or for an internal pause (a
+Budget exhaustion or an expiry report under `budget_rule: :pause`) the
+`pause_deadline` of the trusted `context` of the record that paused the Run; a Run
+that is already paused keeps its pause deadline, and a `continue` that resumes the
+Run clears it. A timely, verified `continue` can be applied (`{:ok, :applied}`)
+while an exhausted Budget keeps the Run paused: it changes neither deadline, so
+the read still gives the old Run deadline and the pause deadline. After a restart on
+the journal both values come from the recovered state, never from the start
+options (the `run_deadline` start option at a restart is the original value, part
+of the fingerprint). The engine has no timer: a host that wakes a Run at its
+deadline reads the current one here after a `continue`, an internal pause or a
+restart.
+
 A begin-Attempt or Approval-evidence control whose Run command is applied runs
 the release and then drains the engine, as `input/4` and pause/continue do, and
 replies only after that drain. So an approved root `finish` with a completed
@@ -204,11 +225,12 @@ refused or unchanged replies `{:error, {:run_control, _}}` and does not drain. A
 pause or continue control whose ID is the ID of a recorded input of another kind
 gives `{:error, :input_id_conflict}`, commits nothing, and the engine goes on.
 
-`input/4`, `control/4` and `status/1` each wait for the engine process for at most
-60,000 ms (one fixed limit; the functions take no limit operand or option).
-`status/1` is a call to the same process, so it replies only after an input that
-the engine is working on. An input at the bounds of this Piece (64 active, 256
-lifetime actions) took about 4.2 to 5.0 s alone and beside the Piece suite in 10
+`input/4`, `control/4`, `status/1` and `deadlines/1` each wait for the engine
+process for at most 60,000 ms (one fixed limit; the functions take no limit
+operand or option). `status/1` and `deadlines/1` are calls to the same process, so
+each replies only after an input that the engine is working on. An input at the
+bounds of this Piece (64 active, 256 lifetime actions) took about 4.2 to 5.0 s
+alone and beside the Piece suite in 10
 runs each on a shared worker host, most of it the journal write path of the
 owners below this Piece, so the 5,000 ms default of `GenServer.call/2` would be
 too near for any caller. A caller that needs a shorter wait runs the call in a
@@ -1585,6 +1607,30 @@ restart past the deadline ends the Run `:out_of_time`; the fold keeps
 stream check (the moved row gives `{:failed, record}`). Listed finite scenarios,
 not a proof.
 
+`test/elzoo/run_engine_deadlines_test.exs` exercises `deadlines/1` in four groups
+on disposable PostgreSQL, each read checked against the `phase` of `status/1`.
+`deadlines_follow_the_lifecycle`: a new Run reads the start option and no pause
+deadline; a `pause` control gives its `pause_deadline`, a second `pause` keeps
+it, and a later `continue` gives its new Run deadline and no pause deadline; an
+internal pause under `budget_rule: :pause` (the first excess at request cap 1, in
+the step of a local-work outcome) gives the `pause_deadline` that the context
+callback gave for that outcome record, not the start input's; a `continue` with
+another Run deadline that is applied while an exhausted monetary Budget keeps the
+Run paused leaves the read at the old Run deadline and the pause deadline.
+`deadlines_after_restart`: after a `continue`, and separately after an internal
+pause, a restart of the engine and its Unit on the same journal with the original
+start options reads the committed values, also with the context callback since
+changed. `deadlines_at_the_end`: a wake at the Run deadline that a `continue` set
+(not the start option), and a wake at the pause deadline of a paused Run, end the
+Run `:out_of_time`; the read keeps the Run deadline and gives no pause deadline.
+`deadlines_wait_for_the_engine`: a read queued while the gate of an input blocks
+has no reply 5,500 ms after it is queued and then gives the `:waiting` phase of
+the committed input, equal to `status/1`. Four temporary negative controls each
+made named tests fail and were reverted: the start option read instead of the
+committed Run deadline, the pause deadline read in every phase, the pause deadline
+read from a new context sample, and the 5,000 ms default call limit. Listed
+finite scenarios, not a proof.
+
 ## Changes
 
 - ELZ-416 (2026-11-26): the README names the current platform pins, Elixir
@@ -1613,3 +1659,9 @@ not a proof.
   a finish that names no action, with no host cancel; a caller of `result/3`
   matches `{:failed, record}`; a host that fails the owner itself sends the engine
   an input of the current Attempt first. Recorded journals replay as recorded.
+- ELZ-423 (2026-11-27): a new read, `deadlines/1`, gives the committed Run
+  deadline and, while paused, the committed pause deadline with the phase of
+  `status/1`, in one call to the engine process with the same 60,000 ms limit, from
+  the recovered state after a restart. Not breaking: `status/1`, the control
+  state, the journal format and the fingerprint are unchanged, so recorded
+  journals replay as recorded and no move is needed.
