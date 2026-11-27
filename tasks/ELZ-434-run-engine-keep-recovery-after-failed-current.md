@@ -74,6 +74,10 @@ Paths: `pieces/assembly/run-engine/**`, its `entries` row in
   recovery resumes first.
 - A `local_work` task that the replacement started before the failure
   completes after it. Its actual outcome settles it, not `local_restart`.
+  The task's result also arrives in a second case, while the fault still
+  persists and the recovery is unfinished. `AsyncWork` sends a result only
+  once, so the engine keeps it, and settles the task by its actual outcome
+  once the recovery finishes.
 - A same-Unit non-halting failure after a committed Run view: `status/1`
   shows the committed view.
 - After a halt in the same position, the call replies with the halt and
