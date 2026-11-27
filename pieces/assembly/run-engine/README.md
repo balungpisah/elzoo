@@ -383,10 +383,11 @@ Each entry is derived from the change of the folded state that one committed
 record makes, together with that record. Every entry has `type`, `sequence` (the
 Unit row of the input that holds the record; its result row is the next one) and
 `at_ms`, the record's own time: `input["at_ms"]` of a protocol record, `at_ms` of
-a gate, admission, authorization, nested, finish, nested-actual, resource-cursor,
-event-activation or stale-stop record, `view.at_ms` of a `:run_view` record,
+a gate, admission, authorization, nested, finish, nested-actual, resource-cursor
+or event-activation record, `view.at_ms` of a `:run_view` record,
 `command.at_ms` of a `:lifecycle` record, and `nil` for `:configure`,
-`:precheck`, `:continuation` and `:resume_input`. Within one record, entries come
+`:precheck`, `:continuation`, `:resume_input` and `:stale_stop` (ELZ-430: the drop
+has no time of its own). Within one record, entries come
 in this type order, then by occurrence (the engine's `{request, index}`). A `path`
 lists the occurrences of the enclosing `nested_callable` actions from the root
 down; it is `[]` in the root callable.
@@ -485,16 +486,21 @@ whose admitted action is exactly the action of its request frame (as terms, so
 `1` and `1.0` differ) and names no action. Every other step of the history into
 a pending failure (a record changed to name an action, for example) is
 `{:error, :history}`. While a stop is pending (any stop, ELZ-430), a record that
-changes the pending stop, its completion or the Attempt, a Run view that ends the
-Run or changes the Attempt, and a `:stale_stop` record (see "Recorded cycle and
-obligations") are replayed the same way, also in v1: out of a pending failure the
-replay must give exactly the recorded state, out of any other stop the same pending
-stop, completion and Attempt, else `{:error, :history}`, so a history recorded with
-the close rules of an earlier version (a terminal view before ELZ-215 that left a
-waiting ask open, for one) still reads. This holds for every read of the history,
-the read of a `completed` Run, `event_waits/3` and `transcript/3` included, so a
-completion or a root failure that the reader selects belongs to the owner's current
-Attempt. With one, the Run, Attempt and
+changes the pending stop, its completion or the Attempt, and a Run view that ends
+the Run or changes the Attempt, are replayed the same way, also in v1: the replay
+must give exactly (`===`, so `1` and `1.0` differ) the recorded state under the
+current fold or under the fold before ELZ-430 (for a terminal Run view also with
+the close before ELZ-215, which left a waiting ask open), else `{:error, :history}`.
+The recorded state cannot show which fold wrote a step, so a step is accepted only
+when it equals one of them exactly; a history that the fold before ELZ-430 recorded
+(a stop kept at a change of Attempt, a lifecycle stop that replaced a pending one)
+reads as recorded. A `:stale_stop` record (see "Recorded cycle and obligations")
+exists only in the current fold: it must name the pending stop and the Attempt that
+the history read so far proves produced it, another than the current one, and
+replay exactly. Protocol v2 checks each step of its event waits under the same
+folds. This holds for every read of the history, the read of a `completed` Run,
+`event_waits/3` and `transcript/3` included, so a completion or a root failure that
+the reader selects belongs to the owner's current Attempt. With one, the Run, Attempt and
 operation, the finish slot (settled `completed`, the Run's completion), the
 terminal `failed` state and the canonical evidence row that the owner names (in
 the configured stream, its four keys naming the finish action) must agree, and
@@ -664,27 +670,38 @@ at the request cap closes no generation and stops no charge (the count stays as 
 is), and a cancel records no cancel and closes no local work. The pending stop alone
 decides the owner's reason and what the end of the Run closes: a completion ends with
 reason `"engine"` and its end closes every open slot, since only a request-cap stop
-that is itself the stop retains slots.
+that is itself the stop retains slots. A `cancel` control cancels, after its drain,
+the AsyncWork tasks of only the local work that its committed cancel closed; a
+cancel that loses to a pending stop (one that the control's own `current/1` took
+first, from a Resource outcome for one) cancels none, so the local work that the
+winning stop retains runs on.
 
-At a start, and when the engine takes a replacement Unit, the engine checks a pending
-stop against the current Attempt once it has taken the owner's Run view (a journal
-recorded before ELZ-430 can hold a stop that a Run view of a newer Attempt kept). A
-completion or root failure belongs to the Attempt of its completion slot, with the
-generation that its finish closed, also when a later lifecycle stop stands in its
-place there (the finish's stop is then the one that the owner gets); a cancel belongs
-to the Attempt of its record; a Run-wide limit stop (`out_of_time`, `out_of_budget`)
-stands when a wake of the current Attempt at the time of the check would ask for a
-stop, as a wake reads the deadlines, the Budget and the request cap. A stop of another
-Attempt, and a limit stop that such a wake would not ask for (the expiry of a pause
-deadline of an older Attempt, for one), is dropped by a `:stale_stop` record at the
-time of the check, whose fold checks it again and drops it as a change of Attempt
-does; the owner gets no command for it. A pending stop whose Attempt the recorded state
-cannot show (a cancel without the Attempt of its record, a completion or failure
-without its settled completion slot or closed generation) stops the start with
-`{:error, :stop_origin_unknown}`, and a replacement Unit halts the engine with that
-reason; the owner gets no command, and the host ends the Run or begins a new Attempt
-on the owner, which the next Run view applies (a change of Attempt drops any pending
-stop).
+At a start, and when the engine takes a replacement Unit, the engine decides a
+pending stop before it writes anything (before it takes the owner's Run view and
+before it records the loss of running local work). It first reads the owner's
+committed Run view: when the Run is terminal there, or the owner has begun an
+Attempt after the engine's recorded one (the owner lists the recorded Attempt and
+names another as current; it begins an Attempt ID once only), no delivery decision
+is left, and the engine takes that Run view, whose fold ends the Run or drops the
+stop, with no owner command for it. No other change of the owner's revision (a lease
+renewal, another Run's command, a fact of this Run such as an attached child) skips
+the decision. The engine then takes a pending stop only on proof of the Attempt that
+produced it: a completion or root failure by its settled completion slot, with the
+generation that its finish closed; any other stop, and a completion or failure that
+the state cannot show, by the step of the journal that set it and the Attempt
+current at it (a cancel is always proven there, since the fold before ELZ-430 let a
+cancel replace a pending stop). A stop of the recorded Attempt is delivered exactly
+as committed: no clock, Budget or request cap is read again. A stop of an older
+Attempt (a journal recorded before ELZ-430 can keep one at a change of Attempt) is
+dropped by a `:stale_stop` record, which names the stop and its Attempt, with no
+owner command; the current Attempt's own inputs then decide its limits. A stop that
+nothing proves (one that the fold before ELZ-430 set in place of a pending stop of
+the same Attempt, or one that a Run view set) makes `start_link/1` give
+`{:error, :stop_origin_unknown}`, and halts the engine with that reason at a
+replacement Unit, with no write and no owner command; a journal that cannot be read
+whole (a failed read, a gap, a head with low-water above zero) gives `:unavailable`
+the same way. The host's fix is to end the Run or begin a new Attempt on the owner,
+then start the engine again: it takes that Run view as above.
 
 Each callable has a state bound. A pattern state over the bound of its callable is
 not stored (`invalid_pattern_state`; for an output over the request cap the answer
@@ -1457,19 +1474,22 @@ a change of a few bytes. A Run recorded before this repair can fold to another s
 (Elzoo is not released).
 
 Limits of the stop bound to its Attempt (ELZ-430). A journal recorded before ELZ-430
-keeps its records; the check at the start (see "Recorded cycle and obligations") takes
-its pending stop. A lifecycle stop that replaced another lifecycle stop there is the one
-that the recorded state shows: the state cannot show which came first, and either
-applies to the current Attempt. A read of such a history (the read of a `completed` or
-`failed` Run, `event_waits/3`, `transcript/3`) gives `{:error, :history}` when a step
-kept a stop at a change of Attempt or replaced a pending stop, since that record,
-replayed, gives another pending stop; `result/3` of a Run that a lifecycle stop ended
-reads no history and gives `{:terminal, outcome}` (Elzoo is not released). The time of
-a Run-wide limit stop is not recorded: the check reads the clock, so a clock set back
-before a Run deadline that a stop passed drops that stop, and a later wake past the
-deadline asks for it again. The wakes after a change of Attempt are exercised for the
-stops of a completion, a failure, a cancel, an older pause deadline, the Run deadline,
-the monetary Budget and the request cap.
+keeps its records and reads as recorded when each step equals exactly the step of
+this fold or of the fold before ELZ-430 (see "Read-only Run result"). Migration:
+before a host takes this revision, let each engine with a pending stop deliver it
+under the earlier revision, or end that Run on its owner. A pending stop that the
+earlier fold set in place of another pending stop of the same Attempt has no proof
+here: the start gives `{:error, :stop_origin_unknown}`, and the host's response is
+to end the Run (or begin a new Attempt) on the owner and start the engine again,
+which takes that Run view with no owner command for the stop. Rollback cut: once
+this revision has written a `:stale_stop` record to a journal, the earlier revision
+cannot fold that journal (its fold has no such record). A completion that the
+earlier fold kept through a timely `:pause` wake at the request cap, which that fold
+let stop the charge, is delivered as committed: the owner records `:completed` with
+reason `"request_cap"`, and the end of the Run retains slots as a request-cap stop
+does. The wakes after a change of Attempt are exercised for the stops of a
+completion, a failure, a cancel, an older pause deadline, the Run deadline, the
+monetary Budget and the request cap (Elzoo is not released).
 
 The groups `resumed_input_reopens_the_root` and
 `resumed_input_with_open_work_stays_waiting` of `test/elzoo/run_engine_test.exs`, and
@@ -1776,34 +1796,62 @@ cancel, older pause deadline) or asks for the stop again under the unchanged lim
 which the owner records for `second` (`:out_of_time` and `:out_of_budget` with reason
 `"engine"`, `:out_of_budget` with reason `"request_cap"`), with no other evidence row.
 
-`legacy_stale_stop` builds the journal that the fold before ELZ-430 left: the engine
-killed at its owner command, Attempt `second` begun on the owner, then the Run view of
-`second` journaled with the stop facts of the state before it kept, and the owner
-revision equal to the recorded one. A kept cancel and a kept completion are dropped at
-the start by one `:stale_stop` record with no new Run view: the Run is open in `second`
-with no other evidence row and no terminal owner record, `transcript/3` gives
-`history` (the kept step does not replay), and a wake of `second` reaches the root. A
-kept `out_of_time` of an older pause deadline is dropped the same way (the record at
-the time of the start); a kept `out_of_time` past the Run deadline, `out_of_budget` of
-a spent Budget and `out_of_budget` at the request cap stand for `second`, which the
-owner records with reasons `"engine"`, `"engine"` and `"request_cap"`. A kept cancel
-without the Attempt of its record makes `start_link/1` give
-`{:error, :stop_origin_unknown}` with no new row and no owner command. A completion that
-a journaled wake past the Run deadline replaced with `out_of_time` is completed by the
-owner (`:completed`, reason `"engine"`, naming the retried row), and `result/3` gives
-`history`.
+`legacy_stale_stop` builds the journals that the fold before ELZ-430 left, each
+recorded state asserted to be exactly that fold's step: the engine killed at its
+owner command, Attempt `second` begun on the owner, and the Run view of `second`
+journaled keeping the older stop, the owner revision equal to the recorded one.
+Proven older by the state: a kept cancel and a kept completion are dropped at the
+start, in v1 and v2, by one `:stale_stop` record naming the stop and Attempt
+`attempt`, with no new Run view, no owner command and no other evidence row;
+`transcript/3` reads, and a wake of `second` reaches the root. Proven older by the
+journal: a kept `out_of_budget` of a spent Budget, with the restart past the Run
+deadline, is dropped and the wake of `second` asks for `out_of_time`, which the
+owner records for `second`; a kept Run deadline, pause deadline and request cap are
+dropped and `second`'s own wake decides. Proven by the journal: a kept cancel whose
+state lost the Attempt of its record is `attempt`'s by its cancel step, and an
+`out_of_time` that `second`'s own wake set in place of a kept stop is `second`'s,
+which the owner records. Proven current: a committed timeout is delivered with the
+clock set back before the deadline, and a completion that the earlier fold kept
+through a timely `:pause` wake at request cap 2 (that fold also stopped the charge)
+is delivered as committed (`:completed`, reason `"request_cap"`), with the v2
+transcript, `event_waits/3` and `result/3` read. Refused
+(`{:error, :stop_origin_unknown}`, no new row, no evidence row, no owner command): a
+cancel, then a wake past the Run deadline that set `out_of_time` in its place; a
+completion, then a wake at the request cap that set `out_of_budget` and stopped the
+charge; a completion, then a wake past the deadline; a Run view whose state holds a
+stop that the state before it did not. The refusal stays after owner changes that
+are neither a new Attempt nor an outcome (another Run's create, a lease renewal and
+a child attached to this Run); after the host cancels the Run on the owner, the next
+start takes the terminal view (`:cancelled`, the owner's own record; `result/3` and
+`transcript/3` read), and after it begins `second`, the next start is open in
+`second`, whose wake past the deadline asks for `out_of_time`, with no `:stale_stop`
+record and no evidence row. A replacement Unit whose journal holds the refused cut
+halts the engine `:stop_origin_unknown` with no write.
 
-`pending_stop_replay`: with `second` open after a completion or a cancel, the Run view
-of `second` changed to name `attempt` (its recorded state left) and its recorded state
-changed to keep the older stop are `history` for `transcript/3` in v1 and v2; after a
-completed and a failed Run, the state recorded after the terminal Run view changed to
-keep the stop pending is `history` for `transcript/3`, `event_waits/3` and `result/3`
-in v1 and v2; a cancellation's terminal view recorded as before ELZ-215, which left a
-waiting ask open, reads in v1 (`transcript/3` with its terminal entry and no settlement
-of the ask, `event_waits/3`, and `{:terminal, :cancelled}`); and after a completed
-Run's restart past the Run deadline with local work running, the state after the loss
-changed to hold `out_of_time` in place of the pending completion is `history` for
-`result/3` and `transcript/3` in v1 and v2.
+`pending_stop_replay`: with `second` open after a completion or a cancel, the Run
+view of `second` changed to name `attempt` is `history` for `transcript/3` in v1 and
+v2, and its recorded state changed to keep the older stop (exactly the earlier
+fold's step, and not this fold's) reads in v1 and v2; after a completed and a failed
+Run, the state recorded after the terminal Run view changed to keep the stop pending
+is `history` for `transcript/3`, `event_waits/3` and `result/3` in v1 and v2, and
+so is that state with only its lifecycle outcome changed to `:cancelled` (v1) or
+only its Run revision changed to an equal float (v2); a `:stale_stop` record changed
+to name another Attempt, whose fold drops the same stop, is `history`; a
+cancellation's terminal view recorded as before ELZ-215, which left a waiting ask
+open, reads in v1 (`transcript/3` with its terminal entry and no settlement of the
+ask, `event_waits/3`, and `{:terminal, :cancelled}`); and the state after a
+completed Run's restart past the Run deadline with local work running changed to
+hold `out_of_time` in place of the pending completion, as the earlier fold recorded
+it, reads in v1 and v2, `result/3` included.
+
+`completion_by_its_finish_record`: a root finish held for Approval, settled by its
+correlated outcome and named as the source of another root finish, completes the
+Run: the owner records `:completed` (reason `"engine"`) and `result/3` gives the
+held finish's action. `losing_cancel_keeps_the_work`, through the public
+`control/4`: the outcome of a Resource open, which the control's `current/1` reads
+first, makes the root ask over request cap 1; the request-cap stop wins
+(`out_of_budget`, reason `"request_cap"`), the cancel records no cancel, and the
+retained local work `slow` keeps running, its task alive, and settles `completed`.
 
 `first_stop_wins`, in v1 and v2: a completion pending after a crash at the owner
 command while local work runs is recorded by the owner (`:completed`, naming the
@@ -1823,31 +1871,27 @@ the owner with the pending stop and its own reason (`"engine"`, `"pattern"` for 
 failure), the end of the Run settles `slow`, `ask` and `pay` with no charge stop, and
 the step kept the stop, its completion and its cancel record and closed no local work.
 
-Temporary edits were negative controls, each reverted, run on this revision: the fold
-that drops only a pending failure (22 tests fail: the 18 cuts of the other sources, two
-`legacy_stale_stop` tests and both Run-view tests); the owner command at the owner's
-current Attempt (the 14 stale-answer tests fail: the owner applies the stop to
-`second`, or refuses the evidence row of a completion or failure
-`completion_evidence`); a start without the check of the pending stop (three
-`legacy_stale_stop` tests fail: a second Run view of `second` follows the owner command
-for the kept cancel, no `:stale_stop` record drops the older pause deadline's
-`out_of_time`, and the start where the Attempt is unknown succeeds); the reader's stop
-facts and Run-view trigger without the Attempt (the kept-stop test and the legacy drop
-test read a transcript); no replay of a step out of a pending stop (six tests read a
-transcript or a result); no replay of a terminal Run view that keeps the stop (the v1
-transcript of the completed Run reads it); a full-state replay out of every stop (the
-cancellation recorded as before ELZ-215 gives `history`); `install_lifecycle/3`
-replacing a pending stop other than a failure (11 tests fail: both `first_stop_wins`
-tests, both tests of a replaced completion, whose result then reads, and seven losing
-requests: each with a completion pending, and the deadline, Budget and cap requests
-with a cancel pending); a wake at the request cap that stops the charge while a stop is
-pending (both `first_stop_wins` tests and the three cap tests fail: reason
-`"request_cap"` for a completion and a cancel, and `ask` left waiting after a failure);
-a losing cancel that records itself and closes local work (the completion's
-`first_stop_wins` test and the cancel tests with a completion and a failure pending
-fail: the cancel record is `attempt`); and the cancel record of the left Attempt kept
-at the drop (the three cancel cuts and the legacy drop test fail). Listed finite
-scenarios, not a proof.
+Temporary edits were negative controls, each run on this revision against this file
+and `test/elzoo/run_engine_read_failure_test.exs` and reverted (counts on the 68
+tests before the test of owner changes that are not a new Attempt was added; the
+skip on any revision change on all 69): recovery that keeps a proven older limit
+stop (1 test fails); recovery that drops a current `out_of_time` when the clock
+reads before the deadline (1); the stop decided after the Run view and the loss
+records (2: both refusals with a moved owner revision write first); no owner check
+before the proof (1: the start after the host's end of the Run is refused again); a
+skip on any change of the owner's revision (3: every refusal with a moved revision
+starts); a replacement never marked (5: the three replaced-stop refusals start, and
+both refusal-order tests); the owner's `:completed` taken from the source slot's
+kind (1: `:failed`); a cancel control that cancels every task (1: `slow` settles by
+the task's loss); v2 validation with the current fold only (4) and v1 replay with
+the current fold only (6); the three stop facts compared, with `==` in v2, in place
+of the whole state with `===` (2: both tampers read); a `:stale_stop` without its
+proof (1); recovery that never reads the journal (11, `stop_proof_read_fails`
+included); the drop of only a pending failure at a change of Attempt (24); the owner
+command at the owner's current Attempt (14: every stale-answer test);
+`install_lifecycle/3` replacing a pending stop other than a failure (11); and a
+losing wake at the request cap that stops the charge (6). Listed finite scenarios,
+not a proof.
 
 `test/elzoo/run_engine_deadlines_test.exs` exercises `deadlines/1` in four groups
 on disposable PostgreSQL, each read checked against the `phase` of `status/1`.
@@ -1909,10 +1953,13 @@ for each fault with the journal unchanged; then the same retry on the same
 engine is `{:ok, :duplicate}`), `winner_read_fails` (the ID of the engine's next
 Run view already holds another Run view: a failed read of the winner halts with
 `:unavailable` for each fault, also at the next call, and writes nothing; read,
-the winner is taken and the input applies) and `winner_contradicts` (the whole
+the winner is taken and the input applies), `winner_contradicts` (the whole
 page and head that the Store gave just before the winner was committed, a
 protocol input under the Run view's ID, a gate record naming another request
-and an admission naming another occurrence each halt with `:integrity_failure`).
+and an admission naming another occurrence each halt with `:integrity_failure`)
+and `stop_proof_read_fails` (ELZ-430: a start whose pending cancel the journal must
+prove gives `{:error, :unavailable}` for each fault, with no write and no owner
+command; the next start proves the cancel and the owner records `:cancelled`).
 Temporary edits are negative controls: the bare match restored (seven tests
 fail: the engine process exits, or the local-work delivery leaves no halt), the
 control error left to the existing else clause (`{:error, :invalid_control}`),
@@ -2058,27 +2105,37 @@ fail). Listed finite scenarios, not a proof.
   halted). Now the owner's answer `stale` makes the engine take the new Run view, and a
   change of Attempt before the owner records the stop drops it, with the completion and
   the closed generation of a finish and the cancel record of the Attempt that is left,
-  where only a failure was dropped. A start, and a replacement Unit, drops a pending
-  stop that the recorded state shows belongs to an older Attempt (a journal recorded
-  before can keep one at a change) by a new `:stale_stop` record, with no owner command;
-  a Run-wide limit stop stands when a wake of the current Attempt would ask for it then;
-  a stop whose Attempt the state cannot show stops the start with
-  `{:error, :stop_origin_unknown}`. The first pending stop wins: a later lifecycle stop
-  (the Run deadline, also at a restart past it, a cancel, a Budget or request-cap stop)
-  no longer replaces a pending completion or lifecycle stop, and leaves no trace (no
-  charge stop, cancel record or closed local work), so the pending stop decides the
-  owner's reason and what the end of the Run closes. A read of the history (the read of
-  a `completed` or `failed` Run, `event_waits/3`, `transcript/3`) now replays, also in
-  v1, every record that changes the pending stop, its completion or the Attempt, every
-  Run view that ends the Run or changes the Attempt while a stop is pending, and every
-  `:stale_stop` record, and gives `{:error, :history}` when the replay gives another
-  pending stop, completion or Attempt (the whole state, out of a pending failure, as
-  before). How to move: nothing for a host that never begins an Attempt while a stop may
-  be pending; one that does finds the Run open in the new Attempt, under the unchanged
-  Run-wide deadline, Budget and request cap; a host that gets
-  `{:error, :stop_origin_unknown}` from `start_link/1` ends the Run or begins a new
-  Attempt on the owner, then starts the engine again. Histories without a stale or
-  replaced pending stop keep their journal, transcripts, frozen fixtures and
-  cold-recovery results; the control state and the fingerprint are unchanged, the
-  journal gains a `:stale_stop` record only where a start drops a stale stop, and a Run
-  recorded before replays as recorded ("Limits of the stop bound to its Attempt").
+  where only a failure was dropped. A start, and a replacement Unit, decide a pending
+  stop before any write: an owner Run view that is terminal or has begun an Attempt
+  after the engine's recorded one is taken (its fold ends the Run or drops the stop);
+  otherwise the stop is taken only on proof of the Attempt that produced it, from the
+  state's completion slot or the journaled step that set it. A stop of the recorded
+  Attempt is delivered as committed (no clock, Budget or cap is read again); a stop of
+  an older Attempt (a journal recorded before can keep one at a change) is dropped by
+  a new `:stale_stop` record, which names the stop and its Attempt, with no owner
+  command; a stop that nothing proves (one set in place of a pending stop of the same
+  Attempt, or by a Run view) gives `{:error, :stop_origin_unknown}`, and a journal
+  that cannot be read whole `:unavailable`, with no write and no owner command. The
+  owner's `:completed` or `:failed` comes from the stop's `:finish` record. The first
+  pending stop wins: a later lifecycle stop (the Run deadline, also at a restart past
+  it, a cancel, a Budget or request-cap stop) no longer replaces a pending completion
+  or lifecycle stop, and leaves no trace (no charge stop, cancel record, closed local
+  work or cancelled task: a `cancel` control cancels the tasks of only the local work
+  that its committed cancel closed), so the pending stop decides the owner's reason
+  and what the end of the Run closes. A read of the history (the read of a
+  `completed` or `failed` Run, `event_waits/3`, `transcript/3`) now replays, also in
+  v1, every record that changes the pending stop, its completion or the Attempt and
+  every Run view that ends the Run or changes the Attempt while a stop is pending, and
+  gives `{:error, :history}` unless the replay gives exactly (`===`) the recorded
+  state under this fold or the fold before ELZ-430; a `:stale_stop` record must also
+  name the Attempt that the history proves. A completion that the earlier fold kept
+  through a `:pause` wake at the request cap that stopped the charge is delivered as
+  committed, with reason `"request_cap"`. How to move: before taking this revision,
+  let each engine with a pending stop deliver it under the earlier revision, or end
+  that Run on its owner; a host that gets `{:error, :stop_origin_unknown}` ends the
+  Run or begins a new Attempt on the owner, then starts the engine again. Once this
+  revision writes a `:stale_stop` record, the earlier revision cannot fold that
+  journal (rollback cut). Histories without a stale or replaced pending stop keep
+  their journal, transcripts, frozen fixtures and cold-recovery results; the control
+  state and the fingerprint are unchanged ("Limits of the stop bound to its
+  Attempt").

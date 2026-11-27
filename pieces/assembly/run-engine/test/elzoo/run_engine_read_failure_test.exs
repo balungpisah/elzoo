@@ -540,6 +540,39 @@ defmodule Elzoo.RunEngineReadFailureTest do
     end
   end
 
+  describe "stop_proof_read_fails" do
+    test "a start whose pending cancel the journal must prove gives unavailable for each fault, with no write and no owner command; the next start proves it and the owner records it" do
+      for fault <- @faults do
+        c =
+          fixture(
+            pattern: {TestPattern, :step, %{requests: [request([action("ask", "ask_person")])]}}
+          )
+
+        engine = start(c)
+        assert {:ok, :applied} = send_input(engine)
+        GenServer.stop(engine)
+
+        # The cancel is journaled and the engine is down before its owner command: the
+        # recovery of the pending cancel reads the journal for the step that set it.
+        {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+        cancel = %{"type" => "input", "version" => 1, "kind" => "cancel", "attempt_id" => "attempt"}
+        assert {:ok, :applied} = DurableUnit.step(unit, "cancel", protocol_record("cancel", cancel))
+        assert %{stop_pending: :cancelled} = DurableUnit.snapshot(unit).control
+
+        store = ReadFaultStore.new(c.store)
+        ReadFaultStore.fail_next_scan(store, fault)
+        before = {rows(c), Run.status(c.run, "run")}
+        assert {:error, :unavailable} = RunEngine.start_link(Keyword.put(c.opts, :store, store))
+        refute ReadFaultStore.armed?(store)
+        assert {rows(c), Run.status(c.run, "run")} == before
+
+        engine = start(c, store: store)
+        assert %{phase: :terminal, outcome: :cancelled} = wait_for(engine, &(&1.outcome != nil))
+        assert {:ok, %{outcome: :cancelled}} = Run.status(c.run, "run")
+      end
+    end
+  end
+
   # The engine reads its journal through the fault Store; the Unit writes through the
   # plain one.
   defp start_faulty(c, overrides \\ []) do
