@@ -128,7 +128,12 @@ deadline, tenant and principal, and the result reader's retention.
   (`reason`, `retry_after`, `candidate`). The translation:
   - `{:completed, body}`: outcome `"completed"`, `dispatch` `"dispatched"`,
     and `actual` from a trusted conversion of the body's usage to the spec's
-    Budget unit (the README states it); no usage gives no `actual`.
+    Budget unit (the README states it); no usage gives no `actual`. A
+    completed view over the engine's payload bound (65,536 bytes of compact
+    JSON or 32 levels, as `core/payload-schema` counts them) cannot be an
+    engine input: it becomes outcome `"refused"` with the refusal view's
+    reason `too_large`, `dispatch` `"dispatched"` and no `actual`, so its
+    reservation stays reserved (the README states it).
   - `{:refused, reason, meta}`: outcome `"refused"`. Only the AI text reasons
     that sent nothing (`:credentials_unavailable`, `:input_unavailable`) give
     `dispatch` `"not_dispatched"` and `actual` 0; the others give
@@ -164,14 +169,15 @@ Run: `:woken` or `{:error, reason}` (the README lists each reason, including
   intents and drains work before it returns, so the check comes before the
   engine starts. It applies to both `wake/2` and a `start_run/3` retry that
   opens an existing Run or Unit journal. After obtaining the lease and before
-  starting an engine, the host requires confirmed teardown (of the processes
-  it tracked from their start; the engine starts intent owners unlinked, so
-  they outlive the engine) or a fresh `:fenced` attestation from
-  `fencing_proof` covering every predecessor that could still act or write,
-  also on a different node. It never reuses a cached attestation keyed only by
-  `run_ref`. Absent, invalid or unproven evidence returns
-  `{:error, :fencing_unproven}`, starts no engine and grants neither a fresh
-  nor a recovered activation (the effect-intent host's `authorize` reply
+  starting an engine, the host requires a fresh `:fenced` attestation from
+  `fencing_proof`: no predecessor process can still act, and no Store write
+  that a predecessor submitted can still commit, on this node or another.
+  The host's own confirmed teardown is not that proof, because a write
+  submitted before the teardown can still commit after it; with no
+  `fencing_proof`, every predecessor check fails. It never reuses a cached
+  attestation keyed only by `run_ref`. Absent, invalid or unproven evidence
+  returns `{:error, :fencing_unproven}`, starts no engine and grants neither
+  a fresh nor a recovered activation (the effect-intent host's `authorize` reply
   `:fresh` or `{:recovered, generation}`).
 - An active recovered intent with a recorded attempt settles `unknown`
   (`lost_outcome`) and is never sent again; a read-only recovered intent leaves
@@ -238,15 +244,18 @@ manual-clock Lease backend and EffectIntent's explicit
   no host cancel; `result/4` returns `{:failed, record}` before reap and
   `{:error, :not_running}` after it.
 - Crash and wake: block the stub after it records entering the call and
-  before the sink delivery. Test same-node confirmed teardown, and a remote
-  expired-lease takeover with independently demonstrated predecessor fencing:
-  in each, the stub is called exactly once in total, the slot settles
-  `unknown` once (`lost_outcome`, not resent), and the Run is readable as
-  `:failed` (`model_call_not_completed`). Also test lease expiry alone, with
-  no proof: `{:error, :fencing_unproven}`, no grant and no new send. Test the
-  same predecessor check on an interrupted `start_run/3` retry that opens an
-  existing journal: with no proof it is `{:error, :fencing_unproven}` and no
-  engine starts.
+  before the sink delivery. Test a same-node restart and a remote
+  expired-lease takeover, each with independently demonstrated predecessor
+  fencing (`fencing_proof` answers `:fenced`): in each, the stub is called
+  exactly once in total, the slot settles `unknown` once (`lost_outcome`,
+  not resent), and the Run is readable as `:failed`
+  (`model_call_not_completed`). Also test lease expiry alone, and the host's
+  own confirmed teardown while a predecessor's Store write is held after its
+  submission, each with no proof: `{:error, :fencing_unproven}`, no grant, no
+  engine and no new send; once the held write lands, a wake with proof reads
+  it and the slot settles once. Test the same predecessor check on an
+  interrupted `start_run/3` retry that opens an existing journal: with no
+  proof it is `{:error, :fencing_unproven}` and no engine starts.
 - Routing: for startup routing, use an untried intent first dispatched
   during wake. Deliver its outcome before route verification, then prove that
   it is buffered and settles exactly once after verification. The

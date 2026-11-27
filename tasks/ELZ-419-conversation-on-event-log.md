@@ -179,12 +179,18 @@ append becomes a delivery after the commit:
   binding. Idempotent delivery of the same command is not permission for a new
   command to claim an existing message ID.
 - Wave 4 Need (document in `pieces/state/conversation/README.md`): the
-  channel is the sole writer of the conversation streams it delivers to.
+  channel is the sole writer of the conversation streams it delivers to, and
+  the only party that acknowledges its own outbox items: each with that
+  item's own nonce, and only after that item's Conversation append is proven
+  (a primary or reply item also only after its native-work custody, below).
   `check/2` does not reserve a message ID. If an outside writer commits the
   same ID with different content before delivery, delivery is refused and
   blocks later deliveries to that conversation. An identical outside write is
   indistinguishable from redelivery, so the exclusivity requirement is not
-  enforced by `check/2`.
+  enforced by `check/2`. An acknowledged item whose Conversation row is
+  missing breaks the Need: the channel fences with
+  `{:delivery_unproven, kind, key}`, live and after a reopen, and never
+  appends that item itself.
 - Every Conversation-writing command, including associations and answers, is
   configured with a delivery notification (today the association and answer
   descriptors have no outbox destination). The channel processes each
@@ -281,7 +287,10 @@ regenerated from current `main` and never hand-merged.
   the conflict does not block the next valid command; a cut after the
   Conversation commit but before the ack commits (redelivery adds no row); a
   committed ack whose reply is lost (confirm the original key and nonce; no
-  redelivery is required).
+  redelivery is required); an outside acknowledgement of an input, an
+  association and an answer whose Conversation row is missing fences with
+  `{:delivery_unproven, kind, key}`, live and after a reopen, with no append
+  by the channel (count the append attempts).
 - `mix check --affected origin/main` exits 0, or the pull request records the
   exact reason a command cannot run on the host. `git diff --check` exits 0.
   The full hosted check is green on the exact head.
