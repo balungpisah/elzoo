@@ -63,7 +63,7 @@ defmodule Elzoo.RunEngine do
   defp step_record(state, record) do
     {next, output} = transition(state, record)
 
-    next = finalize_step_state(next)
+    next = mark_stop(state, finalize_step_state(next))
     true = fits?(next)
     {:Transition, next, output}
   end
@@ -499,18 +499,6 @@ defmodule Elzoo.RunEngine do
     state = install_lifecycle(state, life, decision)
     state = restore_waiting(state)
     {classify(state, decision), :none}
-  end
-
-  # The drop of a pending stop that recovery proved belongs to another Attempt
-  # (recover_stop/1): the record names the stop and the Attempt that produced it, and the
-  # fold drops that stop as a change of Attempt does; any other state is unchanged. The
-  # owner gets no command for a dropped stop.
-  defp transition(state, %{kind: :stale_stop, stop: stop, attempt: attempt}) do
-    c = state.control
-
-    if c.stop_pending == stop and is_binary(attempt) and attempt != c.attempt_id,
-      do: {drop_stale_stop(state, c.attempt_id), :none},
-      else: {state, :none}
   end
 
   # A root finish that names no action (its payload has `"action_id": null`, no
@@ -1140,13 +1128,12 @@ defmodule Elzoo.RunEngine do
     do: close_open(state, &(&1.attempt_id != current), "attempt_closed", at)
 
   # A pending stop belongs to the Attempt that produced it. A stop that the Run owner has
-  # not recorded is stale at a change of Attempt, and at a start when its Attempt is
-  # proven older (recover_stop/1). The drop takes the pending stop, the completion and the
-  # closed generation of a finish (the charge stop keeps its own), and a recorded cancel of
-  # an Attempt other than `current`, which would keep a request-cap stop of the new Attempt
-  # from retaining its slots (retained?/1). The new Attempt is not ended by an older stop
-  # and can generate within the Run-wide deadline, Budget and request cap, none of which
-  # the drop resets; its own inputs decide them.
+  # not recorded is stale at a change of Attempt. The drop takes the pending stop, the
+  # completion and the closed generation of a finish (the charge stop keeps its own), and
+  # a recorded cancel of an Attempt other than `current`, which would keep a request-cap
+  # stop of the new Attempt from retaining its slots (retained?/1). The new Attempt is not
+  # ended by an older stop and can generate within the Run-wide deadline, Budget and
+  # request cap, none of which the drop resets; its own inputs decide them.
   defp drop_stale_stop(%{control: %{stop_pending: stop} = c} = state, current)
        when not is_nil(stop),
        do:
@@ -1191,76 +1178,29 @@ defmodule Elzoo.RunEngine do
 
   defp close_terminal(state, _charge_stopped, at), do: close_run(state, at)
 
-  @doc false
-  # The step that set the pending stop of `after_state`, tracked along a journal step by
-  # step from `install`, the value after the step before: nil when no stop is pending;
-  # %{attempt: id, replaced: boolean} from the step that set the stop, with the Attempt
-  # current at it; unchanged while the stop stays (also when a Run view of the fold before
-  # ELZ-430 kept it); :inconsistent when a Run view sets or changes a stop, which no fold
-  # does. A stop set in place of a pending stop of the same Attempt (the fold before
-  # ELZ-430 replaced one) is `replaced`; one set in place of an older Attempt's stop is the
-  # newer Attempt's own.
-  def track_stop_install(install, before, record, after_state) do
-    previous = get_in(before, [:control, :stop_pending])
-    stop = get_in(after_state, [:control, :stop_pending])
-    attempt = get_in(after_state, [:control, :attempt_id])
-
+  # The Attempt that produced a pending stop (ELZ-430): this fold records it as the control
+  # key `stop_attempt` in the step that sets a stop where none was pending, and removes it
+  # in the step that clears the stop, so a state with no stop pending is unchanged. A
+  # pending stop without it, or with one that names another Attempt than the recorded one,
+  # was set, or kept at a change of Attempt, by the fold before ELZ-430, which never
+  # touched the key (nor does its projection, legacy_fold).
+  defp mark_stop(before, next) do
     cond do
-      is_nil(stop) -> nil
-      stop == previous -> install
-      match?(%{kind: :run_view}, record) -> :inconsistent
-      is_nil(previous) -> %{attempt: attempt, replaced: false}
-      match?(%{attempt: ^attempt}, install) -> %{attempt: attempt, replaced: true}
-      is_map(install) -> %{attempt: attempt, replaced: false}
-      true -> :inconsistent
+      legacy_fold?(next) ->
+        next
+
+      is_nil(next.control.stop_pending) ->
+        update_in(next.control, &Map.delete(&1, :stop_attempt))
+
+      is_nil(before.control.stop_pending) ->
+        update_in(next.control, &Map.put(&1, :stop_attempt, next.control.attempt_id))
+
+      true ->
+        next
     end
   end
 
-  @doc false
-  # The Attempt that produced the pending stop of `state`, from proof only: the state's own
-  # witness first (a completion or a root failure: its completion slot, with the generation
-  # that its finish closed; a cancel: the Attempt of its record), else the step of the
-  # journal that set the stop (`install`, from track_stop_install/4, or :unread before the
-  # journal is read). {:attempt, id}; :unread when the journal must be read (a cancel is
-  # always checked there, since the fold before ELZ-430 let a cancel replace a pending
-  # stop); :unknown when nothing shows it, or when a stop replaced a pending stop of the
-  # same Attempt.
-  def stop_origin(%{control: c, slots: slots}, install) do
-    case c.stop_pending do
-      nil ->
-        nil
-
-      stop when stop in [:completed, :failed] ->
-        case Map.get(slots, c.completion) do
-          %{attempt_id: attempt} when is_binary(attempt) and c.generation_closed == true ->
-            {:attempt, attempt}
-
-          _ ->
-            installed(install)
-        end
-
-      :cancelled ->
-        cond do
-          install == :unread -> :unread
-          not match?(%{replaced: false}, install) -> :unknown
-          is_binary(c.cancelled_attempt) -> {:attempt, c.cancelled_attempt}
-          true -> installed(install)
-        end
-
-      stop when stop in [:out_of_time, :out_of_budget] ->
-        installed(install)
-
-      _ ->
-        :unknown
-    end
-  end
-
-  defp installed(:unread), do: :unread
-
-  defp installed(%{attempt: attempt, replaced: false}) when is_binary(attempt),
-    do: {:attempt, attempt}
-
-  defp installed(_), do: :unknown
+  defp marked?(c), do: is_binary(c.attempt_id) and Map.get(c, :stop_attempt) == c.attempt_id
 
   # When a nested_callable slot settles, its child callable and every callable
   # below it close in the same fold step, the way close_open/4 closes callables:
@@ -2111,35 +2051,48 @@ defmodule Elzoo.RunEngine do
     end
   end
 
+  # An outbox offer can come after the engine's Unit stopped: the Unit check of current/1
+  # runs before the drain (with_current_unit/2).
   def handle_info(%Outbox.Item{} = item, s) do
     if s.halted do
       {:noreply, s}
     else
-      case drain(s) do
-        {:ok, s} ->
-          case ack(s, item) do
-            {:ok, s} -> {:noreply, s}
-            {reason, s} -> {:noreply, %{s | halted: reason, state: nil, decoded: %{}}}
-          end
+      with_current_unit(s, fn s ->
+        case drain(s) do
+          {:ok, s} ->
+            case ack(s, item) do
+              {:ok, s} -> {:noreply, s}
+              {reason, s} -> {:noreply, %{s | halted: reason, state: nil, decoded: %{}}}
+            end
 
-        {:error, _, s} ->
-          {:noreply, s}
-      end
+          {:error, _, s} ->
+            {:noreply, s}
+        end
+      end)
     end
   end
 
   def handle_info(_, s), do: {:noreply, s}
 
   defp commit_and_drain_input(s, id, record) do
-    case commit(s, id, record) do
-      {:ok, _, s} ->
-        case drain(s) do
-          {:ok, s} -> {:noreply, s}
-          {:error, _, s} -> {:noreply, s}
-        end
-
-      {:error, _, s} ->
+    with_current_unit(s, fn s ->
+      with {:ok, _, s} <- commit(s, id, record),
+           {:ok, s} <- drain(s) do
         {:noreply, s}
+      else
+        {:error, _, s} -> {:noreply, s}
+      end
+    end)
+  end
+
+  # A drain that no public call starts runs the Unit check of current/1 first
+  # (current_unit/1). A halt of that check stays; without one the state before the check
+  # stays, so the next call runs the recovery of a replacement Unit again.
+  defp with_current_unit(s, fun) do
+    case current_unit(s) do
+      {:ok, checked} -> fun.(checked)
+      {:error, _, %{halted: reason} = halted} when not is_nil(reason) -> {:noreply, halted}
+      _ -> {:noreply, s}
     end
   end
 
@@ -2187,7 +2140,17 @@ defmodule Elzoo.RunEngine do
   defp local_outcome_context(s, record),
     do: %{record | context: Map.take(s.opts.context.(), [:pause_deadline])}
 
-  defp ingest(%{halted: reason, opts: %{protocol_version: 2}} = s, id, neutral, context)
+  # `cancel_work` comes from the cancel control only (apply_control/4), never from a
+  # caller's context (closed_local/3).
+  defp ingest(s, id, neutral, context, cancel_work \\ false)
+
+  defp ingest(
+         %{halted: reason, opts: %{protocol_version: 2}} = s,
+         id,
+         neutral,
+         context,
+         _cancel_work
+       )
        when not is_nil(reason) do
     with true <- text?(id, 160) and is_map(neutral) and is_map(context),
          true <- text?(context[:run_id], 200) and text?(context[:attempt_id], 200),
@@ -2206,9 +2169,10 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp ingest(%{halted: reason} = s, _, _, _) when not is_nil(reason), do: {{:error, reason}, s}
+  defp ingest(%{halted: reason} = s, _, _, _, _) when not is_nil(reason),
+    do: {{:error, reason}, s}
 
-  defp ingest(s, id, neutral, context) do
+  defp ingest(s, id, neutral, context, cancel_work) do
     with true <- text?(id, 160) and is_map(neutral) and is_map(context),
          true <- text?(context[:run_id], 200) and text?(context[:attempt_id], 200),
          false <- Map.has_key?(neutral, "at_ms") do
@@ -2216,7 +2180,7 @@ defmodule Elzoo.RunEngine do
         ingest_outside_event(s, id, neutral, context)
       else
         case current(s) do
-          {:ok, s} -> ingest_current(s, id, neutral, context)
+          {:ok, s} -> ingest_current(s, id, neutral, context, cancel_work)
           {:error, reason, s} -> {{:error, reason}, s}
         end
       end
@@ -2596,13 +2560,13 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp ingest_current(s, id, neutral, context) do
+  defp ingest_current(s, id, neutral, context, cancel_work) do
     with at when is_integer(at) and at > 0 <- s.opts.clock.(),
          input = Map.put(neutral, "at_ms", at),
          {:ok, _} <- decode_step(input, protocol_version(s)) do
       case checked_ingress(s, input, context) do
         {:ok, checked, correlation, s} ->
-          submit_ingress(s, id, input, checked, correlation, context)
+          submit_ingress(s, id, input, checked, correlation, context, cancel_work)
 
         {:error, reason} ->
           {{:error, reason}, s}
@@ -2613,7 +2577,7 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp submit_ingress(s, id, input, checked, correlation, context) do
+  defp submit_ingress(s, id, input, checked, correlation, context, cancel_work \\ false) do
     record = %{
       version: protocol_version(s),
       kind: :protocol,
@@ -2638,7 +2602,7 @@ defmodule Elzoo.RunEngine do
 
       case result do
         {:ok, disposition} ->
-          {closed, s} = closed_local(s, before, context)
+          {closed, s} = closed_local(s, before, cancel_work)
 
           case drain(s) do
             {:ok, s} ->
@@ -2662,11 +2626,12 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  # The local work that the step of a cancel control closed: running before the step and
-  # settled after it, when no stop was pending before it. Only that work's AsyncWork task is
+  # The local work that the step of a cancel control closed (`cancel_work`, which only
+  # apply_control/4 gives, never a caller's context): running before the step and settled
+  # after it, when no stop was pending before it. Only that work's AsyncWork task is
   # cancelled, after the drain; a cancel that loses to a pending stop closes none, and the
   # stop keeps its work. No other input cancels a task here.
-  defp closed_local(s, before, %{cancel_work: true}) do
+  defp closed_local(s, before, true) do
     if is_nil(before.control.stop_pending) do
       {after_state, s} = read_state(s)
 
@@ -2681,7 +2646,7 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp closed_local(s, _before, _context), do: {[], s}
+  defp closed_local(s, _before, false), do: {[], s}
 
   defp preflight_paused_event(s, %{version: 2, input: %{"kind" => "outside_event"}} = record) do
     {state, _s} = read_state(s)
@@ -3157,14 +3122,42 @@ defmodule Elzoo.RunEngine do
   defp current(%{halted: reason} = s) when not is_nil(reason), do: {:error, reason, s}
 
   defp current(s) do
+    case checked_unit(s) do
+      {:same, s} -> with {:ok, s} <- sync_run(s), do: consume_resources(s)
+      replaced -> replaced
+    end
+  catch
+    :exit, _ ->
+      {:error, :ownership_unknown, %{s | halted: :ownership_unknown, state: nil, decoded: %{}}}
+  end
+
+  # The Unit check of current/1 alone, for a drain that no public call starts (an outbox
+  # offer, an input that the Unit delivers).
+  defp current_unit(%{halted: reason} = s) when not is_nil(reason), do: {:error, reason, s}
+
+  defp current_unit(s) do
+    case checked_unit(s) do
+      {:same, s} -> {:ok, s}
+      replaced -> replaced
+    end
+  catch
+    :exit, _ ->
+      {:error, :ownership_unknown, %{s | halted: :ownership_unknown, state: nil, decoded: %{}}}
+  end
+
+  # Every path that can drain checks the engine's Unit first. A replacement Unit (one that
+  # started after the engine's Unit stopped) is recovered in the order of a start: the
+  # decision on a pending stop (recover_stop/1), the owner's Run view (sync_run/1), then
+  # the loss of running local work (recover_local/1), before anything is delivered.
+  defp checked_unit(s) do
     case start_unit(s.opts.directory, s.opts.identity) do
       {:ok, pid} when pid == s.unit ->
-        with {:ok, s} <- sync_run(s), do: consume_resources(s)
+        {:same, s}
 
       {:ok, pid} ->
         with {:ok, s} <- recover_stop(%{s | unit: pid, work: %{}, state: nil, decoded: %{}}),
-             {:ok, s} <- recover_local(s),
              {:ok, s} <- sync_run(s),
+             {:ok, s} <- recover_local(s),
              {:ok, s} <- recover_intents(s),
              {:ok, s} <- release_waiting(s, "replacement", %{}),
              {:ok, s} <- consume_resources(s),
@@ -3173,9 +3166,6 @@ defmodule Elzoo.RunEngine do
       other ->
         storage_failure(s, other)
     end
-  catch
-    :exit, _ ->
-      {:error, :ownership_unknown, %{s | halted: :ownership_unknown, state: nil, decoded: %{}}}
   end
 
   # A view whose revision differs from the recorded one is a Run transition and is
@@ -3236,17 +3226,20 @@ defmodule Elzoo.RunEngine do
     end)
   end
 
-  # Recovery takes a pending stop only on proof of the Attempt that produced it, before it
-  # writes anything (it runs before sync_run/1 and recover_local/1). An owner Run view that
-  # leaves no delivery decision (decided?/2) needs no proof: sync_run/1 takes it, and its
-  # fold ends the Run or drops the stop. Otherwise stop_origin/2 proves it, with the
-  # journal read when the state alone cannot show it. A stop of the recorded Attempt is the
-  # one that the drain delivers, as committed (no clock, Budget or cap is read again). A
-  # stop of an older Attempt (a journal recorded before ELZ-430 kept one at a change of
-  # Attempt) is dropped by a :stale_stop record, with no owner command, and the current
-  # Attempt's own inputs decide its limits. A stop whose Attempt nothing proves halts with
-  # :stop_origin_unknown, and a journal that cannot be read whole with :unavailable, both
-  # with no write and no owner command.
+  # At a start and at a replacement Unit the engine decides a pending stop before it writes
+  # anything (before sync_run/1 and recover_local/1; the Unit has already finished an input
+  # committed before, as at every open). The owner's committed Run view comes first: one
+  # that is terminal or has begun an Attempt after the recorded one (decided?/2) is taken
+  # by sync_run/1, whose fold ends the Run or drops the stop. Else a stop that this fold
+  # set (marked?/1) is delivered as committed: no journal, clock, Budget or cap is read. A
+  # stop without that mark was set, or kept at a change of Attempt, by the fold before
+  # ELZ-430: it is delivered as committed when the owner has only ever had the recorded
+  # Attempt (which then produced it, also when it took the place of another stop of that
+  # Attempt); otherwise its Attempt is unknown, and the engine halts with
+  # :stop_origin_unknown, with no write and no owner command, until the host ends the Run
+  # or begins a new Attempt on the owner. A stop that the drain cannot deliver (a
+  # completion or failure without its completion slot) halts with :integrity_failure, also
+  # with no write.
   defp recover_stop(s) do
     {state, s} = read_state(s)
     c = state.control
@@ -3256,13 +3249,20 @@ defmodule Elzoo.RunEngine do
     else
       case Run.status(s.opts.run_owner, s.opts.run_id) do
         {:ok, view} ->
-          if decided?(view, c), do: {:ok, s}, else: prove_stop(s, state)
+          cond do
+            decided?(view, c) -> {:ok, s}
+            not deliverable?(state) -> halt(s, :integrity_failure)
+            marked?(c) or Map.get(view, :attempts) == [c.attempt_id] -> {:ok, s}
+            true -> halt(s, :stop_origin_unknown)
+          end
 
         _ ->
-          {:error, :run_unavailable, %{s | halted: :run_unavailable, state: nil, decoded: %{}}}
+          halt(s, :run_unavailable)
       end
     end
   end
+
+  defp halt(s, reason), do: {:error, reason, %{s | halted: reason, state: nil, decoded: %{}}}
 
   # The owner's committed Run view leaves no delivery decision for a pending stop when the
   # Run is terminal there, or when the owner has begun an Attempt after the engine's
@@ -3275,89 +3275,16 @@ defmodule Elzoo.RunEngine do
       not is_nil(view.outcome) or
         (view.current_attempt != c.attempt_id and c.attempt_id in Map.get(view, :attempts, []))
 
-  defp prove_stop(s, %{control: c} = state) do
-    origin =
-      case stop_origin(state, :unread) do
-        :unread -> with {:ok, install} <- journal_install(s), do: stop_origin(state, install)
-        origin -> origin
-      end
+  # The drain delivers a completion or a failure with the evidence row of its completion
+  # slot's action; a lifecycle stop needs no slot.
+  defp deliverable?(%{control: c, slots: slots}) do
+    case c.stop_pending do
+      stop when stop in [:completed, :failed] ->
+        match?(%{action_id: _}, Map.get(slots, c.completion))
 
-    case origin do
-      {:attempt, attempt} when attempt == c.attempt_id ->
-        {:ok, s}
-
-      {:attempt, attempt} ->
-        id =
-          stable_id(
-            "stale-stop:",
-            {s.opts.run_id, c.attempt_id, attempt, c.stop_pending, c.run_revision}
-          )
-
-        record = %{
-          version: protocol_version(s),
-          kind: :stale_stop,
-          stop: c.stop_pending,
-          attempt: attempt
-        }
-
-        with {:ok, _, s} <- commit(s, id, record), do: {:ok, s}
-
-      {:error, :unavailable} ->
-        {:error, :unavailable, %{s | halted: :unavailable, state: nil, decoded: %{}}}
-
-      _ ->
-        {:error, :stop_origin_unknown,
-         %{s | halted: :stop_origin_unknown, state: nil, decoded: %{}}}
+      stop ->
+        stop in [:cancelled, :out_of_time, :out_of_budget]
     end
-  end
-
-  # The step that set the pending stop, from the whole retained journal from its first row
-  # (track_stop_install/4 over each recorded step). A failed read, a gap, or a page whose
-  # head has low-water above zero gives {:error, :unavailable}.
-  defp journal_install(s) do
-    fold =
-      DurableUnit.fold(
-        operator: {__MODULE__, :step, empty_state(protocol_version(s))},
-        retention_count: 1
-      )
-
-    journal_install(s.opts.store, s.opts.identity, 1, fold, fold.initial, nil)
-  end
-
-  defp journal_install(store, stream, from, fold, model, install) do
-    with {:ok, rows, %{low_water: 0}} <- Elzoo.DurableLog.read(store, stream, from, 1_000),
-         {:ok, model, install} <- install_rows(rows, from, fold, model, install) do
-      if length(rows) < 1_000,
-        do: {:ok, install},
-        else: journal_install(store, stream, from + length(rows), fold, model, install)
-    else
-      _ -> {:error, :unavailable}
-    end
-  end
-
-  defp install_rows(rows, from, fold, model, install) do
-    rows
-    |> Enum.with_index(from)
-    |> Enum.reduce_while({:ok, model, install}, fn {row, sequence}, {:ok, model, install} ->
-      if row.sequence == sequence do
-        next = fold.reduce.(model, row.kind, row.schema_version, row.payload)
-
-        install =
-          case {row.kind, model.pending} do
-            {"result", {_id, record}} ->
-              track_stop_install(install, model.state, record, next.state)
-
-            _ ->
-              install
-          end
-
-        {:cont, {:ok, next, install}}
-      else
-        {:halt, {:error, :unavailable}}
-      end
-    end)
-  rescue
-    _ -> {:error, :unavailable}
   end
 
   defp drain(%{halted: reason} = s) when not is_nil(reason),
@@ -4194,7 +4121,7 @@ defmodule Elzoo.RunEngine do
 
   # A pending stop belongs to the engine's recorded Attempt: a finish or a lifecycle step
   # asks for one only there, a change of Attempt drops it (drop_stale_stop/2), and a start
-  # takes one only on proof of its Attempt (recover_stop/1). The evidence row of a
+  # decides one before any write (recover_stop/1). The evidence row of a
   # :completed or :failed stop and the owner command carry that Attempt, so an owner whose
   # current Attempt is newer answers `stale`, and the new Run view that the engine then
   # takes drops the stop. The pending stop is the one that its :finish record or lifecycle
@@ -4567,11 +4494,11 @@ defmodule Elzoo.RunEngine do
         "attempt_id" => attempt
       }
 
-      context = Map.merge(context, %{run_id: c.run_id, attempt_id: attempt, cancel_work: true})
+      context = Map.merge(context, %{run_id: c.run_id, attempt_id: attempt})
 
       # The AsyncWork tasks of the local work that the cancel closed are cancelled after the
       # drain (closed_local/3); a cancel that loses to a pending stop cancels none.
-      case ingest(s, id, input, context) do
+      case ingest(s, id, input, context, true) do
         {{:ok, _}, s} ->
           {:ok, s}
 
@@ -5328,8 +5255,7 @@ defmodule Elzoo.RunEngine do
              :continuation,
              :lifecycle,
              :run_view,
-             :finish,
-             :stale_stop
+             :finish
            ] ->
         project_pure_event_wait_transition(state, record)
 
@@ -5502,8 +5428,8 @@ defmodule Elzoo.RunEngine do
 
   defp project_protocol_wait_transition(state, record) do
     case protocol_transition(state, record) do
-      {:done, {next, _}} -> {:ok, finalize_step_state(next)}
-      {:continue, next, _, _} -> {:ok, finalize_step_state(next)}
+      {:done, {next, _}} -> {:ok, mark_stop(state, finalize_step_state(next))}
+      {:continue, next, _, _} -> {:ok, mark_stop(state, finalize_step_state(next))}
     end
   end
 
@@ -5513,13 +5439,13 @@ defmodule Elzoo.RunEngine do
       {:ok, next}
     else
       {next, _} = transition(state, record)
-      {:ok, finalize_step_state(next)}
+      {:ok, mark_stop(state, finalize_step_state(next))}
     end
   end
 
   defp project_pure_event_wait_transition(state, record) do
     {next, _} = transition(state, record)
-    {:ok, finalize_step_state(next)}
+    {:ok, mark_stop(state, finalize_step_state(next))}
   end
 
   defp outcome(version, id, class, schema, payload, at),
@@ -6458,45 +6384,28 @@ defmodule Elzoo.RunEngine.ResultReader do
   defp reduce_row(_, _, _, _, _, _, _), do: {:error, :history}
 
   # A root failure: a :finish record with no source whose pure fold, replayed on the
-  # state before it, gives exactly the recorded state and settles a root finish that
-  # names no action. Such a record that changed nothing (not permitted at its time) is
-  # not one. Every other step into a pending `:failed` stop, and such a record whose
-  # replay differs, is damaged history. While a stop is pending, a record that changes
-  # the pending stop, its completion or the Attempt, and a Run view that ends the Run or
-  # changes the Attempt, are replayed, in v1 too, and must give exactly (===) the recorded
-  # state under a fold that can have recorded the step (replays_exactly?/3). A :stale_stop
-  # record is this fold's only, and the history read so far must prove its drop as
-  # recovery proved it (stop_origin/2 over the tracked install).
+  # state before it, gives exactly the recorded state under a fold that can have recorded
+  # it (replays_exactly?/3) and settles a root finish that names no action. Such a record
+  # that changed nothing (not permitted at its time) is not one. Every other step into a
+  # pending `:failed` stop, and such a record whose replay differs, is damaged history.
+  # While a stop is pending, a record that changes the pending stop, its completion or the
+  # Attempt, and a Run view that ends the Run or changes the Attempt, are replayed the same
+  # way, in v1 too.
   defp accepted_failure(
          %{pending: {_input_id, record}, state: before},
          %{state: after_state},
          candidates
        )
        when is_map(record) do
-    install = Map.get(candidates, :stop_install)
-
-    candidates =
-      Map.put(
-        candidates,
-        :stop_install,
-        Elzoo.RunEngine.track_stop_install(install, before, record, after_state)
-      )
-
     case record do
       %{kind: :finish, source: nil, occurrence: key} ->
-        if replays?(before, record, after_state) do
+        if replays_exactly?(before, record, after_state) do
           if after_state === before,
             do: {:ok, candidates},
             else: failure_candidate(before, after_state, key, candidates)
         else
           {:error, :history}
         end
-
-      %{kind: :stale_stop} ->
-        if proven_stale?(before, record, install) and
-             replays_exactly?(before, record, after_state),
-           do: {:ok, candidates},
-           else: {:error, :history}
 
       _ ->
         cond do
@@ -6535,21 +6444,11 @@ defmodule Elzoo.RunEngine.ResultReader do
   defp stop_facts(state),
     do: {stop_pending(state), get_in(state, [:control, :completion]), attempt(state)}
 
-  # A :stale_stop record names the pending stop and the Attempt that the history read so
-  # far proves produced it, an Attempt other than the current one.
-  defp proven_stale?(before, record, install) do
-    c = before.control
-
-    record.stop == c.stop_pending and is_binary(record.attempt) and
-      record.attempt != c.attempt_id and
-      Elzoo.RunEngine.stop_origin(before, install) == {:attempt, record.attempt}
-  end
-
   # The recorded step equals (===) the projection of the step under a fold that can have
-  # recorded it (folds/1). The state's shape does not show which fold recorded a step, so
-  # a step is accepted when it equals either exactly.
+  # recorded it (folds/2). The state's shape does not show which fold recorded a step, so
+  # a step is accepted when it equals one of them exactly.
   defp replays_exactly?(before, record, after_state) do
-    Enum.any?(folds(record), fn fold ->
+    Enum.any?(folds(record, before), fn fold ->
       case Elzoo.RunEngine.project_event_wait_transition(before, record, fold) do
         {:ok, projected} -> projected === after_state
         _ -> false
@@ -6557,23 +6456,23 @@ defmodule Elzoo.RunEngine.ResultReader do
     end)
   end
 
-  # The folds that can have recorded a step: the current one, and the fold before ELZ-430
-  # (for a terminal Run view also with the close before ELZ-215). A :stale_stop record
-  # exists only in the current fold.
-  defp folds(%{kind: :stale_stop}), do: [:current]
+  # The folds that can have recorded a step on `before`: the current one and the fold
+  # before ELZ-430; for a terminal Run view also that fold with the close before ELZ-215,
+  # when that close can have recorded it (pre_215?/1).
+  defp folds(%{kind: :run_view, view: %{outcome: outcome}}, before) when not is_nil(outcome),
+    do: if(pre_215?(before), do: [:current, :base, :pre_215], else: [:current, :base])
 
-  defp folds(%{kind: :run_view, view: %{outcome: outcome}}) when not is_nil(outcome),
-    do: [:current, :base, :pre_215]
+  defp folds(_record, _before), do: [:current, :base]
 
-  defp folds(_record), do: [:current, :base]
+  # The close before ELZ-215 recorded only v1 histories, and none whose state holds what
+  # ELZ-215 or a later change brought: a pending root failure (ELZ-420), a stop marker
+  # (ELZ-430), the expiry_reports (ELZ-351) or messages (ELZ-387) option.
+  defp pre_215?(%{version: 1, control: c}) when is_map(c),
+    do:
+      Map.get(c, :stop_pending) != :failed and
+        not Enum.any?([:stop_attempt, :expiry_reports, :messages], &Map.has_key?(c, &1))
 
-  # The engine's own pure fold of `record` on `before` gives exactly `after_state`.
-  defp replays?(before, record, after_state) do
-    case Elzoo.RunEngine.project_event_wait_transition(before, record) do
-      {:ok, projected} -> projected === after_state
-      _ -> false
-    end
-  end
+  defp pre_215?(_state), do: false
 
   # The checks of one root failure against the state before and after it: a root finish
   # of the current Attempt, admitted as the pattern asked for it, naming no action, now
@@ -6827,7 +6726,7 @@ defmodule Elzoo.RunEngine.ResultReader do
   defp transcript_actual(_record, _key, slot),
     do: if(is_integer(slot[:actual]), do: slot.actual, else: :unknown)
 
-  # A v2 step is valid when the projection of a fold that can have recorded it (folds/1)
+  # A v2 step is valid when the projection of a fold that can have recorded it (folds/2)
   # passes every check: the exact pure result, the close markers and the activated waits.
   defp validate_event_wait_transition(
          %{pending: {_input_id, record}, state: before_state},
@@ -6837,7 +6736,7 @@ defmodule Elzoo.RunEngine.ResultReader do
        )
        when is_map(record) and is_map(before_state) and is_map(after_state) do
     if Enum.any?(
-         folds(record),
+         folds(record, before_state),
          &valid_wait_step?(before_state, record, after_state, provenance, &1)
        ),
        do: :ok,
@@ -6876,8 +6775,7 @@ defmodule Elzoo.RunEngine.ResultReader do
               :continuation,
               :lifecycle,
               :run_view,
-              :finish,
-              :stale_stop
+              :finish
             ],
        do: if(expected_state === actual_state, do: :ok, else: {:error, :history})
 

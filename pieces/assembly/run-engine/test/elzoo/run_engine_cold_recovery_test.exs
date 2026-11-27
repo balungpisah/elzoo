@@ -24,7 +24,10 @@ defmodule Elzoo.RunEngineColdRecoveryTest do
     {c, engine} = writer(requests, [])
     assert {:ok, :applied} = send_input(engine)
     wait_for(engine, &(&1.outcome == :completed))
-    recover(c, engine, "ab45111de193f378787d7ee8cf737ea85333e3bdf7c4778474703890ff0cb481")
+    # Captured again at ELZ-430: the recorded state with the completion pending carries
+    # its mark (the control key stop_attempt); with that key removed the rows give the
+    # capture before it.
+    recover(c, engine, "82bd7e153523f2899687f60bbb8b96378c8f1fdbf0371d43e514b4c4b4cc9c98")
   end
 
   test "paused explicit v1 retains an owner expiry on a fresh VM" do
