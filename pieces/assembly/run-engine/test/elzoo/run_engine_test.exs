@@ -6819,7 +6819,8 @@ defmodule Elzoo.RunEngineTest do
   # open. The engine clock is 2,000. After "src" the root asks one request too many: the
   # request-cap stop with budget_rule :finish makes the Run terminal, and the stop retains
   # the open parents and tool calls.
-  defp retained_run(parents) do
+  # `owner` gives the Run owner that the engine talks to (the fixture's own by default).
+  defp retained_run(parents, owner \\ & &1.run) do
     test_pid = self()
     ids = parents |> Map.keys() |> Enum.sort()
 
@@ -6860,7 +6861,7 @@ defmodule Elzoo.RunEngineTest do
         &Map.put(&1, :work, fn a -> {TestPattern, :blocked, [test_pid, a["payload"]]} end)
       )
 
-    engine = start(c, bindings: bindings)
+    engine = start(c, bindings: bindings, run_owner: owner.(c))
     assert {:ok, :applied} = bounded(fn -> send_input(engine) end, 20_000)
     for _ <- ids, do: assert_receive({:effect_started, _provider, _}, 5_000)
     assert_receive {:local_started, task}, 5_000
@@ -8639,6 +8640,28 @@ defmodule Elzoo.RunEngineTest do
       # The close came after the effect of the input: no `nested_actual` record is written.
       refute Enum.any?(journal(c), &match?({:nested_actual, _, _, _, _}, &1))
       assert outcome_records(c, "nested") == []
+    end
+
+    test "with a renewal of the Run owner before the child's result: the same single step, no nested_actual and no record for the renewal" do
+      {c, _bindings, engine, before} = retained_run(%{"nested" => 10_000})
+      parent = key_of(before, "nested")
+      tool = key_of(before, "tool-nested")
+      Agent.update(c.clock, fn _ -> 15_000 end)
+      journal = journal(c)
+      assert {:ok, renewed, _} = Run.renew(c.run, 3_600_000)
+      assert {:ok, %{revision: ^renewed}} = Run.status(c.run, "run")
+
+      assert {:ok, :applied} = child_result(engine, before, "tool-nested", 5)
+      assert slot_by(view(engine), "nested").outcome == "unknown"
+      assert unit_state(c).slots[parent].actual == 5
+      assert budget_status(c, "1:0", 15_000) == %{committed: 5, reserved: 0}
+      refute Enum.any?(journal(c), &match?({:nested_actual, _, _, _, _}, &1))
+      assert outcome_records(c, "nested") == []
+      # The record of the result is the one record that the input added: none for the renewal.
+      assert Enum.take(journal(c), length(journal)) == journal
+
+      assert [{:protocol, "action_outcome", "tool-nested", "completed", _, 5, ^tool, _}] =
+               Enum.drop(journal(c), length(journal))
     end
   end
 
@@ -12329,5 +12352,374 @@ defmodule Elzoo.RunEngineTest do
       :erlang.trace(engine, false, [:call])
       Enum.each(traced, &:erlang.trace_pattern(&1, false, [:global]))
     end
+  end
+
+  # A Run owner as before ELZ-429: every call goes to the real owner, and the replies of
+  # status/2 have no `renewed_since`.
+  defmodule LegacyStatusOwner do
+    use GenServer
+
+    def init(run), do: {:ok, run}
+
+    def handle_call({:status, _} = msg, _from, run) do
+      reply =
+        case GenServer.call(run, msg, 60_000) do
+          {:ok, view} -> {:ok, Map.delete(view, :renewed_since)}
+          other -> other
+        end
+
+      {:reply, reply, run}
+    end
+
+    def handle_call(msg, _from, run), do: {:reply, GenServer.call(run, msg, 60_000), run}
+  end
+
+  # ELZ-429. A renewal of the Run owner's lease (RunApprovalRelease.renew/2) moves the
+  # revision that status/2 reports, and no Run fact.
+  describe "renewal_is_not_a_transition" do
+    test "several renewals between the commands of a live Run: no record for a renewal, and every command applies" do
+      {plain, _, plain_provider} = publication(0)
+      {c, configured, provider} = publication(2)
+      # The journal is the journal without renewals, and no :run_view covers renewals alone.
+      assert journal(c) == journal(plain)
+      each_view_follows_a_transition(c, configured)
+      # Every command applied: the owner holds the same Run records, the Run is completed.
+      assert run_events(c) == run_events(plain)
+      assert Enum.count(owner_rows(c), &(&1.kind == "lease_renewed")) == 8
+      assert {:ok, %{outcome: :completed}} = Run.status(c.run, "run")
+      for p <- [plain_provider, provider], do: send(p, {:result, %{}})
+    end
+
+    test "an Approval request and its evidence among renewals: each has its :run_view as without renewals, the renewals around them none" do
+      {plain, _, plain_provider} = approval_among_renewals(0)
+      {c, configured, provider} = approval_among_renewals(2)
+      assert journal(c) == journal(plain)
+      # The same views; only the revision that the engine read differs.
+      facts = fn c -> Enum.map(run_views(c), &Map.delete(&1, :revision)) end
+      assert facts.(c) == facts.(plain)
+      each_view_follows_a_transition(c, configured)
+      for p <- [plain_provider, provider], do: send(p, {:result, %{}})
+    end
+
+    test "a release and a re-claim of the lease with no Run record between: the reopened engine journals the :run_view, as before" do
+      c = fixture()
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      renew(c, 2)
+      views = run_views(c)
+      stop_engine(c, engine)
+
+      c =
+        replace_owner(c, fn ->
+          assert {:free, _} = Elzoo.Lease.release(c.lease, "runs", "owner")
+          assert {:held, _} = Elzoo.Lease.claim(c.lease, "runs", "owner", 3_600_000)
+        end)
+
+      assert {:ok, %{revision: claimed}} = Run.status(c.run, "run")
+      engine = bounded_start(c)
+
+      assert Enum.drop(run_views(c), length(views)) == [
+               %{
+                 id: "run",
+                 operation_id: "operation",
+                 current_attempt: "attempt",
+                 revision: claimed,
+                 outcome: nil,
+                 at_ms: 2_000
+               }
+             ]
+
+      assert {:ok, %{renewed_since: ^claimed}} = Run.status(c.run, "run")
+
+      wake_as(engine, "after-claim")
+      assert length(run_views(c)) == length(views) + 1
+    end
+
+    test "a replacement owner after renewals: the reopened engine journals nothing for them, a command on a freshly read revision applies and an explicit stale one conflicts" do
+      c = ask_fixture()
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      key = approval_key(c, view(engine), "publish")
+      wake_as(engine, "after-request")
+      assert {:ok, %{revision: recorded}} = Run.status(c.run, "run")
+      assert List.last(run_views(c)).revision == recorded
+      [r1, r2] = renew(c, 2)
+      stop_engine(c, engine)
+      before = rows(c)
+      c = replace_owner(c)
+      engine = bounded_start(c)
+      # The startup reads only renewals since the recorded revision: it commits nothing.
+      assert rows(c) == before
+      assert {:ok, %{revision: ^r2, renewed_since: ^recorded}} = Run.status(c.run, "run")
+
+      # Explicit revisions from before the replacement's start conflict, as before.
+      for stale <- [recorded, r1] do
+        assert {:refused, :conflict} =
+                 Run.command(c.run, %{
+                   kind: :begin_attempt,
+                   run_id: "run",
+                   attempt_id: "second",
+                   expected_revision: stale
+                 })
+      end
+
+      # The engine's next owner command reads the revision afresh and applies; the
+      # evidence has its :run_view.
+      views = run_views(c)
+      assert {:ok, :applied} = consent_control(engine, key)
+      assert_receive {:effect_started, provider, _}, 5_000
+      assert [%{revision: evidence} | _] = Enum.drop(run_views(c), length(views))
+      assert evidence == r2 + 1
+      assert run_event(c, evidence) == :evidence
+      send(provider, {:result, %{}})
+    end
+
+    test "a new Attempt after renewals is a Run transition with today's effects" do
+      begin = fn c ->
+        change_attempt_down(c)
+        "second"
+      end
+
+      {plain, _, plain_provider} = changed_after_renewals(begin, 0)
+      {c, engine, provider} = changed_after_renewals(begin, 2)
+      assert journal(c) == journal(plain)
+      assert unit_state(c).slots == unit_state(plain).slots
+      assert budgets(c) == budgets(plain)
+      assert %{current_attempt: "second", outcome: nil} = List.last(run_views(c))
+      slot = unit_state(c).slots[{1, 0}]
+      assert {slot.phase, slot.outcome, slot[:actual]} == {:settled, "unknown", nil}
+      assert budget_status(c, "root") == %{committed: 0, reserved: 1}
+      assert view(engine).joins[1].closed
+      for p <- [plain_provider, provider], do: send(p, {:result, %{}})
+    end
+
+    test "an owner view without renewed_since keeps the :run_view of a renewal, as before, and the new owner replays that journal without another row" do
+      legacy = fn c ->
+        start_supervised!(%{
+          id: make_ref(),
+          start: {GenServer, :start_link, [LegacyStatusOwner, c.run]}
+        })
+      end
+
+      {c, bindings, engine, before} = retained_run(%{"nested" => 10_000}, legacy)
+      parent = key_of(before, "nested")
+      tool = key_of(before, "tool-nested")
+      Agent.update(c.clock, fn _ -> 15_000 end)
+      journal = journal(c)
+      assert {:ok, renewed, _} = Run.renew(c.run, 3_600_000)
+
+      # As before ELZ-429: the renewal's :run_view closes the parent at 15,000 before the
+      # result is folded, and a :nested_actual record follows.
+      assert {:ok, :applied} = child_result(engine, before, "tool-nested", 5)
+      assert %{revision: ^renewed} = List.last(run_views(c))
+
+      assert [
+               {:run_view, nil, nil, nil, nil},
+               {:protocol, "action_outcome", "tool-nested", "completed", _, 5, ^tool, _},
+               {:nested_actual, ^parent, 5, _, _}
+             ] = Enum.drop(journal(c), length(journal))
+
+      assert unit_state(c).slots[parent].actual == 5
+      # The new owner, whose view has renewed_since, on that journal after one more
+      # renewal: the restart replays the recorded settlement and writes no row, and a
+      # wake adds only its own record.
+      assert {:ok, _, _} = Run.renew(c.run, 3_600_000)
+      recorded = rows(c)
+      state = unit_state(c)
+      engine = bounded_restart(c, engine, bindings: bindings)
+      assert rows(c) == recorded
+      assert unit_state(c) == state
+      journal = journal(c)
+      wake_as(engine, "after-reopen")
+      assert [{:protocol, "wake", _, _, _, _, _, _}] = Enum.drop(journal(c), length(journal))
+    end
+
+    test "an outcome after renewals is a Run transition with today's effects" do
+      finish = fn c ->
+        end_run(c)
+        "attempt"
+      end
+
+      {plain, _, plain_provider} = changed_after_renewals(finish, 0)
+      {c, engine, provider} = changed_after_renewals(finish, 2)
+      assert journal(c) == journal(plain)
+      assert unit_state(c).slots == unit_state(plain).slots
+      assert budgets(c) == budgets(plain)
+      assert %{outcome: :failed} = List.last(run_views(c))
+      assert view(engine).phase == :terminal
+      slot = unit_state(c).slots[{1, 0}]
+      assert {slot.phase, slot.outcome, slot[:actual]} == {:settled, "unknown", nil}
+      assert budget_status(c, "root") == %{committed: 0, reserved: 1}
+      for p <- [plain_provider, provider], do: send(p, {:result, %{}})
+    end
+  end
+
+  # ELZ-429 helpers. `n` renewals of the Run owner's lease; their revisions.
+  defp renew(c, n) do
+    for _ <- 1..n//1 do
+      assert {:ok, revision, _} = Run.renew(c.run, 3_600_000)
+      revision
+    end
+  end
+
+  # The view of each `:run_view` record of the journal, in commit order.
+  defp run_views(c) do
+    for row <- rows(c),
+        row.kind == "input",
+        {1, {_id, %{kind: :run_view, view: view}}} <- [
+          :erlang.binary_to_term(row.payload, [:safe])
+        ],
+        do: view
+  end
+
+  defp owner_rows(c) do
+    {:ok, rows, _} = Elzoo.DurableLog.read(c.run_store, "runs", 1, 1_000)
+    rows
+  end
+
+  # The kind of the Run event at `revision` of the owner's stream, or of each in order.
+  defp run_event(c, revision),
+    do: c |> owner_rows() |> Enum.find(&(&1.sequence == revision)) |> event_kind()
+
+  defp run_events(c), do: for(row <- owner_rows(c), row.kind == "run", do: event_kind(row))
+
+  defp event_kind(%{kind: "run", payload: payload}),
+    do: elem(:erlang.binary_to_term(payload, [:safe]), 0)
+
+  defp event_kind(%{kind: kind}), do: kind
+
+  # Every `:run_view` record follows a record of the owner other than a renewal, after
+  # the revision that the engine recorded before it (at first, `configured`).
+  defp each_view_follows_a_transition(c, configured) do
+    rows = owner_rows(c)
+
+    Enum.reduce(run_views(c), configured, fn view, recorded ->
+      assert Enum.any?(
+               rows,
+               &(&1.sequence > recorded and &1.sequence <= view.revision and
+                   &1.kind != "lease_renewed")
+             )
+
+      view.revision
+    end)
+  end
+
+  defp stop_engine(c, engine) do
+    GenServer.stop(engine)
+    assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+  end
+
+  # Stops the Run owner, runs `between`, and starts another owner on the lease token
+  # that the stream holds then.
+  defp replace_owner(c, between \\ fn -> :ok end) do
+    GenServer.stop(c.run)
+    between.()
+    {:held, held} = Elzoo.Lease.hold(c.lease, "runs", "owner")
+
+    {:ok, run} =
+      Run.start_link(
+        store: c.run_store,
+        lease: c.lease,
+        held: held,
+        effect_intent: c.opts[:effect_intent]
+      )
+
+    Process.unlink(run)
+    on_exit(fn -> if Process.alive?(run), do: GenServer.stop(run) end)
+    %{c | run: run, held: held, opts: Keyword.put(c.opts, :run_owner, run)}
+  end
+
+  # The root asks a tool call "publish" under ASK, then a finish that names it; the host
+  # gives consent and the result. `n` renewals of the Run owner come after the start, the
+  # request, the consent and the result. Gives the fixture, the revision that the engine
+  # configured with and the provider, which still waits.
+  defp publication(n) do
+    requests = [
+      request([action("publish", "tool_call")]),
+      request([finish_action("done", %{"action_id" => "publish"})])
+    ]
+
+    c = fixture(pattern: {TestPattern, :step, %{requests: requests}})
+    require_approval(c)
+    {:ok, %{revision: configured}} = Run.status(c.run, "run")
+    engine = start(c)
+    renew(c, n)
+    assert {:ok, :applied} = send_input(engine)
+    key = approval_key(c, view(engine), "publish")
+    renew(c, n)
+    assert {:ok, :applied} = consent_control(engine, key)
+    assert_receive {:effect_started, provider, _}, 5_000
+    renew(c, n)
+
+    assert {:ok, :applied} =
+             RunEngine.input(
+               engine,
+               "publish-result",
+               result("publish"),
+               verified(%{occurrence: {1, 0}, actual: 1, dispatch: "dispatched"})
+             )
+
+    assert view(engine).outcome == :completed
+    renew(c, n)
+    assert {:ok, _} = RunEngine.input(engine, "after-result", wake(), verified())
+    {c, configured, provider}
+  end
+
+  # A tool call "publish" under ASK. `n` renewals of the Run owner come after the start,
+  # the engine's approval request, the host's consent and once more, each followed by a
+  # wake; a wake after renewals alone adds no :run_view, and the request and the evidence
+  # each add theirs at the engine's next read of the Run.
+  defp approval_among_renewals(n) do
+    c = ask_fixture()
+    {:ok, %{revision: configured}} = Run.status(c.run, "run")
+    engine = start(c)
+    renew(c, n)
+    assert {:ok, :applied} = send_input(engine)
+    key = approval_key(c, view(engine), "publish")
+    assert run_views(c) == []
+    renew(c, n)
+    wake_as(engine, "after-request")
+    # The request and the intent that the dispatch path binds: one view, read after the renewals.
+    assert {:ok, %{revision: read}} = Run.status(c.run, "run")
+    assert [%{revision: ^read}] = run_views(c)
+
+    assert c |> owner_rows() |> Enum.filter(&(&1.kind == "run")) |> Enum.map(&event_kind/1) ==
+             [:create, :attempt, :approval, :intent]
+
+    renew(c, n)
+    wake_as(engine, "renewed-after-request")
+    assert length(run_views(c)) == 1
+    assert {:ok, :applied} = consent_control(engine, key)
+    assert_receive {:effect_started, provider, _}, 5_000
+    # The evidence: its view at its own revision, read right after the command.
+    assert [_, %{revision: evidence}] = run_views(c)
+    assert run_event(c, evidence) == :evidence
+    renew(c, n)
+    wake_as(engine, "after-consent")
+    renew(c, n)
+    wake_as(engine, "renewed-after-consent")
+    assert length(run_views(c)) == 3
+    {c, configured, provider}
+  end
+
+  # A dispatched tool call "publish"; then `n` renewals of the Run owner, the change that
+  # `change` makes on the owner (it gives the Attempt of the Run after it), `n` renewals
+  # more, and a wake of that Attempt, at which the engine reads the Run.
+  defp changed_after_renewals(change, n) do
+    c = tool_run()
+    engine = start(c)
+    assert {:ok, :applied} = send_input(engine)
+    assert_receive {:effect_started, provider, _}, 5_000
+    renew(c, n)
+    attempt = change.(c)
+    renew(c, n)
+
+    assert {:ok, _} =
+             bounded(
+               fn -> RunEngine.input(engine, "learn", wake(), verified(%{attempt_id: attempt})) end,
+               20_000
+             )
+
+    {c, engine, provider}
   end
 end
