@@ -923,14 +923,22 @@ failure permits one fallback to `https://archive.ubuntu.com/ubuntu/`, then
 A failed strict refresh never reaches installation using stale indexes; failed
 fallback provisioning fails the job. This does not guarantee network availability.
 
+The fallback update and installation read only the official Ubuntu stanzas
+(ELZ-435): the helper writes them, with `URIs: https://archive.ubuntu.com/ubuntu/`
+alone, to a temporary `.sources` file and passes `-o Dir::Etc::sourcelist=<that
+file> -o Dir::Etc::sourceparts=-` (`apt.conf(5)`), so other stanzas of
+`ubuntu.sources`, other URIs of an official stanza and other source files are
+not read, and an unreachable third-party repository cannot fail the fallback.
+
 The supported configuration is Ubuntu 24.04's canonical
 `/etc/apt/sources.list.d/ubuntu.sources`, with single-line `URIs:` fields and no
 explicit `Enabled:` field. Recognized URI tokens are HTTP(S) Azure/archive Ubuntu
 endpoints or `mirror+file:/etc/apt/apt-mirrors.txt` whose first whitespace-delimited
 mirror field is exactly such an official URI (including the hosted `priority:N`
-form). Only recognized URI tokens change; suites, components, Signed-By, other
-fields, unrelated source files and the mirror file remain unchanged. Unknown
-layouts, explicit enable/disable fields or no recognized URI fail before writing.
+form). Suites, components, Signed-By and other fields of an official stanza are
+copied unchanged; the installed source files and the mirror file are not written.
+Unknown layouts, explicit enable/disable fields, a repeated `URIs:` field or no
+recognized URI fail before the fallback runs apt.
 This is not a general apt source parser. Apt retains repository/package
 authentication; no insecure/trusted overrides, package pin or IP pin is added.
 
