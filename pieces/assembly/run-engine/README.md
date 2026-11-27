@@ -246,7 +246,9 @@ truthful scope; this interface does not authenticate a production source or
 enforce callback resource bounds.
 
 Fresh-event failures are exactly `:invalid_correlation`, `:invalid_payload`,
-`:source_not_found`, `:source_unavailable` and `:source_gap`. They append and
+`:source_not_found`, `:source_unavailable` and `:source_gap`, and `:unavailable`
+when the lookup of the input ID in the engine's journal fails after the source
+read (see Failure, size and audit limits). They append and
 settle nothing; oversized fresh candidates return `:invalid_payload`. Provider
 errors are `{:error, :unavailable}` or `{:error, :gap}` from `head/1`, and
 `{:error, :not_found}`, `{:error, :unavailable}` or `{:error, :gap}` from
@@ -865,7 +867,8 @@ halts the engine for a dead Unit: when the Unit is gone — already stopped, or
 stopped between the liveness check and the read — the engine answers the last
 committed durable state, the same recovery read a restarted Unit replays, and
 the next `current/1` performs the replacement recovery; only an uncertain
-write ends in the `delivery_unknown`, `ownership_unknown` or storage halts.
+write ends in the `delivery_unknown`, `ownership_unknown` or storage halts (a
+refused internal record whose winner cannot be read is one, below).
 Unknown append/timeout,
 uncertain stop/start or ownership conflict require write confirmation and
 fencing, never blind append/resampling. Transition defect/oversize needs repair,
@@ -876,6 +879,26 @@ input. This Piece states no other way to learn what happened to the first call
 than sending the same ID again, no bound on how long the engine then continues,
 and no time guarantee: the measured 4.2 to 5.0 s of an input at the bounds is one
 observation on one shared worker host, not a bound.
+
+A journal lookup scans the engine's own stream from its first record: the
+lookup of the ID of an input or control before it is committed, the lookup of
+the admission of a settled occurrence when an outcome recorded for it is sent
+again, and the read of the winner when the Unit refuses an internal record with
+`:input_id_conflict`. A read that fails (`{:error, :unavailable}`,
+`{:error, :malformed}`, which is also the Store's answer to a gap reply, or
+`{:error, {:pruned, low_water}}`) or a page whose head has `low_water` above
+zero cannot show the whole history, and the lookup gives no answer. For the
+first two lookups, `input/4` and `control/4` (pause, continue and cancel alike,
+never `:invalid_control` or `:cancel_unknown`) return `{:error, :unavailable}`,
+nothing is committed for the submitted ID, and the engine goes on with no halt:
+`status/1` shows `reconciliation: nil`, which tells this reply from a halt with
+the same reason, and the same call with the same ID can be sent again. A Run
+view that `current/1` committed before the lookup stays committed. A failed read
+of the winner is the storage halt `:unavailable`; a complete scan that finds no
+winner contradicts the Unit's completed ID and is the halt `:integrity_failure`,
+as is a winner that differs from the engine's record on `:kind`, `:request` or
+`:occurrence`. A halted engine answers each later call with its halt, `status/1`
+shows it as `reconciliation`, and only an explicit host restart reopens it.
 
 Payload/outcome JSON <=65536 bytes and depth <=32; ingress <=262144 bytes;
 DU record/output <=16777216 bytes; complete active slot <=131072 bytes;
@@ -1585,6 +1608,37 @@ restart past the deadline ends the Run `:out_of_time`; the fold keeps
 stream check (the moved row gives `{:failed, record}`). Listed finite scenarios,
 not a proof.
 
+`test/elzoo/run_engine_read_failure_test.exs` exercises journal lookups that
+cannot read the whole history on disposable PostgreSQL, through a Store that
+only the engine reads through and that replaces one scan read on request (the
+Unit writes through the plain Store): `read_fault_store` (each fault gives, for
+one read, `{:error, :unavailable}`, `{:error, :malformed}` from a gap reply,
+`{:error, {:pruned, 1}}` or a page whose head has low-water 1),
+`input_lookup_fails` (for each fault `input/4` returns `{:error, :unavailable}`,
+the journal gains only the Run view that `current/1` committed before the
+lookup, the engine runs with `reconciliation: nil`, and the same input then
+applies), `control_lookup_fails` (for each fault pause, continue and cancel each
+return `{:error, :unavailable}` with the journal unchanged, and each applies when
+sent again), `settled_retry_lookup_fails` (a refused outcome sent again after
+its slot settled and its request left the state: the lookup of its ID reads, the
+lookup of its admission fails, and the retry returns `{:error, :unavailable}`
+for each fault with the journal unchanged; then the same retry on the same
+engine is `{:ok, :duplicate}`), `winner_read_fails` (the ID of the engine's next
+Run view already holds another Run view: a failed read of the winner halts with
+`:unavailable` for each fault, also at the next call, and writes nothing; read,
+the winner is taken and the input applies) and `winner_contradicts` (the scan
+without the winner's row, a protocol input under the Run view's ID, a gate
+record naming another request and an admission naming another occurrence each
+halt with `:integrity_failure`). Temporary edits are negative controls: the bare
+match restored (the input, control, settled-retry and winner-read tests fail: the
+engine process exits), the control error left to the existing else clause
+(`{:error, :invalid_control}`), the cancel error left to `:cancel_unknown`, the
+failed admission read taken as no admission, in its lookup or in the recheck
+(`{:error, :input_id_conflict}`), a failed winner read taken as
+`:integrity_failure`, and a page whose head has low-water above zero taken as
+whole (the `:low_water` case of those four tests applies, or is a duplicate).
+Listed finite scenarios, not a proof.
+
 ## Changes
 
 - ELZ-416 (2026-11-26): the README names the current platform pins, Elixir
@@ -1613,3 +1667,17 @@ not a proof.
   a finish that names no action, with no host cancel; a caller of `result/3`
   matches `{:failed, record}`; a host that fails the owner itself sends the engine
   an input of the current Attempt first. Recorded journals replay as recorded.
+- ELZ-433 (2026-11-27): breaking. A journal lookup of the engine that cannot read
+  the whole history (an unavailable or malformed read, a pruned history, or a page
+  whose head has low-water above zero) no longer stops the engine process with a
+  match error in the middle of a call. When it is the lookup of the ID of an
+  input or control, or of the admission of a settled occurrence whose outcome is
+  sent again, `input/4` and `control/4` return `{:error, :unavailable}` (control
+  never `:invalid_control` or `:cancel_unknown` for it), nothing is committed for
+  that ID and the engine goes on; when it is the read of the winner after the Unit
+  refuses an internal record with `:input_id_conflict`, the engine halts with
+  `:unavailable`. A complete scan with no winner still halts with
+  `:integrity_failure`. How to move: a caller that gets `{:error, :unavailable}`
+  sends the same ID again later, as after an exit of the call; a host that finds
+  `reconciliation: :unavailable` in `status/1` restarts the engine as for any
+  storage halt. No stored format changes; recorded journals replay as recorded.
