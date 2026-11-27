@@ -313,6 +313,41 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
       assert {:refused, :lua_error} = Helper.run(exe, Helper.function_source("return (nil).len"))
     end
 
+    test "a granted table function given a string is an argument error that pcall catches", %{
+      executable: exe
+    } do
+      # Lua 5.5.1 lets a string stand in for a read-only table. The table wrappers
+      # require a table for every argument they index, before the upstream function
+      # runs, so the library never indexes the string through the strict string
+      # metatable: the error is an ordinary one and the evaluation continues
+      for {arguments, position} <- [
+            {"table.concat, s", 1},
+            {"table.unpack, s", 1},
+            {"table.insert, s, 'x'", 1},
+            {"table.remove, s", 1},
+            {"table.sort, s", 1},
+            {"table.move, s, 1, 1, 1", 1},
+            {"table.move, {1}, 1, 1, 1, s", 5}
+          ] do
+        source =
+          "return function(s) local ok, e = pcall(#{arguments}) return {ok, e, 'fallback'} end"
+
+        assert {:ok, %{value: [false, message, "fallback"]}} = Helper.run(exe, source, "blue"),
+               arguments
+
+        assert message =~ "bad argument ##{position} to ", arguments
+        assert String.ends_with?(message, "(table expected, got string)"), arguments
+      end
+
+      # uncaught, the same call is an ordinary error of the run
+      assert Helper.run(exe, "return function(s) return table.concat(s) end", "blue") ==
+               {:refused, :lua_error}
+
+      # a direct index of a string is still a lookup of the strict string metatable
+      assert Helper.run(exe, Helper.function_source("return ('abc')[1]")) ==
+               {:refused, :unlisted_name}
+    end
+
     test "a missing field of each library table", %{executable: exe} do
       for library <- @libraries, field <- ~w(nope dump random getn len2 __index __metatable) do
         source = Helper.function_source("return #{library}.#{field}")

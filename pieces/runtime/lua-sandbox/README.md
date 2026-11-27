@@ -151,7 +151,8 @@ Not granted: `pairs`, `next`, `coroutine`, `xpcall`, `load`, `require`, `package
 access, `dofile`. `tostring` accepts only scalar text, numbers, booleans and nil;
 `string.format` refuses `%p` and a non-scalar `%s`. Wrappers (`pcall`, `tostring`,
 `string.format`, and the allocating or dense-array functions) carry explicit versions
-in the descriptor; dense-array operations refuse sparse or mixed tables.
+in the descriptor; dense-array operations refuse sparse or mixed tables, and an
+argument that is not a table with an ordinary argument error.
 
 The **identity** is `policy-v4:sha256:<64 lowercase hex>` over the canonical JSON of the
 descriptor (sorted keys, sorted qualified names, wrapper versions, numeric and iteration
@@ -545,7 +546,18 @@ outside that checkout. `examples/elzoo/lua_sandbox.exs` shows the call and evalu
     given name instead, so `function(...v)` loads already at 13 (at 4, like a
     plain function, since `v` is shorter than the smallest interned name of
     initialization).
-  - Three granted calls change results: `select('#', table.unpack(false, 2, 1))`
-    is a `lua_error` now instead of 0, `table.concat('')` is `""` now instead of
-    a `lua_error`, and on 64-bit `string.packsize('c2000000000c2000000000')` is
-    4000000000 now instead of a `lua_error`.
+  - Two granted calls change results: `select('#', table.unpack(false, 2, 1))`
+    is a `lua_error` now instead of 0 (the range is no longer read before the
+    first argument is checked), and on 64-bit
+    `string.packsize('c2000000000c2000000000')` is 4000000000 now instead of a
+    `lua_error`.
+  - 5.5.1 lets a string stand in for a read-only table (a string needs no
+    `__len` for its length), so `table.concat`, `table.unpack` and the source of
+    `table.move` would index a string through the shared string metatable, whose
+    strict lookup ends the run with the sticky `unlisted_name`, which `pcall`
+    cannot catch. The table wrappers now require a table for every argument they
+    index (`concat`, `unpack`, `insert`, `remove`, `sort`, and both tables of
+    `move`) and raise an ordinary argument error before the upstream function
+    runs, so `pcall` catches it as under 5.4.9 (`table.concat('')` stays an
+    argument error). A direct index of a string, such as `('abc')[1]`, is still
+    `unlisted_name`.

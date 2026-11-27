@@ -466,6 +466,31 @@ defmodule Elzoo.LuaSandboxReplayTest do
       refute runtime.build_options == saved_5_4_9.build_options
       refute runtime.host_sha256 == saved_5_4_9.host_sha256
     end
+
+    test "the exact v3 identity of the 5.4.9 build is policy_mismatch in Elixir and in the host",
+         %{executable: exe} do
+      v3 = "policy-v3:sha256:79216e52ac3baac64de99b246408edacde0c9ad6c33ae6c6ee71b6db6cf21553"
+      refute v3 == LuaSandbox.policy().identity
+
+      # the Elixir validator refuses it before any process starts
+      request = %{Helper.request(@valid) | policy: v3}
+      assert LuaSandbox.run("/nonexistent/executable", request) == {:refused, :policy_mismatch}
+
+      # the host refuses it in a raw frame, before a Lua state exists
+      limits = Map.new(Helper.default_limits(), fn {key, value} -> {Atom.to_string(key), value} end)
+
+      body =
+        Jason.encode!(%{
+          "source" => @valid,
+          "input" => nil,
+          "policy" => v3,
+          "limits" => limits,
+          "calls" => %{"mode" => "none", "names" => [], "recorded" => []}
+        })
+
+      {output, 0} = Helper.raw_exchange(exe, Helper.frame(body))
+      assert Helper.decode_frame!(output) == %{"status" => "refused", "reason" => "policy_mismatch"}
+    end
   end
 
   # ---- group `replay_and_survival_with_helpers` ----

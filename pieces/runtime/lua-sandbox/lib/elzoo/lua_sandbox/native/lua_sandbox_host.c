@@ -1298,10 +1298,16 @@ static int w_tostring(lua_State *L) {
   return luaL_error(L, "tostring: value has no portable text");
 }
 
-/* Reject any table whose keys are not exactly 1..n. */
+/* Require a table whose keys are exactly 1..n. Every caller is a granted table
+** function that indexes this argument. Lua 5.5.1 lets a string stand in for a
+** read-only table (a string needs no __len for its length), so the library would
+** index it through the shared string metatable, whose strict lookup turns the
+** numeric key into the sticky unlisted_name. Any argument that is not a table is
+** an ordinary argument error instead, raised before the upstream function runs,
+** so pcall can catch it. */
 static void check_dense(lua_State *L, int idx) {
   lua_Integer n, count = 0;
-  if (lua_type(L, idx) != LUA_TTABLE) return;
+  if (lua_type(L, idx) != LUA_TTABLE) luaL_typeerror(L, idx, "table");
   idx = lua_absindex(L, idx);
   n = (lua_Integer)lua_rawlen(L, idx);
   charge(L, (long long)n + 1);

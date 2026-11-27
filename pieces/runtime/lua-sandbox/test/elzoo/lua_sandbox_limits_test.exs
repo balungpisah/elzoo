@@ -671,13 +671,16 @@ defmodule Elzoo.LuaSandboxLimitsTest do
                  "return function() for a, b in (function() return nil end) do b = 1 end return 1 end"
                )
 
-      # granted calls whose result changed with 5.5.1
+      # granted calls whose result changed with 5.5.1; an empty range of a value that
+      # is not a table is an argument error now (the table wrappers require a table
+      # before the range is read), and table.concat('') stays an argument error
       assert Helper.run(
                exe,
                "return function() return select('#', table.unpack(false, 2, 1)) end"
              ) == {:refused, :lua_error}
 
-      assert {:ok, %{value: ""}} = Helper.run(exe, "return function() return table.concat('') end")
+      assert Helper.run(exe, "return function() return table.concat('') end") ==
+               {:refused, :lua_error}
 
       assert {:ok, %{value: 4_000_000_000}} =
                Helper.run(
