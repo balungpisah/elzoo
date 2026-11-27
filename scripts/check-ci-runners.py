@@ -689,6 +689,13 @@ for file in files:
                     or lines[step_starts[3]:step_starts[3] + len(beam)] != beam):
                 errors.append(f'{file}: the pinned BEAM setup step must immediately follow the runtime step, '
                               f'after only the identity, checkout and runtime steps ({name})')
+            # The identity gate's run: block would carry any command appended to it to before checkout and the BEAM
+            # setup: from the end of its pinned text to checkout only blank lines and comments may stand. Checkout,
+            # runtime and BEAM setup are pinned back to back above, so no line can stand between them.
+            gate_end = steps[0] + 1 + len(HOSTED_GLEAM_GATE_STEP.split('\n')) if len(steps) == 1 else e
+            if (len(found) != 1 or found[0] < gate_end
+                    or any(lines[i].strip() and not lines[i].lstrip().startswith('#') for i in range(gate_end, found[0]))):
+                errors.append(f'{file}: the identity gate step must end at its pinned text, right before checkout ({name})')
         if file.name == 'symbolic-check.yml':
             # ELZ-073: the pinned steps and conditions depend on the role of the job.
             def pin(step_text):

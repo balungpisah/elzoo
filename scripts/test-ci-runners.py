@@ -609,6 +609,31 @@ class RunnerPolicyTest(unittest.TestCase):
         path.write_text(source.replace(marker, marker + self.BEAM_STEP + node + self.GLEAM_STEP))
         self.assertIn(message, self.check(1).stderr)
 
+    def test_no_command_can_be_appended_before_the_gleam_beam_setup_step(self):
+        gate_end = '          echo "Hosted runner: $RUNNER_NAME"\n'
+        runtime = "        run: sudo python3 \"$GITHUB_WORKSPACE/scripts/ci-install-runtime.py\"\n"
+        for old, extra, message in (
+                # appended to the identity gate's run: block, the command would run before checkout and BEAM setup
+                (gate_end, "          ./scripts/check.sh\n", "identity gate step must end at its pinned text"),
+                (gate_end, "          scripts/check.sh\n", "identity gate step must end at its pinned text"),
+                (gate_end, "\n          scripts/check.sh\n", "identity gate step must end at its pinned text"),
+                (gate_end, "          echo ready\n", "identity gate step must end at its pinned text"),
+                # appended to the runtime step's run: line, as a continuation or after a blank line
+                (runtime, "          ./scripts/check.sh\n", "pinned BEAM setup step must immediately follow the runtime step"),
+                (runtime, "\n          ./scripts/check.sh\n", "pinned BEAM setup step must immediately follow the runtime step")):
+            with self.subTest(old=old.strip(), extra=extra):
+                try:
+                    path = self.root / ".github" / "workflows" / "symbolic-gleam.yml"
+                    self.assertEqual(1, path.read_text().count(old))
+                    self.change("symbolic-gleam.yml", old, old + extra)
+                    self.assertIn(message, self.check(1).stderr)
+                finally:
+                    self.tearDown()
+                    self.setUp()
+        # A comment line after the gate's pinned text is still allowed.
+        self.change("symbolic-gleam.yml", gate_end, gate_end + "      # the checkout follows\n")
+        self.check(0)
+
     def test_gleam_otp_version_follows_the_root_jobs(self):
         # Bumping only the Gleam job, or only the root jobs, is refused: the pin is the spike job's OTP version.
         guard = self.root / "check-ci-runners.py"
