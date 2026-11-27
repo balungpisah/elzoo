@@ -19,7 +19,7 @@ their measurements describe that earlier shape, not the current one. With ELZ-15
 | `check-consumers-db` | `consumers-db`: the five PostgreSQL per-ID consumers | `ELZOO CONSUMERS DB PASSED` |
 | `check-consumers` | `consumers`: the 23 database-free per-ID consumers | `ELZOO CONSUMERS PASSED` |
 | `check-piece` | Unchanged small gate, only for a Piece-only pull request | Existing Piece marker, never the full marker |
-| `check-spike` | Isolated Ash checks when Ash changed, only for a spike-only pull request | `ELZOO SPIKE CHECK PASSED` |
+| `check-spike` | Root build (`mix setup`) plus the Ash spike when Ash changed, only for a spike-only pull request | `ELZOO SPIKE CHECK PASSED` |
 | `check-hosted` | Requires the complete planned result unit | `ELZOO CHECK PASSED` only for full execution |
 
 Every work job keeps the pinned disposable PostgreSQL service, S3 setup, runtime, four schedulers and dependency-cache
@@ -66,13 +66,18 @@ The documentation-only and Piece-only rules are unchanged.
 On pull requests only, the plan runs all guards and roadmap checks, writes
 `run=false`, `piece=false`, `spike=true` and
 `ELZOO SPIKE PLAN: spike=true spike_only=true`. The five work jobs and
-`check-piece` are skipped. `check-spike` needs no PostgreSQL or S3 service:
-when Ash changed it runs `mix deps.get`, `mix format --check-formatted` and
-`mix test --warnings-as-errors` directly in the Ash spike with `MIX_ENV=test`
-and root build/dependency overrides removed. This is the subprocess work of
-`mix elzoo.ash_spike --setup` and `mix elzoo.ash_spike`, without compiling the
-root project. It uses the same pinned runtime/setup/cache actions as other jobs
-and prints exactly one `ELZOO SPIKE CHECK PASSED` marker. Gleam paths remain
+`check-piece` are skipped. `check-spike` starts no S3 service; it keeps the
+pinned disposable PostgreSQL service of the work jobs because the spike's
+PostgreSQL durable-log tests fail closed without `ELZOO_TEST_DATABASE_URL`,
+and the identical "Prepare disposable PostgreSQL database" step. It restores
+the shared dependency cache (the `check-piece` key, restore only), then runs
+`mix local.hex --force`, `mix local.rebar --force` and `mix setup`: the spike
+support module loads `Cure.Elzoo.Replay` from the root test build, so the
+root project must be compiled first. When Ash changed it then runs
+`mix elzoo.ash_spike`, which runs `mix format --check-formatted` and
+`mix test --warnings-as-errors` inside the Ash spike with `MIX_ENV=test`
+and root build/dependency overrides removed. It uses the same pinned runtime,
+setup and cache actions as other jobs and prints exactly one `ELZOO SPIKE CHECK PASSED` marker. Gleam paths remain
 covered by the existing Gleam workflow. `check-hosted` checks the complete
 spike result shape and prints no full marker. Push and dispatch runs never
 select the spike gate; a spike merge runs the full check on main.
@@ -1023,7 +1028,7 @@ The revert is the rare path: the hosted lane carried every merge from 2026-11-09
 change"). When they are set again, a skipped job counts as passing, and a pull request from a fork skips them. The merge queue is the gate: it needs a run on the exact
 head with the five jobs and the identity rules above, and no fork pull request is queued.
 
-**Time limit.** The work jobs have `timeout-minutes: 120`, the plan job 20 and the aggregating job 10. A cold-cache run on a comparable 4 to 5 vCPU machine took
+**Time limit.** The work jobs have `timeout-minutes: 120`, the plan job 20, the spike job 30 and the aggregating job 10. A cold-cache run on a comparable 4 to 5 vCPU machine took
 72 minutes (see "History"), and the first run on `main` starts with an empty `elzoo-hosted-v1` cache.
 
 **Resource report.** On a hosted runner there is no job container, so `scripts/sample-ci-cpu.py` reads the cgroup of

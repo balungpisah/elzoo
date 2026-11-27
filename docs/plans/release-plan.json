@@ -11288,13 +11288,86 @@
           "role": "In-place fix under the same ID: every pending stop is bound to its Attempt, as ELZ-420 does for a root failure."
         }
       ],
-      "acceptance": "assembly/run-engine binds a completed stop and each lifecycle stop, its evidence row where written and the owner command to the Attempt that produced it; a stale owner answer or a restart after a new Attempt drops the stale stop without resetting Run-wide limits; during a retained-history read with a stop pending, records that end it or change the Attempt replay exactly; two crash cuts per stop, a transcript tamper case and negative controls; Piece gate, strongest other-family review.",
+      "acceptance": "assembly/run-engine binds a completed stop and each lifecycle stop, its evidence row where written and the owner command to the Attempt that produced it; a stale owner answer or a restart after a new Attempt drops the stale stop without resetting Run-wide limits; during a retained-history read with a stop pending, records that end it or change the Attempt replay exactly; two crash cuts per stop, a transcript tamper case; the first pending stop wins over a later lifecycle stop (completed and cancelled cases, v1 and v2); negative controls; Piece gate, strongest other-family review.",
       "product_aims": [
         "P09"
       ],
       "issue": 1036,
       "url": "https://github.com/balungpisah/elzoo/issues/1036",
-      "issue_body_sha256": "2290bd259084eac506496e0faf3b8d3842005490bed598abb6bac84c5aacd65b"
+      "issue_body_sha256": "569db8a02824ad511f6482fd99222983f86f51f3b3ccbb263ea3d3e8cbdb0c97"
+    },
+    {
+      "id": "ELZ-431",
+      "title": "ELZ-431 — check-spike: the Ash spike gets the database and root build its tests need",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [],
+      "status": "published 2026-11-26",
+      "owner_role": "coordinator-owned CI repair; one PR carries publication and implementation; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-431-check-spike-database-and-root-build.md"
+      ],
+      "outputs": [],
+      "acceptance": "check-spike gets the work jobs' PostgreSQL service and database step, restores the check-piece dependency cache, runs mix setup and then the Ash spike; the CI guard pins the shape and refuses a check-spike without the service or the database step; guard tests, negative control, full local gate and full hosted check; ELZ-424's next exact head shows check-spike green.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1039,
+      "url": "https://github.com/balungpisah/elzoo/issues/1039",
+      "issue_body_sha256": "169989b842cde5f18e62f552c3ac75f14c9471f6a9cf39fa61b4caba9ca327a4"
+    },
+    {
+      "id": "ELZ-432",
+      "title": "ELZ-432 — CI guard: pin the OTP version of the Gleam job",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-425"
+      ],
+      "status": "published 2026-11-27",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-432-ci-guard-gleam-otp-pin.md"
+      ],
+      "outputs": [],
+      "acceptance": "check-ci-runners pins the Gleam job's setup-beam step and its otp-version to the root jobs' OTP pin; refusal cases for a changed, removed or extended otp-version block; negative control; full local gate and full hosted check; independent review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1046,
+      "url": "https://github.com/balungpisah/elzoo/issues/1046",
+      "issue_body_sha256": "c006557b2705fb1c9bfa26c8e3faf7e78fc7e9aa75b65ac556d1a6b7c59be7ab"
+    },
+    {
+      "id": "ELZ-433",
+      "title": "ELZ-433 — assembly/run-engine: a failed journal read ends in a defined result, never a match error",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-420"
+      ],
+      "status": "published 2026-11-27",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-433-run-engine-journal-read-failure.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "assembly/run-engine",
+          "role": "In-place fix under the same ID: a failed read of the engine's own journal ends in a defined result, never a match error."
+        }
+      ],
+      "acceptance": "find_input/4 returns {:error, :unavailable} for a failed or incomplete read (:unavailable, :malformed, {:pruned, _}, low_water > 0); input/4 and control/4 (pause, continue, cancel) return {:error, :unavailable} and commit nothing for the submitted ID; a failed admitted_action/2 lookup on a settled retry is not discarded; after :input_id_conflict a failed winner read halts :unavailable, while no winner or a differing winner stays :integrity_failure; negative controls; Piece gate, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1048,
+      "url": "https://github.com/balungpisah/elzoo/issues/1048",
+      "issue_body_sha256": "d84e19cf27bbf6e993ce1f5159883317bd410e0f5f37db59f288f04395e6c6c4"
     }
   ],
   "entries": [
@@ -12492,12 +12565,12 @@
     {
       "id": "workflow/approval",
       "job": "ELZ-024",
-      "note": "Pure consent record over a caller-held state: request/3 opens, keeps or supersedes (revision + 1) a request bound structurally to the ASK action, escrow, policy identity and requirement; release/4 accepts host-verified evidence or a retained run/root consent, runs gates 0-21 in Cure (run, request, verifier allowlist, revocation, consumption, binding-only reuse, decision, Unix-ms issue/age/expiry, scope, approver, self-approval, re-decide, DENY, policy, payload, requirement, approver authority) and emits only the current decision's escrow within approver authority, once. select_retained/3, revalidate/3, revoke/2, apply_event/2 and replay/1 complete the Contract; replay returns state only.",
+      "note": "Pure consent record over a caller-held state: request/3 opens, keeps or supersedes (revision + 1, at most 2^31-1) a request bound structurally to the ASK action, escrow, policy identity and requirement; release/4 accepts host-verified evidence or a retained run/root consent, runs gates 0-21 in Cure (run, request, verifier allowlist, revocation, consumption, binding-only reuse, decision, Unix-ms issue/age/expiry, scope, approver, self-approval, re-decide, DENY, policy, payload, requirement, approver authority) and emits only the current decision's escrow within approver authority, once. select_retained/3, revalidate/3, revoke/2, apply_event/2 and replay/1 complete the Contract; replay returns state only. prune/2 removes the entries whose evidence key is dead at a supplied Unix-ms time and the closed request entries that no surviving release record uses; retire/2 removes the request lines that the owner names; both are pure, emit no event, skip the capacity check and keep the order of the surviving entries. Under the opt-in Verifier, Clock and Retirement Needs they change only refusal reasons, for every input on which both states pass the capacity check and whose request key or line is not retired.",
       "baseline_status": "deferred",
-      "disposition": "merged-ready-contract; task acceptance separate",
+      "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/approval/piece.json",
-      "manifest_sha256": "d76e1f16ea28ad0040de37becd3d62efafe008c5f4f6bf34f500cab8311ab82b"
+      "manifest_sha256": "da50bb6b0a2243cba8c9062c9fe08dd4365d0053faf183984a924730618a5198"
     },
     {
       "id": "workflow/budget",
@@ -12650,11 +12723,11 @@
     {
       "id": "assembly/run-engine",
       "job": "ELZ-127",
-      "note": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, the binding of each action chosen by its action kind and, for a schema map, its schema ID, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, a nested callable's first admitted finish given to its parent once each child cost is known or final unknown (the committed child amount when all are known, no actual when one is final unknown), a nested_callable slot that settles closing its child callable and every callable below it in the same fold step (closed, without state, so their state bounds leave control; their open slots settle by their own rules and child costs still reach the parent Budget), a change of Attempt settling every open slot of the older Attempt in the same fold step (refused with actual 0 when nothing can have been sent, `unknown` with the reservation held when something may have been sent, running local work `local_closed`), so no older-Attempt slot stays open, the end of a Run settling, by the same closer with reason `run_closed`, every open slot that the request-cap stop does not retain before its deadline, at the terminal view and at each later protocol input, so a terminal Run keeps no other slot open, durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission; `input/4`, `control/4` and `status/1` each wait for the engine at most 60,000 ms; optional read-only result/3 returns the first accepted completed source outcome after exact Run and evidence cross-checks within shared finite history budgets (65,536 rows, 536,870,912 canonical bytes, and 16,777,216 bytes per record). Optional expiry_reports: :owner (the only value; absent = the engine without it, byte for byte; recorded in the configure control and fingerprint, so adding or removing it on restart is incompatible_recovery) holds, after the expiry pass of an input, each slot that the pass settled expired and whose callable is open as that slot's pending_input (counted active, so an input that settles no slot is not given to the root while one is held, except a message under messages: :while_active, which is given to the root before the reports that its own expiry pass holds), in ascending occurrence order, under the ID of its :resume_input record, when the state with it fits and, under budget_rule :pause, the input's pause_deadline is after its time; the drain gives each held report to its own callable only, never an ancestor, as the expiry action_outcome (outcome expired, refusal schema, reason expired, the expiring input's at_ms and its pause_deadline), charged as any pattern output, before a finished child or slot progress, while not paused or terminal, generation open, no stop pending, current Attempt and callable open; a held report is dropped with no record, call or charge on generation close, terminal view, change of Attempt, closed owner or pending stop; a :resume_input step that gives its input (one retained while paused or a held report) makes a waiting Run active before its pattern call when nothing is active and no wait is listed, for every Run, so after continue the next permitted wake reaches the root. Optional messages: :while_active (the only value; absent = the engine without it, byte for byte; recorded in the configure control and in the fingerprint, wrapped after expiry_reports, so adding or removing it on restart is incompatible_recovery) gives a message input to the root pattern only, never a nested callable, when the lifecycle decides PermitWork or RemainWaiting, also while slots are active, as one ordinary pattern call that settles no slot, in the fold step of its own record after its own expiry pass, with every other condition of an input that settles no slot (generation open, no stop pending, not paused, root open, room for its invocation entry) unchanged; wake, start and resource_event keep their rule. Native v2 is opt-in with protocol_version: 2 and a fresh fixed-version Unit; omitted/1 retains v1 state, fingerprint and behavior. The v2 event source is fixed by ID/version and receives exact tenant/principal/run_id scope. wait_event supports zero-estimate admission through Budget public :status with reservation:nil; positive waits reserve and release, and other actions/versions retain existing reservation behavior. Read-only event_waits folds and verifies retained history with exact scope, DTO, limits and errors documented in README. Read-only transcript/3 returns one Run's committed history in commit order (inputs, gate and authorization verdicts, admitted actions with their callable path, nested starts and kept finishes, settlements with their record kind, reason and actual, later actuals and the terminal outcome), each entry derived from the folded state change of one committed record with its own recorded time, with the call path, scope, limits, reader configuration, reading, budgets, rechecks and errors of event_waits; it calls no callback, mutates nothing and emits no telemetry. The owner recheck of result/3, event_waits/3 and transcript/3 compares the Run's own facts (id, outcome, operation_id, current_attempt, completion_revision and evidence_ref), not the revision of the owner's whole stream, so an owner command that leaves them equal, of another Run of a shared owner or of this Run, does not fail the read; one that changes one of them during an event_waits/3 or transcript/3 read gives unavailable.",
+      "note": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, the binding of each action chosen by its action kind and, for a schema map, its schema ID, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, a nested callable's first admitted finish given to its parent once each child cost is known or final unknown (the committed child amount when all are known, no actual when one is final unknown), a nested_callable slot that settles closing its child callable and every callable below it in the same fold step (closed, without state, so their state bounds leave control; their open slots settle by their own rules and child costs still reach the parent Budget), a change of Attempt settling every open slot of the older Attempt in the same fold step (refused with actual 0 when nothing can have been sent, `unknown` with the reservation held when something may have been sent, running local work `local_closed`), so no older-Attempt slot stays open, the end of a Run settling, by the same closer with reason `run_closed`, every open slot that the request-cap stop does not retain before its deadline, at the terminal view and at each later protocol input, so a terminal Run keeps no other slot open, durable owner composition and explicit fail-stop recovery; a root finish that names an action completes the Run only when that action is settled completed in the same Attempt, else it is refused completion_evidence, and a root finish that names no action (action_id null or absent, or a payload that is not an object) fails the Run: its :finish record with no source settles the finish slot completed with the finish's own schema and payload at actual 0, a completion evidence row names the finish and its Attempt, and the Run owner completes that Attempt :failed with reason pattern (a lifecycle stop asked for while the failure is pending, the Run deadline at a restart included, does not replace it; a change of Attempt before the owner records it drops the failure, so an older finish never fails a new Attempt); charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission; `input/4`, `control/4` and `status/1` each wait for the engine at most 60,000 ms; optional read-only result/3 returns the first accepted completed source outcome, or for a Run that a root finish failed {:failed, record} with that finish's payload (an owner :failed with no root failure of its current Attempt in a verified history gives {:terminal, :failed}), after exact Run and evidence cross-checks within shared finite history budgets (65,536 rows, 536,870,912 canonical bytes, and 16,777,216 bytes per record). Optional expiry_reports: :owner (the only value; absent = the engine without it, byte for byte; recorded in the configure control and fingerprint, so adding or removing it on restart is incompatible_recovery) holds, after the expiry pass of an input, each slot that the pass settled expired and whose callable is open as that slot's pending_input (counted active, so an input that settles no slot is not given to the root while one is held, except a message under messages: :while_active, which is given to the root before the reports that its own expiry pass holds), in ascending occurrence order, under the ID of its :resume_input record, when the state with it fits and, under budget_rule :pause, the input's pause_deadline is after its time; the drain gives each held report to its own callable only, never an ancestor, as the expiry action_outcome (outcome expired, refusal schema, reason expired, the expiring input's at_ms and its pause_deadline), charged as any pattern output, before a finished child or slot progress, while not paused or terminal, generation open, no stop pending, current Attempt and callable open; a held report is dropped with no record, call or charge on generation close, terminal view, change of Attempt, closed owner or pending stop; a :resume_input step that gives its input (one retained while paused or a held report) makes a waiting Run active before its pattern call when nothing is active and no wait is listed, for every Run, so after continue the next permitted wake reaches the root. Optional messages: :while_active (the only value; absent = the engine without it, byte for byte; recorded in the configure control and in the fingerprint, wrapped after expiry_reports, so adding or removing it on restart is incompatible_recovery) gives a message input to the root pattern only, never a nested callable, when the lifecycle decides PermitWork or RemainWaiting, also while slots are active, as one ordinary pattern call that settles no slot, in the fold step of its own record after its own expiry pass, with every other condition of an input that settles no slot (generation open, no stop pending, not paused, root open, room for its invocation entry) unchanged; wake, start and resource_event keep their rule. Native v2 is opt-in with protocol_version: 2 and a fresh fixed-version Unit; omitted/1 retains v1 state, fingerprint and behavior. The v2 event source is fixed by ID/version and receives exact tenant/principal/run_id scope. wait_event supports zero-estimate admission through Budget public :status with reservation:nil; positive waits reserve and release, and other actions/versions retain existing reservation behavior. Read-only event_waits folds and verifies retained history with exact scope, DTO, limits and errors documented in README. Read-only transcript/3 returns one Run's committed history in commit order (inputs, gate and authorization verdicts, admitted actions with their callable path, nested starts and kept finishes, settlements with their record kind, reason and actual, later actuals and the terminal outcome), each entry derived from the folded state change of one committed record with its own recorded time, with the call path, scope, limits, reader configuration, reading, budgets, rechecks and errors of event_waits; it calls no callback, mutates nothing and emits no telemetry. The owner recheck of result/3, event_waits/3 and transcript/3 compares the Run's own facts (id, outcome, operation_id, current_attempt, completion_revision and evidence_ref), not the revision of the owner's whole stream, so an owner command that leaves them equal, of another Run of a shared owner or of this Run, does not fail the read; one that changes one of them during an event_waits/3 or transcript/3 read gives unavailable.",
       "baseline_status": "not in baseline (new row, RC-50)",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/run-engine/piece.json",
-      "manifest_sha256": "5d3a0e2aef701e0caedf14c0b7655407cd9500f9cb7efe55466f8c26b2c40ce8",
+      "manifest_sha256": "1dbc8df70ec9df13aeb6e02d815e82b1c4eb1f257e55492e4eb0e45e373af7e4",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -12754,7 +12827,7 @@
       "baseline_status": "not in baseline (new row, RC-56)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/agent-loop/piece.json",
-      "manifest_sha256": "06b7485c568b8841f1482c59e367e38e07feb4e0b75e4eac2cd8f3c00cccfbb8",
+      "manifest_sha256": "ad8e668e29e180df7647948d4685156db53f6549c780756558acd5ce3e9f9551",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

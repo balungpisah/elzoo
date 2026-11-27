@@ -5,7 +5,7 @@ through `Operations`, a pure `Admission` policy and a volatile GenServer host.
 `test/operations_test.exs` checks revision conflicts, limit changes with active
 work, pause/drain/resume, direct/tool authority, tenant routing and telemetry
 redaction/observer failure. These tests do not turn the experiment into a ready
-admission Piece. `:telemetry` 1.4.2 is an explicit upstream dependency for this
+admission Piece. `:telemetry` 1.4.3 is an explicit upstream dependency for this
 experiment; it is unrelated to Gleam or a frontend choice.
 
 ELZ-015 evaluates the upstream Ash application action model; it is not a ready
@@ -31,7 +31,8 @@ mix test --warnings-as-errors
 ```
 
 The lockfile records transitive versions/checksums. Direct upstream pins are
-Ash 3.37.3, AshAi 1.5.4, AshStateMachine 0.3.0 and SimpleSat 0.1.4. SimpleSat
+Ash 3.38.1, AshPostgres 2.16.0, AshAi 1.5.6, AshStateMachine 0.3.1, SimpleSat
+0.1.4, AshOban 0.10.3, Oban 2.24.2 and `:telemetry` 1.4.3. SimpleSat
 is the supported pure-Elixir SAT solver used by Ash policies; it avoids a
 native build dependency in this small experiment. No solver-performance or
 upstream theorem-proving claim follows from choosing it.
@@ -99,11 +100,11 @@ graph. Foundation adoption remains conditional on durable-boundary tests.
 
 Versioned upstream references:
 
-- [Ash resource/actions](https://hexdocs.pm/ash/3.37.3/what-is-ash.html)
-- [Ash authorization](https://hexdocs.pm/ash/3.37.3/policies.html)
-- [ETS storage limits](https://hexdocs.pm/ash/3.37.3/Ash.DataLayer.Ets.html)
-- [AshAi tools](https://hexdocs.pm/ash_ai/1.5.4/AshAi.Tools.html)
-- [State transitions and stale records](https://hexdocs.pm/ash_state_machine/0.3.0/getting-started-with-ash-state-machine.html)
+- [Ash resource/actions](https://hexdocs.pm/ash/3.38.1/what-is-ash.html)
+- [Ash authorization](https://hexdocs.pm/ash/3.38.1/policies.html)
+- [ETS storage limits](https://hexdocs.pm/ash/3.38.1/Ash.DataLayer.Ets.html)
+- [AshAi tools](https://hexdocs.pm/ash_ai/1.5.6/AshAi.Tools.html)
+- [State transitions and stale records](https://hexdocs.pm/ash_state_machine/0.3.1/getting-started-with-ash-state-machine.html)
 
 See [ADR-0005](../../docs/adr/0005-ash-foundation-and-upstream-first.md) and
 the [upstream/fork policy](../../docs/development/08-upstream-and-forks.md).

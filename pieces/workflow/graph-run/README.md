@@ -237,8 +237,19 @@ of that finish equals the `result` of the parent's `nested_callable` binding,
 fails the parent action with `nested_result_invalid` for another schema, and
 settles it `completed` (reason `nested_completed`) with no result when the child
 gave no admitted finish; it allows 256 lifetime actions for each
-Unit; a request that it does not admit gets no outcome; and it completes a Run on
-a root `finish` only when that names a completed action, so a `failed` finish of
-a root graph, or a finish with `action_id` `null`, comes back refused and the Run
-ends by its cancel or deadline. A model graph at run time is
-`workflow/runtime-graph`.
+Unit; a request that it does not admit gets no outcome. On a root `finish` it
+completes the Run when that names a completed action, refuses it when it names
+another action, and ends the Run `:failed` when its `action_id` is `null`: a
+`failed` finish of a root graph, and also a `completed` one when no action
+completed (a graph whose map ran over an empty list and no other action, for
+example); `result/3` then gives the finish payload, whose `status` the engine does
+not read. A model graph at run time is `workflow/runtime-graph`.
+
+## Changes
+
+- ELZ-420 (2026-11-26): wording only. The engine sentence of "Limits" now says
+  that the ready `assembly/run-engine` ends a Run `:failed` with a root finish
+  whose `action_id` is `null` (a `failed` finish, and a `completed` one when no
+  action completed, such as a map over an empty list) instead of refusing it, so
+  the Run no longer waits for its cancel or deadline. The named-source and
+  nested-callable rules are unchanged; the step and its tests do not change.
