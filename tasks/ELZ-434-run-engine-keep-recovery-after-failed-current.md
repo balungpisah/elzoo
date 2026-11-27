@@ -83,8 +83,9 @@ Paths: `pieces/assembly/run-engine/**`, its `entries` row in
     committed before the recovery.
   - Run `recover_local/1` again on the live replacement: the task's
     completion becomes `local_restart`.
-  - Restore the pre-call state on a replacement failure: the outbox-item case
-    halts with `:delivery_unknown`.
+  - Restore the pre-call state on a replacement failure: the test observes
+    the restored stopped PID, or the replacement recovery repeated, in the
+    outbox-item case.
   - Restore the pre-call state on a same-Unit failure: `status/1` shows the
     previous view.
 - The frozen-row and cold-recovery tests pass unchanged.

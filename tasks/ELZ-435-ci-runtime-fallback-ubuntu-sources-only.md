@@ -36,7 +36,10 @@ section 1).
   argument lists. The update and the install name only the temporary source
   file, and the update keeps `Error-Mode=any`. A second test uses an
   `ubuntu.sources` fixture that also contains a third-party stanza: the
-  temporary file contains only the rewritten archive stanzas.
+  temporary file contains only the rewritten archive stanzas. A third test
+  uses a stanza whose `URIs:` field mixes an official URI and an unrelated
+  one: the temporary file omits the unrelated URI, or the fallback refuses
+  the source before it runs apt.
 - A negative control, a temporary edit that drops the source restriction,
   makes that test fail. The edit is reverted.
 - `python3 scripts/check-ci-runners.py`, `python3 scripts/test-ci-runners.py`,

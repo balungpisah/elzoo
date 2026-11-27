@@ -11387,7 +11387,7 @@
       "contributions": [
         {
           "id": "assembly/run-engine",
-          "role": "In-place fix under the same ID: every caller of current/1 keeps a halt's state and otherwise its pre-call state, so a failed replacement recovery is retried before the next input."
+          "role": "In-place fix under the same ID: a replacement recovery that fails without a halt keeps the live replacement and is marked unfinished; every input or drain path resumes it first, without reclassifying the replacement's own work; same-Unit errors keep the returned state."
         }
       ],
       "acceptance": "A replacement recovery that fails without a halt keeps the live replacement and marks recovery unfinished; every input or drain path resumes it first without reclassifying the replacement's own work; same-Unit errors keep the returned state; tests per caller incl. an outbox item and a local_work task between the failure and the next call; four negative controls; Piece gate, strongest other-family review.",
@@ -11396,7 +11396,7 @@
       ],
       "issue": 1055,
       "url": "https://github.com/balungpisah/elzoo/issues/1055",
-      "issue_body_sha256": "a6f9b0627485bedf6db6100ed69fca67d405bcf9f2bf0a9adca4dec7107922c2"
+      "issue_body_sha256": "5c726bd25e795c78bf48b3bfe69411c9cd6df0c26f9487344e18ac2a74375ecd"
     },
     {
       "id": "ELZ-435",
@@ -11417,7 +11417,7 @@
       ],
       "issue": 1056,
       "url": "https://github.com/balungpisah/elzoo/issues/1056",
-      "issue_body_sha256": "b16570cb6b55942962b7e9e505a54d41820735a264a7f9b82c27dfb53ec51da5"
+      "issue_body_sha256": "9069544a47e64b28aaa11ceef01470fe09c691e2bfd8d1265b7da4dec9916ea6"
     }
   ],
   "entries": [

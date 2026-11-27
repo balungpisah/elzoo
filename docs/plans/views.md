@@ -5833,7 +5833,7 @@ Publication copy: [tasks/ELZ-434-run-engine-keep-recovery-after-failed-current.m
 
 **Acceptance:** A replacement recovery that fails without a halt keeps the live replacement and marks recovery unfinished; every input or drain path resumes it first without reclassifying the replacement's own work; same-Unit errors keep the returned state; tests per caller incl. an outbox item and a local_work task between the failure and the next call; four negative controls; Piece gate, strongest other-family review.
 
-**Secondary contribution:** assembly/run-engine — In-place fix under the same ID: every caller of current/1 keeps a halt's state and otherwise its pre-call state, so a failed replacement recovery is retried before the next input.
+**Secondary contribution:** assembly/run-engine — In-place fix under the same ID: a replacement recovery that fails without a halt keeps the live replacement and is marked unfinished; every input or drain path resumes it first, without reclassifying the replacement's own work; same-Unit errors keep the returned state.
 
 ### ELZ-435
 
