@@ -84,6 +84,7 @@ defmodule Elzoo.Wave4ChannelExample do
          command_store: Keyword.fetch!(opts, :command_store),
          conversation: conversation,
          delivered: %{},
+         dispatched: MapSet.new(),
          handles: handles,
          native: native,
          authority: authority,
@@ -1485,15 +1486,17 @@ defmodule Elzoo.Wave4ChannelExample do
 
   # A window read failed after earlier work: nothing was delivered or
   # observed, so the retry repeats discovery, read first, and never repeats
-  # a write that was already proven.
+  # a write that was already proven. A delivery record that has not landed
+  # yet (`:delivery_record`) is read again the same way: the step that needs
+  # it rereads the original receipt and the row, and writes nothing.
   defp advance_once(%{poison: {:rediscover, _cause}} = state),
     do: deliver_retry(state)
 
   defp advance_once(%{poison: {:answer_delivery_receipt, revision}} = state),
     do: resume_answer_delivery(state, revision)
 
-  defp advance_once(%{poison: {:association_delivery_receipt, revision}} = state),
-    do: resume_association_delivery(state, revision)
+  defp advance_once(%{poison: {:association_delivery_receipt, kind, revision}} = state),
+    do: resume_association_delivery(state, kind, revision)
 
   # The reply observation only reads, from the resume point its committed
   # reply input set: a read that failed repeats on the next advance, after
@@ -1781,7 +1784,7 @@ defmodule Elzoo.Wave4ChannelExample do
   defp deliver_item(state, item) do
     case delivery_intent(state, item) do
       {:ok, mode, dto} ->
-        deliver_owner(state, item, mode, dto)
+        deliver_owner(mark_dispatched(state, item), item, mode, dto)
 
       {:error, :foreign} ->
         {:ok, state}
@@ -1790,6 +1793,13 @@ defmodule Elzoo.Wave4ChannelExample do
         fail_delivery(state, {:delivery, item.idempotency_key, reason}, {:unknown, :delivery})
     end
   end
+
+  # The keys of delivery-only items whose append this lifetime dispatched:
+  # while it runs, their absence is never definite (`unconfirmed_delivery/2`).
+  defp mark_dispatched(state, %{destination: @delivery_destination} = item),
+    do: %{state | dispatched: MapSet.put(state.dispatched, item.idempotency_key)}
+
+  defp mark_dispatched(state, _item), do: state
 
   defp deliver_owner(state, item, mode, dto) do
     result =
@@ -2142,9 +2152,10 @@ defmodule Elzoo.Wave4ChannelExample do
   defp observe_pending_input(state, items) do
     case Enum.find(items, &(&1.destination == @destination)) do
       nil ->
+        # A full window may hide this conversation's next input behind other
+        # conversations' items: discovery is retried, read first.
         if pending_window_full?(items) do
-          {{:unknown, :input_observation},
-           %{state | poison: {:input_observation, :pending_window_full}}}
+          {{:unknown, :input_observation}, %{state | poison: {:rediscover, :window}}}
         else
           {{:idle, :no_input}, state}
         end
@@ -2175,8 +2186,7 @@ defmodule Elzoo.Wave4ChannelExample do
                %{state | poison: {:input_observation, :reply_without_primary}}}
 
             pending_window_full?(items) ->
-              {{:unknown, :input_observation},
-               %{state | poison: {:input_observation, :pending_window_full}}}
+              {{:unknown, :input_observation}, %{state | poison: {:rediscover, :window}}}
 
             true ->
               {{:idle, :no_input}, state}
@@ -2195,8 +2205,7 @@ defmodule Elzoo.Wave4ChannelExample do
 
             is_nil(primary) and completed_pair_matches_metadata?(state.completed_pair, metadata) ->
               if pending_window_full?(items) do
-                {{:unknown, :input_observation},
-                 %{state | poison: {:input_observation, :pending_window_full}}}
+                {{:unknown, :input_observation}, %{state | poison: {:rediscover, :window}}}
               else
                 {{:idle, :no_input}, state}
               end
@@ -2206,6 +2215,11 @@ defmodule Elzoo.Wave4ChannelExample do
           end
       end
     else
+      # The resource could not be read: observation is retried, read first,
+      # and a recovery keeps its retry state.
+      {:unknown, _} ->
+        {{:unknown, :input_observation}, %{state | poison: {:rediscover, :resource}}}
+
       _ ->
         {{:unknown, :input_observation}, %{state | poison: {:input_observation, :metadata}}}
     end
@@ -2261,6 +2275,11 @@ defmodule Elzoo.Wave4ChannelExample do
                  },
                  snapshot
                ) do
+          # A round past its association is restored, not started here: after
+          # a fenced reopen the custody gate may resend its delivery records.
+          current =
+            if phase == :association, do: current, else: Map.put(current, :recovered, true)
+
           {{:observed, input}, %{state | current: current, phase: phase, approval: nil}}
         else
           {:superseded, key, nonce} ->
@@ -2272,11 +2291,18 @@ defmodule Elzoo.Wave4ChannelExample do
           {:error, :delivery_ack} ->
             {{:unknown, :recovery}, %{state | poison: {:v2_recovery, :delivery_ack}}}
 
+          # A read failed: observation is retried, read first.
+          {:error, :read} ->
+            {{:unknown, :input_observation}, %{state | poison: {:rediscover, :recovery}}}
+
           _ ->
             {{:unknown, :input_observation}, %{state | poison: {:input_observation, :unknown}}}
         end
       end
     else
+      {:error, :read} ->
+        {{:unknown, :input_observation}, %{state | poison: {:rediscover, :recovery}}}
+
       _ ->
         {{:unknown, :input_observation}, %{state | poison: {:input_observation, :unknown}}}
     end
@@ -2355,6 +2381,7 @@ defmodule Elzoo.Wave4ChannelExample do
            answer: nil,
            answer_revision: nil,
            terminal: nil,
+           recovered: true,
            deliveries:
              recovered_deliveries(
                %{association: {association_key, association_nonce}},
@@ -2550,7 +2577,7 @@ defmodule Elzoo.Wave4ChannelExample do
          ) do
       {:unknown, :not_observed} ->
         if item.state == :pending and
-             not conversation_association?(state, ticket, run_id),
+             association_record(state, ticket, run_id) == :absent,
            do: {:ok, nil, nil},
            else: {:error, :association}
 
@@ -2594,7 +2621,7 @@ defmodule Elzoo.Wave4ChannelExample do
 
       {:unknown, :not_observed} ->
         if reply_custody_recorded?(state, reply_operation, ticket, run_id) and
-             not conversation_association?(state, ticket, run_id),
+             association_record(state, ticket, run_id) == :absent,
            do: {:ok, nil, nil},
            else: {:error, :association}
 
@@ -2666,6 +2693,7 @@ defmodule Elzoo.Wave4ChannelExample do
 
       {:ok, event, notice["operation_id"], notice["revision"]}
     else
+      {:unknown, reason} when reason != :not_observed -> {:error, :read}
       _ -> {:error, :unavailable}
     end
   end
@@ -2680,6 +2708,8 @@ defmodule Elzoo.Wave4ChannelExample do
          true <- snapshot.revision >= revision do
       {:ok, entry.message_id, entry.text, snapshot}
     else
+      {:unknown, _} -> {:error, :read}
+      {:error, :unavailable} -> {:error, :read}
       _ -> {:error, :unavailable}
     end
   end
@@ -2693,9 +2723,8 @@ defmodule Elzoo.Wave4ChannelExample do
 
       {:completed, %{revision: revision, response: response}}
       when revision == current.resource_revision + 1 ->
-        associated? = conversation_association?(state, current.input_id, current.run_id)
-
-        if association_receipt?(response, current.input_id, current.run_id) and associated? do
+        with true <- association_receipt?(response, current.input_id, current.run_id),
+             :ok <- association_record(state, current.input_id, current.run_id) do
           if reply_profile?(state.profile) do
             {:error, :metadata_required}
           else
@@ -2709,8 +2738,12 @@ defmodule Elzoo.Wave4ChannelExample do
             end
           end
         else
-          {:error, :association}
+          {:error, _} -> {:error, :read}
+          _ -> {:error, :association}
         end
+
+      {:unknown, _} ->
+        {:error, :read}
 
       _ ->
         {:error, :association}
@@ -2718,7 +2751,7 @@ defmodule Elzoo.Wave4ChannelExample do
   rescue
     _ -> {:error, :association}
   catch
-    _, _ -> {:error, :association}
+    _, _ -> {:error, :read}
   end
 
   defp retained_answer_phase(state, current, snapshot) do
@@ -2744,24 +2777,27 @@ defmodule Elzoo.Wave4ChannelExample do
               false
           end
 
-        case {valid_run?, conversation_message(state, message_id, "assistant")} do
-          {true, {:ok, %{text: text}}} ->
-            if answer_receipt?(response, current.input_id, current.run_id, message_id) and
-                 valid_answer_payload?(%{"answer" => text}) do
-              case delivery_receipt(state, current.answer_operation, revision) do
-                {:ok, key, nonce} ->
-                  {:ok, :ack, carry_delivery(%{current | answer: text}, :answer, key, nonce)}
-
-                other ->
-                  other
-              end
-            else
-              {:error, :answer}
-            end
-
-          _ ->
-            {:error, :answer}
+        # The answer is the intent the command retained (its response and
+        # digest), never a value read from the Conversation row it must
+        # prove: the custody gate compares that row with this intent.
+        with true <-
+               valid_run? and
+                 answer_receipt?(response, current.input_id, current.run_id, message_id),
+             {:ok, :answer, intent} <- Intents.delivery(response),
+             true <-
+               intent.message_id == message_id and intent.input_message_id == current.input_id and
+                 intent.run_id == current.run_id and
+                 valid_answer_payload?(%{"answer" => intent.text}),
+             {:ok, key, nonce} <- delivery_receipt(state, current.answer_operation, revision) do
+          {:ok, :ack, carry_delivery(%{current | answer: intent.text}, :answer, key, nonce)}
+        else
+          {:superseded, _key, _nonce} = superseded -> superseded
+          {:error, :delivery_ack} -> {:error, :delivery_ack}
+          _ -> {:error, :answer}
         end
+
+      {:unknown, _} ->
+        {:error, :read}
 
       _ ->
         {:error, :answer}
@@ -2769,7 +2805,7 @@ defmodule Elzoo.Wave4ChannelExample do
   rescue
     _ -> {:error, :answer}
   catch
-    _, _ -> {:error, :answer}
+    _, _ -> {:error, :read}
   end
 
   defp associate(state) do
@@ -2982,6 +3018,11 @@ defmodule Elzoo.Wave4ChannelExample do
         :ok ->
           start_engine_owned(state)
 
+        # A check could not be read: nothing was started, and the step runs
+        # again.
+        {:error, :unavailable} ->
+          {{:error, :unavailable}, state}
+
         {:error, reason} ->
           {{:blocked, :native_ownership}, %{state | poison: {:native_ownership, reason}}}
       end
@@ -3022,14 +3063,21 @@ defmodule Elzoo.Wave4ChannelExample do
       Task.Supervisor.children(state.native.task_supervisor) != [] ->
         {:error, :native_work}
 
-      no_live_native_unit(state) != :ok ->
-        {:error, :native_unit}
-
-      no_native_unit_children(state) != :ok ->
-        {:error, :native_unit_child}
-
       true ->
-        :ok
+        case no_live_native_unit(state) do
+          :ok ->
+            case no_native_unit_children(state) do
+              :ok -> :ok
+              {:error, :unit_supervisor_unavailable} -> {:error, :unavailable}
+              _ -> {:error, :native_unit_child}
+            end
+
+          {:error, :unit_unavailable} ->
+            {:error, :unavailable}
+
+          _ ->
+            {:error, :native_unit}
+        end
     end
   rescue
     _ -> {:error, :unavailable}
@@ -3365,7 +3413,8 @@ defmodule Elzoo.Wave4ChannelExample do
   # conversation and the reply input's operation at its revision. Anything
   # else is `:unproven`, a fence: no item is adopted that is not proven this
   # round's, and another conversation's pending reply item fences the round
-  # as on main. An unreadable item is `{:error, :unavailable}`.
+  # as on main. A full window may hide either item, so there no proof is
+  # the retried `{:error, :window}`; an unreadable item is `{:error, :read}`.
   defp observed_reply_item(state, reply, current, pending) do
     with true <- Enum.any?(pending, &(&1.idempotency_key == current.item.key)),
          [candidate] <- Enum.filter(pending, &(&1.destination == @reply_destination)) do
@@ -3377,16 +3426,19 @@ defmodule Elzoo.Wave4ChannelExample do
               {:ok, item}
 
             _ ->
-              :unproven
+              unproven(pending)
           end
 
         error ->
           error
       end
     else
-      _ -> :unproven
+      _ -> unproven(pending)
     end
   end
+
+  defp unproven(pending),
+    do: if(pending_window_full?(pending), do: {:error, :window}, else: :unproven)
 
   defp read_reply_item(state, key) do
     read_original_item(state, key, @reply_destination)
@@ -3406,12 +3458,13 @@ defmodule Elzoo.Wave4ChannelExample do
              item.state in [:pending, :acked] do
       {:ok, item}
     else
+      {:error, :unavailable} -> {:error, :read}
       _ -> {:error, :unavailable}
     end
   rescue
     _ -> {:error, :unavailable}
   catch
-    _, _ -> {:error, :unavailable}
+    _, _ -> {:error, :read}
   end
 
   defp reply_notice(%{payload: payload, destination: destination}, profile) do
@@ -3477,9 +3530,13 @@ defmodule Elzoo.Wave4ChannelExample do
         {{:error, :unavailable}, state}
     end
   rescue
-    _ -> {{:unknown, :reply_association}, %{state | poison: {:reply_association, :exception}}}
+    _ ->
+      {{:unknown, :reply_association},
+       %{state | poison: {:reply_association, reply.association_operation, :exception}}}
   catch
-    _, _ -> {{:unknown, :reply_association}, %{state | poison: {:reply_association, :exception}}}
+    _, _ ->
+      {{:unknown, :reply_association},
+       %{state | poison: {:reply_association, reply.association_operation, :exception}}}
   end
 
   defp associate_reply(state), do: {{:blocked, :reply_state}, state}
@@ -3490,34 +3547,7 @@ defmodule Elzoo.Wave4ChannelExample do
       when revision == reply.resource_revision + 1 ->
         if association_receipt?(response, reply.ticket, current.run_id) and
              confirm_reply_association(state, reply, current) do
-          case carry_association_delivery(
-                 state,
-                 current,
-                 :reply_association,
-                 reply.association_operation,
-                 revision
-               ) do
-            {:ok, current} ->
-              reply = %{reply | association_revision: revision}
-
-              {{:reply_associated, revision},
-               %{state | current: current, reply: reply, phase: :reply_input}}
-
-            {:superseded, key, nonce} ->
-              {{:blocked, :delivery_ack_superseded},
-               %{state | poison: {:delivery_ack, key, nonce, :superseded}}}
-
-            # The lookup cannot be read: the committed association is
-            # reconciled read-only, never executed again.
-            _ ->
-              {{:unknown, :reply_association},
-               %{
-                 state
-                 | poison:
-                     {:reply_association, reply.association_operation,
-                      {:completed, %{revision: revision, response: response}}}
-               }}
-          end
+          reply_association_delivery(state, revision)
         else
           {{:unknown, :reply_association},
            %{
@@ -3542,9 +3572,13 @@ defmodule Elzoo.Wave4ChannelExample do
         {{:blocked, :reply_association}, %{state | poison: {:reply_association, :conflict}}}
     end
   rescue
-    _ -> {{:unknown, :reply_association}, %{state | poison: {:reply_association, :exception}}}
+    _ ->
+      {{:unknown, :reply_association},
+       %{state | poison: {:reply_association, reply.association_operation, :exception}}}
   catch
-    _, _ -> {{:unknown, :reply_association}, %{state | poison: {:reply_association, :exception}}}
+    _, _ ->
+      {{:unknown, :reply_association},
+       %{state | poison: {:reply_association, reply.association_operation, :exception}}}
   end
 
   defp reconcile_reply_association(%{reply: reply, current: current} = state)
@@ -3558,25 +3592,9 @@ defmodule Elzoo.Wave4ChannelExample do
       when revision == reply.resource_revision + 1 ->
         if association_receipt?(response, reply.ticket, current.run_id) and
              confirm_reply_association(state, reply, current) do
-          case carry_association_delivery(
-                 state,
-                 current,
-                 :reply_association,
-                 reply.association_operation,
-                 revision
-               ) do
-            {:ok, current} ->
-              reply = %{reply | association_revision: revision}
-
-              {{:reconciled, :reply_association},
-               %{state | current: current, reply: reply, phase: :reply_input, poison: nil}}
-
-            {:superseded, key, nonce} ->
-              {{:blocked, :delivery_ack_superseded},
-               %{state | poison: {:delivery_ack, key, nonce, :superseded}}}
-
-            _ ->
-              {{:unknown, :reply_association}, state}
+          case reply_association_delivery(%{state | poison: nil}, revision) do
+            {{:reply_associated, _revision}, state} -> {{:reconciled, :reply_association}, state}
+            other -> other
           end
         else
           {{:unknown, :reply_association},
@@ -3673,6 +3691,10 @@ defmodule Elzoo.Wave4ChannelExample do
             {{:unknown, :native_reply}, %{state | poison: {:reply_native_input, other}}}
         end
 
+      # A read failed before anything was written: the step runs again.
+      {:error, :unavailable} ->
+        {{:error, :unavailable}, state}
+
       {:error, reason} ->
         {{:blocked, :reply_preflight}, %{state | poison: {:reply_preflight, reason}}}
     end
@@ -3716,14 +3738,22 @@ defmodule Elzoo.Wave4ChannelExample do
                reply_key,
                state.profile.tenant
              ),
-         true <- conversation_association?(state, current.input_id, current.run_id),
-         true <- conversation_association?(state, reply.ticket, current.run_id),
+         :ok <- association_record(state, current.input_id, current.run_id),
+         :ok <- association_record(state, reply.ticket, current.run_id),
          {:ok, %{text: text}} <- conversation_message(state, reply.ticket, "source"),
          true <- text == reply.text,
          {:ok, after_head} <- Elzoo.DurableLog.Store.read(state.command_store, :head, [stream]),
-         true <- answer_projection_head?(after_head) and stable_projection_heads?(head, after_head) do
+         true <- answer_projection_head?(after_head),
+         true <- stable_projection_heads?(head, after_head) || :changed do
       :ok
     else
+      # Transient: a read that failed, an association whose append (this
+      # lifetime's, or an acknowledging caller's) has not landed yet, or a
+      # command committed between the two head reads.
+      {:error, :unavailable} -> {:error, :unavailable}
+      {:unknown, reason} when reason != :not_observed -> {:error, :unavailable}
+      :absent -> {:error, :unavailable}
+      :changed -> {:error, :unavailable}
       _ -> {:error, :capacity}
     end
   rescue
@@ -3800,6 +3830,9 @@ defmodule Elzoo.Wave4ChannelExample do
               {{:result, :completed},
                %{state | current: Map.put(c, :answer, result.payload["answer"]), phase: :answer}}
 
+            {:error, :unavailable} ->
+              {{:pending, :result_unavailable}, state}
+
             {:error, reason} ->
               {{:unknown, :result_identity}, %{state | poison: {:result, {:reply_event, reason}}}}
           end
@@ -3862,6 +3895,9 @@ defmodule Elzoo.Wave4ChannelExample do
 
             terminal_ack_phase(%{state | current: current})
 
+          {:error, :unavailable} ->
+            {{:pending, :result_unavailable}, state}
+
           {:error, reason} ->
             {{:unknown, :native_event}, %{state | poison: {:native_event, reason}}}
         end
@@ -3889,122 +3925,55 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
-  # Recovery restored no reply of this round and the tenant head moved past
-  # the wait's saved cursor, so a reply of this round might exist that
-  # recovery did not restore. Before the expiry wake every sequence between
-  # the cursor and the head is accounted for (`reply_cursor_explained/2`):
-  # only when none holds a reply item of this conversation does the expiry
-  # proceed. An unexplained sequence keeps the fence; an unreadable one is
-  # retried.
-  defp expire_v2_wait(%{ambiguous_reply: ambiguous} = state, wait)
-       when ambiguous in [true, :check] do
-    case reply_cursor_explained(state, wait) do
-      :explained ->
-        expire_v2_wait(%{state | ambiguous_reply: false}, wait)
-
-      :unexplained ->
-        {{:blocked, :reply_ambiguous}, %{state | poison: {:reply_ambiguity, :expiry}}}
-
-      {:error, _reason} ->
-        {{:pending, :reply_cursor}, state}
-    end
-  end
-
   defp expire_v2_wait(%{current: current} = state, wait) do
-    operation_id = native_operation(current.run_id, state)
-    expected_attempt = attempt_id(current.run_id, state)
+    if state.ambiguous_reply in [true, :check] do
+      {{:blocked, :reply_ambiguous}, %{state | poison: {:reply_ambiguity, :expiry}}}
+    else
+      operation_id = native_operation(current.run_id, state)
+      expected_attempt = attempt_id(current.run_id, state)
 
-    case RunApprovalRelease.status(state.native.run_owner, current.run_id) do
-      {:ok,
-       %{
-         operation_id: ^operation_id,
-         current_attempt: ^expected_attempt,
-         outcome: nil
-       }} ->
-        id = native_expiry_input_id(current.run_id, wait, state)
+      case RunApprovalRelease.status(state.native.run_owner, current.run_id) do
+        {:ok,
+         %{
+           operation_id: ^operation_id,
+           current_attempt: ^expected_attempt,
+           outcome: nil
+         }} ->
+          id = native_expiry_input_id(current.run_id, wait, state)
 
-        input = %{
-          "type" => "input",
-          "version" => 2,
-          "kind" => "wake"
-        }
+          input = %{
+            "type" => "input",
+            "version" => 2,
+            "kind" => "wake"
+          }
 
-        context = %{run_id: current.run_id, attempt_id: expected_attempt}
+          context = %{run_id: current.run_id, attempt_id: expected_attempt}
 
-        case safe_native_input(state.engine, id, input, context) do
-          {:ok, {:ok, result}} when result in [:applied, :duplicate] ->
-            {{:native_expiry_wake, result}, %{state | phase: :result, native_wait: wait}}
+          case safe_native_input(state.engine, id, input, context) do
+            {:ok, {:ok, result}} when result in [:applied, :duplicate] ->
+              {{:native_expiry_wake, result}, %{state | phase: :result, native_wait: wait}}
 
-          {:ok, {:error, reason}} ->
-            native_input_unknown(state, {:expiry_wake, reason})
+            {:ok, {:error, reason}} ->
+              native_input_unknown(state, {:expiry_wake, reason})
 
-          {:error, reason} ->
-            native_input_unknown(state, {:expiry_wake, reason})
+            {:error, reason} ->
+              native_input_unknown(state, {:expiry_wake, reason})
 
-          other ->
-            native_input_unknown(state, {:expiry_wake, other})
-        end
+            other ->
+              native_input_unknown(state, {:expiry_wake, other})
+          end
 
-      {:ok, %{operation_id: ^operation_id, current_attempt: ^expected_attempt}} ->
-        {{:pending, :result_reconciliation}, state}
+        {:ok, %{operation_id: ^operation_id, current_attempt: ^expected_attempt}} ->
+          {{:pending, :result_reconciliation}, state}
 
-      _ ->
-        native_input_unknown(state, :expiry_owner)
+        _ ->
+          native_input_unknown(state, :expiry_owner)
+      end
     end
   rescue
     _ -> native_input_unknown(state, :expiry_exception)
   catch
     _, _ -> native_input_unknown(state, :expiry_exception)
-  end
-
-  # Accounts for every command sequence between a wait's saved cursor and the
-  # tenant head, when recovery restored no reply of this round. A reply input
-  # of this round would sit in one of them, so each outbox slot is read: it
-  # is accounted for when it holds no reply item of this conversation (no
-  # item, another destination, or a reply notice of another actor or
-  # conversation). `:explained`, `:unexplained` (a reply item of this
-  # conversation, or a malformed one) or `{:error, reason}` (unreadable).
-  defp reply_cursor_explained(state, wait) do
-    stream = checked_stream(state.profile.tenant)
-
-    with cursor when is_integer(cursor) and cursor >= 0 <- Map.get(wait, :cursor),
-         {:ok, %{revision: head, low_water: 0}} when head >= cursor <-
-           DurableLog.Store.read(state.command_store, :head, [stream]) do
-      Enum.reduce_while((cursor + 1)..head//1, :explained, fn sequence, :explained ->
-        case explained_sequence(state, stream, sequence) do
-          :explained -> {:cont, :explained}
-          other -> {:halt, other}
-        end
-      end)
-    else
-      _ -> {:error, :cursor}
-    end
-  rescue
-    _ -> {:error, :cursor}
-  catch
-    _, _ -> {:error, :cursor}
-  end
-
-  defp explained_sequence(state, stream, sequence) do
-    key = Elzoo.DurableLog.Codec.item_key(stream, sequence, 1)
-
-    case DurableLog.Store.read(state.command_store, :read_ack, [key]) do
-      {:ok, :absent} ->
-        :explained
-
-      {:ok, %{destination: destination} = item} ->
-        cond do
-          destination != @reply_destination -> :explained
-          delivery_notice(item, state.profile) == {:error, :foreign} -> :explained
-          true -> :unexplained
-        end
-
-      {:error, :malformed} ->
-        :unexplained
-
-      _ ->
-        {:error, :unavailable}
-    end
   end
 
   defp terminal_ack_phase(state) do
@@ -4014,6 +3983,9 @@ defmodule Elzoo.Wave4ChannelExample do
 
       :none ->
         {{:terminal, state.current.terminal}, %{state | phase: :ack}}
+
+      :unavailable ->
+        {{:error, :unavailable}, state}
 
       :unknown ->
         {{:unknown, :reply_state}, %{state | poison: {:terminal_reply_state, :unknown}}}
@@ -4033,23 +4005,31 @@ defmodule Elzoo.Wave4ChannelExample do
         %{release_state: :pending} = reply ->
           case Map.get(reply, :item) do
             item when is_map(item) ->
-              if committed_reply_item?(state, reply, item), do: :committed, else: :unknown
+              committed_reply_state(state, reply, item)
 
             _ ->
               :none
           end
 
         %{item: item} = reply when is_map(item) ->
-          if committed_reply_item?(state, reply, item), do: :committed, else: :unknown
+          committed_reply_state(state, reply, item)
 
         _ ->
           :unknown
       end
     end
   rescue
-    _ -> :unknown
+    _ -> :unavailable
   catch
-    _, _ -> :unknown
+    _, _ -> :unavailable
+  end
+
+  defp committed_reply_state(state, reply, item) do
+    case committed_reply_item?(state, reply, item) do
+      true -> :committed
+      false -> :unknown
+      :unavailable -> :unavailable
+    end
   end
 
   defp committed_reply_item?(state, reply, item) do
@@ -4074,6 +4054,8 @@ defmodule Elzoo.Wave4ChannelExample do
              ticket == reply.event.input_id do
       true
     else
+      {:error, :read} -> :unavailable
+      {:unknown, reason} when reason != :not_observed -> :unavailable
       _ -> false
     end
   end
@@ -4162,6 +4144,9 @@ defmodule Elzoo.Wave4ChannelExample do
           _ -> {:error, :accepted_event}
         end
 
+      {:error, :unavailable} ->
+        {:error, :unavailable}
+
       _ ->
         {:error, :event_waits}
     end
@@ -4176,6 +4161,9 @@ defmodule Elzoo.Wave4ChannelExample do
           {:ok, restored, _accepted?} -> {:ok, restored}
           {:error, reason} -> {:error, reason}
         end
+
+      {:error, :unavailable} ->
+        {:error, :unavailable}
 
       _ ->
         {:error, :event_waits}
@@ -4316,30 +4304,66 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
-  # The fresh association's delivery receipt. When its lookup cannot be read,
-  # the association is committed and only that read is retried
-  # (`{:association_delivery_receipt, revision}`): the command is never
-  # executed again, so write-time policy and authority are not consulted
-  # again.
+  # A committed association's delivery receipt (`kind` is `:association` or
+  # `:reply_association`), on the fresh, the reconciled and the reply paths.
+  # When its lookup cannot be read, the association is committed and only
+  # that read is retried (`{:association_delivery_receipt, kind,
+  # revision}`): the command is never executed again, and neither its
+  # confirmed history nor the Conversation is read again, so write-time
+  # policy and authority are not consulted again.
   defp association_delivery(state, c, revision) do
     case carry_association_delivery(state, c, :association, c.association_operation, revision) do
       {:ok, current} ->
         {{:associated, c.run_id}, %{state | current: current, phase: :create_run, poison: nil}}
 
-      {:superseded, key, nonce} ->
-        {{:blocked, :delivery_ack_superseded},
-         %{state | poison: {:delivery_ack, key, nonce, :superseded}}}
-
-      _ ->
-        {{:unknown, :association_delivery},
-         %{state | poison: {:association_delivery_receipt, revision}}}
+      failure ->
+        association_receipt_unread(state, :association, revision, failure)
     end
   end
 
-  defp resume_association_delivery(%{current: current} = state, revision) when is_map(current),
-    do: association_delivery(%{state | poison: nil}, current, revision)
+  defp reply_association_delivery(%{reply: reply, current: c} = state, revision) do
+    case carry_association_delivery(
+           state,
+           c,
+           :reply_association,
+           reply.association_operation,
+           revision
+         ) do
+      {:ok, current} ->
+        reply = %{reply | association_revision: revision}
 
-  defp resume_association_delivery(state, _revision), do: {{:blocked, :association_state}, state}
+        {{:reply_associated, revision},
+         %{state | current: current, reply: reply, phase: :reply_input, poison: nil}}
+
+      failure ->
+        association_receipt_unread(state, :reply_association, revision, failure)
+    end
+  end
+
+  defp association_receipt_unread(state, _kind, _revision, {:superseded, key, nonce}),
+    do:
+      {{:blocked, :delivery_ack_superseded},
+       %{state | poison: {:delivery_ack, key, nonce, :superseded}}}
+
+  defp association_receipt_unread(state, kind, revision, _failure),
+    do:
+      {{:unknown, :association_delivery},
+       %{state | poison: {:association_delivery_receipt, kind, revision}}}
+
+  defp resume_association_delivery(%{current: current} = state, :association, revision)
+       when is_map(current),
+       do: association_delivery(%{state | poison: nil}, current, revision)
+
+  defp resume_association_delivery(
+         %{current: current, reply: reply} = state,
+         :reply_association,
+         revision
+       )
+       when is_map(current) and is_map(reply),
+       do: reply_association_delivery(%{state | poison: nil}, revision)
+
+  defp resume_association_delivery(state, _kind, _revision),
+    do: {{:blocked, :association_state}, state}
 
   # Before a round's first native acknowledgement, every delivery-only item
   # the round relies on is proven delivered: its association, a reply round's
@@ -4347,10 +4371,12 @@ defmodule Elzoo.Wave4ChannelExample do
   # receipt's acknowledgement is confirmed with the item's original receipt,
   # read-only, and the Conversation append itself is proven: by the exact
   # append result this host's delivery pass remembered in this lifetime, or
-  # by the exact durable record. An acknowledgement alone proves nothing:
-  # anyone can read an item's key and nonce. `:ok`, `{:superseded, key,
-  # nonce}`, `{:unproven, kind, key}`, `{:missing, kind}` or `{:error,
-  # reason}` (retried; nothing is written).
+  # by the durable record whose every persisted field equals the intent
+  # rebuilt from the item's retained command (its response and digest). An
+  # acknowledgement alone proves nothing: anyone can read an item's key and
+  # nonce. `:ok`, `{:superseded, key, nonce}`, `{:absent, key}`, `{:conflict,
+  # key, code}`, `{:missing, kind}` or `{:error, reason}` (retried; nothing
+  # is written).
   defp deliveries_confirmed(%{current: current} = state) do
     deliveries = Map.get(current, :deliveries, %{})
 
@@ -4382,11 +4408,13 @@ defmodule Elzoo.Wave4ChannelExample do
 
     case DurableLog.confirm_ack(state.command_store, receipt) do
       {:committed, _} ->
-        with :ok <- acknowledged_outbox_item(state, key, nonce, @delivery_destination),
-             :ok <- delivered_append(state, kind, key) do
+        with {:ok, %{state: :acked, nonce: ^nonce} = item} <-
+               read_original_item(state, key, @delivery_destination),
+             :ok <- delivered_append(state, kind, item) do
           :ok
         else
-          :absent -> {:unproven, kind, key}
+          :absent -> {:absent, key}
+          {:conflict, code} -> {:conflict, key, code}
           _ -> {:error, :delivery}
         end
 
@@ -4404,30 +4432,61 @@ defmodule Elzoo.Wave4ChannelExample do
 
   # The Conversation append of one delivery-only item: the exact append
   # result this host's delivery pass remembered for that item in this
-  # lifetime, else the exact durable record (the association's input message
-  # and Run; the answer's message ID and text). `:ok`, `:absent` or `{:error,
-  # reason}`.
-  defp delivered_append(state, kind, key) do
-    if Map.has_key?(state.delivered, key),
+  # lifetime, else the durable record compared with the item's retained
+  # intent. `:ok`, `:absent`, `{:conflict, code}` or `{:error, reason}`.
+  defp delivered_append(state, kind, item) do
+    if Map.has_key?(state.delivered, item.idempotency_key),
       do: :ok,
-      else: durable_delivery_record(state, kind)
+      else: durable_delivery_record(state, kind, item)
   end
 
-  defp durable_delivery_record(%{current: c} = state, :association),
-    do: association_record(state, c.input_id, c.run_id)
+  defp durable_delivery_record(state, kind, item) do
+    with {:ok, mode, intent} <- delivery_intent(state, item),
+         true <- mode == if(kind == :answer, do: :answer, else: :association) do
+      intent_record(state, mode, intent)
+    else
+      _ -> {:error, :unavailable}
+    end
+  end
 
-  defp durable_delivery_record(%{current: c, reply: reply} = state, :reply_association),
-    do: association_record(state, reply.ticket, c.run_id)
-
-  defp durable_delivery_record(%{current: c} = state, :answer) do
-    message_id = answer_id(c.input_id)
+  # The Conversation row of one retained intent, compared with every field
+  # the intent persists, never with values read from the row itself: an
+  # answer by its message ID (its Run completion fact must be true, or the
+  # Conversation never admits it), an association by its input message.
+  # Another content under that ID is the Conversation's own refusal code;
+  # no row is `:absent`.
+  defp intent_record(state, :answer, intent) do
+    fields = [:message_id, :actor, :text, :run_id, :input_message_id]
 
     case scan_pages(state, conversation_reference(state), 1, fn entry ->
-           entry.kind == :answer and entry.message_id == message_id
+           Map.get(entry, :message_id) == intent.message_id
          end) do
-      {:ok, %{text: text}} -> if text == c.answer, do: :ok, else: :absent
-      {:error, :absent} -> :absent
-      _ -> {:error, :unavailable}
+      {:ok, entry} ->
+        if intent.completed == true and entry.kind == :answer and
+             Map.take(entry, fields) == Map.take(intent, fields),
+           do: :ok,
+           else: {:conflict, "duplicate_message_id"}
+
+      {:error, :absent} ->
+        :absent
+
+      _ ->
+        {:error, :unavailable}
+    end
+  end
+
+  defp intent_record(state, :association, intent) do
+    case scan_pages(state, conversation_reference(state), 1, fn entry ->
+           entry.kind == :association and entry.input_message_id == intent.input_message_id
+         end) do
+      {:ok, %{run_id: run_id}} ->
+        if run_id == intent.run_id, do: :ok, else: {:conflict, "already_associated"}
+
+      {:error, :absent} ->
+        :absent
+
+      _ ->
+        {:error, :unavailable}
     end
   end
 
@@ -4450,15 +4509,41 @@ defmodule Elzoo.Wave4ChannelExample do
       {{:blocked, :delivery_ack_superseded},
        %{state | poison: {:delivery_ack, key, nonce, :superseded}}}
 
-  # Acknowledged with the item's original receipt, yet never appended: a
-  # defined fence, since no delivery pass sees the item again.
-  defp unconfirmed_delivery(state, {:unproven, kind, key}),
-    do: {{:blocked, :delivery_unproven}, %{state | poison: {:delivery_unproven, kind, key}}}
+  # Acknowledged with the item's original receipt, yet no row is there. In
+  # the live host this lifetime's own append, or the acknowledging caller's,
+  # may still commit, so the retry rereads the receipt and the row and
+  # writes nothing. In a round restored after a fenced reopen, which ends
+  # every earlier writer, absence is definite for an item this lifetime
+  # never dispatched: the exact retained intent is appended once.
+  defp unconfirmed_delivery(%{current: current} = state, {:absent, key}) do
+    if Map.get(current, :recovered, false) and not MapSet.member?(state.dispatched, key),
+      do: append_retained_delivery(state, key),
+      else: {{:unknown, :delivery}, %{state | poison: {:rediscover, :delivery_record}}}
+  end
+
+  # Another content holds the item's ID: the Conversation's refusal, a
+  # defined fence.
+  defp unconfirmed_delivery(state, {:conflict, key, code}),
+    do: {{:blocked, {:delivery_refused, code}}, %{state | poison: {:delivery_refused, key, code}}}
 
   defp unconfirmed_delivery(state, {:missing, kind}),
     do: {{:blocked, :delivery_receipt}, %{state | poison: {:delivery_receipt, kind}}}
 
   defp unconfirmed_delivery(state, _failure), do: {{:error, :unavailable}, state}
+
+  # The append is then proven as the delivery pass proves one, and the step
+  # runs again.
+  defp append_retained_delivery(state, key) do
+    with {:ok, item} <- read_original_item(state, key, @delivery_destination),
+         {:ok, mode, intent} <- delivery_intent(state, item) do
+      case deliver_owner(mark_dispatched(state, item), item, mode, intent) do
+        {:ok, state} -> advance_step(state)
+        {:error, state, reply} -> {reply, state}
+      end
+    else
+      _ -> {{:error, :unavailable}, state}
+    end
+  end
 
   defp answer_expected_revision(%{reply: %{association_revision: revision}}, _current)
        when is_integer(revision),
@@ -5186,17 +5271,9 @@ defmodule Elzoo.Wave4ChannelExample do
       {:completed, %{revision: revision, response: response}}
       when revision == c.resource_revision + 1 ->
         if association_receipt?(response, c.input_id, c.run_id) do
-          case carry_association_delivery(state, c, :association, operation, revision) do
-            {:ok, current} ->
-              {{:reconciled, :association},
-               %{state | current: current, poison: nil, phase: :create_run}}
-
-            {:superseded, key, nonce} ->
-              {{:blocked, :delivery_ack_superseded},
-               %{state | poison: {:delivery_ack, key, nonce, :superseded}}}
-
-            _ ->
-              {{:unknown, :association}, state}
+          case association_delivery(%{state | poison: nil}, c, revision) do
+            {{:associated, _run_id}, state} -> {{:reconciled, :association}, state}
+            other -> other
           end
         else
           {{:unknown, :association}, state}
@@ -6262,6 +6339,10 @@ defmodule Elzoo.Wave4ChannelExample do
          true <-
            answer_revision == pair.answer_revision and
              answer_receipt?(answer_response, pair.input_id, pair.run_id, pair.answer_id),
+         {:ok, :answer, intent} <- Intents.delivery(answer_response),
+         true <-
+           intent.message_id == pair.answer_id and intent.text == pair.answer and
+             intent.run_id == pair.run_id and intent.input_message_id == pair.input_id,
          {:ok, snapshot} <-
            CheckedCommand.resource(
              state.handles.input,
@@ -6269,11 +6350,9 @@ defmodule Elzoo.Wave4ChannelExample do
              state.profile.conversation_id
            ),
          true <- snapshot.revision >= answer_revision and completed_pair_metadata?(snapshot, pair),
-         {:ok, answer_entry} <- conversation_message(state, pair.answer_id, "assistant"),
-         true <-
-           answer_entry.text == pair.answer and
-             conversation_association?(state, pair.input_id, pair.run_id) and
-             conversation_association?(state, pair.reply_ticket, pair.run_id),
+         :ok <- intent_record(state, :answer, intent),
+         :ok <- association_record(state, pair.input_id, pair.run_id),
+         :ok <- association_record(state, pair.reply_ticket, pair.run_id),
          :ok <-
            acknowledged_outbox_item(state, pair.reply_key, pair.reply_nonce, @reply_destination),
          :ok <- acknowledged_outbox_item(state, pair.primary_key, pair.primary_nonce, @destination) do
