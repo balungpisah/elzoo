@@ -417,6 +417,13 @@ GLEAM_SETUP_STEP = """      - name: Install the pinned Gleam compiler
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/setup.sh"""
+# ELZ-432: the Gleam job sets up the BEAM with the action and the OTP version of the root jobs, both taken from
+# the pinned spike job, so an OTP bump there moves this pin too. Its with: block is the OTP version alone.
+GLEAM_BEAM_STEP = '\n'.join([
+    next(line for line in SPIKE_JOB.split('\n') if line.startswith('      - uses: erlef/setup-beam@')),
+    '        with:',
+    next(line for line in SPIKE_JOB.split('\n') if line.startswith('          otp-version: ')),
+])
 TOKEN_EXPRESSION = re.compile(
     r"github\s*\.\s*token|github\s*\.\s*\*|github\s*\[|\bsecrets\b|tojson\s*\(\s*(?:github|secrets)\b",
     re.IGNORECASE)
@@ -577,7 +584,12 @@ for file in files:
             errors.append(f'{file}: plain-scalar continuation lines are outside the reviewed source convention: {line.strip()}')
         if re.match(r'\s*image\s*:', line) and not digest_image.fullmatch(line):
             errors.append(f'{file}: container images must be pinned by @sha256 digest: {line.strip()}')
-        if re.match(r'\s*(?:-\s*)?uses\s*:', line) and not pinned_action.fullmatch(line):
+        # GitHub reads step keys without regard to case, so `Uses:` or `USES:` would still select an action;
+        # only the reviewed lower-case spelling is accepted, and every spelling must be pinned.
+        uses_key = re.match(r'\s*(?:-\s*)?(uses)\s*:', line, re.IGNORECASE)
+        if uses_key and uses_key.group(1) != 'uses':
+            errors.append(f'{file}: step keys must be spelled in lower case (uses:): {line.strip()}')
+        if uses_key and not pinned_action.fullmatch(line):
             errors.append(f'{file}: actions must be pinned by a full commit SHA: {line.strip()}')
         if re.fullmatch(r'\s*container\s*:\s*[^\s#].*', line):
             errors.append(f'{file}: container must be a mapping with a digest-pinned image')
@@ -667,6 +679,22 @@ for file in files:
             if (len(found) != 1 or lines[found[0] + len(pin):found[0] + len(pin) + len(runtime)] != runtime
                     or len(after_pin) <= len(runtime) or not after_pin[len(runtime)].startswith('      - ')):
                 errors.append(f'{file}: the pinned runtime step must immediately follow checkout ({name})')
+            # ELZ-432: the Gleam tests run on the pinned OTP only if the BEAM is set up before any of them, so the
+            # job's steps start with exactly the identity gate, the checkout, the runtime and the BEAM setup step.
+            beam = GLEAM_BEAM_STEP.split('\n')
+            step_starts = [i for i in range(steps[0] + 1, e) if lines[i].startswith('      - ') and i not in skip] \
+                if len(steps) == 1 else []
+            if (len(found) != 1 or len(step_starts) < 4
+                    or step_starts[:4] != [steps[0] + 1, found[0], found[0] + len(pin), found[0] + len(pin) + len(runtime)]
+                    or lines[step_starts[3]:step_starts[3] + len(beam)] != beam):
+                errors.append(f'{file}: the pinned BEAM setup step must immediately follow the runtime step, '
+                              f'after only the identity, checkout and runtime steps ({name})')
+            # The identity gate's run: block would carry any line appended to it to before checkout and the BEAM
+            # setup, a `#` line included (a shell comment still expands ${{ }}): from the end of its pinned text to
+            # checkout only empty lines may stand. Checkout, runtime and BEAM setup are pinned back to back above.
+            gate_end = steps[0] + 1 + len(HOSTED_GLEAM_GATE_STEP.split('\n')) if len(steps) == 1 else e
+            if len(found) != 1 or found[0] < gate_end or any(lines[i].strip() for i in range(gate_end, found[0])):
+                errors.append(f'{file}: the identity gate step must end at its pinned text, right before checkout ({name})')
         if file.name == 'symbolic-check.yml':
             # ELZ-073: the pinned steps and conditions depend on the role of the job.
             def pin(step_text):
@@ -818,6 +846,21 @@ for file in files:
                                       or len(after) - len(after.lstrip(' ')) <= 4))
         if not pinned:
             errors.append(f'{file}: the pinned Gleam setup step is missing or changed, or the token appears elsewhere')
+        # ELZ-432: exactly one BEAM setup step, the pinned one, and it ends where the next step starts, so no
+        # input (elixir-version:, version-file:) and no step key can be added to it. Script text and comments
+        # that spell the action count too, which fails closed.
+        beam = GLEAM_BEAM_STEP.split('\n')
+        beam_starts = [i for i, line in enumerate(lines)
+                       if re.match(r'\s*(?:-\s+)?uses\s*:\s*["\']?erlef/setup-beam\b', line, re.IGNORECASE)]
+        beam_rest = ([line for line in lines[beam_starts[0] + len(beam):]
+                      if line.strip() and not line.lstrip().startswith('#')] if len(beam_starts) == 1 else [])
+        beam_after = beam_rest[0] if beam_rest else ''
+        if (not shape_ok or len(beam_starts) != 1 or not any(beam_starts[0] in r for r in job_ranges)
+                or beam_starts[0] in skip or lines[beam_starts[0]:beam_starts[0] + len(beam)] != beam
+                or not (not beam_after or beam_after.startswith('      - ')
+                        or len(beam_after) - len(beam_after.lstrip(' ')) <= 4)):
+            errors.append(f'{file}: the pinned BEAM setup step (with: exactly {beam[-1].strip()}, '
+                          f'the OTP version of the root jobs) is missing or changed')
     elif token_lines != pinned_tokens:
         errors.append(f'{file}: github.token and secrets are not allowed in this workflow outside the pinned decision and S3 test server steps')
     # Token permissions: one top-level contents: read block, plus actions: read and pull-requests: read on check-plan only; never write.
