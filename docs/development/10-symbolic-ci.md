@@ -923,14 +923,31 @@ failure permits one fallback to `https://archive.ubuntu.com/ubuntu/`, then
 A failed strict refresh never reaches installation using stale indexes; failed
 fallback provisioning fails the job. This does not guarantee network availability.
 
+The fallback update and installation read only the official Ubuntu stanzas
+(ELZ-435): the helper generates them, with `URIs: https://archive.ubuntu.com/ubuntu/`
+alone, into a temporary `.sources` file and passes `-o Dir::Etc::sourcelist=<that
+file> -o Dir::Etc::sourceparts=<an empty temporary directory>` (`apt.conf(5)`;
+`-` would resolve to `/etc/apt/-/`), so other stanzas of `ubuntu.sources`, other
+URIs of an official stanza and other source files are not read, and an
+unreachable third-party repository cannot fail the fallback. The update adds
+`--no-list-cleanup`, so the cached indexes of the other sources are kept.
+
 The supported configuration is Ubuntu 24.04's canonical
-`/etc/apt/sources.list.d/ubuntu.sources`, with single-line `URIs:` fields and no
-explicit `Enabled:` field. Recognized URI tokens are HTTP(S) Azure/archive Ubuntu
-endpoints or `mirror+file:/etc/apt/apt-mirrors.txt` whose first whitespace-delimited
-mirror field is exactly such an official URI (including the hosted `priority:N`
-form). Only recognized URI tokens change; suites, components, Signed-By, other
-fields, unrelated source files and the mirror file remain unchanged. Unknown
-layouts, explicit enable/disable fields or no recognized URI fail before writing.
+`/etc/apt/sources.list.d/ubuntu.sources`, read as bytes: ASCII only, LF line ends
+(CRLF only when no bare CR remains), and no control byte but tab. Every line is
+empty (the stanza separator), a comment (`#` and printable ASCII), a field
+(`Name:` with no whitespace before the colon, then printable ASCII) or a
+continuation (a space or tab, then printable ASCII); anything else, a repeated
+field (names compared ASCII-case-insensitively) or any `Enabled` field is refused.
+Recognized URI tokens are HTTP(S) Azure/archive Ubuntu endpoints or
+`mirror+file:/etc/apt/apt-mirrors.txt` whose first mirror field is exactly such an
+official URI (including the hosted `priority:N` form). No input text is copied: a
+stanza with a recognized URI must have exactly single-line `Types` (`deb`,
+`deb-src`), `URIs`, `Suites` and `Components` (tokens `[a-z0-9][a-z0-9.+-]*`) and
+`Signed-By` (one absolute keyring path), and the helper writes a fresh stanza from
+those validated tokens; any other shape, or no recognized URI, fails before the
+fallback runs apt. Other stanzas are dropped. The installed source files and the
+mirror file are not written.
 This is not a general apt source parser. Apt retains repository/package
 authentication; no insecure/trusted overrides, package pin or IP pin is added.
 
