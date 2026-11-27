@@ -1,11 +1,11 @@
 # assembly/run-host
 
-`Elzoo.RunHost` is a supervised host for the `assembly/run-engine` Runs of one
-node, for one profile. It owns, once, what each consumer of the engine built for
-itself: the Unit directory, the Run owner with its lease, the evidence Writer,
-AsyncWork, the EffectIntent startup bindings, the AI text bindings with their
-outcome route, recovery with predecessor fencing, deadline wakes, lease renewal and
-the confirmed teardown of every per-Run process. Apache-2.0.
+`Elzoo.RunHost` is a supervised host for the `assembly/run-engine` Runs of one node,
+for one profile. It owns, once, what each consumer of the engine built for itself:
+the Unit directory, the Run owner with its lease, the evidence Writer, AsyncWork, the
+EffectIntent startup bindings, the AI text bindings with their outcome route,
+recovery with predecessor fencing, deadline wakes, lease renewal and the confirmed
+teardown of every per-Run process. Apache-2.0.
 
 ## Profile
 
@@ -18,19 +18,17 @@ the confirmed teardown of every per-Run process. Apache-2.0.
   own `model_call`) is refused at start with `{:error, :outside_profile}`. The engine
   runs protocol version 1 with no `expiry_reports` or `messages` option.
 - So no asynchronous engine input bypasses the host: every input reaches the engine
-  through the Run's worker (caller inputs and controls, sink outcomes, wakes), and
-  the host reads the deadlines and the terminal phase after each of them, with no
-  periodic resampling.
+  through the Run's worker (caller inputs and controls, sink outcomes, wakes), and the
+  host reads the deadlines, the current Attempt and the terminal phase after each of
+  them, with no periodic resampling.
 - ASK model calls are outside the profile: `control/5` forwards no Approval control
   (`:approval_evidence` gives `{:error, :outside_profile}`), so such a call waits
-  until the Run ends. `:begin_attempt` gives the same: a Run keeps the spec's stable
-  Attempt.
+  until the Run ends. Every other control, `:begin_attempt` included, is forwarded.
 
 ## Start
 
-`Elzoo.RunHost.start_link(opts)` starts one host; one per node is the intended use
-(the optional `name` is ordinary OTP registration, so the tests run two hosts in one
-VM to stand for two nodes). Required options, with no defaults:
+`Elzoo.RunHost.start_link(opts)` starts one host; one per node is the intended use.
+Required options, with no defaults:
 
 | Option | Value |
 | --- | --- |
@@ -46,12 +44,28 @@ VM to stand for two nodes). Required options, with no defaults:
 Optional: `fencing_proof` (`fn run_ref -> :fenced \| :unproven end`, Recovery),
 `on_terminal` (`fn run_ref, outcome -> _ end`), `on_lost` (`fn run_ref, reason -> _
 end`), `allow_volatile` (`true` passes EffectIntent's explicit `allow_volatile: true`
-for a Memory namespace) and `name`. Anything else, or a missing or out-of-range
-option, is `{:error, :invalid_options}`.
+for a Memory namespace) and `name`. Anything else, a list that is not a keyword list,
+or a missing or out-of-range option is `{:error, :invalid_options}`.
+
+The host starts two Registries (the Unit directory's and one for the engine names: an
+engine is the AsyncWork owner of its Run, which takes a Registry name), its
+dedicated, initially empty Unit DynamicSupervisor, the `DynamicUnits` directory and a
+Task.Supervisor for its renewals, expiry checks, teardowns and callbacks. The
+Registries are named after `name`, or after `owner_id` without one, so that a host
+restarted under its supervisor takes the same names (two hosts in one VM need distinct
+names). When any of these processes exits, the host stops with that reason and, in
+its `terminate/2`, stops every process of every Run and its infrastructure. A host
+that is killed runs no `terminate/2`; its links still end each Run's worker (and with
+it the processes that the worker started), the Unit supervisor with its Units and the
+task supervisor with its callbacks, but an EffectIntent owner that the engine started
+unlinked can outlive it. The supervisor then starts the subtree again, and each Run
+comes back through `wake/2` and its predecessor check (a new host incarnation has no
+confirmed-teardown marker, so that needs `fencing_proof`).
 
 The views: PostgreSQL views share the Repo and prefix (the `integration/sql` tables
 of migration version 1), Memory views share one Memory process. A view checks the
-kinds, versions and limits of its records; the owners replay with their own folds.
+kinds, versions and limits of its records; the owners replay with their own folds,
+and the engine replays the Unit view with that view's fold to read a sleeping Unit.
 
 | View | Fold and limits |
 | --- | --- |
@@ -61,18 +75,23 @@ kinds, versions and limits of its records; the owners replay with their own fold
 | `intent_store` | `Elzoo.EffectIntent.fold/1` of an AI binding module and `Elzoo.EffectIntent.limits/0` (every binding's fold has the same kind and version) |
 | `activation_store` | `Elzoo.EffectIntent.StoreHost.fold/0` and `limits/0` |
 
-A Memory process cannot take a view's fold, so for a full Memory host the one Memory
+A Memory process has one fold for all its streams, so for a full Memory host the one
 namespace's fold holds the kinds of every owner (`input`, `result`, `run`, the four
-lease kinds, `completion`, `intent`, `intent_host`) and its limits the largest that
-any owner needs (`max_record_bytes: 16_777_216, max_batch_size: 4,
-max_checkpoint_bytes: 33_554_432`). The evidence Writer writes into the namespace
-where the Run owner reads evidence, so a completed or failed finish passes the
-owner's evidence check.
+lease kinds, `completion`, `intent`, `intent_host`), starts from the Unit fold's
+initial value and folds `input` and `result` records with the Unit fold (other records
+are kept as bytes; their owners use their own folds), and its limits are the largest
+that any owner needs (`max_record_bytes: 16_777_216, max_batch_size: 4,
+max_checkpoint_bytes: 33_554_432`). The evidence Writer writes into the namespace where
+the Run owner reads evidence, so a completed or failed finish passes the owner's
+evidence check.
 
-The host starts its own Registry and its dedicated, initially empty DynamicSupervisor
-for the `DynamicUnits` directory, a second Registry for the engine names (an engine
-is the AsyncWork owner of its Run, which takes a Registry name), and a Task.Supervisor
-for its renewals, teardowns and callbacks.
+**Store Need.** Every write of every view is a compare-and-set on its stream head
+(the ready `integration/sql` PostgreSQL Store and the Memory Store are), and every
+EffectIntent send follows its committed arm (`delivery/effect-intent`). So a write
+that a dead predecessor left outstanding (an append that its caller saw as unknown)
+is, when it lands later, either read by the next tenure's recovery or refused at the
+head; it is never a second send and never a lost record. The confirmed-teardown
+marker (Recovery) rests on this Need.
 
 ## The spec
 
@@ -80,8 +99,8 @@ A spec is a map with exactly these keys:
 
 | Key | Value |
 | --- | --- |
-| `run_id`, `operation_id`, `attempt_id` | the stable Run, operation and Attempt IDs, 1..200 bytes |
-| `unit` | the Unit identity and stream, 1..160 bytes; the Run owner's stream (the lease key, one per Run) is `"run/" <> unit` and the evidence stream `"evidence/" <> unit` |
+| `run_id`, `operation_id`, `attempt_id` | the stable Run and operation IDs and the first Attempt, 1..200 bytes |
+| `unit` | 1..155 bytes; the Run's streams are `"unit/" <> unit` (the Unit identity and journal), `"run/" <> unit` (the Run owner's stream, the lease key, one per Run) and `"evidence/" <> unit`; with the EffectIntent streams (`"intent/"`, `"intent-host/"`) no two of them can be one stream |
 | `provider_refs` | the Run's provider references (`RunApprovalRelease` `create`) |
 | `tenant`, `principal` | the engine's trusted tenant and acting principal |
 | `pattern`, `schemas`, `gate`, `context`, `budget`, `budget_rule`, `request_cap`, `run_deadline` | the engine's start options of the same names |
@@ -91,147 +110,186 @@ A spec is a map with exactly these keys:
 
 ## Runs
 
-`start_run(host, run_ref, spec)` reserves a slot (`{:error, :capacity}` at
-`max_runs`), claims the Run's lease key, provisions the EffectIntent startup
-bindings, starts the Run owner, `create`s the Run and begins its Attempt with the
-spec's IDs, and starts the evidence Writer, AsyncWork and the engine (with
-`result_reader`). It returns `:ok`; starting the engine does not start the pattern
-(for AgentLoop the caller sends the typed `start` through `input/5`). An interrupted
-start is retried by the same call with identical IDs: the owner answers
-`{:unchanged, :duplicate, _}` to both commands and no new Attempt begins. A retry
-that opens an existing Run or Unit journal passes the predecessor check (Recovery)
-before any engine starts. A lease that another owner holds gives `{:error,
-{:lease_refused, refusal}}` (the refusal of `Elzoo.Lease.claim/4`) and no engine
-starts.
+`start_run(host, run_ref, spec)` reserves a slot (`{:error, :capacity}` at `max_runs`),
+claims the Run's lease key, provisions the EffectIntent startup bindings, starts the
+Run owner, `create`s the Run and begins its Attempt with the spec's IDs, and starts the
+evidence Writer, AsyncWork and the engine (with `result_reader`). It returns `:ok`;
+starting the engine does not start the pattern (for AgentLoop the caller sends the
+typed `start` through `input/5`). An interrupted start is retried by the same call with
+identical IDs: the owner answers `{:unchanged, :duplicate, _}` to both commands and no
+new Attempt begins (a Run that a `:begin_attempt` control already moved on keeps its
+current Attempt). A retry that opens an existing Run or Unit journal passes the
+predecessor check (Recovery) before any engine starts. A lease that another owner holds
+gives `{:error, {:lease_refused, refusal}}` (the refusal of `Elzoo.Lease.claim/4`) and no
+engine starts.
 
-`input/5`, `control/5`, `status/2`, `deadlines/2`, `result/4` and `transcript/4` take
-the host and the `run_ref` before the engine's operands and give the engine's own
-results; a Run that is not live on this host gives `{:error, :not_running}`. Inputs
-and controls go through the Run's worker, which serializes them with the host's own
-inputs; an engine call that ends by the engine's call limit gives the caller the
-same exit. Reads go to the engine directly.
+`input/5`, `control/5`, `status/2`, `deadlines/2`, `result/4` and `transcript/4` take the
+host and the `run_ref` before the engine's operands and give the engine's own results;
+a Run that is not live on this host gives `{:error, :not_running}`. Inputs and controls
+are admitted by a sample of the lease clock taken for each of them (Leases: an expired
+or lost lease gives `{:error, :lease_lost}`, a lease clock that cannot be read
+`{:error, :unavailable}`), then go through the Run's worker, which serializes them with
+the host's own inputs; an engine call that ends by the engine's call limit gives the
+caller the same exit. Reads go to the engine directly.
 
 On a terminal outcome the host stops business input (`input/5` and `control/5` give
-`{:error, :terminal}`) and calls `on_terminal.(run_ref, outcome)` in a host task,
-once per incarnation of the Run. The engine stays live with its scoped result reader
-until `reap(host, run_ref)`, which stops every per-Run process, confirms that each is
-gone, releases the lease and frees the reservation, then returns `:ok` (`{:error,
-:not_running}` for a Run that is not live). A terminal Run that is not reaped counts
-against `max_runs`.
+`{:error, :terminal}`) and calls `on_terminal.(run_ref, outcome)`, once per incarnation
+of the Run. The engine stays live with its scoped result reader until
+`reap(host, run_ref)`, which stops every per-Run process, confirms that each is gone,
+releases the lease and frees the reservation, then returns `:ok`. When the release can
+be confirmed neither by the Lease (`{:free, _}`) nor by a reading that shows the key
+free or held by another owner, `reap/2` returns `{:error, :release_unconfirmed}` and
+the Run keeps its reservation; a later `reap/2` tries the release again (a new start
+of the Run takes the key over instead). A Run that is not live gives
+`{:error, :not_running}`. A terminal Run that is not reaped counts against `max_runs`.
 
 ### Processes and teardown
 
-Per Run the host starts one worker (`Elzoo.RunHost.Runner`, linked to the host),
-which starts and links a Task.Supervisor (the tasks of the Run's EffectIntent owners
-and of AsyncWork), the Run owner, the evidence Writer, AsyncWork and the engine; the
-engine starts the Unit under the directory and its EffectIntent owners unlinked. The
-host tracks each process from its start: the worker reports its own, and every
-EffectIntent owner is reported by the activation callback inside it. A teardown
-(reap; an exit of the worker, the engine, the Run owner, the evidence Writer, AsyncWork
-or the task supervisor of a live Run; a lost lease; a failed start)
-runs in a host task: it kills the engine first (so it starts nothing more), then the
-EffectIntent owners, AsyncWork, the task supervisor with its tasks, the Run owner, the
-evidence Writer and the worker, stops the Unit through its directory (a confirmed
-`:ok`) and waits until each of them and every process the Unit started is gone. Until
-then the Run keeps its reservation; an unconfirmed teardown runs again every second.
-A `start_run/3` or `wake/2` of a Run that is being torn down waits for the end of the
-teardown.
+Each Run has a group leader of its own (a process of the host that relays I/O to the
+host's group leader). The Run's worker (`Elzoo.RunHost.Runner`, linked to the host)
+sets it first, so every process that the Run starts, at any depth, inherits it: the
+Task.Supervisor of the Run's EffectIntent tasks and AsyncWork, every task, the Run
+owner, the evidence Writer, AsyncWork, the engine, every EffectIntent owner (also one
+that the engine started unlinked and whose activation stayed read-only) and the keep-
+alive calls. The Unit and its Writer are the directory's, under the host's Unit
+supervisor.
+
+A teardown (reap; an exit of the worker, the engine, the Run owner, the evidence
+Writer, AsyncWork or the task supervisor of a live Run; a lost lease; a failed start)
+runs in a host task: it kills the engine first (so it starts nothing more), then every
+process whose group leader is the Run's, again until none is left (a task whose
+supervisor died, or one that traps exits, included), stops the Unit through its
+directory (a confirmed `:ok`) and waits until the Unit and every process that it
+started are gone. Until then the Run keeps its reservation; an unconfirmed teardown runs
+again every second. A `start_run/3` or `wake/2` of a Run that is being torn down waits
+for the end of the teardown.
+
+`on_terminal` and `on_lost` run as tasks of the Run, tracked by the host. A reap stops
+a callback that is still running before it frees the reservation; a callback that calls
+`reap/2` for its own Run is stopped by that reap (it gets no reply, and nothing waits on
+it). After a teardown that is not a reap, the reservation is freed when the Run's
+callbacks have ended; a reap stops them.
 
 ## AI model calls
 
-An AI binding descriptor has exactly `id` and `version` (the engine binding's
-identity, part of the fingerprint), `effect_class` and `proposal` (Authorization),
-`estimate` (Budget units per call), `call_ms` (1..86,400,000: the call's slot and
-intent deadline is the clock plus `call_ms`), `usage` (below) and `ai_text`: the
-options of `Elzoo.AiText.configure/1` without `tenant`, `sink`, `artifacts` and
-`image_bounds`, which the host sets (the spec's tenant, its own sink, no artifact
-reader). The action's payload is the ai-text request (`elzoo/ai-text-request`
-version 1, AgentLoop's first model call); the binding's result is
-`elzoo.ai-text.result` version 1.
+An AI binding descriptor has exactly `id` and `version` (the engine binding's identity,
+part of the fingerprint), `effect_class` and `proposal` (Authorization), `estimate`
+(Budget units per call), `call_ms` (1..86,400,000: the call's slot and intent deadline is
+the clock plus `call_ms`), `usage` (below) and `ai_text`: the options of
+`Elzoo.AiText.configure/1` without `tenant`, `sink`, `artifacts` and `image_bounds`,
+which the host sets (the spec's tenant, its own sink, no artifact reader). The action's
+payload is the ai-text request (`elzoo/ai-text-request` version 1, AgentLoop's first
+model call); the binding's result is `elzoo.ai-text.result` version 1.
 
-- **Key.** The AI idempotency key of an action is the lowercase hex SHA-256 of the
-  ETF of `{run_id, attempt_id, action_id}` with the spec's stable IDs and the
-  engine's non-reused action ID, so the intent key is ai-text's key of
-  `[tenant, provider_account, binding_id, "generate", key]`.
-- **Admission.** The host's gate runs `Elzoo.AiText.admission/2` before the spec's
-  gate. A refusal (`{:error, {:refused, reason}}`, for example `:unsupported_feature`
-  for an image part or `:too_large`) is a gate denial with that reason: the engine
-  records it before any intent exists, the action settles refused (actual 0), no
-  intent starts and the provider is not called. `facts/1` repeats the admission
-  that the gate passed, so it returns no admission error, and does no I/O. The
-  EffectIntent startup bindings are provisioned once at the Run's start.
+- **Key.** The AI idempotency key of an action is the lowercase hex SHA-256 of the ETF
+  of `{run_id, attempt_id, action_id}`: the stable Run ID, the Attempt that the engine
+  committed for that action (the current Attempt when the engine admits it; the worker
+  keeps it in a table that the gate and `facts/1` read, updated from `status/1` after
+  every input and control) and the engine's non-reused action ID. The intent key is
+  ai-text's key of `[tenant, provider_account, binding_id, "generate", key]`.
+- **Admission.** The host's gate runs `Elzoo.AiText.admission/2` before the spec's gate.
+  A refusal (`{:error, {:refused, reason}}`, for example `:unsupported_feature` for an
+  image part or `:too_large`) is a gate denial with that reason: the engine records it
+  before any intent exists, the action settles refused (actual 0), no intent starts and
+  the provider is not called. `facts/1` repeats the admission that the gate passed, so it
+  returns no admission error, and does no I/O. The EffectIntent startup bindings are
+  provisioned once at the Run's start.
 - **Route.** The sink of every binding sends each delivery to the Run's worker. The
   worker resolves the key to the exact Run, Attempt, action and occurrence from the
-  committed `model_call` actions that `transcript/3` gives (Attempt, action ID,
-  occurrence, schema ID) and the stable binding configuration, never from
+  committed `model_call` actions that `transcript/3` gives (each action's own Attempt,
+  action ID, occurrence and schema ID) and the stable binding configuration, never from
   `status/1` alone, and then calls `RunEngine.input/4`. At a start or a wake the
-  deliveries are held until that route is verified (built once the engine has
-  started); a key that is not in the route makes the worker read the transcript
-  again.
+  deliveries are held until that route is verified (read once the engine has started).
+  A key that is not in the route makes the worker read the transcript again. A read that
+  fails for a moment (`{:error, :unavailable}` or an exit) keeps the deliveries, in
+  order, and is read again 200 ms later; a read that cannot succeed (`:read_limit`,
+  `:history` or another error of `transcript/3`) fails a start or wake with
+  `{:error, {:route, reason}}` and otherwise reports each delivery that it cannot route.
 - **Input.** Each received outcome is one engine `action_outcome` input under the ID
-  `"ai:"` and the hex SHA-256 of the ETF of `{run_id, attempt_id, occurrence}` (67
-  bytes for any action ID). Under `budget_rule: :pause` the host samples the spec's
-  trusted `context` for a `pause_deadline` after the clock before it first submits
-  the input. The first submission fixes the frame and the whole context, that pause
-  operand included; a retry (the engine's `{:error, :unavailable}` or an exit, at
-  most 20 times) and a duplicate delivery send them again, so the engine answers a
-  duplicate, never a second settlement. A context with no future pause deadline is
-  outside the engine's Need: the host reports it and submits nothing.
+  `"ai:"` and the hex SHA-256 of the ETF of `{run_id, attempt_id, occurrence}` (67 bytes
+  for any action ID), with the action's own Attempt in its context. Under
+  `budget_rule: :pause` the host samples the spec's trusted `context` for a
+  `pause_deadline` after the clock before it first submits the input. The first
+  submission fixes the frame and the whole context, that pause operand included; a retry
+  (the engine's `{:error, :unavailable}` or an exit, at most 20 times, 200 ms times the
+  attempt) sends them again. Only when the engine refuses the input before appending
+  anything for its passed pause operand (`{:error, :pause_deadline_required}`) is a fresh
+  operand taken for the next try. The worker keeps the IDs that the engine acknowledged
+  (`{:ok, _}`): a later delivery of the same outcome, and a retry that was already due,
+  give no input at all (also after the ID has left the Unit's retention). A context with
+  no future pause deadline is outside the engine's Need: the host reports it and submits
+  nothing.
 - **Sink.** ai-text sends `{:outcome, attempt_id, outcome}` or `{:sink_failed,
-  attempt_id}` before the intent owner commits its own settlement. The host
-  translates only outcomes received at the sink. `{:sink_failed, _}` gives no input:
-  the host reports it, and the slot waits for reconciliation or the end of the Run.
-  A missing delivery gives no settlement.
+  attempt_id}` before the intent owner commits its own settlement. The host translates
+  only outcomes received at the sink. `{:sink_failed, _}` gives no input: the host
+  reports it, and the slot waits for reconciliation or the end of the Run. A missing
+  delivery gives no settlement.
+- **Unit kept awake.** `DynamicUnits` measures idle time from directory operations, not
+  from a provider call, and a Unit reopened under a model call in flight would make its
+  recovery settle the call `lost_outcome`. While `status/1` shows a model call ready or
+  running, the worker calls `DynamicUnits.start/2` for the Unit every quarter of
+  `idle_ms` (from a process of the Run, so a busy directory delays no input). `idle_ms`
+  must leave room for the engine's longest input on top of that quarter. The first
+  model call on a node loads the adapter's model catalog while the engine's input waits
+  (that input took 2.7 to 2.9 s on one development host); with a shorter `idle_ms` the
+  Unit sleeps meanwhile and the engine answers that input `{:error, :delivery_unknown}`.
 
-Reports are one `Logger` warning that names the Run reference and the action or
-key, never a payload: a sink failure, an outcome with no route, no future pause
-deadline, and an input that the engine refused or did not take.
+Reports are one `Logger` warning that names the Run reference and the action, key or
+input ID, never a payload: a sink failure, an outcome with no route or that cannot be
+routed, no future pause deadline, and an input that the engine refused or did not take.
 
 ### Translation and `elzoo.ai-text.result` version 1
 
 | Outcome at the sink | `outcome` | `dispatch` | `actual` | Payload |
 | --- | --- | --- | --- | --- |
-| `{:completed, body}` | `"completed"` | `"dispatched"` | the usage conversion, or none | completed view |
+| `{:completed, body}` within the bound | `"completed"` | `"dispatched"` | the usage conversion, or none | completed view |
+| `{:completed, body}` whose completed view is over the engine's payload bound | `"refused"` | `"dispatched"` | none | refusal view, reason `too_large` |
 | `{:refused, reason, meta}`, reason `credentials_unavailable` or `input_unavailable` (sent nothing) | `"refused"` | `"not_dispatched"` | 0 | refusal view |
 | `{:refused, reason, meta}`, any other reason | `"refused"` | `"dispatched"` | none | refusal view |
 | `{:unknown, :malformed_response}` (always reached the provider) | `"unknown"` | `"dispatched"` | none | refusal view |
 | `{:unknown, reason}`, `timeout`, `transport` or `provider_error` | `"unknown"` | `"unknown"` | none | refusal view |
 | `{:sink_failed, _}` | no input | | | |
 
-A delivered `:provider_error` does not prove dispatch (a provider error and an
-adapter error both deliver it), and the host never infers zero or a dispatch that the
-outcome does not establish. An unknown outcome has no actual, so its reservation stays
-reserved.
+A delivered `:provider_error` does not prove dispatch (a provider error and an adapter
+error both deliver it), and the host never infers zero or a dispatch that the outcome
+does not establish. An unknown outcome has no actual, so its reservation stays reserved.
 
 - The completed view is exactly `{"content": text, "finish": finish, "tool_proposals":
   [proposal]}`: `finish` is `"stop"`, `"length"`, `"tool_calls"`, `"content_filter"`,
   `"refusal"` or `{"other": text}`, and a proposal is exactly `{"id", "name",
   "arguments", "malformed"}` (`malformed` null or the tag as text), the form that
   AgentLoop reads. The structured output and the usage are not in it.
+- **The bound.** ai-text and the Anthropic provider bound no response content in bytes
+  (the provider keeps up to 4 MiB of body), while the engine checks every outcome payload
+  against its result schema with `core/payload-schema`: at most 65,536 bytes of compact
+  JSON and 32 levels. A completed view over that bound (checked with the same function
+  and the spec's schema of `elzoo.ai-text.result` version 1 before it is submitted) is
+  never truncated: it is submitted as `"refused"` with the refusal view of reason
+  `too_large`, `dispatch` `"dispatched"` (the call reached the provider) and no `actual`.
 - The refusal view is exactly `{"reason": text, "retry_after": seconds | null,
   "candidate": null}`: the reason of the outcome, the provider's `retry_after` for a
   refusal (null for an unknown) and no routing candidate.
-- The usage conversion is the descriptor's trusted `usage` callback: for a completed
-  body whose `usage` (an `Elzoo.AiModel.Usage` value) has source
-  `:provider_reported`, `{:ok, amount}` (a non-negative integer in the spec's Budget
-  unit) is the `actual`; any other answer, a raise, or a usage with source `:unknown`
-  (no usage reported) gives no `actual`. The tests convert the reported
-  `input_uncached_tokens` and `output_tokens` to the Budget unit `tokens` and give no
-  actual when one is unknown.
+- The usage conversion is the descriptor's trusted `usage` callback: for a completed body
+  whose `usage` (an `Elzoo.AiModel.Usage` value) has source `:provider_reported`,
+  `{:ok, amount}` (a non-negative integer in the spec's Budget unit) is the `actual`; any
+  other answer, a raise, or a usage with source `:unknown` (no usage reported) gives no
+  `actual`. The tests convert the reported `input_uncached_tokens` and `output_tokens` to
+  the Budget unit `tokens` and give no actual when one is unknown.
 
 The engine's committed slot is the Run's record of the call. The intent's durable
 settlement is separate and can differ: the sink is called before the intent owner
-commits, so after a crash right after the offer the slot can hold the outcome while
-the intent is unknown, and with a lost delivery the intent can be settled while the
-slot waits.
+commits, so after a crash right after the offer the slot can hold the outcome while the
+intent is unknown, and with a lost delivery the intent can be settled while the slot
+waits.
 
 ## Recovery
 
-`wake(host, run_refs)` returns `[{run_ref, :woken | {:error, reason}}]`, one per Run
-in the order given. It opens only a Run that already has a current Attempt: it
-rebuilds the spec through the `spec` callback, claims the lease, starts the Run
-owner, checks the predecessors and starts the engine on the Run's journal. The other
-Runs of a batch go on whatever one of them gives.
+`wake(host, run_refs)` returns `[{run_ref, :woken | {:error, reason}}]`, one per Run in
+the order given (a `run_ref` given twice gets the same disposition twice). It opens only
+a Run that already has a current Attempt (any Attempt: a `:begin_attempt` control can
+have moved it on): it rebuilds the spec through the `spec` callback, claims the lease,
+starts the Run owner, checks the predecessors and starts the engine on the Run's journal.
+The other Runs of a batch go on whatever one of them gives.
 
 | Reason (`start_run/3` gives the same, but `:no_current_attempt`) | When |
 | --- | --- |
@@ -243,136 +301,171 @@ Runs of a batch go on whatever one of them gives.
 | `{:lease_refused, refusal}` | another live owner holds the Run's lease key |
 | `{:lease, result}` | any other result of the lease claim |
 | `:no_current_attempt` | the Run owner has no current Attempt for the Run (or no Run) |
-| `:incompatible_recovery` | the engine refused the journal for another fingerprint (another gate version, request cap, binding, schema, pattern, ...), or the current Attempt is not the spec's |
+| `:incompatible_recovery` | the engine refused the journal for another fingerprint (another gate version, request cap, binding, schema, pattern, ...) |
 | `:fencing_unproven` | no confirmed teardown and no fresh `:fenced` (below) |
+| `{:route, reason}` | the route of the Run's model calls cannot be read (AI model calls) |
 | `:lease_lost` | the lease was lost during the start |
-| `{:start_failed, {role, reason}}` | a process of the Run did not start (`:tasks`, `:owner`, `:evidence`, `:async`, `:engine`) or a Run command answered otherwise (`:create`, `:begin_attempt`, `:status`); `{:start_failed, reason}` when the worker ended otherwise |
+| `{:start_failed, {role, reason}}` | a process of the Run did not start (`:tasks`, `:owner`, `:evidence`, `:async`, `:engine`) or a Run command or read answered otherwise (`:create`, `:begin_attempt`, `:status`, `:unit_head`); `{:start_failed, reason}` when the worker ended otherwise |
 
 After an `:incompatible_recovery` the engine may already have started its Unit: the
-teardown stops it through the directory and confirms it. Every failed start ends in
-the same confirmed teardown and releases a lease that it claimed.
+teardown stops it through the directory and confirms it. Every failed start ends in the
+same confirmed teardown and releases a lease that it claimed.
 
 **Predecessor fencing.** A replacement lease is necessary but not sufficient: taking
-over the Run lease fences the compare-and-set writes on the Run stream, not the old
-Unit, an EffectIntent stream or a task between its durable arm and the provider send,
-and an old process can resume after the takeover. Engine startup recovers intents
-and drains work before it returns, so after the lease and before any engine (for
-`wake/2`, and for a `start_run/3` retry that opens an existing Run or Unit journal)
-the host requires one of:
+over the Run lease fences the compare-and-set writes on the Run stream, not the old Unit,
+an EffectIntent stream or a task between its durable arm and the provider send, and an
+old process can resume after the takeover. Engine startup recovers intents and drains
+work before it returns, so after the lease and before any engine (for `wake/2`, and for
+a `start_run/3` retry that opens an existing Run or Unit journal) the host requires one
+of:
 
-- **confirmed teardown**: this host incarnation stopped and confirmed every process
-  of the Run's last tenure, that tenure began clean (fresh, or after a passed check),
-  and nothing was written to the Run stream since. At the end of that teardown the
-  host takes the stream's revision when the latest lease record is this owner's own
-  (its claim or renewal, or its release right after it); the new claim must come
-  directly after it. Another owner's claim between them, a new host incarnation, or
-  a teardown after the key moved to another owner leaves no such marker;
-- **a fresh `:fenced`** from `fencing_proof.(run_ref)`, asked again at each check
-  (never a cached attestation keyed by `run_ref`); the caller's proof must cover every
+- **confirmed teardown**: this host incarnation stopped and confirmed every process of
+  the Run's last tenure (by its group leader, above), that tenure began clean (fresh, or
+  after a passed check), and the Run stream holds, from the revision read at the end of
+  that teardown (the marker) up to the new claim, only lease records of this owner: its
+  claims and renewals, and releases that it wrote (its own release, or the stale release
+  of its own lease that its next claim writes). Another owner's record, a seize, a Run
+  record, a new host incarnation, or a teardown after the key moved to another owner
+  leaves no confirmation. With the Store Need above, a write that the dead predecessor
+  left outstanding on any stream is safe once its processes are gone;
+- **a fresh `:fenced`** from `fencing_proof.(run_ref)`, asked again at each check (never
+  a cached attestation keyed by `run_ref`); the caller's proof must cover every
   predecessor that could still act or write, also on another node.
 
-Absent, invalid or unproven evidence gives `{:error, :fencing_unproven}`: no engine
-starts, and no activation is granted. The activation callback of the EffectIntent
-owners (`StoreHost`'s `authorize`) answers `:fresh` (an intent and marker at revision
-0) or `{:recovered, generation}` only for the current incarnation of a Run whose check
-passed, and `:refused` otherwise.
+A start of a Run that has no Run record and an empty Unit journal is fresh: it is marked
+clean before its first write, so a start interrupted between its `create` and its engine
+is retried by confirmed teardown. Absent, invalid or unproven evidence gives
+`{:error, :fencing_unproven}`: no engine starts, and no activation is granted. The
+activation callback of the EffectIntent owners (`StoreHost`'s `authorize`) answers
+`:fresh` (an intent and marker at revision 0) or `{:recovered, generation}` only for the
+current incarnation of a Run whose check passed and while its lease is live by a sample
+of the lease clock taken in the callback, and `:refused` otherwise.
 
-At a wake the engine recovers each running model call: an intent with a recorded
-attempt settles its slot `unknown` (`lost_outcome`, dispatch unknown, no actual) and
-is never sent again; an untried one is dispatched once, its outcome held until the
-route is verified; an intent whose activation stays read-only (the activation Store's
-marker write lost or failed) leaves its slot in reconciliation (`reconciliation:
-:read_only` in `status/2`) until the Run ends.
+At a wake the engine recovers each running model call: an intent with a recorded attempt
+settles its slot `unknown` (`lost_outcome`, dispatch unknown, no actual) and is never
+sent again; an untried one (admitted, never armed) is activated as recovered and sent
+once, its outcome held until the route is verified; an intent whose activation stays
+read-only (the activation Store's head unreadable or its marker write lost) leaves its
+slot in reconciliation (`reconciliation: :read_only` in `status/2`) until the Run ends.
 
 ## Time
 
 The worker keeps one correlated wake timer per Run from `RunEngine.deadlines/1`: while
 paused at `min(run_deadline, pause_deadline)` (a paused Run can reach its Run deadline
-first), otherwise at `run_deadline`. It reads the committed deadlines again after a
-start, a wake and each host, sink or caller input and control, and again before the
-timer fires; a replaced timer gives no input. At or after the deadline it sends one
-`wake` input under `"wake:"` and the hex SHA-256 of the ETF of `{run_id, attempt_id,
-deadline}`, with the context `%{run_id, attempt_id}` and, under `budget_rule: :pause`,
-a future `pause_deadline` from the spec's trusted context (when the context gives none
-the wake is reported and tried again a second later). The timer counts the engine
-clock's milliseconds on the node's timer service, so a Run deadline is reached on
-time only with an engine clock that runs in real time.
+first), otherwise at `run_deadline`. It reads the committed deadlines again after a start,
+a wake and each host, sink or caller input and control, and again when the timer fires: a
+read that fails decides nothing (the timer and the reads are tried again 200 ms later),
+and a replaced timer gives no input. At or after the deadline it sends one `wake` input
+under `"wake:"` and the hex SHA-256 of the ETF of `{run_id, attempt_id, deadline}` (the
+current Attempt), with the context `%{run_id, attempt_id}` and, under
+`budget_rule: :pause`, a future `pause_deadline` from the spec's trusted context (with
+none the wake is reported and tried again a second later; when the engine refuses it for
+a pause operand that passed before it took the input, a fresh operand is taken). A wake
+that the engine refused, or one whose target is still the committed deadline after it was
+sent, is sent again no sooner than a second later. The timer counts the engine clock's
+milliseconds on the node's timer service, so a Run deadline is reached on time only with
+an engine clock that runs in real time. A terminal phase is reported to `on_terminal` only
+from a successful read of the outcome.
 
 ## Leases
 
-The host renews each Run's lease through its live owner with
-`Elzoo.RunApprovalRelease.renew/2`, in a host task. Lease `until` is in the lease
-clock's Unix microseconds and `until - at` of every token is the TTL; the engine clock
-is never compared with it. Each lease call starts after a moment `t` on the node's
-monotonic clock and the lease samples `at` inside it, so `until` is no earlier than
-`t + lease_ttl_ms` for a lease clock that does not run faster than the node's clock
-(on Memory, the manual clock must not be moved faster than that). **The renewal
-starts half the TTL before that estimate**: a renewal that waits the whole 5,000 ms
-caller limit of `renew/2` still ends before the estimate for a TTL of 10 s or more.
-When no renewal is confirmed by the estimate, the host stops admission for the Run and
-fences it as for a lost renewal (`on_lost` reason `:expired`). A definite no-write
-error (`{:error, _}`) keeps the token: the renewal is tried again at a twelfth of the
-TTL, within the same estimate.
+Lease `until` is in the lease clock's Unix microseconds; the engine clock is never
+compared with it. After a claim and after each confirmed renewal, the host samples the
+lease clock (`Elzoo.Lease.status/2`) and sets an expiry check on the node's monotonic
+clock at the moment by which `until` passes at the latest, for a lease clock that runs no
+slower than the node's clock. **The renewal starts half the TTL before that moment**
+through the live owner with `Elzoo.RunApprovalRelease.renew/2`, in a host task, so that a
+renewal that waits the whole 5,000 ms caller limit of `renew/2` still ends before it for a
+TTL of 10 s or more. The expiry check reads the lease clock again and declares the lease
+expired only when that reading is at or past the last confirmed `until`; otherwise it waits
+for the remaining time. Each input and control reads the lease clock too (Runs), and an
+EffectIntent activation compares its own sample with the last confirmed `until`, so a lease
+clock that moves faster than the node's (a Memory manual clock, for example) stops
+admission and activation at once. A definite no-write error (`{:error, _}`) of a renewal
+keeps the token: the renewal is tried again at a twelfth of the TTL.
 
 On `{:refused, {:lease_lost, refusal}}`, `{:refused, {:fenced, facts}}`,
-`{:indeterminate, receipt}` or `{:unknown, :no_receipt}` (each stops the owner) the
-host stops admission for that Run (`input/5` and `control/5` give `{:error,
-:lease_lost}`, also after the teardown), fences its processes and calls
-`on_lost.(run_ref, reason)` with that reason. A `renew/2` call that exits on its caller
-timeout is an unconfirmed renewal, treated like `{:unknown, :no_receipt}` (the reason
-given to `on_lost`); a late successful renewal reopens nothing. The same holds for a
-Run owner that stops with one of these reasons after a command. Only the indeterminate
-result keeps a receipt, given as `reconcile:` to the next start of the Run's owner.
-A host that starts or wakes a Run whose lease another live owner holds is refused and
-starts no engine. The engine treats a renewal as a fence change, not a Run transition
+`{:indeterminate, receipt}` or `{:unknown, :no_receipt}` (each stops the owner), on no
+confirmed renewal by the last confirmed `until` (`:expired`), and on a reading of the lease
+that shows another holder or none (`{:lease_lost, %{reason, holder}}`), the host stops
+admission for that Run (`input/5` and `control/5` give `{:error, :lease_lost}`, also after
+the teardown), fences its processes and calls `on_lost.(run_ref, reason)` with that reason,
+once, whichever of the renewal result, the owner's exit and the worker's exit it learns
+first. A `renew/2` call that exits on its caller timeout is an unconfirmed renewal,
+treated like `{:unknown, :no_receipt}`; a late successful renewal reopens nothing. Only the
+indeterminate result keeps a receipt, given as `reconcile:` to the next start of the Run's
+owner. A host that starts or wakes a Run whose lease another live owner holds is refused
+and starts no engine. The engine treats a renewal as a fence change, not a Run transition
 (ELZ-429).
 
 ## Grounding
 
-Tests (disposable PostgreSQL 19, except the two Memory scenarios named below; the
-scripted Req stub of `integration/ai-text-anthropic`, no network, stub keys only):
+Tests (disposable PostgreSQL 19, except the Memory scenarios named below; the scripted
+Req stub of `integration/ai-text-anthropic`, no network, stub keys only; each module loads
+the adapter's model catalog in `setup_all`, so that the tests with an `idle_ms` of 100 to
+300 ms meet the `idle_ms` Need above in any order):
 
-- `test/elzoo/run_host_test.exs`: an AgentLoop Run answered end to end, on PostgreSQL
-  and on one Memory namespace with a manual-clock Lease (the full Memory scenario,
-  with `allow_volatile`); a model call that does not complete fails the Run with no
-  host cancel; capacity with a terminal Run and a sleeping Unit held, and reap with
-  every process of the Run gone (counted before and after), the lease free and the
-  slot reused; options and profile refusals.
+- `test/elzoo/run_host_test.exs`: an AgentLoop Run answered end to end, on PostgreSQL and
+  on one Memory namespace with a manual-clock Lease (the full Memory scenario, with
+  `allow_volatile`, read again after its Unit slept); a model call that does not complete
+  fails the Run with no host cancel; capacity with a terminal Run and a sleeping Unit held,
+  and reap leaving no process of the Run (the processes found as those that appeared
+  with it, not by the host's tracking), the lease free and the slot reused; a reap whose
+  release is not confirmed; callbacks stopped at reap and a callback that reaps its own
+  Run; options and profile refusals; Unit identities that would name another Run's
+  streams; a Registry exit stopping the host; the Registry names of a host without
+  `name` (the same after a restart, refused to a second host); a killed host whose
+  links end its Run's worker, the processes that the worker started and the Unit.
 - `test/elzoo/run_host_ai_test.exs`: an image part refused with no intent and no stub
-  call; the key derivation, the input ID and context, and a duplicate delivery answered
-  as a duplicate; the same under `budget_rule: :pause` after the context would give
-  another pause deadline; a timeout with dispatch unknown and no actual; a sink failure
-  with no input and no settlement; the translation table.
+  call; the key derivation, the input ID and context, and a duplicate delivery giving no
+  second input; the same under `budget_rule: :pause` after the context would give another
+  pause deadline; acknowledged inputs after Unit dedup eviction and a retry due after
+  success; a timeout with dispatch unknown and no actual; a 70 KiB completion refused
+  `too_large`; a sink failure with no input and no settlement; an outcome kept across a
+  failed route read; a call held past `idle_ms`; a `:begin_attempt` in the middle of a Run;
+  the translation table.
 - `test/elzoo/run_host_recovery_test.exs`: crash and wake on one node after confirmed
   teardown, and a takeover by another host after lease expiry, with the predecessor's
-  processes stopped by the test through their group leader (the stand-in for another
-  node): one stub call, one `lost_outcome`, the Run failed with
-  `model_call_not_completed`; lease expiry alone with no proof; a `start_run/3` retry
-  on an existing journal on the same and on a new host incarnation; the proof asked at
-  each check; the startup route hold; fingerprint changes in a batch; wake
-  dispositions; lease refusals on PostgreSQL and, with one shared Lease backend, on
-  Memory.
+  processes stopped by the test through their group-leader chain (the stand-in for
+  another node): one stub call, one `lost_outcome`, the Run failed with
+  `model_call_not_completed`; lease expiry alone with no proof (no engine started, at a
+  second wake too: a refused tenure leaves no marker); a `start_run/3` retry on an
+  existing journal on the same and on a new host incarnation; a fresh start interrupted
+  after its `create`; a lease that expired between the crash and
+  the wake; the proof asked at each check; a dead predecessor's paused Memory append that
+  lands after the marker; an untried intent recovered at wake, sent once with its outcome
+  held until the route is verified; a read-only intent owner and a trapping send task
+  stopped at teardown; fingerprint changes in a batch; wake dispositions; lease refusals
+  on PostgreSQL and, with one shared Lease backend, on Memory.
 - `test/elzoo/run_host_time_test.exs`: the deadline wakes (idle Run, both paused
-  orderings, a continue that moves the timer) and lease renewal (several TTLs, a lost
-  renewal, a renewal reply delayed past the caller timeout).
+  orderings, a continue that moves the timer, a wake refused for its passed pause
+  operand), the lease clock (a Memory clock moved past `until`, a claim that waits a TTL
+  before its sample) and lease renewal (several TTLs, a lost renewal, a renewal reply
+  delayed past the caller timeout, an indeterminate renewal whose receipt is kept past
+  its late result and reconciled at the next start, and a worker's report of an
+  indeterminate owner exit that comes first).
 
 Negative controls (temporary edits, each failing its named test, then reverted) are
 listed in the task's pull request. These are finite scenarios, not proofs. No Cure
-decision is added: the host is an OTP shell whose decisions are lookups over ai-text's
-own Cure outcome table and the engine's results.
+decision is added: the host is an OTP shell whose decisions are lookups over ai-text's own
+Cure outcome table and the engine's results.
 
 ## Limits
 
-- One node: the host fences only processes it tracked; predecessors elsewhere need
-  the caller's `fencing_proof`, which this Piece cannot check. Two hosts in one VM stand
-  for two nodes in the tests.
+- One node: the host fences only processes of its own Runs (by their group leader; a
+  process that changes its own group leader escapes it) and, through the Store Need,
+  their outstanding writes; predecessors elsewhere need the caller's `fencing_proof`,
+  which this Piece cannot check. A confirmed-teardown marker lives in the host process
+  only. Two hosts in one VM stand for two nodes in the tests; one host per node is not
+  enforced.
 - The route is read from the whole retained transcript: a Run whose history passes
-  65,536 records or 536,870,912 bytes cannot be routed, and its outcomes are reported
-  and not given to the engine.
-- Sink deliveries are volatile: a delivery lost with the worker leaves its slot open;
-  no reconciliation of intents is supplied.
+  65,536 records or 536,870,912 bytes cannot be routed.
+- Sink deliveries are volatile: a delivery lost with the worker leaves its slot open; no
+  reconciliation of intents is supplied.
 - `{:error, :lease_lost}` is admission, not a physical fence: an input already with the
-  worker can reach the engine until the teardown stops it.
+  worker can reach the engine until the teardown stops it. A renewal that commits but
+  whose reply comes after the last confirmed `until` loses the Run (safe, not live).
+- A provider request already on the wire is not recalled by a teardown.
 - A Run waits until a deadline on the node's timers; the engine clock must run in real
   time for the wake to come on time.
 - Telemetry is OTP diagnostics and the Logger warnings above; no event, no payload.

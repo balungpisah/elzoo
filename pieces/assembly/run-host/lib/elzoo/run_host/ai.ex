@@ -99,7 +99,9 @@ defmodule Elzoo.RunHost.Ai do
   binding that admission refuses is denied with the refusal reason (an image part
   is `unsupported_feature`, since the host configures no artifact reader), so the
   engine records the refusal before any intent exists. Every other action, and an
-  admitted request, goes to the spec's gate unchanged.
+  admitted request, goes to the spec's gate unchanged. `ids.attempt` gives the
+  Attempt that the engine has committed as current, the Attempt of each action that
+  it admits.
   """
   def gate(gate, ai, ids) do
     %{
@@ -108,7 +110,7 @@ defmodule Elzoo.RunHost.Ai do
           with %{"actions" => [%{"kind" => "model_call", "schema_id" => schema_id} = action]} <-
                  Elzoo.PatternStep.encode(checked),
                %{config: config} <- ai[schema_id] do
-            ref = ref(ids.run_id, ids.attempt_id, action["id"])
+            ref = ref(ids.run_id, ids.attempt.(), action["id"])
 
             case admission(config, action, ref, ids.run_deadline) do
               {:ok, _} -> gate.call.(checked, facts)
@@ -135,7 +137,7 @@ defmodule Elzoo.RunHost.Ai do
       proposal: d.proposal,
       facts: fn action ->
         deadline = clock.() + d.call_ms
-        ref = ref(ids.run_id, ids.attempt_id, action["id"])
+        ref = ref(ids.run_id, ids.attempt.(), action["id"])
         {:ok, a} = admission(config, action, ref, deadline)
 
         %{
@@ -219,7 +221,8 @@ defmodule Elzoo.RunHost.Ai do
   defp finish({:other, raw}), do: %{"other" => raw}
   defp finish(finish), do: Atom.to_string(finish)
 
-  defp refusal_view(reason, meta) do
+  @doc "The refusal view of `elzoo.ai-text.result` version 1."
+  def refusal_view(reason, meta) do
     retry_after = if is_map(meta), do: Map.get(meta, :retry_after)
     %{"reason" => Atom.to_string(reason), "retry_after" => retry_after, "candidate" => nil}
   end

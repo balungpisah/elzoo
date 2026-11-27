@@ -1,16 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.RunHost.Runner do
   @moduledoc """
-  The worker of one Run of `Elzoo.RunHost`: it starts the Run (lease claim, Run
-  owner, Run and Attempt, predecessor check, evidence Writer, AsyncWork, engine),
-  then serializes every engine input of the Run: the caller's inputs and controls,
-  the outcomes that the sink of its AI bindings receives and the wakes at its
-  committed deadlines. It refreshes the deadlines and the terminal phase after each.
-  The host links it and tears it down with the Run.
+  The worker of one Run of `Elzoo.RunHost`, under the Run's own group leader: it
+  starts the Run (lease claim, Run owner, Run and Attempt, predecessor check, evidence
+  Writer, AsyncWork, engine), then serializes every engine input of the Run: the
+  caller's inputs and controls, the outcomes that the sink of its AI bindings receives
+  and the wakes at its committed deadlines. It reads the deadlines, the current
+  Attempt and the terminal phase again after each, and keeps the Unit awake while a
+  model call is in flight. The host links it and tears it down with the Run.
   """
   use GenServer, restart: :temporary
   require Logger
-  alias Elzoo.{AsyncWork, Lease, RunEngine}
+  alias Elzoo.{AsyncWork, DynamicUnits, Lease, PayloadSchema, RunEngine, RunHost}
   alias Elzoo.RunApprovalRelease, as: Owner
   alias Elzoo.DurableLog.{Store, Writer}
   alias Elzoo.EffectIntent.StoreHost
@@ -45,32 +46,44 @@ defmodule Elzoo.RunHost.Runner do
   @retries 20
   # Process.send_after/3 takes at most 2^32 - 1 ms; a later deadline is reached in steps.
   @max_timer 86_400_000
+  @in_flight [:ready, :running]
 
   def start_link(args), do: GenServer.start_link(__MODULE__, args)
 
   @impl true
   def init(args) do
+    # First: every process that the Run starts, at any depth, inherits it.
+    Process.group_leader(self(), args.group_leader)
     Process.flag(:trap_exit, true)
+    table = :ets.new(__MODULE__, [:set, :public, read_concurrency: true])
 
     s =
       Map.merge(args, %{
         spec: nil,
         ai: %{},
         ids: nil,
+        unit: nil,
+        stream: nil,
         held: nil,
         intents: %{},
         bindings: %{},
         gate: nil,
         pids: %{},
         engine: nil,
-        name: nil,
+        table: table,
+        attempt: nil,
         route: %{},
         verified: false,
-        buffer: [],
+        pending: [],
+        route_retry: nil,
         inputs: %{},
+        done: MapSet.new(),
         retries: %{},
         terminal: false,
-        timer: nil
+        timer: nil,
+        fired: nil,
+        refreshing: false,
+        keep_alive: nil
       })
 
     {:ok, s, {:continue, :start}}
@@ -93,18 +106,22 @@ defmodule Elzoo.RunHost.Runner do
   defp start(s) do
     with {:ok, spec} <- spec(s),
          {:ok, s} <- describe(s, spec),
-         :ok <- host(s, {:unit, spec.unit, spec.retention}),
+         :ok <- host(s, {:unit, s.unit, s.stream, spec.retention}),
          {:ok, s} <- claim(s),
          {:ok, s} <- start_child(s, :tasks, fn -> Task.Supervisor.start_link() end),
          s = provision(s),
          {:ok, s} <- start_owner(s),
-         {:ok, existing} <- open_run(s),
-         :ok <- predecessor(s, existing),
+         {:ok, fresh} <- fresh(s),
+         :ok <- if(fresh, do: host(s, :clean), else: :ok),
+         :ok <- open_run(s),
+         :ok <- if(fresh, do: :ok, else: predecessor(s)),
+         {:ok, attempt} <- current_attempt(s),
+         true <- :ets.insert(s.table, {:attempt, attempt}),
          :ok <- host(s, :grant),
          {:ok, s} <- start_child(s, :evidence, fn -> evidence(s) end),
          {:ok, s} <- start_child(s, :async, fn -> async(s) end),
-         {:ok, s} <- start_engine(s) do
-      {:ok, verify(s)}
+         {:ok, s} <- start_engine(%{s | attempt: attempt}) do
+      verify(s)
     end
   end
 
@@ -125,7 +142,7 @@ defmodule Elzoo.RunHost.Runner do
   defp describe(s, spec) do
     with true <- is_map(spec) and Enum.sort(Map.keys(spec)) == Enum.sort(@spec_keys),
          true <- text?(spec.run_id, 200) and text?(spec.attempt_id, 200),
-         true <- text?(spec.operation_id, 200) and text?(spec.unit, 160),
+         true <- text?(spec.operation_id, 200) and text?(spec.unit, 155),
          true <- text?(spec.tenant, 200) and text?(spec.principal, 200),
          true <- is_map(spec.bindings) and is_map(spec.provider_refs),
          true <- is_map(spec.budget) and Map.has_key?(spec.budget, :unit),
@@ -135,8 +152,18 @@ defmodule Elzoo.RunHost.Runner do
          {:profile, true} <- {:profile, Enum.all?(Map.keys(spec.bindings), &(&1 in @kinds))},
          {:ok, ai} <- Ai.descriptors(spec.ai),
          {:ok, ai} <- configure(ai, spec.tenant) do
-      ids = %{run_id: spec.run_id, attempt_id: spec.attempt_id, run_deadline: spec.run_deadline}
-      {:ok, %{s | spec: spec, ai: ai, ids: ids}}
+      table = s.table
+
+      ids = %{
+        run_id: spec.run_id,
+        attempt: fn -> :ets.lookup_element(table, :attempt, 2) end,
+        run_deadline: spec.run_deadline
+      }
+
+      # Each stream of the Run has a prefix of its own, so no Unit identity of one Run
+      # can name a stream of another (EffectIntent streams start with "intent").
+      {:ok,
+       %{s | spec: spec, ai: ai, ids: ids, unit: "unit/" <> spec.unit, stream: "run/" <> spec.unit}}
     else
       {:profile, false} -> {:error, :outside_profile}
       _ -> {:error, :invalid_spec}
@@ -162,12 +189,10 @@ defmodule Elzoo.RunHost.Runner do
   end
 
   defp claim(s) do
-    started = System.monotonic_time(:millisecond)
-    stream = "run/" <> s.spec.unit
-
-    case Lease.claim(s.c.lease, stream, s.c.owner_id, s.c.lease_ttl_ms) do
+    case Lease.claim(s.c.lease, s.stream, s.c.owner_id, s.c.lease_ttl_ms) do
       {:held, held} ->
-        :ok = host(s, {:held, held, started})
+        deadline = RunHost.lease_deadline(s.c.lease, s.stream, held.live.until)
+        :ok = host(s, {:held, held, deadline})
         {:ok, %{s | held: held}}
 
       {:lease_refused, refusal} ->
@@ -182,7 +207,7 @@ defmodule Elzoo.RunHost.Runner do
   # given to both the Run owner and the engine; the engine's model_call bindings and
   # the gate with the ai-text admission in front of the spec's gate.
   defp provision(s) do
-    authorize = authorize(s.host, s.run_ref, s.token)
+    authorize = authorize(s)
     volatile = if s.c.allow_volatile, do: [allow_volatile: true], else: []
 
     intents =
@@ -211,11 +236,21 @@ defmodule Elzoo.RunHost.Runner do
     }
   end
 
-  # Runs inside an EffectIntent process, in its init: the host tracks the process
-  # and grants an activation only to a Run whose predecessor check has passed.
-  defp authorize(host, run_ref, token) do
+  # Runs inside an EffectIntent process, in its init: the host grants an activation
+  # only to a Run whose predecessor check has passed, while its lease is live by a
+  # sample of the lease clock taken here.
+  defp authorize(s) do
+    %{host: host, run_ref: run_ref, token: token, stream: key} = s
+    lease = s.c.lease
+
     fn request, generation ->
-      case GenServer.call(host, {:authorize, run_ref, token, self()}) do
+      now =
+        case Lease.status(lease, key) do
+          {:ok, %{now: now}} -> now
+          _ -> nil
+        end
+
+      case GenServer.call(host, {:authorize, run_ref, token, now}) do
         :granted ->
           if request.revision == 0 and generation == 0,
             do: :fresh,
@@ -235,13 +270,35 @@ defmodule Elzoo.RunHost.Runner do
     start_child(s, :owner, fn -> Owner.start_link(opts) end)
   end
 
-  # A start creates the Run and begins its Attempt with the spec's stable IDs; a
-  # retry gets `{:unchanged, :duplicate, _}` for both. A wake opens only a Run whose
-  # current Attempt is the spec's. Returns whether a Run or Unit journal existed.
+  # A Run with no Run record and an empty Unit journal has no predecessor that could
+  # still act; it is marked clean before its first write, so that an interrupted
+  # start is retried by confirmed teardown.
+  defp fresh(%{mode: :wake}), do: {:ok, false}
+
+  defp fresh(s) do
+    case Owner.status(s.pids.owner, s.spec.run_id) do
+      {:error, :not_found} ->
+        case Store.read(s.c.unit_store, :head, [s.unit]) do
+          {:ok, %{revision: 0}} -> {:ok, true}
+          {:ok, %{revision: n}} when is_integer(n) -> {:ok, false}
+          other -> {:error, {:start_failed, {:unit_head, other}}}
+        end
+
+      {:ok, _} ->
+        {:ok, false}
+
+      other ->
+        {:error, {:start_failed, {:status, other}}}
+    end
+  end
+
+  # A start creates the Run and begins the spec's Attempt (a retry gets
+  # `{:unchanged, :duplicate, _}` for both); an existing Run that a begin_attempt
+  # control moved to another Attempt keeps it. A wake opens only a Run that has a
+  # current Attempt.
   defp open_run(%{mode: :wake} = s) do
     case Owner.status(s.pids.owner, s.spec.run_id) do
-      {:ok, %{current_attempt: attempt}} when attempt == s.spec.attempt_id -> {:ok, true}
-      {:ok, %{current_attempt: attempt}} when is_binary(attempt) -> {:error, :incompatible_recovery}
+      {:ok, %{current_attempt: attempt}} when is_binary(attempt) -> :ok
       _ -> {:error, :no_current_attempt}
     end
   end
@@ -257,24 +314,25 @@ defmodule Elzoo.RunHost.Runner do
       expected_revision: revision(s)
     }
 
-    with {:ok, created} <- command(s, create),
-         {:ok, attempt} <- attempt(s),
-         true <- attempt in [nil, spec.attempt_id] || {:error, :incompatible_recovery},
-         begin = %{
-           kind: :begin_attempt,
-           run_id: spec.run_id,
-           attempt_id: spec.attempt_id,
-           expected_revision: revision(s)
-         },
-         {:ok, _} <- command(s, begin) do
-      {:ok, created == :duplicate or unit_journal?(s)}
+    with :ok <- command(s, create),
+         {:ok, attempt} <- attempt(s) do
+      if attempt in [nil, spec.attempt_id] do
+        command(s, %{
+          kind: :begin_attempt,
+          run_id: spec.run_id,
+          attempt_id: spec.attempt_id,
+          expected_revision: revision(s)
+        })
+      else
+        :ok
+      end
     end
   end
 
   defp command(s, command) do
     case Owner.command(s.pids.owner, command) do
-      {:ok, _, _} -> {:ok, :applied}
-      {:unchanged, :duplicate, _} -> {:ok, :duplicate}
+      {:ok, _, _} -> :ok
+      {:unchanged, :duplicate, _} -> :ok
       other -> {:error, {:start_failed, {command.kind, other}}}
     end
   end
@@ -286,6 +344,14 @@ defmodule Elzoo.RunHost.Runner do
     end
   end
 
+  defp current_attempt(s) do
+    case attempt(s) do
+      {:ok, attempt} when is_binary(attempt) -> {:ok, attempt}
+      {:ok, _} -> {:error, :no_current_attempt}
+      error -> error
+    end
+  end
+
   defp revision(s) do
     case Owner.status(s.pids.owner, s.spec.run_id) do
       {:ok, view} -> view.revision
@@ -293,22 +359,40 @@ defmodule Elzoo.RunHost.Runner do
     end
   end
 
-  defp unit_journal?(s) do
-    case Store.read(s.c.unit_store, :head, [s.spec.unit]) do
-      {:ok, %{revision: 0}} -> false
-      _ -> true
+  # Before any engine starts on an existing journal: confirmed teardown by this host
+  # (its marker, with only this owner's own lease records after it up to this claim),
+  # or a fresh `:fenced` from the caller's fencing proof, asked again each time.
+  defp predecessor(s) do
+    marker = host(s, :marker)
+
+    with :ok <- if(confirmed?(s, marker), do: :ok, else: proof(s.c.fencing_proof, s.run_ref)),
+         do: host(s, :clean)
+  end
+
+  defp confirmed?(s, marker) when is_integer(marker) do
+    revision = s.held.live.revision
+
+    case Elzoo.DurableLog.read(s.c.run_store, s.stream, marker + 1, revision - marker) do
+      {:ok, rows, _} ->
+        rows = Enum.filter(rows, &(&1.sequence <= revision))
+
+        marker < revision and length(rows) == revision - marker and
+          Enum.all?(rows, &own_lease?(&1, s.c.owner_id))
+
+      _ ->
+        false
     end
   end
 
-  # Before any engine starts on an existing journal: confirmed teardown of every
-  # process this host tracked (the host's marker), or a fresh `:fenced` from the
-  # caller's fencing proof, asked again each time.
-  defp predecessor(_s, false), do: :ok
+  defp confirmed?(_, _), do: false
 
-  defp predecessor(s, true) do
-    case host(s, {:predecessor, s.held.live.revision}) do
-      :confirmed -> :ok
-      :proof -> proof(s.c.fencing_proof, s.run_ref)
+  # A claim or renewal of this owner, or a release that this owner wrote (its own
+  # release, or the release of its own stale lease at its next claim).
+  defp own_lease?(%{kind: kind, payload: payload}, owner) do
+    case {kind, Jason.decode(payload)} do
+      {k, {:ok, %{"owner" => ^owner}}} when k in ["lease_claimed", "lease_renewed"] -> true
+      {"lease_released", {:ok, %{"by" => ^owner, "owner" => prior}}} -> prior in [owner, nil]
+      _ -> false
     end
   end
 
@@ -341,7 +425,7 @@ defmodule Elzoo.RunHost.Runner do
 
   defp async(s) do
     AsyncWork.start_link(
-      owner: {:via, Registry, {s.names, s.spec.unit}},
+      owner: {:via, Registry, {s.names, s.unit}},
       task_supervisor: s.pids.tasks,
       max_concurrency: 1
     )
@@ -349,11 +433,10 @@ defmodule Elzoo.RunHost.Runner do
 
   defp start_engine(s) do
     spec = s.spec
-    name = {:via, Registry, {s.names, spec.unit}}
 
     opts = [
-      name: name,
-      identity: spec.unit,
+      name: {:via, Registry, {s.names, s.unit}},
+      identity: s.unit,
       directory: s.directory,
       store: s.c.unit_store,
       run_owner: s.pids.owner,
@@ -379,7 +462,7 @@ defmodule Elzoo.RunHost.Runner do
 
     case start_child(s, :engine, fn -> RunEngine.start_link(opts) end) do
       {:ok, s} ->
-        {:ok, %{s | engine: s.pids.engine, name: name}}
+        {:ok, %{s | engine: s.pids.engine}}
 
       {:error, {:start_failed, {:engine, :incompatible_recovery}}} ->
         {:error, :incompatible_recovery}
@@ -406,19 +489,14 @@ defmodule Elzoo.RunHost.Runner do
   ## Route
 
   # The route of the Run's model calls: each committed model_call action of an AI
-  # binding (its occurrence, Attempt and action ID, from the transcript) under the
-  # key that ai-text derives from the stable binding configuration. Until it is
-  # verified, deliveries are held.
+  # binding (its occurrence, its own Attempt and action ID, from the transcript) under
+  # the key that ai-text derives from the stable binding configuration. Until it is
+  # verified, deliveries are held. A route that cannot be read for good fails the start.
   defp verify(s) do
     case route(s) do
-      {:ok, route} ->
-        Enum.reduce(s.buffer, %{s | route: route, verified: true, buffer: []}, fn {key, d}, acc ->
-          deliver(acc, key, d)
-        end)
-
-      :error ->
-        Process.send_after(self(), :verify, 1_000)
-        s
+      {:ok, route} -> {:ok, flush(%{s | route: route, verified: true})}
+      {:error, :transient} -> {:ok, retry_route(s, :verify)}
+      {:error, {:permanent, reason}} -> {:error, {:route, reason}}
     end
   end
 
@@ -433,16 +511,38 @@ defmodule Elzoo.RunHost.Runner do
            for %{type: :action, kind: "model_call", schema_id: schema_id} = e <- entries,
                d <- [s.ai[schema_id]],
                d != nil do
-             ref = Ai.ref(spec.run_id, spec.attempt_id, e.action_id)
+             ref = Ai.ref(spec.run_id, e.attempt_id, e.action_id)
 
              {Ai.intent_key(d, spec.tenant, ref),
               %{attempt_id: e.attempt_id, action_id: e.action_id, occurrence: e.occurrence, ai: d}}
            end
          )}
 
-      _ ->
-        :error
+      reply when reply in [{:error, :unavailable}, :exit] ->
+        {:error, :transient}
+
+      {:error, reason} ->
+        {:error, {:permanent, reason}}
     end
+  end
+
+  defp retry_route(%{route_retry: nil} = s, message) do
+    Process.send_after(self(), message, @retry_ms)
+    %{s | route_retry: message}
+  end
+
+  defp retry_route(s, _), do: s
+
+  # The deliveries held while the route was unread, in their order of arrival.
+  defp flush(s) do
+    {pending, s} = {s.pending, %{s | pending: []}}
+
+    Enum.reduce(pending, s, fn {key, delivery}, acc ->
+      case acc.route[key] do
+        nil -> report(acc, "an outcome with no route", key)
+        route -> outcome(acc, route, delivery)
+      end
+    end)
   end
 
   ## Inputs
@@ -455,11 +555,9 @@ defmodule Elzoo.RunHost.Runner do
     {:reply, reply, refresh(s)}
   end
 
-  # The host forwards no Approval control and begins no other Attempt than the
-  # spec's (README, Profile).
-  def handle_call({:control, _, %{kind: kind}, _}, _, s)
-      when kind in [:approval_evidence, :begin_attempt],
-      do: {:reply, {:error, :outside_profile}, s}
+  # The host forwards no Approval control (README, Profile).
+  def handle_call({:control, _, %{kind: :approval_evidence}, _}, _, s),
+    do: {:reply, {:error, :outside_profile}, s}
 
   def handle_call({:control, id, command, context}, _, s) do
     reply = pass(s, fn -> RunEngine.control(s.engine, id, command, context) end)
@@ -477,31 +575,67 @@ defmodule Elzoo.RunHost.Runner do
 
   @impl true
   def handle_info({:ai_delivery, key, delivery}, %{verified: false} = s),
-    do: {:noreply, %{s | buffer: s.buffer ++ [{key, delivery}]}}
+    do: {:noreply, %{s | pending: s.pending ++ [{key, delivery}]}}
 
   def handle_info({:ai_delivery, key, delivery}, s), do: {:noreply, deliver(s, key, delivery)}
 
-  def handle_info(:verify, %{verified: false} = s), do: {:noreply, verify(s)}
+  def handle_info(message, %{route_retry: message} = s) when message in [:verify, :route] do
+    s = %{s | route_retry: nil}
 
-  def handle_info({:retry, id}, s) do
-    case s.inputs[id] do
-      nil -> {:noreply, s}
-      entry -> {:noreply, submit(s, id, entry)}
+    case route(s) do
+      {:ok, route} ->
+        {:noreply, flush(%{s | route: route, verified: true})}
+
+      {:error, :transient} ->
+        {:noreply, retry_route(s, message)}
+
+      {:error, {:permanent, reason}} ->
+        s =
+          Enum.reduce(s.pending, s, fn {key, _}, acc ->
+            report(acc, "an outcome that cannot be routed (#{inspect(reason)})", key)
+          end)
+
+        {:noreply, %{s | pending: [], verified: true}}
     end
   end
 
+  def handle_info({:retry, id}, s) do
+    case {MapSet.member?(s.done, id), s.inputs[id]} do
+      {false, %{} = entry} -> {:noreply, submit(s, id, entry)}
+      _ -> {:noreply, s}
+    end
+  end
+
+  def handle_info(:refresh, s), do: {:noreply, refresh(%{s | refreshing: false})}
+
+  def handle_info({:keep_alive, ref}, %{keep_alive: ref} = s) do
+    %{directory: directory, unit: unit} = s
+    spawn(fn -> catch_exit(fn -> DynamicUnits.start(directory, unit) end) end)
+    Process.send_after(self(), {:keep_alive, ref}, max(div(s.c.idle_ms, 4), 1))
+    {:noreply, s}
+  end
+
   def handle_info({:wake_timer, ref}, %{timer: %{ref: ref, target: target}} = s) do
-    s = refresh(s)
+    s = %{s | timer: nil}
 
-    case s.timer do
-      %{ref: ^ref} ->
-        if s.c.clock.() >= target,
-          do: {:noreply, wake(s, target)},
-          else: {:noreply, s |> disarm() |> schedule(target, target - s.c.clock.())}
+    case reads(s) do
+      {:ok, %{phase: :terminal}, view} ->
+        {:noreply, terminal(observe(s, view), view.outcome)}
 
-      # Replaced by a refreshed deadline, or the Run ended: no input.
-      _ ->
-        {:noreply, s}
+      {:ok, d, view} ->
+        s = observe(s, view)
+        now = s.c.clock.()
+
+        cond do
+          # Replaced by a committed deadline: no input.
+          target_of(d) != target -> {:noreply, arm(s, d)}
+          now >= target -> {:noreply, wake(%{s | fired: target}, target)}
+          true -> {:noreply, schedule(s, target, target - now)}
+        end
+
+      # No reading: no input; the timer tries again.
+      :error ->
+        {:noreply, schedule(s, target, @retry_ms)}
     end
   end
 
@@ -514,21 +648,30 @@ defmodule Elzoo.RunHost.Runner do
 
   def handle_info(_, s), do: {:noreply, s}
 
-  # One received outcome is one engine action_outcome input, under an input ID of the
-  # Run, Attempt and occurrence. The first submission fixes the frame and the whole
-  # context, including a pause operand: a retry and a duplicate delivery send them
-  # again, so the engine answers a duplicate, never a second settlement.
-  defp deliver(s, key, {:outcome, _attempt, outcome}) do
-    case route_for(s, key) do
-      {nil, s} ->
-        report(s, "an outcome with no route", key)
+  defp deliver(s, key, {:outcome, _attempt, _outcome} = delivery) do
+    cond do
+      s.pending != [] ->
+        %{s | pending: s.pending ++ [{key, delivery}]}
 
-      {route, s} ->
-        id = Ai.input_id(s.spec.run_id, route.attempt_id, route.occurrence)
+      route = s.route[key] ->
+        outcome(s, route, delivery)
 
-        case s.inputs[id] || outcome_input(s, route, outcome) do
-          {:error, reason} -> report(s, reason, route.action_id)
-          entry -> submit(s, id, entry)
+      true ->
+        case route(s) do
+          {:ok, route} ->
+            s = %{s | route: route}
+
+            case route[key] do
+              nil -> report(s, "an outcome with no route", key)
+              found -> outcome(s, found, delivery)
+            end
+
+          # Kept until the route can be read again.
+          {:error, :transient} ->
+            retry_route(%{s | pending: [{key, delivery}]}, :route)
+
+          {:error, {:permanent, reason}} ->
+            report(s, "an outcome that cannot be routed (#{inspect(reason)})", key)
         end
     end
   end
@@ -538,22 +681,32 @@ defmodule Elzoo.RunHost.Runner do
   defp deliver(s, key, {:sink_failed, _}), do: report(s, "a sink failure", key)
   defp deliver(s, key, _), do: report(s, "an unknown delivery", key)
 
-  defp route_for(s, key) do
-    case s.route[key] do
-      nil ->
-        case route(s) do
-          {:ok, route} -> {route[key], %{s | route: route}}
-          :error -> {nil, s}
-        end
+  # One received outcome is one engine action_outcome input, under an input ID of the
+  # Run, the action's own Attempt and its occurrence. The first submission fixes the
+  # frame and the whole context, a pause operand included; a retry sends them again.
+  # A delivery of an input that the engine acknowledged gives no input at all.
+  defp outcome(s, route, {:outcome, _attempt, outcome}) do
+    id = Ai.input_id(s.spec.run_id, route.attempt_id, route.occurrence)
 
-      route ->
-        {route, s}
+    cond do
+      MapSet.member?(s.done, id) ->
+        s
+
+      entry = s.inputs[id] ->
+        submit(s, id, entry)
+
+      true ->
+        case outcome_entry(s, route, outcome) do
+          {:error, reason} -> report(s, reason, route.action_id)
+          entry -> submit(s, id, entry)
+        end
     end
   end
 
-  defp outcome_input(s, route, outcome) do
+  defp outcome_entry(s, route, outcome) do
     case Ai.translate(outcome, route.ai.usage) do
       {:input, class, dispatch, actual, payload} ->
+        {class, dispatch, actual, payload} = bounded(s, class, dispatch, actual, payload)
         {schema_id, version} = Ai.result()
 
         frame = %{
@@ -567,27 +720,44 @@ defmodule Elzoo.RunHost.Runner do
           "payload" => payload
         }
 
-        context = %{
+        base = %{
           run_id: s.spec.run_id,
           attempt_id: route.attempt_id,
           occurrence: route.occurrence,
           dispatch: dispatch
         }
 
-        context = if actual, do: Map.put(context, :actual, actual), else: context
-
-        case pause(s) do
-          {:ok, operand} -> {frame, Map.merge(context, operand)}
-          :error -> {:error, "no future pause deadline for an outcome"}
-        end
+        entry(s, frame, if(actual, do: Map.put(base, :actual, actual), else: base))
 
       :none ->
         {:error, "an outcome that is no ai-text outcome"}
     end
   end
 
+  # A completed view over the engine's payload bound (65,536 bytes of compact JSON and
+  # 32 levels, as core/payload-schema counts them) is the explicit refusal too_large:
+  # the call reached the provider, no actual.
+  defp bounded(s, "completed" = class, dispatch, actual, payload) do
+    with %{compiled: compiled, port: port} <- s.spec.schemas[Ai.result()],
+         {:error, reason} when reason in [:too_large, :too_deep] <-
+           PayloadSchema.check(compiled, port, payload) do
+      {"refused", "dispatched", nil, Ai.refusal_view(:too_large, %{})}
+    else
+      _ -> {class, dispatch, actual, payload}
+    end
+  end
+
+  defp bounded(_s, class, dispatch, actual, payload), do: {class, dispatch, actual, payload}
+
   # Under budget_rule :pause the engine refuses an input without a future pause
-  # deadline: it comes from the spec's trusted context, sampled once per input.
+  # deadline: it comes from the spec's trusted context, sampled once per entry.
+  defp entry(s, frame, base) do
+    case pause(s) do
+      {:ok, operand} -> %{frame: frame, base: base, context: Map.merge(base, operand)}
+      :error -> {:error, "no future pause deadline for an input"}
+    end
+  end
+
   defp pause(%{spec: %{budget_rule: :finish}}), do: {:ok, %{}}
 
   defp pause(s) do
@@ -604,61 +774,129 @@ defmodule Elzoo.RunHost.Runner do
     _, _ -> :error
   end
 
-  defp submit(s, id, {frame, context} = entry) do
+  defp submit(s, id, entry) do
     s = put_in(s.inputs[id], entry)
 
-    case call(fn -> RunEngine.input(s.engine, id, frame, context) end) do
+    case call(fn -> RunEngine.input(s.engine, id, entry.frame, entry.context) end) do
       {:ok, _} ->
-        refresh(%{s | retries: Map.delete(s.retries, id)})
+        refresh(%{
+          s
+          | inputs: Map.delete(s.inputs, id),
+            retries: Map.delete(s.retries, id),
+            done: MapSet.put(s.done, id)
+        })
 
-      # Nothing is known about the input: it is sent again under the same ID.
+      # Refused before the engine appended anything: a fresh pause operand is taken.
+      {:error, :pause_deadline_required} ->
+        entry =
+          case pause(s) do
+            {:ok, operand} -> %{entry | context: Map.merge(entry.base, operand)}
+            :error -> entry
+          end
+
+        retry(put_in(s.inputs[id], entry), id)
+
+      # Nothing is known about the input: it is sent again with the same frame and context.
       reply when reply in [{:error, :unavailable}, :exit] ->
-        retries = Map.get(s.retries, id, 0)
-
-        if retries < @retries do
-          Process.send_after(self(), {:retry, id}, @retry_ms * (retries + 1))
-          %{s | retries: Map.put(s.retries, id, retries + 1)}
-        else
-          report(s, "an input the engine did not take", id)
-        end
+        retry(s, id)
 
       other ->
         s = report(s, "an input the engine refused (#{inspect(other)})", id)
-        refresh(s)
+        refresh(%{s | inputs: Map.delete(s.inputs, id)})
+    end
+  end
+
+  defp retry(s, id) do
+    n = Map.get(s.retries, id, 0)
+
+    if n < @retries do
+      Process.send_after(self(), {:retry, id}, @retry_ms * (n + 1))
+      %{s | retries: Map.put(s.retries, id, n + 1)}
+    else
+      s = report(s, "an input the engine did not take", id)
+      refresh(%{s | inputs: Map.delete(s.inputs, id), retries: Map.delete(s.retries, id)})
     end
   end
 
   ## Time
 
+  # The committed deadlines, the current Attempt and the terminal phase, read again;
+  # a failed read is read again soon and decides nothing.
   defp refresh(%{terminal: true} = s), do: s
 
   defp refresh(s) do
-    case call(fn -> RunEngine.deadlines(s.engine) end) do
-      {:ok, %{phase: :terminal}} -> terminal(s)
-      {:ok, deadlines} -> arm(s, deadlines)
-      _ -> s
+    case reads(s) do
+      {:ok, %{phase: :terminal}, view} -> terminal(observe(s, view), view.outcome)
+      {:ok, d, view} -> arm(observe(s, view), d)
+      :error -> later(s)
     end
   end
 
-  defp terminal(s) do
-    outcome =
-      case call(fn -> RunEngine.status(s.engine) end) do
-        {:ok, view} -> view.outcome
-        _ -> nil
-      end
+  defp later(%{refreshing: true} = s), do: s
 
-    send(s.host, {:terminal, s.run_ref, s.token, outcome})
-    %{disarm(s) | terminal: true}
+  defp later(s) do
+    Process.send_after(self(), :refresh, @retry_ms)
+    %{s | refreshing: true}
   end
 
+  defp reads(s) do
+    with {:ok, %{} = d} <- call(fn -> RunEngine.deadlines(s.engine) end),
+         {:ok, %{} = view} <- call(fn -> RunEngine.status(s.engine) end) do
+      {:ok, d, view}
+    else
+      _ -> :error
+    end
+  end
+
+  # The current Attempt (the key of each later admission) and the Unit kept awake while
+  # a model call is in flight.
+  defp observe(s, view) do
+    true = :ets.insert(s.table, {:attempt, view.attempt_id})
+
+    in_flight =
+      Enum.any?(view.slots, fn {_, slot} ->
+        slot.kind == "model_call" and slot.phase in @in_flight
+      end)
+
+    cond do
+      in_flight and s.keep_alive == nil ->
+        ref = make_ref()
+        send(self(), {:keep_alive, ref})
+        %{s | keep_alive: ref, attempt: view.attempt_id}
+
+      in_flight ->
+        %{s | attempt: view.attempt_id}
+
+      true ->
+        %{s | keep_alive: nil, attempt: view.attempt_id}
+    end
+  end
+
+  defp terminal(s, outcome) do
+    send(s.host, {:terminal, s.run_ref, s.token, outcome})
+    %{disarm(s) | terminal: true, keep_alive: nil}
+  end
+
+  defp target_of(%{phase: :paused, run_deadline: run, pause_deadline: pause})
+       when is_integer(pause),
+       do: min(run, pause)
+
+  defp target_of(%{run_deadline: run}), do: run
+
   # One correlated timer: while paused at the earlier of the Run and pause deadlines,
-  # otherwise at the Run deadline.
-  defp arm(s, %{phase: phase, run_deadline: run, pause_deadline: pause}) do
-    target = if phase == :paused and is_integer(pause), do: min(run, pause), else: run
+  # otherwise at the Run deadline. A target whose wake was already sent is tried again
+  # no sooner than a second later.
+  defp arm(s, d) do
+    target = target_of(d)
 
     case s.timer do
-      %{target: ^target} -> s
-      _ -> s |> disarm() |> schedule(target, target - s.c.clock.())
+      %{target: ^target} ->
+        s
+
+      _ ->
+        delay = target - s.c.clock.()
+        delay = if s.fired == target, do: max(delay, 1_000), else: delay
+        s |> disarm() |> schedule(target, delay)
     end
   end
 
@@ -675,29 +913,26 @@ defmodule Elzoo.RunHost.Runner do
     %{s | timer: nil}
   end
 
-  # One wake input at or after the deadline, under a digest ID of Run, Attempt and
-  # that deadline, with the context the engine requires.
+  # One wake input at or after the deadline, under a digest ID of Run, current Attempt
+  # and that deadline, with the context that the engine requires.
   defp wake(s, target) do
     spec = s.spec
+    id = "wake:" <> hex(:erlang.term_to_binary({spec.run_id, s.attempt, target}, [:deterministic]))
 
-    id =
-      "wake:" <>
-        hex(:erlang.term_to_binary({spec.run_id, spec.attempt_id, target}, [:deterministic]))
+    cond do
+      MapSet.member?(s.done, id) ->
+        s
 
-    case s.inputs[id] do
-      nil ->
-        case pause(s) do
-          {:ok, operand} ->
-            context = Map.merge(%{run_id: spec.run_id, attempt_id: spec.attempt_id}, operand)
-            submit(s, id, {%{"type" => "input", "version" => 1, "kind" => "wake"}, context})
-
-          :error ->
-            s = report(s, "no future pause deadline for a wake", id)
-            s |> disarm() |> schedule(target, 1_000)
-        end
-
-      entry ->
+      entry = s.inputs[id] ->
         submit(s, id, entry)
+
+      true ->
+        frame = %{"type" => "input", "version" => 1, "kind" => "wake"}
+
+        case entry(s, frame, %{run_id: spec.run_id, attempt_id: s.attempt}) do
+          {:error, reason} -> s |> report(reason, id) |> schedule(target, 1_000)
+          entry -> submit(s, id, entry)
+        end
     end
   end
 
@@ -707,6 +942,12 @@ defmodule Elzoo.RunHost.Runner do
     fun.()
   catch
     :exit, _ -> :exit
+  end
+
+  defp catch_exit(fun) do
+    fun.()
+  catch
+    :exit, _ -> :ok
   end
 
   defp report(s, what, subject) do

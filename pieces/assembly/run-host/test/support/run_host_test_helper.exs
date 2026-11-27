@@ -41,28 +41,12 @@ end
 
 defmodule Elzoo.RunHost.TestPattern do
   @moduledoc """
-  A root callable that asks its model calls in one request and, once each has an
-  outcome, finishes naming the first one.
+  Root callables of the tests. `step/2` asks its model calls in one request and, once
+  each has an outcome, finishes naming the first one. `starts/2` asks one model call
+  `m<n>` for the n-th start it is given (each Attempt sends its own start).
   """
   def step(%{phase: :new, calls: calls} = state, %{"kind" => "start"}) do
-    actions =
-      for id <- calls do
-        %{
-          "id" => id,
-          "kind" => "model_call",
-          "schema_id" => "elzoo/ai-text-request",
-          "schema_version" => 1,
-          "payload" => %{
-            "version" => 1,
-            "model" => "claude-sonnet-4-5",
-            "max_output_tokens" => 64,
-            "messages" => [%{"role" => "user", "text" => "call " <> id}]
-          }
-        }
-      end
-
-    {:Transition, %{state | phase: :calls},
-     {:some, %{"type" => "request", "version" => 1, "actions" => actions}}}
+    {:Transition, %{state | phase: :calls}, {:some, request(calls)}}
   end
 
   def step(%{phase: :calls, calls: calls, seen: seen} = state, %{
@@ -88,6 +72,31 @@ defmodule Elzoo.RunHost.TestPattern do
   end
 
   def step(state, _), do: {:Transition, state, :none}
+
+  def starts(%{n: n} = state, %{"kind" => "start"}),
+    do: {:Transition, %{state | n: n + 1}, {:some, request(["m#{n + 1}"])}}
+
+  def starts(state, _), do: {:Transition, state, :none}
+
+  defp request(calls) do
+    actions =
+      for id <- calls do
+        %{
+          "id" => id,
+          "kind" => "model_call",
+          "schema_id" => "elzoo/ai-text-request",
+          "schema_version" => 1,
+          "payload" => %{
+            "version" => 1,
+            "model" => "claude-sonnet-4-5",
+            "max_output_tokens" => 64,
+            "messages" => [%{"role" => "user", "text" => "call " <> id}]
+          }
+        }
+      end
+
+    %{"type" => "request", "version" => 1, "actions" => actions}
+  end
 end
 
 defmodule Elzoo.RunHost.TestHelper do
@@ -130,8 +139,32 @@ defmodule Elzoo.RunHost.TestHelper do
     pid
   end
 
-  @doc "One disposable PostgreSQL schema with every Store view of the host and its Lease."
-  def postgres(lease_opts \\ []) do
+  @doc """
+  Loads the adapter's model catalog once in this VM, through its public `translate/2`.
+  Its first load takes seconds while whichever engine input comes first waits, and three
+  tests run with an `idle_ms` far below that: loaded here, every input stays within
+  `idle_ms`, as the README asks of a deployment.
+  """
+  def load_model_catalog do
+    bytes =
+      Jason.encode!(%{
+        "version" => 1,
+        "model" => @model,
+        "messages" => [%{"role" => "user", "text" => "catalog"}],
+        "max_output_tokens" => 1
+      })
+
+    {:ok, request, _} = Elzoo.AiText.Request.decode(bytes)
+    {:ok, _} = Elzoo.AiText.Anthropic.translate(request, nil)
+    :ok
+  end
+
+  @doc """
+  One disposable PostgreSQL schema with every Store view of the host and its Lease.
+  `lease:` gives more Lease options (a `test_hook`); `harness: true` attaches the Unit
+  view and the activation view each to a fault controller of its own.
+  """
+  def postgres(opts \\ []) do
     prefix = "runhost_" <> hex(6)
     sql!("CREATE SCHEMA #{Postgres.identifier(prefix)}")
 
@@ -145,42 +178,59 @@ defmodule Elzoo.RunHost.TestHelper do
       Postgres.store(TestRepo, prefix: prefix, fold: fold, limits: limits)
     end
 
+    faulty = fn fold, limits ->
+      if opts[:harness] do
+        controller = ExUnit.Callbacks.start_supervised!({PostgresHarness, []}, id: make_ref())
+        PostgresHarness.attach(TestRepo, prefix, fold, limits, controller)
+      else
+        view.(fold, limits)
+      end
+    end
+
     run_store = view.(Owner.fold(), Owner.limits())
-    {:ok, lease} = Lease.new([store: run_store, clock: :store] ++ lease_opts)
-    stop_intents_on_exit()
+    {:ok, lease} = Lease.new([store: run_store, clock: :store] ++ Keyword.get(opts, :lease, []))
 
     %{
       kind: :postgres,
       prefix: prefix,
       lease: lease,
       stores: [
-        unit_store: view.(DurableUnit.fold(@unit_options), DurableUnit.limits(unit_limits())),
+        unit_store: faulty.(DurableUnit.fold(@unit_options), DurableUnit.limits(unit_limits())),
         run_store: run_store,
         evidence_store: view.(@evidence_fold, @evidence_limits),
         intent_store: view.(EffectIntent.fold(TestBinding), EffectIntent.limits()),
-        activation_store: view.(StoreHost.fold(), StoreHost.limits())
+        activation_store: faulty.(StoreHost.fold(), StoreHost.limits())
       ]
     }
   end
 
   @doc """
   One Memory namespace for every Store view: its fold admits the kinds of every owner
-  (Unit, Run with the lease kinds, evidence, EffectIntent, activation) and its limits
-  are the largest that any owner needs. One manual clock and one Lease backend.
+  (Unit, Run with the lease kinds, evidence, EffectIntent, activation) and folds the
+  Unit's own records with the Unit's fold, so that a read of a sleeping Unit restores
+  its state; its limits are the largest that any owner needs. One manual clock and one
+  Lease backend.
   """
   def memory do
+    unit = DurableUnit.fold(@unit_options)
+
     kinds =
-      [
-        DurableUnit.fold(@unit_options),
-        Owner.fold(),
-        @evidence_fold,
-        EffectIntent.fold(TestBinding),
-        StoreHost.fold()
-      ]
+      [unit, Owner.fold(), @evidence_fold, EffectIntent.fold(TestBinding), StoreHost.fold()]
       |> Enum.map(& &1.kinds)
       |> Enum.reduce(&Map.merge/2)
 
-    fold = %{initial: nil, kinds: kinds, versions: [1], destinations: ["outputs"], reduce: &keep/4}
+    fold = %{
+      initial: unit.initial,
+      kinds: kinds,
+      versions: [1],
+      destinations: ["outputs"],
+      reduce: fn model, kind, version, bytes ->
+        if kind in ["input", "result"],
+          do: unit.reduce.(model, kind, version, bytes),
+          else: bytes
+      end
+    }
+
     limits = %{max_record_bytes: 16_777_216, max_batch_size: 4, max_checkpoint_bytes: 33_554_432}
 
     memory =
@@ -189,12 +239,12 @@ defmodule Elzoo.RunHost.TestHelper do
     store = Memory.store(memory)
     {:ok, clock} = Lease.Clock.manual(1_800_000_000_000_000)
     {:ok, lease} = Lease.new(store: store, clock: {:manual, clock})
-    stop_intents_on_exit()
 
     %{
       kind: :memory,
       lease: lease,
       clock: clock,
+      store: store,
       stores:
         for(
           k <- [:unit_store, :run_store, :evidence_store, :intent_store, :activation_store],
@@ -204,18 +254,6 @@ defmodule Elzoo.RunHost.TestHelper do
   end
 
   defp unit_limits, do: [max_record_bytes: 16_777_216, max_checkpoint_bytes: 33_554_432]
-
-  # The engine starts its EffectIntent owners unlinked: they outlive every host and
-  # can still append, so they are stopped before the schema goes.
-  defp stop_intents_on_exit do
-    ExUnit.Callbacks.on_exit(fn ->
-      for pid <- Process.list(), intent?(pid) do
-        ref = Process.monitor(pid)
-        Process.exit(pid, :kill)
-        receive do: ({:DOWN, ^ref, _, _, _} -> :ok)
-      end
-    end)
-  end
 
   def intent?(pid) do
     case Process.info(pid, :dictionary) do
@@ -248,12 +286,25 @@ defmodule Elzoo.RunHost.TestHelper do
     )
   end
 
-  @doc "The protocol inputs that a Unit journal committed: `{id, record}`."
-  def protocol_inputs(env, unit) do
-    for %{kind: "input", payload: payload} <- rows(env, unit),
+  def count_rows(env, like) do
+    [[n]] =
+      sql!(
+        "SELECT count(*) FROM #{Postgres.identifier(env.prefix)}.elzoo_log_records WHERE stream LIKE $1",
+        [like]
+      )
+
+    n
+  end
+
+  @doc "The protocol inputs that the Unit journal of a spec's Run committed: `{id, record}`."
+  def protocol_inputs(env, spec) do
+    for %{kind: "input", payload: payload} <- rows(env, "unit/" <> spec.unit),
         {1, {id, %{kind: :protocol} = record}} <- [:erlang.binary_to_term(payload)],
         do: {id, record}
   end
+
+  def ai_inputs(env, spec),
+    do: for({"ai:" <> _ = id, record} <- protocol_inputs(env, spec), do: {id, record})
 
   ## Host
 
@@ -270,6 +321,7 @@ defmodule Elzoo.RunHost.TestHelper do
     {host, specs}
   end
 
+  # Each test host has a name of its own (its Registries are named after it).
   def host_options(env, opts) do
     specs = Keyword.get_lazy(opts, :specs, fn -> specs() end)
 
@@ -281,23 +333,50 @@ defmodule Elzoo.RunHost.TestHelper do
       clock: &clock/0,
       lease_ttl_ms: 60_000,
       spec: fn ref -> Agent.get(specs, &Map.fetch(&1, ref)) |> spec_reply() end,
-      allow_volatile: env.kind == :memory
+      allow_volatile: env.kind == :memory,
+      name: Module.concat(Elzoo.RunHost.TestHost, "H#{System.unique_integer([:positive])}")
     ]
 
     {Keyword.merge(defaults, Keyword.delete(opts, :specs)) ++ env.stores, specs}
   end
 
+  defp spec_reply({:ok, spec}), do: {:ok, spec}
+  defp spec_reply(:error), do: {:error, :unknown_run}
+
+  def specs do
+    {:ok, specs} = Agent.start_link(fn -> %{} end)
+    specs
+  end
+
+  def remember(specs, ref, spec), do: Agent.update(specs, &Map.put(&1, ref, spec))
+
+  def notify(test \\ self()) do
+    [
+      on_terminal: fn ref, outcome -> send(test, {:terminal, ref, outcome}) end,
+      on_lost: fn ref, reason -> send(test, {:lost, ref, reason}) end
+    ]
+  end
+
+  def state(host), do: :sys.get_state(host)
+  def run(host, ref), do: state(host).runs[ref]
+
   ## Another node in this VM
 
   @doc """
-  The group leader of a stand-in for another node: every process that a host
-  started on it creates, at any depth, inherits it, so the test can find and stop
-  them without the host's own tracking.
+  The group leader of a stand-in for another node: every process that a host started
+  on it creates, at any depth, has it at the end of its group-leader chain (a Run's
+  group leader is itself one of its processes), so the test can find and stop them
+  without the host's own tracking.
   """
   def node_leader do
     original = Process.group_leader()
     leader = spawn(fn -> relay(original) end)
-    ExUnit.Callbacks.on_exit(fn -> fence_node(leader) end)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      fence_node(leader)
+      Process.exit(leader, :kill)
+    end)
+
     leader
   end
 
@@ -328,13 +407,17 @@ defmodule Elzoo.RunHost.TestHelper do
   end
 
   def node_processes(leader),
-    do:
-      for(
-        pid <- Process.list(),
-        pid != leader,
-        Process.info(pid, :group_leader) == {:group_leader, leader},
-        do: pid
-      )
+    do: for(pid <- Process.list(), pid != leader, under?(pid, leader, 4), do: pid)
+
+  defp under?(_, _, 0), do: false
+
+  defp under?(pid, leader, n) do
+    case Process.info(pid, :group_leader) do
+      {:group_leader, ^leader} -> true
+      {:group_leader, gl} when gl != pid -> under?(gl, leader, n - 1)
+      _ -> false
+    end
+  end
 
   @doc "Stops every process of the node and confirms that none is left."
   def fence_node(leader) do
@@ -355,52 +438,36 @@ defmodule Elzoo.RunHost.TestHelper do
     end
   end
 
-  defp spec_reply({:ok, spec}), do: {:ok, spec}
-  defp spec_reply(:error), do: {:error, :unknown_run}
-
-  def specs do
-    {:ok, specs} = Agent.start_link(fn -> %{} end)
-    specs
-  end
-
-  def remember(specs, ref, spec), do: Agent.update(specs, &Map.put(&1, ref, spec))
-
-  def notify(test \\ self()) do
-    [
-      on_terminal: fn ref, outcome -> send(test, {:terminal, ref, outcome}) end,
-      on_lost: fn ref, reason -> send(test, {:lost, ref, reason}) end
-    ]
-  end
-
-  def state(host), do: :sys.get_state(host)
-  def run(host, ref), do: state(host).runs[ref]
-
   ## Stub
 
   @doc """
   The scripted stub of integration/ai-text-anthropic: each request takes the next
-  answer of `script`; `{:block, answer}` reports `{:stub_entered, pid}` to the test
-  and waits for `{:release, answer}` (or its own answer on `:release`).
+  answer of `script` (a list), or `script.(text)` for a function, given the text of the
+  request's last message. `{:block, answer}` reports `{:stub_entered, pid}` to the test
+  and waits for `{:release, answer}` or `:release`; `{:block_trap, answer}` does the
+  same while trapping exits.
   """
   def stub(script, test \\ self()) do
     {:ok, answers} = Agent.start_link(fn -> script end)
 
     {agent, plug} =
-      AnthropicStub.start(fn _body ->
+      AnthropicStub.start(fn body ->
+        text = body |> Map.get("messages", []) |> List.last() |> text_of()
+
         answer =
           Agent.get_and_update(answers, fn
+            fun when is_function(fun, 1) -> {fun.(text), fun}
             [a | rest] -> {a, rest}
             [] -> {{500, [], AnthropicStub.error("api_error", "unscripted")}, []}
           end)
 
         case answer do
-          {:block, default} ->
-            send(test, {:stub_entered, self()})
+          {:block_trap, default} ->
+            Process.flag(:trap_exit, true)
+            blocked(test, default)
 
-            receive do
-              {:release, answer} -> answer
-              :release -> default
-            end
+          {:block, default} ->
+            blocked(test, default)
 
           answer ->
             answer
@@ -409,6 +476,19 @@ defmodule Elzoo.RunHost.TestHelper do
 
     %{agent: agent, plug: plug, answers: answers}
   end
+
+  defp blocked(test, default) do
+    send(test, {:stub_entered, self()})
+
+    receive do
+      {:release, answer} -> answer
+      :release -> default
+    end
+  end
+
+  defp text_of(%{"content" => [%{"text" => text} | _]}), do: text
+  defp text_of(%{"content" => text}) when is_binary(text), do: text
+  defp text_of(_), do: nil
 
   def requests(stub), do: AnthropicStub.requests(stub.agent)
 
@@ -547,7 +627,7 @@ defmodule Elzoo.RunHost.TestHelper do
         run_id: "run-" <> name,
         operation_id: "operation-" <> name,
         attempt_id: "attempt-" <> name,
-        unit: "unit-" <> name,
+        unit: name,
         provider_refs: %{},
         tenant: tenant,
         principal: "principal",
@@ -568,6 +648,7 @@ defmodule Elzoo.RunHost.TestHelper do
   end
 
   def two_calls, do: {TestPattern, :step, %{phase: :new, calls: ["a", "b"], seen: []}}
+  def starts, do: {TestPattern, :starts, %{n: 0}}
 
   def start_input(text \\ "Say hello.", extra \\ %{}),
     do: %{
@@ -595,8 +676,6 @@ defmodule Elzoo.RunHost.TestHelper do
   def occurrence(entries, action_id),
     do: hd(for %{type: :action, action_id: ^action_id, occurrence: o} <- entries, do: o)
 
-  def input_ids(entries), do: for(%{type: :input, input_id: id} <- entries, do: id)
-
   ## Time and processes
 
   def eventually(fun, left \\ 500) do
@@ -611,15 +690,11 @@ defmodule Elzoo.RunHost.TestHelper do
 
   def alive_pids(pids), do: Enum.filter(pids, &Process.alive?/1)
 
-  @doc "Every process of one Run that the host tracks, with its Unit and what the Unit started."
-  def run_pids(host, ref) do
-    s = state(host)
-    run = s.runs[ref]
-
-    Map.values(run.pids) ++
-      Map.keys(run.intents) ++
-      RunHost.unit_processes(s.units, run.unit) ++ Task.Supervisor.children(run.pids.tasks)
-  end
+  @doc """
+  The processes that exist now and did not before `before` (a `Process.list/0`): the
+  scoped set of one tested Run, independent of the host's own tracking.
+  """
+  def new_processes(before), do: Process.list() -- before
 
   ## Observation
 

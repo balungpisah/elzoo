@@ -2,19 +2,20 @@
 Code.require_file("../support/run_host_test_helper.exs", __DIR__)
 
 defmodule Elzoo.RunHostRecoveryTest do
-  # Recovery, predecessor fencing, routing at startup and lease refusals, on
-  # disposable PostgreSQL (one lease refusal on Memory). A host "on another node" is a
-  # host started under its own group leader in this VM: the test stops every process
-  # that inherits it, independently of the host's own tracking.
+  # Recovery, predecessor fencing, routing at startup, teardown and lease refusals, on
+  # disposable PostgreSQL (two scenarios on Memory). A host "on another node" is a host
+  # started under its own group leader in this VM: the test stops every process whose
+  # group-leader chain reaches it, independently of the host's own tracking.
   use ExUnit.Case, async: false
   import Elzoo.RunHost.TestHelper
-  alias Elzoo.{DynamicUnits, Lease, RunHost}
+  alias Elzoo.{DynamicUnits, Lease, RunEngine, RunHost}
   alias Elzoo.RunApprovalRelease, as: Owner
+  alias Elzoo.DurableLog.{Memory, PostgresHarness}
 
   setup_all do
     repo = database()
     on_exit(fn -> if Process.alive?(repo), do: Supervisor.stop(repo) end)
-    :ok
+    load_model_catalog()
   end
 
   setup do
@@ -78,7 +79,7 @@ defmodule Elzoo.RunHostRecoveryTest do
       assert length(requests(stub)) == 1
     end
 
-    test "lease expiry alone, with no proof: fencing_unproven, no activation granted and no new send" do
+    test "lease expiry alone, with no proof: fencing_unproven, no engine, no activation granted and no new send" do
       env = postgres()
       stub = stub([{:block, answer("never delivered")}])
       specs = specs()
@@ -95,15 +96,19 @@ defmodule Elzoo.RunHostRecoveryTest do
       assert_receive {:stub_entered, _}, 5_000
       :erlang.suspend_process(host_a)
       stale!(env, spec)
-      activations = activation_rows(env)
+      activations = count_rows(env, "intent-host/%")
 
       {host_b, _} = host(env, specs: specs, owner_id: "node-b")
+      trace([{RunEngine, :start_link, 1}])
       assert [expired: {:error, :fencing_unproven}] = RunHost.wake(host_b, [:expired])
-      assert activation_rows(env) == activations
+      # The refused tenure never passed its check: its teardown leaves no marker, so a
+      # second wake is refused the same way.
+      assert [expired: {:error, :fencing_unproven}] = RunHost.wake(host_b, [:expired])
+      refute_received {:trace, _, :call, {RunEngine, :start_link, _}}
+      assert count_rows(env, "intent-host/%") == activations
       assert length(requests(stub)) == 1
       assert state(host_b).runs == %{}
-      assert Registry.lookup(state(host_b).names, spec.unit) == []
-      # No engine of node B, and no process of the Run on it.
+      # The processes of node A are still there: nothing of node B stopped them.
       assert node_processes(leader) != []
     end
 
@@ -135,9 +140,48 @@ defmodule Elzoo.RunHostRecoveryTest do
       Process.exit(host, :kill)
       assert_receive {:DOWN, ^ref, _, _, _}
       {fresh, _} = host(env)
+      trace([{RunEngine, :start_link, 1}])
       assert {:error, :fencing_unproven} = RunHost.start_run(fresh, :retry, spec)
+      refute_received {:trace, _, :call, {RunEngine, :start_link, _}}
       assert state(fresh).runs == %{}
-      assert Registry.lookup(state(fresh).names, spec.unit) == []
+    end
+
+    test "a fresh start interrupted between its first writes and the grant is retried by confirmed teardown" do
+      env = postgres()
+      {host, _} = host(env)
+      spec = spec("first", stub([]))
+      trace([{Owner, :command, 2}])
+      start = Task.async(fn -> RunHost.start_run(host, :first, spec) end)
+
+      receive do
+        {:trace, worker, :return_from, {Owner, :command, 2}, {:ok, _, _}} ->
+          :erlang.suspend_process(run(host, :first).pids.owner)
+          Process.exit(worker, :kill)
+      after
+        5_000 -> flunk("no create")
+      end
+
+      assert {:error, _} = Task.await(start)
+      eventually(fn -> run(host, :first) == nil end)
+      assert :ok = RunHost.start_run(host, :first, spec)
+
+      assert {:ok, %{current_attempt: "attempt-first"}} =
+               Owner.status(run(host, :first).pids.owner, spec.run_id)
+    end
+
+    test "a lease that expired between a crash and the wake: the stale release and the claim are this owner's own" do
+      env = postgres()
+      {host, specs} = host(env, lease_ttl_ms: 1_000)
+      spec = spec("lapsed", stub([]))
+      remember(specs, :lapsed, spec)
+
+      assert :ok = RunHost.start_run(host, :lapsed, spec)
+      Process.exit(run(host, :lapsed).pids.engine, :kill)
+      eventually(fn -> run(host, :lapsed) == nil end)
+      stale!(env, spec)
+      assert [lapsed: :woken] = RunHost.wake(host, [:lapsed])
+      kinds = for %{kind: "lease_" <> _ = kind} <- rows(env, "run/" <> spec.unit), do: kind
+      assert ["lease_released", "lease_claimed"] in Enum.chunk_every(kinds, 2, 1)
     end
 
     test "the fencing proof is asked at each predecessor check, never cached" do
@@ -161,27 +205,61 @@ defmodule Elzoo.RunHostRecoveryTest do
       assert [again: {:error, :fencing_unproven}] = RunHost.wake(host, [:again])
       assert Agent.get(answers, & &1) == []
     end
+
+    test "a write of a dead predecessor that lands after the marker is read by the recovery (Memory)" do
+      env = memory()
+      stub = stub([answer("after the late write")])
+      {host, specs} = host(env, notify())
+      spec = spec("late", stub)
+      remember(specs, :late, spec)
+
+      assert :ok = RunHost.start_run(host, :late, spec)
+      :ok = Memory.fault(env.store, :append, {:pause, :late})
+      refute match?({:ok, _}, RunHost.input(host, :late, "start", start_input(), verified(spec)))
+      assert :ok = RunHost.reap(host, :late)
+      assert is_integer(state(host).markers[:late])
+      assert {:committed, _} = Memory.release(env.store, :late)
+
+      assert [late: :woken] = RunHost.wake(host, [:late])
+      assert_receive {:terminal, :late, :completed}, 5_000
+      assert [_] = for({"start", _} <- protocol_inputs(env, spec), do: 1)
+      assert length(requests(stub)) == 1
+    end
   end
 
   describe "routing" do
-    test "an untried intent first dispatched during wake is held until the route is verified, then settles once" do
+    test "an untried intent recovered at wake is sent once; its outcome is held until the route is verified" do
       env = postgres()
-      stub = stub([answer("first"), answer("second")])
-      {:ok, blocks} = Agent.start_link(fn -> %{"a" => true} end)
+      stub = stub([answer("a"), answer("b")])
       test = self()
+      {:ok, flags} = Agent.start_link(fn -> %{arm: true} end)
+
+      # The second clock call of the first EffectIntent owner (its arm) waits, after the
+      # owner committed its admission: a durable intent with no attempt.
+      clock = fn ->
+        if intent?(self()) and Agent.get(flags, & &1[:arm]) do
+          n = Process.get(:clock_calls, 0)
+          Process.put(:clock_calls, n + 1)
+
+          if n == 1 and Agent.get_and_update(flags, &{&1[:arm], Map.put(&1, :arm, false)}) do
+            send(test, {:arm_blocked, self()})
+            receive do: (:release -> :ok)
+          end
+        end
+
+        clock()
+      end
 
       proposal = fn action ->
-        # The engine reads the proposal at authorization and again before dispatch:
-        # a block holds the first read only.
-        if Agent.get_and_update(blocks, &Map.pop(&1, action["id"])) do
-          send(test, {:proposal_blocked, action["id"], self()})
+        if action["id"] == "b" and Agent.get_and_update(flags, &{&1[:b], Map.delete(&1, :b)}) do
+          send(test, {:proposal_blocked, self()})
           receive do: (:release -> :ok)
         end
 
         proposal("tenant").(action)
       end
 
-      {host, specs} = host(env, notify())
+      {host, specs} = host(env, notify() ++ [clock: clock])
       spec = spec("route", stub, pattern: two_calls(), descriptor: [proposal: proposal])
       remember(specs, :route, spec)
       assert :ok = RunHost.start_run(host, :route, spec)
@@ -189,15 +267,16 @@ defmodule Elzoo.RunHostRecoveryTest do
       start =
         Task.async(fn -> RunHost.input(host, :route, "start", start_input(), verified(spec)) end)
 
-      assert_receive {:proposal_blocked, "a", engine}, 5_000
-      Process.exit(engine, :kill)
-      assert {:error, :not_running} = Task.await(start)
+      assert_receive {:arm_blocked, _}, 5_000
+      Process.exit(run(host, :route).pids.engine, :kill)
+      Task.await(start)
       eventually(fn -> run(host, :route) == nil end)
       assert requests(stub) == []
+      assert count_rows(env, "intent/%") >= 1
 
-      Agent.update(blocks, fn _ -> %{"b" => true} end)
+      Agent.update(flags, &Map.put(&1, :b, true))
       wake = Task.async(fn -> RunHost.wake(host, [:route]) end)
-      assert_receive {:proposal_blocked, "b", engine}, 5_000
+      assert_receive {:proposal_blocked, engine}, 5_000
       worker = run(host, :route).worker
       eventually(fn -> length(requests(stub)) == 1 end)
 
@@ -206,9 +285,7 @@ defmodule Elzoo.RunHostRecoveryTest do
         Enum.any?(messages, &match?({:ai_delivery, _, {:outcome, _, {:completed, _}}}, &1))
       end)
 
-      # Held: the engine has not been given it.
-      assert for({"ai:" <> _, _} <- protocol_inputs(env, spec.unit), do: 1) == []
-
+      assert ai_inputs(env, spec) == []
       send(engine, :release)
       assert [route: :woken] = Task.await(wake)
       assert_receive {:terminal, :route, :completed}, 5_000
@@ -216,15 +293,47 @@ defmodule Elzoo.RunHostRecoveryTest do
       entries = transcript(host, :route, spec)
       assert [%{outcome: "completed"}] = settlements(entries, "a")
       assert [%{outcome: "completed"}] = settlements(entries, "b")
-      a = occurrence(entries, "a")
-
-      assert [_] =
-               for(
-                 {"ai:" <> _, %{correlation: %{occurrence: ^a}}} <- protocol_inputs(env, spec.unit),
-                 do: 1
-               )
-
+      assert length(ai_inputs(env, spec)) == 2
       assert length(requests(stub)) == 2
+      # a: the first activation and the recovered one; b: one.
+      assert count_rows(env, "intent-host/%") == 3
+    end
+  end
+
+  describe "teardown" do
+    test "a read-only intent owner whose activation never reached the host is stopped by reap" do
+      env = postgres(harness: true)
+      {host, _} = host(env)
+      spec = spec("readonly", stub([answer("never sent")]))
+      assert :ok = RunHost.start_run(host, :readonly, spec)
+      before = Process.list()
+      PostgresHarness.hook(env.stores[:activation_store], :inject, [:head, :unavailable])
+
+      assert {:ok, :applied} =
+               RunHost.input(host, :readonly, "start", start_input(), verified(spec))
+
+      assert {:ok, %{slots: slots}} = RunHost.status(host, :readonly)
+      assert [%{reconciliation: :read_only}] = Map.values(slots)
+      intents = Enum.filter(new_processes(before), &intent?/1)
+      assert [_] = intents
+      assert :ok = RunHost.reap(host, :readonly)
+      assert alive_pids(intents) == []
+    end
+
+    test "a send task that traps exits outlives its dead task supervisor and is still stopped" do
+      env = postgres()
+      stub = stub([{:block_trap, answer("never delivered")}])
+      {host, _} = host(env)
+      spec = spec("trapping", stub)
+      assert :ok = RunHost.start_run(host, :trapping, spec)
+
+      assert {:ok, :applied} =
+               RunHost.input(host, :trapping, "start", start_input(), verified(spec))
+
+      assert_receive {:stub_entered, task}, 5_000
+      Process.exit(run(host, :trapping).pids.tasks, :kill)
+      eventually(fn -> run(host, :trapping) == nil end)
+      refute Process.alive?(task)
     end
   end
 
@@ -253,34 +362,40 @@ defmodule Elzoo.RunHostRecoveryTest do
       s = state(host)
 
       for ref <- [:gate, :cap] do
-        assert Registry.lookup(s.units, runs[ref].unit) == []
-        assert DynamicUnits.find(s.directory, runs[ref].unit) == :not_found
+        assert Registry.lookup(s.units, "unit/" <> runs[ref].unit) == []
+        assert DynamicUnits.find(s.directory, "unit/" <> runs[ref].unit) == :not_found
       end
 
       assert Map.keys(s.runs) == [:same]
       assert {:ok, %{phase: :active}} = RunHost.status(host, :same)
     end
 
-    test "a batch with a Run that has no current Attempt and one whose lease another owner holds" do
+    test "a batch with a live Run, a Run with no current Attempt and one whose lease another owner holds" do
       env = postgres()
       stub = stub([])
       {host, specs} = host(env)
       bare = spec("bare", stub)
       held = spec("held", stub)
+      live = spec("live", stub)
       remember(specs, :bare, bare)
       remember(specs, :held, held)
       create_without_attempt!(env, bare)
       {:held, _} = Lease.claim(env.lease, "run/" <> held.unit, "other-node", 60_000)
-      count = length(Process.list())
+      assert :ok = RunHost.start_run(host, :live, live)
+      before = Process.list()
+      # Every disposition at once: the batch is answered once and the host goes on.
+      assert [live: {:error, :running}, live: {:error, :running}] =
+               RunHost.wake(host, [:live, :live])
 
       assert [
+               live: {:error, :running},
                bare: {:error, :no_current_attempt},
                held: {:error, {:lease_refused, %{reason: :active}}}
-             ] = RunHost.wake(host, [:bare, :held])
+             ] = RunHost.wake(host, [:live, :bare, :held])
 
-      assert state(host).runs == %{}
-      assert Registry.select(state(host).names, [{{:"$1", :_, :_}, [], [:"$1"]}]) == []
-      eventually(fn -> length(Process.list()) == count end)
+      assert Map.keys(state(host).runs) == [:live]
+      pids = new_processes(before)
+      eventually(fn -> alive_pids(pids) == [] end)
     end
   end
 
@@ -303,10 +418,11 @@ defmodule Elzoo.RunHostRecoveryTest do
     remember(specs, :shared, spec)
 
     assert :ok = RunHost.start_run(a, :shared, spec)
+    trace([{RunEngine, :start_link, 1}])
     assert {:error, {:lease_refused, %{reason: :active}}} = RunHost.start_run(b, :shared, spec)
     assert [shared: {:error, {:lease_refused, %{reason: :active}}}] = RunHost.wake(b, [:shared])
+    refute_received {:trace, _, :call, {RunEngine, :start_link, _}}
     assert state(b).runs == %{}
-    assert Registry.lookup(state(b).names, spec.unit) == []
     assert {:ok, %{phase: :active}} = RunHost.status(a, :shared)
   end
 
@@ -327,15 +443,6 @@ defmodule Elzoo.RunHostRecoveryTest do
       fn -> match?({:ok, %{status: :stale}}, Lease.status(env.lease, "run/" <> spec.unit)) end,
       600
     )
-  end
-
-  defp activation_rows(env) do
-    [[n]] =
-      sql!(
-        "SELECT count(*) FROM #{Elzoo.DurableLog.Postgres.identifier(env.prefix)}.elzoo_log_records WHERE stream LIKE 'intent-host/%'"
-      )
-
-    n
   end
 
   defp commands do
