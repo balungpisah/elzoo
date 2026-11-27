@@ -12,6 +12,19 @@ defmodule Elzoo.RunEngine do
   @control_bytes 2_097_152
   @request_bytes 4_456_448
   @slot_bytes 131_072
+  # The room for a stop (ELZ-430): while no stop is pending, admission (admits?/1) leaves
+  # this many bytes of the control bound free, so that the step that sets a stop can mark
+  # it, also after a change to a longer Attempt ID. The mark is the key `stop_attempt` with
+  # {Attempt, stop}; with a 200-byte Attempt ID (the longest that the engine and the Run
+  # owner take) and `:out_of_budget`, the longest stop, it has 236 bytes. The largest
+  # growth of a step that sets a stop is a cancel's: its record of that Attempt ID (200),
+  # its stop (6) and its classification, from the shortest one (`:late`) to
+  # {:request_outcome, :cancelled} (24): 230 bytes. A step that sets a stop without
+  # settling a slot grows control by no more (a wake: 38 at most); one that settles a slot
+  # (a finish, a settling outcome) also frees that slot's reserve. A Run view of a new
+  # Attempt, which admits nothing, can grow the recorded Attempt ID from 1 to 200 bytes:
+  # 199 bytes. 236 + 230 + 199 = 665.
+  @stop_room 665
   @empty %{version: 1, control: nil, slots: %{}, requests: %{}}
   @empty_v2 %{version: 2, control: nil, slots: %{}, requests: %{}}
   @refusal_schema "elzoo.run-engine.refusal"
@@ -140,7 +153,7 @@ defmodule Elzoo.RunEngine do
              is_nil(state.control.stop_pending) and state.control.lifecycle.phase != :paused and
              not state.control.callables[callable].closed do
           if input["kind"] in ["action_outcome", "person_answer"] or
-               fits?(
+               admits?(
                  put_in(state.control.invocations[record.id], digest({input, record.correlation}))
                ) do
             invoke(state, record, callable)
@@ -157,7 +170,7 @@ defmodule Elzoo.RunEngine do
             if state.version == 2 do
               case paused_pending_input(state, record) do
                 {:ok, next} ->
-                  if fits?(next),
+                  if admits?(next),
                     do: {next, :none},
                     else: {classify(state, :record_size), :none}
 
@@ -309,7 +322,7 @@ defmodule Elzoo.RunEngine do
               # settles. The admitted state counts it as pending, so it is admitted only
               # when control with that finish in it fits; otherwise the Budget step is
               # dropped with the refusal and the child callable stays open.
-              if keeps_first_finish?(c, slot) and not fits?(admitted),
+              if keeps_first_finish?(c, slot) and not admits?(admitted),
                 do: {deny(before_budget, key, "record_size"), :none},
                 else: {admitted, :none}
 
@@ -439,7 +452,7 @@ defmodule Elzoo.RunEngine do
           callable
         )
 
-      if fits?(next),
+      if admits?(next),
         do: {next, output},
         else: {release_and_deny(received, key, at, "record_size"), :none}
     else
@@ -480,7 +493,7 @@ defmodule Elzoo.RunEngine do
         |> put_in([:control, :lifecycle, :phase], :terminal)
         |> put_in([:control, :lifecycle, :outcome], view.outcome)
         |> put_in([:control, :stop_pending], nil)
-        |> close_terminal(c.charge_stopped, view.at_ms)
+        |> close_run(view.at_ms)
       else
         state
       end
@@ -1147,10 +1160,9 @@ defmodule Elzoo.RunEngine do
 
   defp drop_stale_stop(state, _current), do: state
 
-  # The reader also projects a step with the fold before ELZ-430, to read a history that
-  # fold recorded: `legacy_fold` is set on the projected copy only, never in a recorded
-  # state. :base is that fold as the base revision recorded it; :pre_215 is the same with
-  # the close of a terminal Run view before ELZ-215.
+  # The reader also projects a step with the fold before ELZ-430 (:base, as the base
+  # revision recorded it), to read a history that fold recorded: `legacy_fold` is set on
+  # the projected copy only, never in a recorded state.
   defp legacy_fold?(state), do: is_map_key(state, :legacy_fold)
 
   # At a change of Attempt the fold drops a pending stop; the fold before ELZ-430 dropped
@@ -1170,37 +1182,62 @@ defmodule Elzoo.RunEngine do
 
   defp drop_stale_failure(state), do: state
 
-  # The close of a terminal Run view: every open slot that a request-cap stop does not
-  # retain; before ELZ-215, the running local work only, and none when the request cap had
-  # stopped the charge.
-  defp close_terminal(%{legacy_fold: :pre_215} = state, charge_stopped, at),
-    do: if(charge_stopped, do: state, else: close_local(state, at))
-
-  defp close_terminal(state, _charge_stopped, at), do: close_run(state, at)
-
-  # The Attempt that produced a pending stop (ELZ-430): this fold records it as the control
-  # key `stop_attempt` in the step that sets a stop where none was pending, and removes it
-  # in the step that clears the stop, so a state with no stop pending is unchanged. A
-  # pending stop without it, or with one that names another Attempt than the recorded one,
-  # was set, or kept at a change of Attempt, by the fold before ELZ-430, which never
-  # touched the key (nor does its projection, legacy_fold).
+  # The stop's mark (ELZ-430): the control key `stop_attempt` with the value {Attempt,
+  # stop}. A step that leaves a stop other than the one pending before it (another stop or
+  # another Attempt; under the first-stop rule, a stop set where none was pending) writes
+  # the mark when the marked state passes the state bound and removes the key otherwise;
+  # admission keeps the room for it (admits?/1), so only a state recorded without that room
+  # leaves the stop unmarked. A step that keeps the pending stop keeps its mark as it is,
+  # and a step that leaves no stop removes it, so a state with no stop pending holds none.
+  # The fold before ELZ-430 never touched the key (nor does its projection, legacy_fold):
+  # a stop that it set holds none, and one that it replaced or kept at a change of Attempt
+  # holds a mark that names another stop or Attempt. A stop is marked only when the value
+  # is exactly the recorded Attempt and the pending stop (marked?/1).
   defp mark_stop(before, next) do
+    c = next.control
+
     cond do
       legacy_fold?(next) ->
         next
 
-      is_nil(next.control.stop_pending) ->
+      is_nil(c.stop_pending) ->
         update_in(next.control, &Map.delete(&1, :stop_attempt))
 
-      is_nil(before.control.stop_pending) ->
-        update_in(next.control, &Map.put(&1, :stop_attempt, next.control.attempt_id))
+      {c.attempt_id, c.stop_pending} == {before.control.attempt_id, before.control.stop_pending} ->
+        next
 
       true ->
-        next
+        marked = put_in(next.control[:stop_attempt], {c.attempt_id, c.stop_pending})
+
+        if fits?(marked),
+          do: marked,
+          else: update_in(next.control, &Map.delete(&1, :stop_attempt))
     end
   end
 
-  defp marked?(c), do: is_binary(c.attempt_id) and Map.get(c, :stop_attempt) == c.attempt_id
+  defp marked?(c),
+    do:
+      is_binary(c.attempt_id) and not is_nil(c.stop_pending) and
+        Map.fetch(c, :stop_attempt) == {:ok, {c.attempt_id, c.stop_pending}}
+
+  @doc false
+  # Whether the mark that `after_state` records (its presence and value) is one that a fold
+  # leaves after a step from `before`: the fold before ELZ-430 leaves the key as it was;
+  # this fold leaves the mark of mark_stop/2 on the rest of the recorded state.
+  def stop_mark?(before, after_state) do
+    mark = Map.fetch(after_state.control, :stop_attempt)
+    kept = if is_map(before.control), do: Map.fetch(before.control, :stop_attempt), else: :error
+
+    carried =
+      case kept do
+        {:ok, value} -> put_in(after_state.control[:stop_attempt], value)
+        :error -> update_in(after_state.control, &Map.delete(&1, :stop_attempt))
+      end
+
+    mark === kept or mark === Map.fetch(mark_stop(before, carried).control, :stop_attempt)
+  rescue
+    _ -> false
+  end
 
   # When a nested_callable slot settles, its child callable and every callable
   # below it close in the same fold step, the way close_open/4 closes callables:
@@ -1470,7 +1507,7 @@ defmodule Elzoo.RunEngine do
           put_in(acc.control.used_ids[action["id"]], true)
         end)
 
-      if fits?(candidate) do
+      if admits?(candidate) do
         candidate = put_in(candidate.control.receipts[ordinal].disposition, :within_cap_valid)
         {classify(candidate, {:request, ordinal}), {:some, {:request, ordinal}}}
       else
@@ -1671,7 +1708,7 @@ defmodule Elzoo.RunEngine do
           }
 
           candidate = put_in(acc.slots[key][:pending_input], %{order: order + 1, record: record})
-          if fits?(candidate), do: candidate, else: acc
+          if admits?(candidate), do: candidate, else: acc
         end
       end)
     else
@@ -2667,9 +2704,9 @@ defmodule Elzoo.RunEngine do
           cond do
             paused? and retain? ->
               with {:ok, pending} <- paused_pending_input(candidate, record),
-                   true <- fits?(pending),
+                   true <- admits?(pending),
                    final = finalize_step_state(pending),
-                   true <- fits?(final) do
+                   true <- admits?(final) do
                 :ok
               else
                 _ -> {:error, :invalid_payload}
@@ -3230,16 +3267,17 @@ defmodule Elzoo.RunEngine do
   # anything (before sync_run/1 and recover_local/1; the Unit has already finished an input
   # committed before, as at every open). The owner's committed Run view comes first: one
   # that is terminal or has begun an Attempt after the recorded one (decided?/2) is taken
-  # by sync_run/1, whose fold ends the Run or drops the stop. Else a stop that this fold
-  # set (marked?/1) is delivered as committed: no journal, clock, Budget or cap is read. A
-  # stop without that mark was set, or kept at a change of Attempt, by the fold before
-  # ELZ-430: it is delivered as committed when the owner has only ever had the recorded
-  # Attempt (which then produced it, also when it took the place of another stop of that
-  # Attempt); otherwise its Attempt is unknown, and the engine halts with
-  # :stop_origin_unknown, with no write and no owner command, until the host ends the Run
-  # or begins a new Attempt on the owner. A stop that the drain cannot deliver (a
-  # completion or failure without its completion slot) halts with :integrity_failure, also
-  # with no write.
+  # by sync_run/1, whose fold ends the Run or drops the stop. Else a stop whose mark is the
+  # recorded Attempt and the stop (marked?/1) is delivered as committed: no journal, clock,
+  # Budget or cap is read. A stop with no such mark was set by the fold before ELZ-430, or
+  # replaced or kept at a change of Attempt by it (a state recorded without the room for
+  # the mark also leaves this fold's stop unmarked): it is delivered as committed when the
+  # owner has only ever had the recorded Attempt (which then produced it, also when it took
+  # the place of another stop of that Attempt); otherwise its Attempt is unknown, and the
+  # engine halts with :stop_origin_unknown, with no write and no owner command, until the
+  # host ends the Run or begins a new Attempt on the owner. A stop that the drain cannot
+  # deliver (a completion or failure without its completion slot) halts with
+  # :integrity_failure, also with no write.
   defp recover_stop(s) do
     {state, s} = read_state(s)
     c = state.control
@@ -3928,7 +3966,7 @@ defmodule Elzoo.RunEngine do
 
           {candidate, _} = transition(current, record)
 
-          if fits?(candidate) do
+          if admits?(candidate) do
             case commit(s, activation_id, record) do
               {:ok, _, s} -> {:ok, s}
               {:error, reason, s} -> {:error, reason, s}
@@ -5096,7 +5134,17 @@ defmodule Elzoo.RunEngine do
       is_nil(node[:finish])
   end
 
-  defp fits?(state) do
+  # Admission (ELZ-430): a state that admits work fits the bound with @stop_room bytes of
+  # control left free while no stop is pending, so a later step that sets a stop has room
+  # for its growth and its mark. The recorded-state invariant (fits?/1) keeps no such room.
+  # The fold before ELZ-430 (its projection, legacy_fold) admitted up to the bound.
+  defp admits?(state) do
+    if is_nil(state.control.stop_pending) and not legacy_fold?(state),
+      do: fits?(state, @stop_room),
+      else: fits?(state)
+  end
+
+  defp fits?(state, room \\ 0) do
     if plain?(state) do
       c = state.control
 
@@ -5141,7 +5189,8 @@ defmodule Elzoo.RunEngine do
         (c.cap + 1 - map_size(c.receipts)) * 1_024 + active * 4_096 + pending_finish +
           open_reserve
 
-      if slots_ok? and control_bytes + reserved <= @control_bytes and slots_bytes <= 8_388_608 do
+      if slots_ok? and control_bytes + reserved + room <= @control_bytes and
+           slots_bytes <= 8_388_608 do
         requests_bytes = bytes(state.requests)
 
         if requests_bytes <= @request_bytes do
@@ -5233,15 +5282,14 @@ defmodule Elzoo.RunEngine do
 
   @doc false
   # The step of `record` on `state` as the event-wait and history reader projects it:
-  # `fold` is :current, or the fold before ELZ-430 (:base, or :pre_215 with the close of a
-  # terminal Run view before ELZ-215) for a history that fold recorded.
+  # `fold` is :current, or :base, the fold before ELZ-430, for a history that fold recorded.
   def project_event_wait_transition(state, record, fold \\ :current) do
     with {:ok, projected} <- project_step(legacy(state, fold), record),
          do: {:ok, Map.delete(projected, :legacy_fold)}
   end
 
   defp legacy(state, :current), do: state
-  defp legacy(state, fold) when fold in [:base, :pre_215], do: Map.put(state, :legacy_fold, fold)
+  defp legacy(state, :base), do: Map.put(state, :legacy_fold, :base)
 
   defp project_step(state, record) do
     case record do
@@ -5317,10 +5365,13 @@ defmodule Elzoo.RunEngine do
         projected = put_in(projected.control.invocations[invocation.record.id], receipt.digest)
 
         {:ok,
-         close_over_cap_generation(
-           projected,
-           invocation.record.context,
-           invocation.record.input["at_ms"]
+         mark_stop(
+           state,
+           close_over_cap_generation(
+             projected,
+             invocation.record.context,
+             invocation.record.input["at_ms"]
+           )
          )}
       else
         _ -> {:error, :history}
@@ -5339,7 +5390,7 @@ defmodule Elzoo.RunEngine do
         if not next.control.generation_closed and is_nil(next.control.stop_pending) and
              next.control.lifecycle.phase != :paused and not next.control.callables[callable].closed and
              (input["kind"] in ["action_outcome", "person_answer"] or
-                fits?(put_in(next.control.invocations[record.id], hash))) do
+                admits?(put_in(next.control.invocations[record.id], hash))) do
           {:ok, %{record: record, callable: callable}}
         else
           {:error, :history}
@@ -5406,8 +5457,8 @@ defmodule Elzoo.RunEngine do
   defp event_wait_close_markers(state) do
     control = state.control
 
-    {control.stop_pending, control.generation_closed, control.charge_stopped,
-     control.lifecycle.phase, control.lifecycle.outcome}
+    {control.stop_pending, Map.fetch(control, :stop_attempt), control.generation_closed,
+     control.charge_stopped, control.lifecycle.phase, control.lifecycle.outcome}
   end
 
   defp close_over_cap_generation(state, context, at) do
@@ -5877,6 +5928,10 @@ defmodule Elzoo.RunEngine.ResultReader do
   @record_bytes 16_777_216
   @completion_keys [:action_id, :attempt_id, :operation_id, :run_id]
   @initial_state %{version: 1, control: nil, slots: %{}, requests: %{}}
+  # The folds that can have recorded a step (ELZ-430): this one and the fold before it.
+  # The state's shape does not show which one did, so a replayed step is accepted when it
+  # equals the projection of one of them exactly.
+  @folds [:current, :base]
   @event_wait_protected_fields [
     :action_id,
     :kind,
@@ -6361,6 +6416,7 @@ defmodule Elzoo.RunEngine.ResultReader do
     with true <- valid_model_version?(next, version),
          {:ok, candidates} <- accepted_activation(before, next, candidates, version, audit),
          :ok <- validate_event_wait_transition(before, next, candidates, version),
+         :ok <- validate_stop_mark(before, next),
          {:ok, candidates} <- accepted_failure(before, next, candidates) do
       candidates =
         case accepted_settlement(before, next, candidates, version, bindings, audit) do
@@ -6388,9 +6444,10 @@ defmodule Elzoo.RunEngine.ResultReader do
   # it (replays_exactly?/3) and settles a root finish that names no action. Such a record
   # that changed nothing (not permitted at its time) is not one. Every other step into a
   # pending `:failed` stop, and such a record whose replay differs, is damaged history.
-  # While a stop is pending, a record that changes the pending stop, its completion or the
-  # Attempt, and a Run view that ends the Run or changes the Attempt, are replayed the same
-  # way, in v1 too.
+  # While a stop is pending, a record that changes the pending stop, its mark, its
+  # completion or the Attempt, and a Run view that ends the Run or changes the Attempt,
+  # are replayed the same way, in v1 too; so is every terminal Run view, with or without
+  # a pending stop.
   defp accepted_failure(
          %{pending: {_input_id, record}, state: before},
          %{state: after_state},
@@ -6412,9 +6469,10 @@ defmodule Elzoo.RunEngine.ResultReader do
           failure_pending?(after_state) and not failure_pending?(before) ->
             {:error, :history}
 
-          stop_pending(before) != nil and
-              (stop_facts(before) != stop_facts(after_state) or
-                 ends_or_changes?(record, before)) ->
+          terminal_view?(record) or
+              (stop_pending(before) != nil and
+                 (stop_facts(before) != stop_facts(after_state) or
+                    ends_or_changes?(record, before))) ->
             if replays_exactly?(before, record, after_state),
               do: {:ok, candidates},
               else: {:error, :history}
@@ -6439,16 +6497,22 @@ defmodule Elzoo.RunEngine.ResultReader do
 
   defp ends_or_changes?(_record, _before), do: false
 
-  # The stop, its completion and the Attempt: a step that changes them while a stop is
-  # pending is replayed.
-  defp stop_facts(state),
-    do: {stop_pending(state), get_in(state, [:control, :completion]), attempt(state)}
+  # A terminal Run view: each one is replayed, with or without a pending stop.
+  defp terminal_view?(%{kind: :run_view, view: view}) when is_map(view),
+    do: not is_nil(Map.get(view, :outcome))
 
-  # The recorded step equals (===) the projection of the step under a fold that can have
-  # recorded it (folds/2). The state's shape does not show which fold recorded a step, so
-  # a step is accepted when it equals one of them exactly.
+  defp terminal_view?(_record), do: false
+
+  # The stop, its mark (its presence and value), its completion and the Attempt: a step
+  # that changes them while a stop is pending is replayed.
+  defp stop_facts(state),
+    do:
+      {stop_pending(state), Map.fetch(state.control, :stop_attempt),
+       get_in(state, [:control, :completion]), attempt(state)}
+
+  # The recorded step equals (===) the projection of the step under one of @folds.
   defp replays_exactly?(before, record, after_state) do
-    Enum.any?(folds(record, before), fn fold ->
+    Enum.any?(@folds, fn fold ->
       case Elzoo.RunEngine.project_event_wait_transition(before, record, fold) do
         {:ok, projected} -> projected === after_state
         _ -> false
@@ -6456,23 +6520,15 @@ defmodule Elzoo.RunEngine.ResultReader do
     end)
   end
 
-  # The folds that can have recorded a step on `before`: the current one and the fold
-  # before ELZ-430; for a terminal Run view also that fold with the close before ELZ-215,
-  # when that close can have recorded it (pre_215?/1).
-  defp folds(%{kind: :run_view, view: %{outcome: outcome}}, before) when not is_nil(outcome),
-    do: if(pre_215?(before), do: [:current, :base, :pre_215], else: [:current, :base])
+  # The stop's mark of every recorded step, in v1 and v2: its presence and value are the
+  # ones that a fold leaves after that step (stop_mark?/2), so a mark that neither fold
+  # wrote is damaged history, also while its stop stays pending.
+  defp validate_stop_mark(%{state: before}, %{state: after_state})
+       when is_map(before) and is_map(after_state) do
+    if Elzoo.RunEngine.stop_mark?(before, after_state), do: :ok, else: {:error, :history}
+  end
 
-  defp folds(_record, _before), do: [:current, :base]
-
-  # The close before ELZ-215 recorded only v1 histories, and none whose state holds what
-  # ELZ-215 or a later change brought: a pending root failure (ELZ-420), a stop marker
-  # (ELZ-430), the expiry_reports (ELZ-351) or messages (ELZ-387) option.
-  defp pre_215?(%{version: 1, control: c}) when is_map(c),
-    do:
-      Map.get(c, :stop_pending) != :failed and
-        not Enum.any?([:stop_attempt, :expiry_reports, :messages], &Map.has_key?(c, &1))
-
-  defp pre_215?(_state), do: false
+  defp validate_stop_mark(_, _), do: {:error, :history}
 
   # The checks of one root failure against the state before and after it: a root finish
   # of the current Attempt, admitted as the pattern asked for it, naming no action, now
@@ -6726,8 +6782,8 @@ defmodule Elzoo.RunEngine.ResultReader do
   defp transcript_actual(_record, _key, slot),
     do: if(is_integer(slot[:actual]), do: slot.actual, else: :unknown)
 
-  # A v2 step is valid when the projection of a fold that can have recorded it (folds/2)
-  # passes every check: the exact pure result, the close markers and the activated waits.
+  # A v2 step is valid when the projection of one of @folds passes every check: the exact
+  # pure result, the close markers (the stop's mark included) and the activated waits.
   defp validate_event_wait_transition(
          %{pending: {_input_id, record}, state: before_state},
          %{state: after_state},
@@ -6736,7 +6792,7 @@ defmodule Elzoo.RunEngine.ResultReader do
        )
        when is_map(record) and is_map(before_state) and is_map(after_state) do
     if Enum.any?(
-         folds(record, before_state),
+         @folds,
          &valid_wait_step?(before_state, record, after_state, provenance, &1)
        ),
        do: :ok,

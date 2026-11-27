@@ -4,7 +4,8 @@ Code.require_file("../support/run_engine_test_helper.exs", __DIR__)
 defmodule Elzoo.RunEngineStopAttemptTest.CompleteForwarder do
   # A seam between the engine and its Run owner: every call goes to the owner, except
   # what `mode` decides. `:kill` kills the engine at its `:complete` command, before the
-  # owner sees it (a crash after the pending stop and any evidence row commit).
+  # owner sees it (a crash after the pending stop and any evidence row commit). `:refuse`
+  # answers every `:complete` command `{:error, :unavailable}`, so the stop stays pending.
   # `{:begin_at_stop, stopped?, attempt, then, test}` begins `attempt` on the owner at the
   # first status read at which `stopped?.()` holds (the engine's revision sample for its
   # `:complete` command), gives that command to the owner as it comes, sends the command
@@ -19,6 +20,9 @@ defmodule Elzoo.RunEngineStopAttemptTest.CompleteForwarder do
     Process.exit(caller, :kill)
     {:noreply, {run, :spent}}
   end
+
+  def handle_call({:command, %{kind: :complete}}, _from, {_run, :refuse} = state),
+    do: {:reply, {:error, :unavailable}, state}
 
   def handle_call(
         {:status, _} = status,
@@ -102,6 +106,11 @@ defmodule Elzoo.RunEngineStopAttemptTest do
   # Attempt (it dropped only a root failure), the mark of this fold included.
   @stop_facts [:stop_pending, :completion, :generation_closed, :cancelled_attempt, :stop_attempt]
 
+  # The stops that earlier_fold_stop builds in v1 and v2 as the fold before ELZ-430 recorded
+  # them (earlier/2): {source, replaced}, where `replaced` adds a wake past the Run deadline
+  # whose out_of_time that fold let take the place of the stop (a cancel here).
+  @earlier [completed: false, cancelled: false, run_deadline: false, cancelled: true]
+
   # Each source of a pending stop. `:completed` is a root finish naming a completed
   # action; `:failed` a root finish naming no action; `:cancelled` a cancel while local
   # work runs; `:run_deadline` a wake past the Run deadline and `:pause_deadline` a wake
@@ -144,33 +153,48 @@ defmodule Elzoo.RunEngineStopAttemptTest do
   end
 
   describe "earlier_fold_stop" do
-    test "two Attempts: a stop that a Run view kept as the fold before ELZ-430 did (a cancel, a completion, a Budget, Run-deadline, pause-deadline or request-cap stop) is refused with no write and no owner command, in v1 and v2" do
-      for {source, version} <- [
-            cancelled: 1,
-            cancelled: 2,
-            completed: 1,
-            completed: 2,
-            budget: 1,
-            run_deadline: 1,
-            pause_deadline: 1,
-            request_cap: 1
-          ] do
-        {c, _evidence} = legacy(source, version: version)
+    test "one Attempt: a completion, a cancel, a Run-deadline stop and a stop that replaced a cancel, as the earlier fold recorded them from the producing step on, are delivered, in v1 and v2" do
+      for version <- [1, 2], {source, replaced} <- @earlier do
+        label = label(source, replaced, version)
+        c = earlier(source, version: version, replaced: replaced)
+        stop = if replaced, do: :out_of_time, else: stop(source)
+        engine = start(c)
+        assert %{phase: :terminal, outcome: ^stop} = wait_for(engine, &(&1.outcome != nil)), label
+        assert {:ok, %{outcome: ^stop, current_attempt: "attempt"}} = Run.status(c.run, "run")
+        assert [{:terminal, "run", ^stop, "engine", _, _}] = terminal_rows(c), label
+        assert {:ok, %{entries: [_ | _]}} = transcript(engine), label
+
+        if stop == :completed,
+          do: assert({:ok, %{action_id: "work"}} = result(engine), label),
+          else: assert({:terminal, ^stop} = result(engine), label)
+      end
+    end
+
+    test "two Attempts: such a stop kept at the change of Attempt (in v1 also a Budget, pause-deadline and request-cap stop) is refused with no write, also after a lease renewal alone, in v1 and v2" do
+      cases =
+        for(version <- [1, 2], {source, replaced} <- @earlier, do: {source, replaced, version}) ++
+          for source <- [:budget, :pause_deadline, :request_cap], do: {source, false, 1}
+
+      for {source, replaced, version} <- cases do
+        label = label(source, replaced, version)
+        c = earlier(source, version: version, replaced: replaced, attempts: 2)
         control = last_state(c).control
-        assert %{stop_pending: stop, attempt_id: "second"} = control
-        assert stop == stop(source)
-        refute Map.get(control, :stop_attempt) == "second"
+        stop = if replaced, do: :out_of_time, else: stop(source)
+        assert %{stop_pending: ^stop, attempt_id: "second"} = control, label
+        refute Map.has_key?(control, :stop_attempt), label
 
         assert {:ok, %{current_attempt: "second", attempts: ["attempt", "second"]}} =
                  Run.status(c.run, "run")
 
-        assert_refused(c)
+        assert_refused(c, label)
+        assert {:ok, _, _} = Run.renew(c.run, 3_600_000)
+        assert_refused(c, "#{label} after a lease renewal")
       end
     end
 
     test "two Attempts: after the refusal, the host's end of the Run or its new Attempt on the owner is taken at the next start, with no owner command for the stop" do
       for host <- [:cancel, :begin_attempt] do
-        {c, []} = legacy(:cancelled)
+        c = earlier(:cancelled, attempts: 2)
         assert_refused(c)
 
         case host do
@@ -208,7 +232,7 @@ defmodule Elzoo.RunEngineStopAttemptTest do
     end
 
     test "two Attempts: owner changes that are neither a new Attempt nor an outcome (another Run's create, a lease renewal, a child attached to this Run) leave the refusal" do
-      {c, []} = legacy(:cancelled)
+      c = earlier(:cancelled, attempts: 2)
       {:ok, recorded} = Run.status(c.run, "run")
       create_other(c)
       assert {:ok, _, _} = Run.renew(c.run, 3_600_000)
@@ -245,35 +269,14 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       call(fn -> RunEngine.input(engine, "late-wake", input(c, "wake"), late) end)
       assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
 
-      assert %{stop_pending: :out_of_time, attempt_id: "second", stop_attempt: "second"} =
-               unit_state(c).control
+      assert %{stop_pending: :out_of_time, attempt_id: "second"} = control = unit_state(c).control
+      assert control.stop_attempt == {"second", :out_of_time}
 
       Agent.update(c.clock, fn _ -> 3_000 end)
       engine = start(c)
       assert %{outcome: :out_of_time, attempt_id: "second"} = wait_for(engine, &(&1.outcome != nil))
       assert [{:terminal, "run", :out_of_time, "engine", nil, _}] = terminal_rows(c)
       assert {:ok, %{outcome: :out_of_time, current_attempt: "second"}} = Run.status(c.run, "run")
-    end
-
-    test "one Attempt: a stop that the fold before ELZ-430 set, also one it set in place of another stop of that Attempt, is delivered as committed" do
-      c = fixture_for(:cancelled, 1)
-      engine = start(c)
-      assert {:ok, :applied} = start_run(c, engine)
-      assert_receive {:local_started, _}, 5_000
-      GenServer.stop(engine)
-      cancel = record(c, "cancel", input(c, "cancel", %{"attempt_id" => "attempt"}))
-      append_earlier(c, "cancel", cancel)
-      Agent.update(c.clock, fn _ -> 61_000 end)
-      wake = record(c, "late-wake", input(c, "wake", %{"at_ms" => 61_000}))
-      step = append_earlier(c, "late-wake", wake)
-      assert %{stop_pending: :out_of_time, cancelled_attempt: "attempt"} = step.legacy.control
-      refute Map.has_key?(step.legacy.control, :stop_attempt)
-
-      engine = start(c)
-      assert %{outcome: :out_of_time} = wait_for(engine, &(&1.outcome != nil))
-      assert [{:terminal, "run", :out_of_time, "engine", nil, _}] = terminal_rows(c)
-      assert evidence_rows(c) == []
-      assert {:ok, %{entries: [_ | _]}} = transcript(engine)
     end
 
     test "one Attempt: a completion that this fold set, which the fold before ELZ-430 kept through a :pause wake at the request cap that stopped the charge, is delivered as committed, and the v2 history reads" do
@@ -324,7 +327,7 @@ defmodule Elzoo.RunEngineStopAttemptTest do
     end
 
     test "two Attempts: the Unit finishes a committed but unpaired wake at the start, as at every open; it leaves the earlier-fold stop as it is, and the start is refused with no engine write" do
-      {c, []} = legacy(:cancelled)
+      c = earlier(:cancelled, attempts: 2)
       wake = record(c, "late-input", input(c, "wake"), attempt_id: "second")
       append_input(c, "late-input", wake)
       before = rows(c)
@@ -334,8 +337,8 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert [%{kind: "result"} = paired] = Enum.drop(rows(c), length(before))
       assert {1, {"late-input", state}} = decode(paired)
 
-      assert %{stop_pending: :cancelled, attempt_id: "second", stop_attempt: "attempt"} =
-               state.control
+      assert %{stop_pending: :cancelled, attempt_id: "second"} = state.control
+      refute Map.has_key?(state.control, :stop_attempt)
 
       assert {evidence_rows(c), Run.status(c.run, "run"), terminal_rows(c)} ==
                {[], {:ok, owner}, []}
@@ -460,19 +463,24 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       terminal_tamper(2, &put_in(&1.control.run_revision, &1.control.run_revision / 1))
     end
 
-    test "a cancellation's terminal view recorded before ELZ-215, which left a waiting ask open, still reads in v1" do
-      {_c, engine} = pre_215_cancellation(1)
-      assert {:ok, %{entries: entries}} = transcript(engine)
-      assert [%{outcome: :cancelled}] = Enum.filter(entries, &(&1.type == :terminal))
-      refute Enum.any?(entries, &(&1.type == :settlement and &1.action_id == "ask"))
-      assert {:ok, %{waits: []}} = RunEngine.event_waits(engine, scope(), limits())
-      assert {:terminal, :cancelled} = result(engine)
+    test "a terminal Run view recorded with the close before ELZ-215 while a cancel was pending (the running local work closed, a waiting ask left open) is damaged history, in v1" do
+      {_c, engine} = pre_215_close(1, :cancel_input)
+      assert_history(transcript(engine), "v1 transcript")
+      assert_history(RunEngine.event_waits(engine, scope(), limits()), "v1 event_waits")
     end
 
-    test "the same terminal view in v2, which came after ELZ-215, is damaged history" do
-      {_c, engine} = pre_215_cancellation(2)
+    test "the same terminal view is damaged history in v2" do
+      {_c, engine} = pre_215_close(2, :cancel_input)
       assert_history(transcript(engine), "v2 transcript")
       assert_history(RunEngine.event_waits(engine, scope(), limits()), "v2 event_waits")
+    end
+
+    test "with no stop pending, the host's own cancel taken as a terminal Run view recorded with the close before ELZ-215 is damaged history, in v1 and v2" do
+      for version <- [1, 2] do
+        {_c, engine} = pre_215_close(version, :owner_cancel)
+        assert_history(transcript(engine), "v#{version} transcript")
+        assert_history(RunEngine.event_waits(engine, scope(), limits()), "v#{version} event_waits")
+      end
     end
 
     test "a lifecycle stop that replaced a pending completion, as the fold before ELZ-430 recorded it, reads as recorded, in v1 and v2" do
@@ -702,6 +710,144 @@ defmodule Elzoo.RunEngineStopAttemptTest do
     end
   end
 
+  describe "stop_mark" do
+    test "rollback, then this revision again: a completion set for Attempt B, which the earlier fold replaced with out_of_time keeping the mark, is delivered with one owner Attempt, refused with two" do
+      for attempts <- [1, 2] do
+        b = if attempts == 2, do: "second", else: "attempt"
+        c = run_fixture(&completed_while_slow/1, 1)
+        if attempts == 2, do: begin_attempt(c, "second")
+        engine = start(c, run_owner: forwarder(c, :kill))
+        monitor = Process.monitor(engine)
+        assert {:ok, :applied} = start_run(c, engine, b)
+        assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+        assert_receive {:local_started, _}, 5_000
+        state = unit_state(c)
+        assert %{stop_pending: :completed, attempt_id: ^b} = state.control
+        assert state.control.stop_attempt == {b, :completed}
+
+        # The earlier revision, taken again on this journal in a VM that knows the key's
+        # atom, starts past the Run deadline: its local recovery records the loss of `slow`,
+        # and its fold lets that step's out_of_time replace the completion and keeps the key
+        # that it does not know. It dies before its owner command.
+        Agent.update(c.clock, fn _ -> 61_000 end)
+        {key, _} = slot_of(state, "slow")
+        step = append_earlier(c, "loss", loss_record(c, state, key))
+        assert %{stop_pending: :out_of_time, stop_attempt: {^b, :completed}} = step.legacy.control
+        assert step.current.control.stop_pending == :completed
+
+        if attempts == 1 do
+          engine = start(c)
+          assert %{outcome: :out_of_time} = wait_for(engine, &(&1.outcome != nil))
+          assert [{:terminal, "run", :out_of_time, "engine", nil, _}] = terminal_rows(c)
+          assert {:terminal, :out_of_time} = result(engine)
+        else
+          assert_refused(c, "two Attempts")
+        end
+      end
+    end
+
+    test "a protocol cancel whose recorded mark alone names another Attempt is damaged history, in v1 and v2, also while the stop stays pending" do
+      for version <- [1, 2], pending <- [true, false] do
+        label = "v#{version}#{if pending, do: " with the stop pending"}"
+        script = fn frame -> [frame.([action("ask", "ask_person")])] end
+        c = run_fixture(script, version, unit_store: memory_unit_store(version))
+        engine = if pending, do: start(c, run_owner: forwarder(c, :refuse)), else: start(c)
+        assert {:ok, :applied} = start_run(c, engine)
+        wait_for(engine, &match?({_, %{phase: :waiting}}, slot_of(&1, "ask")))
+        cancel = input(c, "cancel", %{"attempt_id" => "attempt"})
+        RunEngine.input(engine, "cancel", cancel, verified())
+
+        if pending do
+          assert %{stop_pending: :cancelled} = unit_state(c).control
+          assert {:ok, %{outcome: nil}} = Run.status(c.run, "run")
+        else
+          wait_for(engine, &(&1.outcome == :cancelled))
+        end
+
+        assert {:ok, %{entries: [_ | _]}} = transcript(engine), label
+
+        {row, _id, _record} =
+          input_row(c, &match?(%{kind: :protocol, input: %{"kind" => "cancel"}}, &1))
+
+        {_before, {id, state}, paired} = step_states(c, row)
+        assert state.control.stop_attempt == {"attempt", :cancelled}
+        other = put_in(state.control.stop_attempt, {"other", :cancelled})
+        corrupt_row(c, paired, {1, {id, other}})
+        assert_history(transcript(engine), "#{label} transcript")
+        assert_history(RunEngine.event_waits(engine, scope(), limits()), "#{label} event_waits")
+      end
+    end
+  end
+
+  describe "room_for_a_stop" do
+    test "at the admission limit in a 1-byte Attempt, then the Run view of a 200-byte Attempt: a wake past the Run deadline and, separately, a cancel each commit marked, and the Unit reopens" do
+      for {kind, stop} <- [wake: :out_of_time, cancel: :cancelled] do
+        {c, state} = in_attempt("a")
+        long = String.duplicate("l", 200)
+
+        # At the admission limit, from the shortest classification (`:late`), from which the
+        # step that sets a stop grows most: the smallest input for the pattern (a wake with
+        # a 1-byte ID) is refused for room.
+        padded = pad_invocations(put_in(state.control.classification, :late), 0)
+        small = protocol_record("w", wake(), attempt_id: "a")
+        assert {:Transition, refused, :none} = RunEngine.step(padded, small)
+        assert refused.control.classification == :record_size, "#{kind}"
+        journal_state(c, padded)
+
+        # The host begins a 200-byte Attempt; the start takes its Run view, which admits
+        # nothing and grows the recorded Attempt ID by 199 bytes, past the admission limit.
+        begin_attempt(c, long)
+        engine = start(c, run_owner: forwarder(c, :kill))
+        monitor = Process.monitor(engine)
+        taken = unit_state(c)
+        assert %{attempt_id: ^long, stop_pending: nil, classification: :late} = taken.control
+        assert control_headroom(taken) < 0
+
+        stop_request(c, engine, kind, long)
+        assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+        committed = unit_state(c)
+        assert %{stop_pending: ^stop, attempt_id: ^long} = committed.control
+        assert committed.control.stop_attempt == {long, stop}
+        assert control_headroom(committed) >= 0
+
+        # The Unit reopens on its journal; the marked stop is delivered in this Run of three
+        # Attempts.
+        assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+        engine = start(c)
+        assert %{outcome: ^stop} = wait_for(engine, &(&1.outcome != nil))
+        assert [{:terminal, "run", ^stop, "engine", nil, _}] = terminal_rows(c)
+      end
+    end
+
+    test "at the bound as an earlier revision recorded it, the largest state whose unmarked wake fits: the wake past the Run deadline commits unmarked, the Unit reopens, the start refuses it" do
+      long = String.duplicate("l", 200)
+      {c, state} = in_attempt(long)
+
+      # The largest state that an earlier revision recorded without the room from which the
+      # unmarked wake still fits: from `:late` the wake grows control by 34 bytes, which
+      # leave none of the bound, and its mark does not fit.
+      padded = pad_invocations(put_in(state.control.classification, :late), 34 - 665)
+      late = protocol_record("late-wake", Map.put(wake(), "at_ms", 61_000), attempt_id: long)
+      assert {:Transition, next, :none} = RunEngine.step(padded, late)
+      assert next.control.stop_pending == :out_of_time
+      refute Map.has_key?(next.control, :stop_attempt)
+      assert control_headroom(next) == 0
+      journal_state(c, padded)
+
+      engine = start(c, run_owner: forwarder(c, :kill))
+      monitor = Process.monitor(engine)
+      stop_request(c, engine, :wake, long)
+      assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+      committed = unit_state(c)
+      assert %{stop_pending: :out_of_time, attempt_id: ^long} = committed.control
+      refute Map.has_key?(committed.control, :stop_attempt)
+
+      assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+      assert_refused(c)
+      assert unit_state(c) == committed
+    end
+  end
+
   # One crash cut of one source, in v1. The engine runs in Attempt "attempt" behind a
   # forwarder; the host begins Attempt "second" on the owner. `:kill`: the engine dies at
   # its `:complete` command and the host begins the new Attempt before the restart.
@@ -890,8 +1036,14 @@ defmodule Elzoo.RunEngineStopAttemptTest do
     :exit, _ -> :exit
   end
 
-  defp start_run(c, engine),
-    do: RunEngine.input(engine, "start", %{start_input() | "version" => version(c)}, verified())
+  defp start_run(c, engine, attempt \\ "attempt"),
+    do:
+      RunEngine.input(
+        engine,
+        "start",
+        %{start_input() | "version" => version(c)},
+        verified(%{attempt_id: attempt})
+      )
 
   defp fixture_for(source, version, opts \\ []),
     do: run_fixture(&script(source, &1), version, limit_opts(source) ++ opts)
@@ -957,25 +1109,64 @@ defmodule Elzoo.RunEngineStopAttemptTest do
     c
   end
 
-  # The cut that the fold before ELZ-430 left: the engine died at its owner command with
-  # the stop pending in Attempt "attempt", the host began "second", and the next start
-  # journaled the Run view of "second" with that fold, which kept the stop (with the mark
-  # of "attempt" that this fold recorded, as that fold keeps every control fact it does not
-  # know), and died before its owner command. The owner revision matches the recorded one.
-  # `opts` go to crashed/2. Returns the fixture and the evidence rows.
-  defp legacy(source, opts \\ []) do
-    c = crashed(source, opts)
-    evidence = evidence_rows(c)
-    begin_attempt(c, "second")
-    {:ok, owner} = Run.status(c.run, "run")
+  # A journal that the fold before ELZ-430 recorded from the step that set `source`'s stop
+  # on, in Attempt "attempt", on the in-memory Store, in protocol `version:` (1 by
+  # default): the engine died at its owner command, and each result row from the stop's
+  # producing step on is that fold's projection (:base) of its input record, so the stop
+  # holds no mark (rebase_earlier/1). `replaced: true` adds a wake past the Run deadline
+  # whose out_of_time that fold let take the place of the stop. `attempts: 2` then has the
+  # host begin "second" on the owner and adds that fold's Run view of "second", which kept
+  # the stop; the owner revision matches the recorded one.
+  defp earlier(source, opts) do
+    version = Keyword.get(opts, :version, 1)
+    c = crashed(source, version: version, unit_store: memory_unit_store(version))
+    assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+    rebase_earlier(c)
 
-    kept = fn before, next ->
-      put_in(next.control, Map.merge(next.control, Map.take(before.control, @stop_facts)))
+    if Keyword.get(opts, :replaced, false) do
+      Agent.update(c.clock, fn _ -> 61_000 end)
+      wake = record(c, "late-wake", input(c, "wake", %{"at_ms" => 61_000}))
+      step = append_earlier(c, "late-wake", wake)
+      assert %{stop_pending: :out_of_time} = step.legacy.control
+      assert step.current.control.stop_pending == stop(source)
     end
 
-    view = second_view(c, owner.revision)
-    append_legacy(c, "run:#{owner.revision}", view, kept)
-    {c, evidence}
+    if Keyword.get(opts, :attempts, 1) == 2 do
+      begin_attempt(c, "second")
+      {:ok, owner} = Run.status(c.run, "run")
+      step = append_earlier(c, "run:#{owner.revision}", second_view(c, owner.revision))
+      assert %{attempt_id: "second", stop_pending: kept} = step.legacy.control
+      assert kept != nil and step.current.control.stop_pending == nil
+    end
+
+    c
+  end
+
+  # Rewrites the journal from the step that set the pending stop on as the fold before
+  # ELZ-430 recorded it: each result row from that step on holds that fold's projection of
+  # its input record on the rewritten state before it, its row digest made valid. This
+  # fold had marked the stop; the rewritten journal holds no mark.
+  defp rebase_earlier(c) do
+    rows = rows(c)
+    state = fn row -> elem(elem(decode(row), 1), 1) end
+
+    index =
+      Enum.find_index(rows, &(&1.kind == "result" and state.(&1).control.stop_pending != nil))
+
+    assert Map.has_key?(state.(Enum.at(rows, index)).control, :stop_attempt)
+
+    rows
+    |> Enum.drop(index - 1)
+    |> Enum.chunk_every(2)
+    |> Enum.reduce(state.(Enum.at(rows, index - 2)), fn [input, result], before ->
+      assert {input.kind, result.kind} == {"input", "result"}
+      {1, {id, record}} = decode(input)
+      {:ok, earlier} = RunEngine.project_event_wait_transition(before, record, :base)
+      corrupt_row(c, result, {1, {id, earlier}})
+      earlier
+    end)
+
+    refute Map.has_key?(last_state(c).control, :stop_attempt)
   end
 
   defp second_view(c, revision),
@@ -1068,10 +1259,14 @@ defmodule Elzoo.RunEngineStopAttemptTest do
     {c, engine}
   end
 
-  # A cancellation in protocol `version` whose cancel and terminal Run view are as the fold
-  # before ELZ-215 recorded them, row digests made valid: the cancel's state carries no stop
-  # mark, and the terminal view closed the local work only, so the waiting ask stays open.
-  defp pre_215_cancellation(version) do
+  # A cancelled Run in protocol `version` whose terminal Run view is as the revisions
+  # before ELZ-215 recorded it, row digests made valid: the view (projected by hand) closed
+  # the local work only, so the waiting ask stays open, where each fold that the reader
+  # knows closes it. `:cancel_input`: a cancel input set the stop before the view, its
+  # state as the fold before ELZ-430 recorded it (no mark). `:owner_cancel`: the host
+  # cancelled the Run on the owner alone, and the next start took the terminal view with
+  # no stop pending.
+  defp pre_215_close(version, how) do
     c =
       run_fixture(fn frame -> [frame.([action("ask", "ask_person")])] end, version,
         unit_store: memory_unit_store(version)
@@ -1080,24 +1275,17 @@ defmodule Elzoo.RunEngineStopAttemptTest do
     engine = start(c)
     assert {:ok, :applied} = start_run(c, engine)
     wait_for(engine, &match?({_, %{phase: :waiting}}, slot_of(&1, "ask")))
-    cancel = input(c, "cancel", %{"attempt_id" => "attempt"})
-    assert {:ok, :applied} = RunEngine.input(engine, "cancel", cancel, verified())
+    engine = cancel_run(c, engine, how)
     wait_for(engine, &(&1.outcome == :cancelled))
     assert {:ok, %{entries: [_ | _]}} = transcript(engine)
-
-    {row, _id, _record} =
-      input_row(c, &match?(%{kind: :protocol, input: %{"kind" => "cancel"}}, &1))
-
-    {_before, {id, cancelled}, paired} = step_states(c, row)
-    assert %{stop_pending: :cancelled, stop_attempt: "attempt"} = cancelled.control
-    unmarked = update_in(cancelled.control, &Map.delete(&1, :stop_attempt))
-    corrupt_row(c, paired, {1, {id, unmarked}})
+    unmarked = if how == :cancel_input, do: unmark_cancel(c)
 
     {row, _id, %{view: view} = record} =
       input_row(c, &match?(%{kind: :run_view, view: %{outcome: :cancelled}}, &1))
 
     {before, {id, _}, paired} = step_states(c, row)
-    assert before === unmarked
+    if unmarked, do: assert(before === unmarked)
+    assert before.control.stop_pending == if(how == :cancel_input, do: :cancelled)
     assert {_, %{phase: :waiting}} = slot_of(before, "ask")
 
     legacy =
@@ -1108,18 +1296,131 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       |> put_in([:control, :lifecycle, :phase], :terminal)
       |> put_in([:control, :lifecycle, :outcome], :cancelled)
 
-    assert {:ok, legacy} === RunEngine.project_event_wait_transition(before, record, :pre_215)
+    for fold <- [:current, :base] do
+      {:ok, projected} = RunEngine.project_event_wait_transition(before, record, fold)
+      assert {_, %{phase: :settled}} = slot_of(projected, "ask")
+    end
+
     corrupt_row(c, paired, {1, {id, legacy}})
     {c, engine}
   end
 
+  defp cancel_run(c, engine, :cancel_input) do
+    cancel = input(c, "cancel", %{"attempt_id" => "attempt"})
+    assert {:ok, :applied} = RunEngine.input(engine, "cancel", cancel, verified())
+    engine
+  end
+
+  defp cancel_run(c, engine, :owner_cancel) do
+    GenServer.stop(engine)
+    {:ok, owner} = Run.status(c.run, "run")
+
+    assert {:ok, _, _} =
+             Run.command(c.run, %{
+               kind: :cancel,
+               run_id: "run",
+               attempt_id: "attempt",
+               expected_revision: owner.revision
+             })
+
+    start(c)
+  end
+
+  # Rewrites the cancel's step as the fold before ELZ-430 recorded it, that fold's own
+  # step with no mark, its row digest made valid; returns that state.
+  defp unmark_cancel(c) do
+    {row, _id, step} =
+      input_row(c, &match?(%{kind: :protocol, input: %{"kind" => "cancel"}}, &1))
+
+    {prior, {id, cancelled}, paired} = step_states(c, row)
+    assert %{stop_pending: :cancelled, stop_attempt: {"attempt", :cancelled}} = cancelled.control
+    {:ok, unmarked} = RunEngine.project_event_wait_transition(prior, step, :base)
+    refute Map.has_key?(unmarked.control, :stop_attempt)
+    corrupt_row(c, paired, {1, {id, unmarked}})
+    unmarked
+  end
+
   # The start refuses the pending stop: {:error, :stop_origin_unknown}, no new row, no
   # evidence row and no owner command.
-  defp assert_refused(c) do
+  defp assert_refused(c, label \\ "") do
     before = {rows(c), evidence_rows(c), Run.status(c.run, "run")}
-    assert {:error, :stop_origin_unknown} = RunEngine.start_link(c.opts)
-    assert {rows(c), evidence_rows(c), Run.status(c.run, "run")} == before
-    assert terminal_rows(c) == []
+    assert {:error, :stop_origin_unknown} = RunEngine.start_link(c.opts), label
+    assert {rows(c), evidence_rows(c), Run.status(c.run, "run")} == before, label
+    assert terminal_rows(c) == [], label
+  end
+
+  defp label(source, replaced, version),
+    do: "#{source}#{if replaced, do: " replaced by out_of_time"} v#{version}"
+
+  # The loss that a local recovery records (recover_local/1) for the running local work in
+  # slot `key` of `state`, at the clock: a `failed` outcome with reason `local_restart`.
+  defp loss_record(c, state, {request, index} = key) do
+    slot = state.slots[key]
+
+    refusal = %{
+      "reason" => "local_restart",
+      "gate_id" => state.control.gate.id,
+      "gate_version" => state.control.gate.version,
+      "request" => request,
+      "index" => index
+    }
+
+    outcome =
+      input(c, "action_outcome", %{
+        "action_id" => slot.action_id,
+        "outcome" => "failed",
+        "schema_id" => "elzoo.run-engine.refusal",
+        "schema_version" => 1,
+        "payload" => refusal,
+        "at_ms" => Agent.get(c.clock, & &1)
+      })
+
+    record(c, "loss", outcome,
+      attempt_id: slot.attempt_id,
+      correlation: %{loss: :unavailable, occurrence: key}
+    )
+  end
+
+  # A Run open in Attempt `attempt` (a 200-byte ID is the longest that the engine and the
+  # Run owner take): the host begins it on the owner (the Run's second Attempt) and the
+  # engine takes its Run view. Returns the fixture and the Unit state; the engine is
+  # stopped.
+  defp in_attempt(attempt) do
+    c = run_fixture(fn _frame -> [] end, 1)
+    engine = start(c)
+    assert {:ok, :applied} = start_run(c, engine)
+    begin_attempt(c, attempt)
+    wake = input(c, "wake")
+    assert {:ok, :applied} = RunEngine.input(engine, "wake", wake, verified(%{attempt_id: attempt}))
+    assert %{attempt_id: ^attempt, stop_pending: nil} = view(engine)
+    state = unit_state(c)
+    GenServer.stop(engine)
+    {c, state}
+  end
+
+  # Journals `state` as the Unit's recorded state, after an input of its own; the Unit is
+  # stopped first, and the engine's next start reads it.
+  defp journal_state(c, state) do
+    assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+
+    append_rows(c, [
+      {"input", 1, binary({1, {"padded", %{version: state.version, kind: :pad}}})},
+      {"result", 1, binary({1, {"padded", state}})}
+    ])
+  end
+
+  # A request in Attempt `attempt` that sets a stop: a wake past the Run deadline (the
+  # clock set there) or a cancel. A call that the forwarder ends by killing the engine
+  # gives :exit.
+  defp stop_request(c, engine, :wake, attempt) do
+    Agent.update(c.clock, fn _ -> 61_000 end)
+    wake = input(c, "wake")
+    call(fn -> RunEngine.input(engine, "late-wake", wake, verified(%{attempt_id: attempt})) end)
+  end
+
+  defp stop_request(c, engine, :cancel, attempt) do
+    cancel = input(c, "cancel", %{"attempt_id" => attempt})
+    call(fn -> RunEngine.input(engine, "cancel", cancel, verified(%{attempt_id: attempt})) end)
   end
 
   # Another Run's create on the shared owner moves the owner's revision, and not this Run's

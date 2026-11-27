@@ -486,19 +486,20 @@ whose admitted action is exactly the action of its request frame (as terms, so
 `1` and `1.0` differ) and names no action. Every other step of the history into
 a pending failure (a record changed to name an action, for example) is
 `{:error, :history}`. While a stop is pending (any stop, ELZ-430), a record that
-changes the pending stop, its completion or the Attempt, and a Run view that ends
-the Run or changes the Attempt, are replayed the same way, also in v1: the replay
-must give exactly (`===`, so `1` and `1.0` differ) the recorded state under the
-current fold or under the fold before ELZ-430, else `{:error, :history}`. The
-recorded state cannot show which fold wrote a step, so a step is accepted only when
-it equals one of them exactly; a history that the fold before ELZ-430 recorded (a
-stop kept at a change of Attempt, a lifecycle stop that replaced a pending one, a
-stop without its mark) reads as recorded. A terminal Run view may also equal that
-fold with the close before ELZ-215, which left a waiting ask open, but only in a v1
-history whose state before the view holds nothing that ELZ-215 or a later change
-brought (a pending root failure, a stop's mark, the `expiry_reports` or `messages`
-option); v2 came after ELZ-215, so a v2 history never reads with it. Protocol v2
-checks each step of its event waits under the same folds. This holds for every read
+changes the pending stop, its mark (below), its completion or the Attempt, and a
+Run view that ends the Run or changes the Attempt, are replayed the same way, also
+in v1: the replay must give exactly (`===`, so `1` and `1.0` differ) the recorded
+state under the current fold or under the fold before ELZ-430, else
+`{:error, :history}`. The recorded state cannot show which fold wrote a step, so a
+step is accepted only when it equals one of them exactly; a history that the fold
+before ELZ-430 recorded (a stop kept at a change of Attempt, a lifecycle stop that
+replaced a pending one, a stop without its mark) reads as recorded. The mark of each
+recorded step, in v1 and v2, must be one that either fold leaves after that step (its
+presence and its value), also while the stop stays pending, and protocol v2 checks
+each step of its event waits under the same folds, with the mark among its close
+markers. Every terminal Run view is replayed so too, with or without a pending stop, in
+v1 and v2: its close as the revisions before ELZ-215 recorded it (the running local
+work closed, a waiting ask left open) is `{:error, :history}`. This holds for every read
 of the history, the read of a `completed` Run, `event_waits/3` and `transcript/3`
 included, so a completion or a root failure that the reader selects belongs to the
 owner's current Attempt. With one, the Run, Attempt and
@@ -648,10 +649,26 @@ recorded Attempt at the step that asked for it: `:completed` and `:failed` to th
 Attempt of their root finish, `:cancelled`, `:out_of_time` and `:out_of_budget` to
 that of their lifecycle step. The completion evidence row of `:completed` and
 `:failed` (its `attempt_id`) and the owner's `complete` command carry it. This fold
-records that Attempt with the stop, as the control key `stop_attempt` (the stop's
-mark), in the step that sets the stop where none was pending, and removes it with
-the stop, so a state with no stop pending is unchanged; the fold before ELZ-430 never
-wrote it. The first
+records the stop's mark, the control key `stop_attempt` with the value
+`{attempt_id, stop}`, in the step that sets the stop, and removes it in the step that
+clears it, so a state with no stop pending holds none. The fold before ELZ-430 never
+wrote the key and kept it unchanged where it replaced a stop or kept one at a change
+of Attempt; a mark counts only when its value is exactly the recorded Attempt and the
+pending stop. The mark proves only a different final stop or Attempt: a stop that the
+earlier fold replaced with the same stop in the same Attempt still matches it, and the
+rollback Need (below), not the mark, excludes that case. Admission keeps room for the
+mark: while no stop is pending, work is
+admitted only when 665 bytes of the control bound stay free, the largest mark (236
+bytes: a 200-byte Attempt ID, the longest that the engine and the Run owner take, and
+`:out_of_budget`), the largest growth of a step that sets a stop (230 bytes, a
+cancel's) and the growth of the recorded Attempt ID at a change of Attempt (199
+bytes). The step that sets a stop adds the mark when the marked state passes the state
+bound and leaves the stop unmarked otherwise, so from a state that this revision
+admitted it never fails the bound after its input commits. Only a state recorded
+without that room (by an earlier revision, near the bound) leaves a stop unmarked, and
+only when the unmarked step fits the bound; when even that step does not fit, it fails
+after its input commits, as before this change (the limit of the invocation entries).
+The first
 pending stop wins: a lifecycle stop asked for in a later step (the Run deadline, a
 cancel, a Budget or request-cap stop) does not replace it, also when a restart past
 the Run deadline records the loss of local work that was running, as the input gate
@@ -695,13 +712,13 @@ Attempt and names another as current; it begins an Attempt ID once only), no
 delivery decision is left, and the engine takes that Run view, whose fold ends the
 Run or drops the stop, with no owner command for it. No other change of the owner's
 revision (a lease renewal, another Run's command, a fact of this Run such as an
-attached child) skips the decision. Otherwise a stop that this fold set (its mark
-names the recorded Attempt) is delivered exactly as committed: no journal, clock,
-Budget or request cap is read. A stop without that mark, or with one that names
-another Attempt, was set or kept at a change of Attempt by the fold before ELZ-430:
-it is delivered as committed when the owner has only ever had the recorded Attempt,
-which then produced it (also when the earlier fold set it in place of another stop
-of that Attempt); otherwise its Attempt is unknown, `start_link/1` gives
+attached child) skips the decision. Otherwise a stop whose mark is the recorded
+Attempt and the stop is delivered exactly as committed: no journal, clock, Budget or
+request cap is read. A stop without such a mark (the fold before ELZ-430 set it, or
+replaced or kept it at a change of Attempt; or a state recorded without the room for
+the mark) is delivered as committed when the owner has only ever had the recorded
+Attempt, which then produced it (also when the earlier fold set it in place of
+another stop of that Attempt); otherwise its Attempt is unknown, `start_link/1` gives
 `{:error, :stop_origin_unknown}`, and a replacement Unit halts the engine with that
 reason, with no engine write and no owner command. The host's fix is to end the Run
 or begin a new Attempt on the owner, then start the engine again: it takes that Run
@@ -1479,41 +1496,61 @@ released).
 Limits of the invocation entries. The entries of one Run are never removed. The
 entry of an input that settles a slot is taken to be covered by the 4,096 bytes of
 that slot. A state at the exact byte of the control bound can still fail a step by
-a change of a few bytes. A Run recorded before this repair can fold to another state
+a change of a few bytes. The room for a stop (ELZ-430) does not count the growth of what
+no admission checks, which near the bound can leave a stop unmarked: the recorded Run
+revision (3 bytes when it passes 255, 2 more when it passes 2,147,483,647), a pause
+deadline where none was and a Run deadline that a continue raises (no pause deadline
+takes 5 bytes, an integer up to 2,147,483,647 takes 5, a time in Unix milliseconds 9).
+A Run recorded before this repair can fold to another state
 (Elzoo is not released).
 
 Limits of the stop bound to its Attempt (ELZ-430). A journal recorded before ELZ-430
 keeps its records and reads as recorded when each step equals exactly the step of
 this fold or of the fold before ELZ-430 (see "Read-only Run result"). A pending stop
-that the earlier fold set is delivered as committed in a Run whose owner has only
-ever had the recorded Attempt, also when that fold set it in place of another stop
+without a matching mark is delivered as committed in a Run whose owner has only ever
+had the recorded Attempt, also when the earlier fold set it in place of another stop
 of that Attempt: the replaced stop's effects stand, and the later stop is the one
-that the owner gets. How to move: no migration step; nothing for a Run with one
-Attempt; a Run with more than one Attempt whose pending stop the earlier fold set or
-kept refuses to start (`{:error, :stop_origin_unknown}`, with no engine write), and
-the host ends that Run or begins a new Attempt on the owner, then starts the engine
-again, which takes that Run view with no owner command for the stop. Stored format:
-a journal that this revision writes holds the control key `stop_attempt` in each
-recorded state while a stop is pending. Rollback cut: the earlier revision loads and
-folds every row that this revision writes (the same record kinds; its check of a
-recorded state does not list control keys, and its fold carries `stop_attempt` along
-unchanged), but its start delivers a pending stop with no Attempt decision, so a
-rollback gives up the decision above. Its reader replays some steps exactly and gives
-`{:error, :history}` at each one that this revision recorded differently. In v1 it
-replays only a root failure's `:finish` step and the steps out of a pending failure:
-this revision sets the mark at the first and removes it at the second, so every
-`failed` Run that this revision recorded reads `{:error, :history}`. In v2 it also
-compares the whole state of each `:configure`, `:event_activation`, `:continuation`,
-`:lifecycle`, `:run_view` and `:finish` step, so also each such step at which this
-revision set or removed a stop's mark, dropped a stop at a change of Attempt or kept
-a pending stop against a later lifecycle request: every v2 Run that this revision
-ended through a pending stop (its terminal Run view removes the mark). A completion
-that the earlier fold kept through a timely `:pause` wake at the request cap, which
-that fold let stop the charge, is delivered as committed: the owner records
-`:completed` with reason `"request_cap"`, and the end of the Run retains slots as a
-request-cap stop does. The wakes after a change of Attempt are exercised for the
-stops of a completion, a failure, a cancel, an older pause deadline, the Run
-deadline, the monetary Budget and the request cap (Elzoo is not released).
+that the owner gets; in a Run with more than one Attempt the start refuses it
+(`{:error, :stop_origin_unknown}`, with no engine write). This fold leaves a stop
+unmarked only on a state that an earlier revision recorded within 665 bytes of the
+control bound, which it admitted up to the bound, and only when the unmarked step fits
+the bound (when it does not, the step fails after its input commits, as before), or
+after growth that no admission checks (the limit of the invocation entries).
+Admission keeps those 665 bytes free while no stop is pending, so a new Run near the
+bound admits less than before; a history already recorded keeps its records, and a new
+Run that stays outside the room records as before apart from the mark. How to move: a
+terminal or newer
+owner view is taken at the start automatically, and a Run with one Attempt needs
+nothing; the host acts only after an actual `{:error, :stop_origin_unknown}`: it ends
+that Run or begins a new Attempt on the owner, then starts the engine again, which
+takes that Run view with no owner command for the stop. Stored format: a journal that
+this revision writes holds the mark in each recorded state while a stop is pending.
+Rollback, a Need: no earlier revision runs on a journal that this revision wrote. In
+a fresh VM of an earlier revision, where `stop_attempt` is not an existing atom, the
+safe term decoder of its Unit (`binary_to_term/2` with `[:safe]`) refuses the first
+row or snapshot that holds a mark, so its Unit does not open. In a VM where the atom
+exists it can run, and it can deliver a stale stop (the defect that ELZ-430 fixes); a
+stop that it replaces, or keeps across a change of Attempt, no longer matches its
+mark, so this revision, taken again, decides it as an unmarked stop; a replacement by
+the same stop in the same Attempt still matches (the mark proves only a different final
+stop or Attempt), and this Need excludes it. Its reader
+replays some steps exactly and gives `{:error, :history}` at each one that this
+revision records differently: a step that set or removed a mark (in v1 a root
+failure's `:finish` step and the steps out of a pending failure; in v2 also each
+`:configure`, `:event_activation`, `:continuation`, `:lifecycle`, `:run_view` or
+`:finish` step, whose whole state it compares), a Run view that dropped a stop at a
+change of Attempt, and a step that kept a pending stop against a later lifecycle
+request (in v2, a protocol wake past the Run deadline that keeps a pending cancel
+already fails its close-marker check, before any terminal view). A step that both
+folds record alike stays readable to it: an unmarked v2 cancel that an identical
+terminal view clears, and a Run that the owner failed with no root failure of the
+pattern. A completion that the earlier fold kept through a timely `:pause` wake at
+the request cap, which that fold let stop the charge, is delivered as committed: the
+owner records `:completed` with reason `"request_cap"`, and the end of the Run
+retains slots as a request-cap stop does. The wakes after a change of Attempt are
+exercised for the stops of a completion, a failure, a cancel, an older pause
+deadline, the Run deadline, the monetary Budget and the request cap (Elzoo is not
+released).
 
 The groups `resumed_input_reopens_the_root` and
 `resumed_input_with_open_work_stays_waiting` of `test/elzoo/run_engine_test.exs`, and
@@ -1820,33 +1857,34 @@ cancel, older pause deadline) or asks for the stop again under the unchanged lim
 which the owner records for `second` (`:out_of_time` and `:out_of_budget` with reason
 `"engine"`, `:out_of_budget` with reason `"request_cap"`), with no other evidence row.
 
-`earlier_fold_stop` builds the cut that the fold before ELZ-430 left: the engine
-killed at its owner command, Attempt `second` begun on the owner, and the Run view of
-`second` journaled keeping the older stop as that fold did (each recorded state
-asserted to be exactly that fold's step; the stop keeps the mark of `attempt`), the
-owner revision equal to the recorded one. With two Attempts on the owner, a kept
-cancel and completion (v1 and v2) and a kept Budget, Run-deadline, pause-deadline and
-request-cap stop each make `start_link/1` give `{:error, :stop_origin_unknown}` with
-no new row, no evidence row and no owner command, also after another Run's create, a
-lease renewal and a child attached to this Run. After the host cancels the Run on the
-owner, the next start takes the terminal view (`:cancelled`, the owner's own record;
-`result/3` and `transcript/3` read); after it begins `third`, the next start is open
-in `third`, whose wake reaches the root, with no evidence row.
+`earlier_fold_stop` builds journals as the fold before ELZ-430 recorded them from
+the step that set the stop on (each result row from that step on is that fold's
+projection of its input, so no stop holds a mark), in v1 and v2: a completion, a
+cancel, a Run-deadline stop, and a cancel in whose place a wake past the Run deadline
+set `out_of_time`; in v1 also a Budget, pause-deadline and request-cap stop. With one
+Attempt on the owner each is delivered as committed (the owner records it with
+reason `"engine"`; `transcript/3` and `result/3` read). With Attempt `second` begun
+on the owner and that fold's Run view of `second` journaled keeping the stop, each
+makes `start_link/1` give `{:error, :stop_origin_unknown}` with no new row, no
+evidence row and no owner command, also after a lease renewal alone, and after
+another Run's create, a lease renewal and a child attached to this Run. After the
+host cancels the Run on the owner, the next start takes the terminal view
+(`:cancelled`, the owner's own record; `result/3` and `transcript/3` read); after it
+begins `third`, the next start is open in `third`, whose wake reaches the root, with
+no evidence row.
 
 `start_decision`: a stop that this fold set for `second` after the engine took its
-Run view (a wake past the Run deadline; the engine killed at its owner command) is
-delivered as committed with the clock set back before the deadline (`:out_of_time`
-for `second`). With one Attempt, a cancel and then a wake past the Run deadline that
-set `out_of_time` in its place, both journaled exactly as the earlier fold recorded
-them (no mark), are delivered as committed (`:out_of_time`, reason `"engine"`, no
-evidence row; `transcript/3` reads), and a completion that this fold set and the
-earlier fold kept through a timely `:pause` wake at request cap 2 that stopped the
-charge is delivered as committed (`:completed`, reason `"request_cap"`), with the v2
-transcript, `event_waits/3` and `result/3` read. A committed but unpaired wake after
-a kept stop in a two-Attempt Run is finished by the Unit at the start (one result row;
-the stop and its mark unchanged), and the start is refused with no other row,
-evidence or owner command. A completion whose completion slot was removed from the
-recorded state gives `{:error, :integrity_failure}` with no write.
+Run view (a wake past the Run deadline; the engine killed at its owner command; the
+mark `{second, :out_of_time}`) is delivered as committed with the clock set back
+before the deadline (`:out_of_time` for `second`). A completion that this fold set
+and the earlier fold kept through a timely `:pause` wake at request cap 2 that
+stopped the charge is delivered as committed (`:completed`, reason
+`"request_cap"`), with the v2 transcript, `event_waits/3` and `result/3` read. A
+committed but unpaired wake after an earlier-fold stop in a two-Attempt Run is
+finished by the Unit at the start (one result row; the stop still unmarked), and the
+start is refused with no other row, evidence or owner command. A completion whose
+completion slot was removed from the recorded state gives
+`{:error, :integrity_failure}` with no write.
 
 `replacement_unit`: the engine runs in `second` (it took that Run view while an ask
 waited), its Unit stops, and the journal gains a wake of `second` past the Run
@@ -1865,14 +1903,39 @@ fold's step, and not this fold's) reads in v1 and v2; after a completed and a fa
 Run, the state recorded after the terminal Run view changed to keep the stop pending
 is `history` for `transcript/3`, `event_waits/3` and `result/3` in v1 and v2, and
 so is that state with only its lifecycle outcome changed to `:cancelled` (v1) or
-only its Run revision changed to an equal float (v2). A cancellation whose cancel
-state carries no mark and whose terminal view was recorded as before ELZ-215, leaving
-a waiting ask open, reads in v1 (`transcript/3` with its terminal entry and no
-settlement of the ask, `event_waits/3`, and `{:terminal, :cancelled}`), and the same
-history in v2 is `history` for `transcript/3` and `event_waits/3`. The state after a
-completed Run's restart past the Run deadline with local work running, changed to
-hold `out_of_time` in place of the pending completion as the earlier fold recorded
-it, reads in v1 and v2, `result/3` included.
+only its Run revision changed to an equal float (v2). A cancellation whose terminal
+view is projected by hand with the close before ELZ-215 (the running local work
+closed, a waiting ask left open, which each fold that the reader knows closes) is
+`history` for `transcript/3` and `event_waits/3`, in v1 and in v2, both when a cancel
+input set the stop before the view (its step as the earlier fold recorded it, no mark)
+and when the engine's start took the view from the host's own cancel on the owner, with
+no stop pending. The state after a completed Run's restart past the
+Run deadline with local work running, changed to hold `out_of_time` in place of the
+pending completion as the earlier fold recorded it, reads in v1 and v2, `result/3`
+included.
+
+`stop_mark`: rollback, then this revision again. This revision sets a completion in
+Attempt B (the mark `{B, :completed}`) while local work runs and dies at its owner
+command; the earlier fold's step of the local loss at a restart past the Run deadline
+replaces the completion with `out_of_time` and keeps the mark. With one Attempt on
+the owner the next start delivers `out_of_time` (`result/3` gives
+`{:terminal, :out_of_time}`); with two (B the second) the start is refused with no
+engine write. In v1 and v2, a protocol cancel whose recorded mark alone is changed to
+name another Attempt (row digest recomputed) is `history` for `transcript/3` and
+`event_waits/3`, after the end of the Run and while the stop stays pending (an owner
+that refuses the engine's command).
+
+`room_for_a_stop`: a Run padded to the admission limit in a 1-byte Attempt, from the
+shortest classification, refuses the smallest pattern input for room; the host begins
+a 200-byte Attempt, whose Run view the start takes past the admission limit; a wake
+past the Run deadline and, separately, a cancel then each commit with the stop marked
+and the bound kept, and the reopened Unit delivers the stop. In the 200-byte Attempt,
+the largest state that an earlier revision recorded without the room from which the
+unmarked wake past the Run deadline still fits (34 bytes of the bound left, which the
+wake takes whole) takes it with the stop unmarked; the Unit reopens, and the start refuses
+the stop of this two-Attempt Run with no write. The test helper `control_headroom/1`
+counts the room of 665 bytes while no stop is pending, and the tests that use it pass
+unchanged.
 
 `completion_by_its_finish_record`: a root finish held for Approval, settled by its
 correlated outcome and named as the source of another root finish, completes the
@@ -1904,23 +1967,30 @@ failure), the end of the Run settles `slow`, `ask` and `pay` with no charge stop
 the step kept the stop, its completion and its cancel record and closed no local work.
 
 Temporary edits were negative controls, each run on this revision against this file
-and `test/elzoo/run_engine_read_failure_test.exs` (68 tests) and reverted: a stop
-without its mark delivered in a Run with two Attempts (6 tests fail: every two-Attempt
-refusal starts or goes on); an outbox offer that drains without the Unit check (1:
-the engine halts `:delivery_unknown`, not `:stop_origin_unknown`); a replacement Unit
-that records the loss of local work before it takes the owner's Run view (1: the
-replacement-order test); the cancel intent read from a caller's context (1: the
-context test); the close before ELZ-215 accepted in v2 (1: the v2 history reads); the
-drop of only a pending failure at a change of Attempt (21: every crash, stale-answer
-and stale-sync test of a stop other than a failure, the start after the host's end of
-the Run and both Run-view replays); the owner command at the owner's current Attempt
-(14: every stale-answer test); `install_lifecycle/3` replacing a pending stop other
-than a failure (11); a losing wake at the request cap that stops the charge (6); the
-owner's `:completed` taken from the source slot's kind (1); a cancel control that
-cancels the task of every running local work (1: the losing cancel); a replay under
-the current fold only (5) and a v2 validation under the current fold only (3); and
-the three stop facts compared, with `==` in v2, in place of the whole state with
-`===` (2: both tampers read). Listed finite scenarios, not a proof.
+and `test/elzoo/run_engine_read_failure_test.exs` (72 tests; 73 for the last control) and reverted: admission
+with no room for the mark (1: the stop at the admission limit is not marked; the
+groups `wake_without_room_is_not_given`, `the_switch_is_one_place` and
+`each_kind_without_a_slot` of `test/elzoo/run_engine_test.exs` fail too); a mark
+added whether or not the state passes the bound (1: the step at the bound raises
+after its input); a mark of another Attempt or another stop counted as a mark (1: the
+rollback-then-retake stop is delivered with two Attempts); a history read that checks
+only the mark's presence (1: the changed mark reads); the close before ELZ-215 taken
+by the earlier fold (2: v1 and v2 read); a stop without a matching mark delivered in
+a Run with two Attempts (8: every two-Attempt refusal); an outbox offer that drains
+without the Unit check (1: the engine halts `:delivery_unknown`, not
+`:stop_origin_unknown`); a replacement Unit that records the loss of local work
+before it takes the owner's Run view (1); the cancel intent read from a caller's
+context (1); the drop of only a pending failure at a change of Attempt (24); the
+owner command at the owner's current Attempt (14: every stale-answer test);
+`install_lifecycle/3` replacing a pending stop other than a failure (14); a losing
+wake at the request cap that stops the charge (6); the owner's `:completed` taken
+from the source slot's kind (1); a cancel control that cancels the task of every
+running local work (1); a replay under the current fold only (4) and a v2
+validation under the current fold only (4); the stop facts compared, with `==` in v2,
+in place of the whole state with `===` (3, run before the test of the host's own cancel
+existed: both tampers and the v1 close before ELZ-215 with a cancel pending read); and
+a terminal Run view replayed only while a stop is pending (1: the v1 close before
+ELZ-215 of the host's own cancel reads). Listed finite scenarios, not a proof.
 
 `test/elzoo/run_engine_deadlines_test.exs` exercises `deadlines/1` in four groups
 on disposable PostgreSQL, each read checked against the `phase` of `status/1`.
@@ -2131,12 +2201,17 @@ fail). Listed finite scenarios, not a proof.
   halted). Now the owner's answer `stale` makes the engine take the new Run view, and a
   change of Attempt before the owner records the stop drops it, with the completion and
   the closed generation of a finish and the cancel record of the Attempt that is left,
-  where only a failure was dropped. This fold records the stop's Attempt with it (the
-  control key `stop_attempt`, set with the stop and removed with it). A start, and a
-  replacement Unit, decide a pending stop before any engine write from the owner's
-  committed Run view: a view that is terminal or has begun an Attempt after the
-  engine's recorded one is taken (its fold ends the Run or drops the stop); else a
-  stop that this fold set, and one that the earlier fold set in a Run whose owner has
+  where only a failure was dropped. This fold records the stop's mark, the control key
+  `stop_attempt` with the value `{attempt_id, stop}`, set with the stop and removed
+  with it; a mark counts only when its value is the recorded Attempt and the pending
+  stop. Admission keeps room for it: while no stop is pending, work is admitted only
+  when 665 bytes of the control bound stay free (the largest mark, the largest growth
+  of a step that sets a stop and the growth of the recorded Attempt ID at a change of
+  Attempt), so the step that sets a stop marks it and never fails the bound after its
+  input commits. A start, and a replacement Unit, decide a pending stop before any
+  engine write from the owner's committed Run view: a view that is terminal or has
+  begun an Attempt after the engine's recorded one is taken (its fold ends the Run or
+  drops the stop); else a marked stop, and an unmarked one in a Run whose owner has
   only ever had the recorded Attempt, is delivered as committed (no journal, clock,
   Budget or cap is read), and any other gives `{:error, :stop_origin_unknown}` with no
   engine write and no owner command; a stop that cannot be delivered (a completion
@@ -2152,29 +2227,41 @@ fail). Listed finite scenarios, not a proof.
   decides the owner's reason and what the end of the Run closes. A read of the
   history (the read of a `completed` or `failed` Run, `event_waits/3`,
   `transcript/3`) now replays, also in v1, every record that changes the pending
-  stop, its completion or the Attempt and every Run view that ends the Run or changes
-  the Attempt while a stop is pending, and gives `{:error, :history}` unless the
-  replay gives exactly (`===`) the recorded state under this fold or the fold before
-  ELZ-430 (a root failure's step too); the close before ELZ-215 applies only to a v1
-  history with nothing that ELZ-215 or a later change brought. A completion that the
-  earlier fold kept through a `:pause` wake at the request cap that stopped the
-  charge is delivered as committed, with reason `"request_cap"`. Stored format: a
-  journal that this revision writes holds the control key `stop_attempt` (the stop's
-  Attempt) in each recorded state while a stop is pending; a state with no stop
-  pending never holds it, and the record kinds and the fingerprint are unchanged. The
-  cold-recovery capture of a completed Run is taken again for that key alone (with
-  the key removed, its rows give the capture before). What breaks (the rollback cut):
-  the earlier revision loads and folds every row that this revision writes, but its
-  start delivers a pending stop with no Attempt decision, and its reader gives
-  `{:error, :history}` at each step that it replays exactly and that this revision
-  recorded differently: every `failed` Run that this revision recorded, and in v2 also
-  each `:configure`, `:event_activation`, `:continuation`, `:lifecycle`, `:run_view`
-  or `:finish` step at which this revision set or removed a stop's mark, dropped a
-  stop at a change of Attempt or kept a pending stop against a later lifecycle
-  request, so every v2 Run that this revision ended through a pending stop ("Limits
-  of the stop bound to its Attempt"). How to move: no migration step forward; this
-  revision reads journals in the earlier format as recorded and decides a pending
-  stop without the mark at the start (delivered as committed when the owner has only
-  ever had the recorded Attempt); a host that gets `{:error, :stop_origin_unknown}` (a
-  Run with more than one Attempt whose pending stop the earlier fold set or kept)
-  ends the Run or begins a new Attempt on the owner, then starts the engine again.
+  stop, its mark, its completion or the Attempt and every Run view that ends the Run
+  or changes the Attempt while a stop is pending, and gives `{:error, :history}`
+  unless the replay gives exactly (`===`) the recorded state under this fold or the
+  fold before ELZ-430 (a root failure's step too); the mark of every step must be one
+  that either fold leaves, and v2 compares it among the close markers. Every terminal
+  Run view is now replayed so, with or without a pending stop, in v1 and v2: its close as
+  revisions before ELZ-215 recorded it (the running local work closed, a waiting ask left
+  open) is `{:error, :history}`. A completion that the earlier fold kept
+  through a `:pause` wake at the request cap that stopped the charge is delivered as
+  committed, with reason `"request_cap"`. Stored format: a journal that this revision
+  writes holds the mark in each recorded state while a stop is pending; a state with no
+  stop pending never holds it, and the record kinds and the fingerprint are unchanged.
+  Apart from the mark, a Run with no stale pending stop and no later lifecycle request
+  against a pending one records what the earlier revision recorded as long as it stays
+  outside the room, and a history already recorded keeps its records. The mark proves
+  only a different final stop or Attempt (a replacement by the same stop in the same
+  Attempt still matches it). The cold-recovery capture of a completed Run is taken again
+  for that key alone (with the key removed, its rows give the capture before). What
+  breaks: in a new Run within the room, work that the
+  earlier revision admitted within 665 bytes of the control bound (a request, a nested
+  start or finish, a pattern input, a retained or held input, an event activation) is
+  now refused `record_size`; a pre-ELZ-215 terminal close no longer reads; and the
+  rollback cut, a Need: no earlier revision runs on a journal that this revision
+  wrote. In a fresh VM of the earlier revision the mark's key is not an existing atom,
+  and the safe decoder of its Unit refuses the first row or snapshot that holds a mark,
+  so its Unit does not open; in a VM where the atom exists it can run and can deliver
+  a stale stop, and a stop that it replaces or keeps no longer matches its mark
+  ("Limits of the stop bound to its Attempt" lists the steps that its reader cannot
+  read). How to move: this revision reads journals in the earlier format as recorded
+  and decides an unmarked stop at the start; a terminal or newer owner view is taken
+  automatically, and the host acts only after an actual
+  `{:error, :stop_origin_unknown}` (a Run with more than one Attempt whose pending stop
+  has no matching mark): it ends the Run or begins a new Attempt on the owner, then
+  starts the engine again. A host whose Runs work near the control bound keeps 665
+  bytes less for their requests, states and inputs. Steps with the close before
+  ELZ-215 come only from revisions before ELZ-215, all before the release commit: read
+  the retained history of such a Run with the revision that wrote it before taking
+  this one.
