@@ -5478,6 +5478,576 @@ defmodule Elzoo.Wave4ChannelTest do
   end
 
   @tag timeout: 300_000
+  test "an answer whose delivery key another nonce acknowledges before the next advance stays fenced",
+       %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    complete_native_v1!(fixture, listener, event)
+    assert {:answered, 3} = Wave4ChannelExample.advance(fixture.host)
+
+    {:ok, items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [answer_item] = Enum.filter(items, &(&1.destination == "wave4-channel-delivery"))
+    [primary_item] = Enum.filter(items, &(&1.destination == "wave4-channel-input"))
+    key = answer_item.idempotency_key
+    nonce = answer_item.nonce
+
+    # The fresh answer's item is still pending: the host carries its original
+    # key and nonce to the primary acknowledgement.
+    assert %{phase: :ack, current: %{deliveries: %{answer: {^key, ^nonce}}}} =
+             :sys.get_state(fixture.host)
+
+    assert_superseded_answer_fenced!(fixture, key, nonce, [primary_item])
+  end
+
+  @tag timeout: 300_000
+  test "a reconciled answer whose delivery key another nonce acknowledges before the next advance stays fenced",
+       %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    complete_native_v1!(fixture, listener, event)
+
+    # The answer commits and its reply is lost: the next advance reconciles it
+    # read-only, before any delivery pass, while its item is still pending.
+    lose_next_command_reply!(fixture)
+    assert {:unknown, :answer} = Wave4ChannelExample.advance(fixture.host)
+    assert {:reconciled, :answer} = Wave4ChannelExample.advance(fixture.host)
+
+    {:ok, items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [answer_item] = Enum.filter(items, &(&1.destination == "wave4-channel-delivery"))
+    [primary_item] = Enum.filter(items, &(&1.destination == "wave4-channel-input"))
+    key = answer_item.idempotency_key
+    nonce = answer_item.nonce
+
+    assert %{phase: :ack, current: %{deliveries: %{answer: {^key, ^nonce}}}} =
+             :sys.get_state(fixture.host)
+
+    assert_superseded_answer_fenced!(fixture, key, nonce, [primary_item])
+  end
+
+  @tag timeout: 300_000
+  test "a reconciled two-source answer whose delivery key another nonce acknowledges before the next advance stays fenced" do
+    fixture = Elzoo.Wave4ChannelTestHelper.reply_fixture()
+    {primary_listener, reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
+    {_event, wait} = await_reply_wait!(fixture, primary_listener, "reconciled-answer-superseded")
+    post_reply!(fixture, reply_listener, wait, "reconciled-answer-superseded-reply")
+
+    {:ok, pending} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    native_items =
+      Enum.filter(pending, &(&1.destination in ["wave4-channel-input", "wave4-channel-reply"]))
+
+    assert length(native_items) == 2
+    advance_to_answer(fixture.host, System.monotonic_time(:millisecond) + 30_000, [])
+
+    # The answer commits and its reply is lost: the next advance reconciles it
+    # read-only, before any delivery pass, while its item is still pending.
+    lose_next_command_reply!(fixture)
+    assert {:unknown, :answer} = Wave4ChannelExample.advance(fixture.host)
+    assert {:reconciled, :answer} = Wave4ChannelExample.advance(fixture.host)
+
+    {:ok, pending} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [answer_item] = Enum.filter(pending, &(&1.destination == "wave4-channel-delivery"))
+    key = answer_item.idempotency_key
+    nonce = answer_item.nonce
+
+    assert %{phase: :reply_ack, current: %{deliveries: %{answer: {^key, ^nonce}}}} =
+             :sys.get_state(fixture.host)
+
+    assert_superseded_answer_fenced!(fixture, key, nonce, native_items)
+  end
+
+  @tag timeout: 300_000
+  test "a recovered answer whose pending delivery key another nonce acknowledges stays fenced",
+       %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+    complete_native_v1!(fixture, listener, event)
+    assert {:answered, 3} = Wave4ChannelExample.advance(fixture.host)
+
+    {:ok, items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [answer_item] = Enum.filter(items, &(&1.destination == "wave4-channel-delivery"))
+    [primary_item] = Enum.filter(items, &(&1.destination == "wave4-channel-input"))
+    key = answer_item.idempotency_key
+    nonce = answer_item.nonce
+    other_nonce = :crypto.strong_rand_bytes(16)
+    refute other_nonce == nonce
+
+    # The answer is delivered and its acknowledgement rolls back in SQL: the
+    # item stays pending.
+    probe = probe_host_command_store!(fixture)
+    Elzoo.Wave4ChannelTest.ReadProbe.fault(probe, :ack, key, :rollback)
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_ack, ^key, ^nonce, _reason} = :sys.get_state(fixture.host).poison
+    {:ok, entries} = Elzoo.Wave4ChannelTestHelper.conversation_entries(fixture)
+    assert Enum.count(entries, &(&1.kind == :answer)) == 1
+
+    # After a fenced reopen the first delivery pass does not reach the item,
+    # so recovery finds the answer delivered with its item still pending and
+    # carries the item's original key and nonce.
+    assert {:ok, fixture} = Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, [listener])
+    probe = probe_host_command_store!(fixture)
+    hide_from_window!(probe, key)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+
+    assert %{phase: :ack, current: %{deliveries: %{answer: {^key, ^nonce}}}} =
+             :sys.get_state(fixture.host)
+
+    # Another nonce then acknowledges that key: the primary acknowledgement
+    # waits for the original receipt, so the host stays fenced.
+    Elzoo.Wave4ChannelTest.ReadProbe.reset(probe)
+    assert {:committed, _} = Outbox.ack(fixture.command_store, key, other_nonce)
+    assert {:blocked, :delivery_ack_superseded} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_ack, ^key, ^nonce, :superseded} = :sys.get_state(fixture.host).poison
+    assert Elzoo.Wave4ChannelTest.ReadProbe.acks(probe) == []
+    assert_native_items_pending!(fixture, [primary_item])
+  end
+
+  @tag timeout: 300_000
+  test "a recovered association whose pending delivery key another nonce acknowledges stays fenced before the primary acknowledgement",
+       %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+    run_id = run_id_of(fixture, event)
+    unit_id = Elzoo.Wave4ChannelTestHelper.unit_id(run_id)
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+
+    {:ok, items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [item] = Enum.filter(items, &(&1.destination == "wave4-channel-delivery"))
+    [primary_item] = Enum.filter(items, &(&1.destination == "wave4-channel-input"))
+    key = item.idempotency_key
+    nonce = item.nonce
+    other_nonce = :crypto.strong_rand_bytes(16)
+    refute other_nonce == nonce
+
+    # The association is delivered and its acknowledgement rolls back in SQL.
+    probe = probe_host_command_store!(fixture)
+    Elzoo.Wave4ChannelTest.ReadProbe.fault(probe, :ack, key, :rollback)
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_ack, ^key, ^nonce, _reason} = :sys.get_state(fixture.host).poison
+
+    # Recovery finds the association delivered with its item still pending
+    # (the reopen's first delivery pass does not reach it) and carries the
+    # item's original key and nonce through the round.
+    assert {:ok, fixture} = Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, [listener])
+    probe = probe_host_command_store!(fixture)
+    hide_from_window!(probe, key)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+
+    assert %{phase: :create_run, current: %{deliveries: %{association: {^key, ^nonce}}}} =
+             :sys.get_state(fixture.host)
+
+    # Another nonce acknowledges that key. The round runs its native work
+    # and answers; before the primary acknowledgement the association's
+    # original receipt is required, so the host stays fenced.
+    Elzoo.Wave4ChannelTest.ReadProbe.reset(probe)
+    assert {:committed, _} = Outbox.ack(fixture.command_store, key, other_nonce)
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+    assert {:attempt_started, _} = Wave4ChannelExample.advance(fixture.host)
+    assert {:engine_started, ^unit_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:native_input, :applied} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:result, :completed} =
+             wait_for_result(fixture.host, System.monotonic_time(:millisecond) + 10_000)
+
+    assert {:answered, 3} = Wave4ChannelExample.advance(fixture.host)
+    assert {:blocked, :delivery_ack_superseded} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_ack, ^key, ^nonce, :superseded} = :sys.get_state(fixture.host).poison
+    assert_native_items_pending!(fixture, [primary_item])
+  end
+
+  @tag timeout: 300_000
+  test "a recovered reply association whose pending delivery key another nonce acknowledges stays fenced before the reply acknowledgement" do
+    fixture = Elzoo.Wave4ChannelTestHelper.reply_fixture()
+    profile = fixture.profile
+    {primary_listener, reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
+    {event, wait} = await_reply_wait!(fixture, primary_listener, "recovered-reply-association")
+    primary_id = event["input_id"]
+    post_reply!(fixture, reply_listener, wait, "recovered-reply-association-reply")
+
+    {:ok, pending} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    native_items =
+      Enum.filter(pending, &(&1.destination in ["wave4-channel-input", "wave4-channel-reply"]))
+
+    reply_key = Enum.find(native_items, &(&1.destination == "wave4-channel-reply")).idempotency_key
+    assert {:reply_observed, ^reply_key} = Wave4ChannelExample.advance(fixture.host)
+    assert {:reply_associated, _} = Wave4ChannelExample.advance(fixture.host)
+
+    {:ok, pending} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [item] = Enum.filter(pending, &(&1.destination == "wave4-channel-delivery"))
+    key = item.idempotency_key
+    nonce = item.nonce
+    other_nonce = :crypto.strong_rand_bytes(16)
+    refute other_nonce == nonce
+
+    # The primary association's item, second in the stream, was acknowledged
+    # with its original nonce.
+    association_key =
+      Elzoo.DurableLog.Codec.item_key(
+        Elzoo.Wave4ChannelTestHelper.command_stream(profile.tenant),
+        2,
+        1
+      )
+
+    assert {:ok,
+            %{
+              state: :acked,
+              destination: "wave4-channel-delivery",
+              nonce: association_nonce,
+              ack_nonce: association_nonce,
+              payload: association_payload
+            }} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [association_key])
+
+    assert Jason.decode!(association_payload)["operation_id"] ==
+             Elzoo.Wave4ChannelTestHelper.association_operation(
+               profile,
+               event["event_id"],
+               primary_id
+             )
+
+    # The reply association is delivered and its acknowledgement rolls back.
+    probe = probe_host_command_store!(fixture)
+    Elzoo.Wave4ChannelTest.ReadProbe.fault(probe, :ack, key, :rollback)
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_ack, ^key, ^nonce, _reason} = :sys.get_state(fixture.host).poison
+
+    # After a fenced reopen the first delivery pass does not reach the reply
+    # association's item: recovery carries both associations' receipts, the
+    # primary one acknowledged and the reply one still pending.
+    assert {:ok, fixture} =
+             Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, [
+               primary_listener,
+               reply_listener
+             ])
+
+    probe = probe_host_command_store!(fixture)
+    hide_from_window!(probe, key)
+    assert {:observed, ^primary_id} = Wave4ChannelExample.advance(fixture.host)
+    assert %{current: %{deliveries: deliveries}} = :sys.get_state(fixture.host)
+
+    assert deliveries == %{
+             association: {association_key, association_nonce},
+             reply_association: {key, nonce}
+           }
+
+    # Another nonce acknowledges the reply association's key. The round
+    # replays to its answer; before the reply acknowledgement the original
+    # receipt is required, so the host stays fenced.
+    Elzoo.Wave4ChannelTest.ReadProbe.reset(probe)
+    assert {:committed, _} = Outbox.ack(fixture.command_store, key, other_nonce)
+    advance_to_answer(fixture.host, System.monotonic_time(:millisecond) + 30_000, [])
+    assert {:answered, _} = Wave4ChannelExample.advance(fixture.host)
+    assert {:blocked, :delivery_ack_superseded} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_ack, ^key, ^nonce, :superseded} = :sys.get_state(fixture.host).poison
+    assert_native_items_pending!(fixture, native_items)
+  end
+
+  @tag timeout: 300_000
+  test "recovery scans past another profile's acknowledged reply row to the association's delivery item",
+       %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+    run_id = run_id_of(fixture, event)
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+
+    {:ok, items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [item] = Enum.filter(items, &(&1.destination == "wave4-channel-delivery"))
+    key = item.idempotency_key
+    nonce = item.nonce
+
+    # A reply-profile writer of this tenant's stream commits a reply input for
+    # another conversation above the association's item and acknowledges it:
+    # the row is invisible to the pending window, and this immediate profile's
+    # PostgreSQL Store, whose destinations exclude replies, reads it as
+    # malformed.
+    {foreign_key, reply_store} = commit_foreign_reply_row!(fixture)
+
+    assert {:ok, %{state: :acked}} =
+             Elzoo.DurableLog.Store.read(reply_store, :read_ack, [foreign_key])
+
+    assert {:error, :malformed} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [foreign_key])
+
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, %{state: :acked, ack_nonce: ^nonce}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [key])
+
+    # Across a fenced reopen recovery rebuilds the association's delivery
+    # identity from the stream head down. While the association's own slot
+    # cannot be read as this profile's either, no exact match exists and the
+    # host stays fenced; then the scan passes the foreign row and finds it.
+    assert {:ok, fixture} = Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, [listener])
+    probe = probe_host_command_store!(fixture)
+    Elzoo.Wave4ChannelTest.ReadProbe.fault(probe, :read_ack, key, :malformed)
+    assert {:unknown, :recovery} = Wave4ChannelExample.advance(fixture.host)
+    assert {:v2_recovery, :delivery_ack} = :sys.get_state(fixture.host).poison
+    assert Elzoo.Wave4ChannelTest.ReadProbe.faults(probe) == %{}
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+
+    assert %{poison: nil, phase: :create_run, current: %{deliveries: deliveries}} =
+             :sys.get_state(fixture.host)
+
+    assert deliveries == %{association: {key, nonce}}
+    assert Elzoo.Wave4ChannelTest.ReadProbe.acks(probe) == []
+  end
+
+  @tag timeout: 300_000
+  test "a reply round observes its own reply item past another conversation's pending reply item" do
+    fixture = Elzoo.Wave4ChannelTestHelper.reply_fixture()
+    {primary_listener, reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
+    {_event, wait} = await_reply_wait!(fixture, primary_listener, "foreign-reply-observation")
+    post_reply!(fixture, reply_listener, wait, "foreign-reply-observation-reply")
+
+    {:ok, pending} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [reply_item] = Enum.filter(pending, &(&1.destination == "wave4-channel-reply"))
+    reply_key = reply_item.idempotency_key
+
+    # After this reply's admission another conversation of the tenant commits
+    # a reply input: two reply items share the outbox window.
+    seed_foreign_reply_notifications!(fixture, 1, "observation-foreign")
+    {:ok, pending} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert [_, _] = Enum.filter(pending, &(&1.destination == "wave4-channel-reply"))
+
+    # The round observes its own reply item by its exact notice and goes on.
+    assert {:reply_observed, ^reply_key} = Wave4ChannelExample.advance(fixture.host)
+    assert {:reply_associated, _} = Wave4ChannelExample.advance(fixture.host)
+  end
+
+  @tag timeout: 300_000
+  test "v2 recovery passes over another conversation's pending reply item" do
+    fixture = Elzoo.Wave4ChannelTestHelper.reply_fixture()
+    {primary_listener, reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
+    {event, _wait} = await_reply_wait!(fixture, primary_listener, "foreign-reply-recovery")
+    primary_id = event["input_id"]
+
+    # Another conversation of the tenant commits a reply input: its pending
+    # reply item shares the outbox window with this round, which has no reply
+    # facts yet.
+    seed_foreign_reply_notifications!(fixture, 1, "recovery-foreign")
+    {:ok, pending} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert [foreign] = Enum.filter(pending, &(&1.destination == "wave4-channel-reply"))
+    foreign_nonce = foreign.nonce
+
+    assert {:ok, fixture} =
+             Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, [
+               primary_listener,
+               reply_listener
+             ])
+
+    # Recovery restores the round without a reply and leaves the foreign item
+    # untouched.
+    assert {:observed, ^primary_id} = Wave4ChannelExample.advance(fixture.host)
+    assert %{poison: nil, reply: nil, phase: :create_run} = :sys.get_state(fixture.host)
+
+    assert {:ok, %{state: :pending, nonce: ^foreign_nonce}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [
+               foreign.idempotency_key
+             ])
+  end
+
+  @tag timeout: 300_000
+  test "a window read failure after an unsent delivery acknowledgement is sent repeats discovery without a second acknowledgement",
+       %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+    run_id = run_id_of(fixture, event)
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+
+    {:ok, items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [item] = Enum.filter(items, &(&1.destination == "wave4-channel-delivery"))
+    key = item.idempotency_key
+    nonce = item.nonce
+
+    probe = probe_host_command_store!(fixture)
+    Elzoo.Wave4ChannelTest.ReadProbe.fault(probe, :read_ack, key, :unavailable)
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_ack_unsent, ^key, ^nonce, :unavailable} = :sys.get_state(fixture.host).poison
+    assert Elzoo.Wave4ChannelTest.ReadProbe.acks(probe) == []
+
+    # The retry sends the first acknowledgement; the window read after it
+    # fails once. The host keeps a read-only resume state.
+    assert :ok =
+             Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :inject, [
+               :pending,
+               :unavailable
+             ])
+
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+    assert Map.get(Agent.get(fixture.controller, & &1.faults), :pending) == nil
+    assert Elzoo.Wave4ChannelTest.ReadProbe.acks(probe) == [key]
+
+    assert {:ok, %{state: :acked, ack_nonce: ^nonce}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [key])
+
+    assert {:rediscover, :read} = :sys.get_state(fixture.host).poison
+    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
+
+    # Storage recovers: the next advance repeats discovery and the round goes
+    # on; the acknowledgement is never sent again.
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+    assert Elzoo.Wave4ChannelTest.ReadProbe.acks(probe) == [key]
+  end
+
+  @tag timeout: 300_000
+  test "a window read failure after a delivery acknowledgement is confirmed repeats discovery without another acknowledgement",
+       %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+    run_id = run_id_of(fixture, event)
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+
+    {:ok, items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [item] = Enum.filter(items, &(&1.destination == "wave4-channel-delivery"))
+    key = item.idempotency_key
+    nonce = item.nonce
+
+    # The association item's acknowledgement commits with its reply lost, and
+    # the same-pass readback fails: only read-only confirmation may follow.
+    probe = probe_host_command_store!(fixture)
+    Elzoo.Wave4ChannelTest.ReadProbe.fault(probe, :ack, key, :reply_loss)
+    Elzoo.Wave4ChannelTest.ReadProbe.fault(probe, :read_ack, key, [:pass, :unavailable])
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_ack, ^key, ^nonce, _reason} = :sys.get_state(fixture.host).poison
+    Elzoo.Wave4ChannelTest.ReadProbe.reset(probe)
+
+    # The next advance confirms it by its original receipt; the window read
+    # that follows fails once, and the host keeps a read-only resume state.
+    assert :ok =
+             Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :inject, [
+               :pending,
+               :unavailable
+             ])
+
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+    assert {:rediscover, :read} = :sys.get_state(fixture.host).poison
+    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
+
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+    assert Elzoo.Wave4ChannelTest.ReadProbe.acks(probe) == []
+
+    assert {:ok, %{state: :acked, ack_nonce: ^nonce}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [key])
+  end
+
+  @tag timeout: 300_000
+  test "an unreadable outbox window at observation is observed again on the next advance",
+       %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+
+    # The delivery pass reads the window; the observation's own read fails.
+    probe = probe_host_command_store!(fixture)
+
+    Elzoo.Wave4ChannelTest.ReadProbe.transform(probe, :pending, fn result, count ->
+      if count == 2, do: {:error, :unavailable}, else: result
+    end)
+
+    assert {:unknown, :input_observation} = Wave4ChannelExample.advance(fixture.host)
+    assert {:rediscover, :read} = :sys.get_state(fixture.host).poison
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert %{poison: nil, phase: :association} = :sys.get_state(fixture.host)
+  end
+
+  @tag timeout: 300_000
+  test "a reply observation whose window read fails is repeated on the next advance" do
+    fixture = Elzoo.Wave4ChannelTestHelper.reply_fixture()
+    {primary_listener, reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
+    {_event, wait} = await_reply_wait!(fixture, primary_listener, "reply-observation-read")
+    post_reply!(fixture, reply_listener, wait, "reply-observation-read-reply")
+
+    {:ok, pending} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [reply_item] = Enum.filter(pending, &(&1.destination == "wave4-channel-reply"))
+    reply_key = reply_item.idempotency_key
+
+    # After the reply input's committed write the observation's own window
+    # read fails once: the round keeps its resume point and observes again.
+    probe = probe_host_command_store!(fixture)
+
+    Elzoo.Wave4ChannelTest.ReadProbe.transform(probe, :pending, fn result, count ->
+      if count == 2, do: {:error, :unavailable}, else: result
+    end)
+
+    assert {:blocked, :reply_observation} = Wave4ChannelExample.advance(fixture.host)
+    assert {:reply_observation, :unavailable} = :sys.get_state(fixture.host).poison
+    assert {:reply_observed, ^reply_key} = Wave4ChannelExample.advance(fixture.host)
+    assert Elzoo.Wave4ChannelTest.ReadProbe.acks(probe) == []
+  end
+
+  @tag timeout: 300_000
+  test "an unreadable answer delivery receipt after the answer commits retries that read alone",
+       %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+    complete_native_v1!(fixture, listener, event)
+
+    answer_key =
+      Elzoo.DurableLog.Codec.item_key(
+        Elzoo.Wave4ChannelTestHelper.command_stream(fixture.profile.tenant),
+        3,
+        1
+      )
+
+    # The answer commits; the lookup of its delivery item's original key and
+    # nonce cannot be read.
+    probe = probe_host_command_store!(fixture)
+    Elzoo.Wave4ChannelTest.ReadProbe.fault(probe, :read_ack, answer_key, :unavailable)
+    assert {:unknown, :answer_delivery} = Wave4ChannelExample.advance(fixture.host)
+    assert {:answer_delivery_receipt, 3} = :sys.get_state(fixture.host).poison
+    assert {:ok, %{revision: 3}} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+
+    # Write-time policy and authority become unavailable: the retry reads the
+    # receipt alone and never executes the committed answer again.
+    parent = self()
+
+    :sys.replace_state(fixture.host, fn state ->
+      %{
+        state
+        | policy: fn _mode, _event, _now ->
+            send(parent, :policy_called)
+            raise "policy unavailable"
+          end,
+          authority: fn _a, _b, _c, _d ->
+            send(parent, :authority_called)
+            raise "authority unavailable"
+          end
+      }
+    end)
+
+    assert {:answered, 3} = Wave4ChannelExample.advance(fixture.host)
+    assert {:ok, %{revision: 3}} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    {:ok, items} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert [%{idempotency_key: ^answer_key}] =
+             Enum.filter(items, &(&1.destination == "wave4-channel-delivery"))
+
+    assert {:acknowledged, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    refute_received :policy_called
+    refute_received :authority_called
+  end
+
+  @tag timeout: 300_000
   test "native acknowledgements paused before their commit are confirmed, never written twice" do
     fixture = Elzoo.Wave4ChannelTestHelper.reply_fixture()
     profile = fixture.profile
@@ -12888,5 +13458,168 @@ defmodule Elzoo.Wave4ChannelTest do
         Process.sleep(10)
         wait_until!(check, deadline)
     end
+  end
+
+  # A v1 round up to its completed native result: the next advance answers.
+  defp complete_native_v1!(fixture, listener, event) do
+    input_id = event["input_id"]
+    run_id = run_id_of(fixture, event)
+    unit_id = Elzoo.Wave4ChannelTestHelper.unit_id(run_id)
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+    assert {:attempt_started, _} = Wave4ChannelExample.advance(fixture.host)
+    assert {:engine_started, ^unit_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:native_input, :applied} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:result, :completed} =
+             wait_for_result(fixture.host, System.monotonic_time(:millisecond) + 10_000)
+  end
+
+  # A v2 primary round up to its reply wait.
+  defp await_reply_wait!(fixture, primary_listener, event_id) do
+    event = Elzoo.Wave4ChannelTestHelper.event(%{"event_id" => event_id})
+    primary_id = event["input_id"]
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+
+    assert {:ok, {{_, 202, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(primary_listener, event)
+
+    assert {:observed, ^primary_id} = Wave4ChannelExample.advance(fixture.host)
+    Enum.each(1..11, fn _ -> Wave4ChannelExample.advance(fixture.host) end)
+
+    assert {:ok, %{event_waits: %{waits: [wait]}}} =
+             Wave4ChannelExample.view(fixture.host, scope)
+
+    {event, wait}
+  end
+
+  # The signed reply that wakes the primary wait, admitted at the current
+  # resource revision.
+  defp post_reply!(fixture, reply_listener, wait, event_id) do
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+
+    assert {:ok, resource} =
+             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
+
+    reply_event =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => event_id,
+        "input_id" => wait.correlation_id,
+        "expected_revision" => resource.revision,
+        "text" => "reply"
+      })
+
+    assert {:ok, {{_, 202, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(reply_listener, reply_event)
+
+    reply_event
+  end
+
+  # The next command append commits with its reply lost, and its immediate
+  # readback fails: the command's outcome is unknown to the host.
+  defp lose_next_command_reply!(fixture) do
+    assert :ok =
+             Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :inject, [
+               :read_at,
+               :unavailable
+             ])
+
+    assert :ok =
+             Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :inject, [
+               :append,
+               :reply_loss
+             ])
+  end
+
+  # The probed host's pending windows omit one item, as a window that does
+  # not reach it would.
+  defp hide_from_window!(probe, key) do
+    Elzoo.Wave4ChannelTest.ReadProbe.transform(probe, :pending, fn
+      {:ok, items}, _count -> {:ok, Enum.reject(items, &(&1.idempotency_key == key))}
+      other, _count -> other
+    end)
+  end
+
+  defp assert_native_items_pending!(fixture, items) do
+    Enum.each(items, fn item ->
+      nonce = item.nonce
+
+      assert {:ok, %{state: :pending, nonce: ^nonce}} =
+               Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [
+                 item.idempotency_key
+               ])
+    end)
+  end
+
+  # Another nonce acknowledges the answer's delivery key before the next
+  # advance: the pending window no longer shows the item, so no delivery pass
+  # appends the assistant message, and the host stays fenced before any
+  # native acknowledgement.
+  defp assert_superseded_answer_fenced!(fixture, key, nonce, native_items) do
+    other_nonce = :crypto.strong_rand_bytes(16)
+    refute other_nonce == nonce
+    {:ok, entries_before} = Elzoo.Wave4ChannelTestHelper.conversation_entries(fixture)
+    refute Enum.any?(entries_before, &(&1.kind == :answer))
+    assert {:committed, _} = Outbox.ack(fixture.command_store, key, other_nonce)
+    probe = probe_host_command_store!(fixture)
+
+    assert {:blocked, :delivery_ack_superseded} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_ack, ^key, ^nonce, :superseded} = :sys.get_state(fixture.host).poison
+    assert {:blocked, :delivery_ack_superseded} = Wave4ChannelExample.advance(fixture.host)
+    assert Elzoo.Wave4ChannelTest.ReadProbe.acks(probe) == []
+    assert {:ok, ^entries_before} = Elzoo.Wave4ChannelTestHelper.conversation_entries(fixture)
+    assert_native_items_pending!(fixture, native_items)
+  end
+
+  # A reply-profile writer over the same tenant stream commits one reply
+  # input for another conversation and acknowledges its item at once, so the
+  # row is invisible to pending windows. Returns the row's key and the
+  # reply-profile Store that reads it.
+  defp commit_foreign_reply_row!(fixture) do
+    profile = fixture.profile
+    {module, options} = fixture.command_store
+    destinations = ["wave4-channel-input", "wave4-channel-reply", "wave4-channel-delivery"]
+    reply_store = {module, put_in(options, [:fold, :destinations], destinations)}
+    allow = fn _frame, _context -> :allow end
+    gates = %{input: allow, association: allow, answer: allow, reply: allow}
+    {:ok, handles} = Wave4ChannelExample.CommandBindings.build_reply(reply_store, gates)
+    resource = "foreign-reply-conversation"
+    scope = %{tenant: profile.tenant, actor: profile.actor, resources: [resource]}
+    facts = {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]}
+    assert {:ok, snapshot} = CheckedCommand.resource(handles.reply_input, scope, resource)
+
+    request = %{
+      operation_id:
+        Elzoo.Wave4ChannelTestHelper.input_operation_for("foreign-reply-source", "foreign-reply"),
+      resource: resource,
+      expected_revision: snapshot.revision,
+      payload: %{"message_id" => "foreign-reply-message", "text" => "foreign notice"}
+    }
+
+    assert {:ok, writes, _response} =
+             Wave4ChannelExample.Intents.prepare(snapshot, request, %{
+               tenant: profile.tenant,
+               actor: profile.actor,
+               data: facts
+             })
+
+    context = %{
+      tenant: profile.tenant,
+      actor: profile.actor,
+      policy: Elzoo.Wave4ChannelTestHelper.policy(),
+      own: writes,
+      parent: :none,
+      facts: facts
+    }
+
+    assert {:completed, _} = CheckedCommand.execute(handles.reply_input, context, request)
+    stream = Elzoo.Wave4ChannelTestHelper.command_stream(profile.tenant)
+    {:ok, pending} = Outbox.pending(reply_store, stream, 64)
+    [foreign] = Enum.filter(pending, &(&1.destination == "wave4-channel-reply"))
+    assert {:committed, _} = Outbox.ack(reply_store, foreign.idempotency_key, foreign.nonce)
+    {foreign.idempotency_key, reply_store}
   end
 end
