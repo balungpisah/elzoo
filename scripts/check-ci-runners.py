@@ -584,7 +584,12 @@ for file in files:
             errors.append(f'{file}: plain-scalar continuation lines are outside the reviewed source convention: {line.strip()}')
         if re.match(r'\s*image\s*:', line) and not digest_image.fullmatch(line):
             errors.append(f'{file}: container images must be pinned by @sha256 digest: {line.strip()}')
-        if re.match(r'\s*(?:-\s*)?uses\s*:', line) and not pinned_action.fullmatch(line):
+        # GitHub reads step keys without regard to case, so `Uses:` or `USES:` would still select an action;
+        # only the reviewed lower-case spelling is accepted, and every spelling must be pinned.
+        uses_key = re.match(r'\s*(?:-\s*)?(uses)\s*:', line, re.IGNORECASE)
+        if uses_key and uses_key.group(1) != 'uses':
+            errors.append(f'{file}: step keys must be spelled in lower case (uses:): {line.strip()}')
+        if uses_key and not pinned_action.fullmatch(line):
             errors.append(f'{file}: actions must be pinned by a full commit SHA: {line.strip()}')
         if re.fullmatch(r'\s*container\s*:\s*[^\s#].*', line):
             errors.append(f'{file}: container must be a mapping with a digest-pinned image')
@@ -830,7 +835,7 @@ for file in files:
         # that spell the action count too, which fails closed.
         beam = GLEAM_BEAM_STEP.split('\n')
         beam_starts = [i for i, line in enumerate(lines)
-                       if re.match(r'\s*(?:-\s+)?uses\s*:\s*erlef/setup-beam\b', line, re.IGNORECASE)]
+                       if re.match(r'\s*(?:-\s+)?uses\s*:\s*["\']?erlef/setup-beam\b', line, re.IGNORECASE)]
         beam_rest = ([line for line in lines[beam_starts[0] + len(beam):]
                       if line.strip() and not line.lstrip().startswith('#')] if len(beam_starts) == 1 else [])
         beam_after = beam_rest[0] if beam_rest else ''

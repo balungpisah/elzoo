@@ -527,13 +527,36 @@ class RunnerPolicyTest(unittest.TestCase):
                     self.BEAM_STEP + "        id: beam\n",
                     self.BEAM_STEP.replace("@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1", "@v1.24.1"),
                     "",
-                    self.BEAM_STEP + self.BEAM_STEP.replace(otp, "          otp-version: '28.3.1'\n")):
+                    self.BEAM_STEP + self.BEAM_STEP.replace(otp, "          otp-version: '28.3.1'\n"),
+                    # a quoted action value is still a setup-beam step
+                    self.BEAM_STEP + "      - uses: 'erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124'\n"
+                                     "        with:\n          otp-version: '28.3.1'\n",
+                    self.BEAM_STEP + '      - uses: "erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124"\n'
+                                     "        with:\n          otp-version: '28.3.1'\n"):
             with self.subTest(new=new):
-                self.change("symbolic-gleam.yml", self.BEAM_STEP, new)
-                self.assertIn("pinned BEAM setup step (with: exactly otp-version: '29.1.3', the OTP version of the root jobs)",
-                              self.check(1).stderr)
-                self.tearDown()
-                self.setUp()
+                try:
+                    self.change("symbolic-gleam.yml", self.BEAM_STEP, new)
+                    self.assertIn("pinned BEAM setup step (with: exactly otp-version: '29.1.3', the OTP version of the root jobs)",
+                                  self.check(1).stderr)
+                finally:
+                    self.tearDown()
+                    self.setUp()
+
+    def test_second_beam_setup_step_with_mixed_case_uses_key_and_quoted_value_rejected(self):
+        # GitHub reads step keys without regard to case: this step would install another OTP version.
+        for key in ("Uses", "USES", "uSes"):
+            for value in ("'erlef/setup-beam@v1.24.1'", '"erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124"'):
+                with self.subTest(key=key, value=value):
+                    try:
+                        self.change("symbolic-gleam.yml", self.BEAM_STEP,
+                                    self.BEAM_STEP + f"      - {key}: {value}\n        with:\n          otp-version: '28.3.1'\n")
+                        stderr = self.check(1).stderr
+                        self.assertIn("step keys must be spelled in lower case (uses:)", stderr)
+                        self.assertIn("actions must be pinned by a full commit SHA", stderr)
+                        self.assertIn("pinned BEAM setup step (with: exactly otp-version: '29.1.3'", stderr)
+                    finally:
+                        self.tearDown()
+                        self.setUp()
 
     def test_gleam_otp_version_follows_the_root_jobs(self):
         # Bumping only the Gleam job, or only the root jobs, is refused: the pin is the spike job's OTP version.
