@@ -76,7 +76,12 @@ def archive_sources():
     # text is copied: each stanza with an official URI is generated from validated
     # tokens with the archive as its only URI, and every other stanza is dropped.
     generated = []
-    for stanza in parse_stanzas(ascii_text(APT / 'sources.list.d/ubuntu.sources')):
+    stanzas = parse_stanzas(ascii_text(APT / 'sources.list.d/ubuntu.sources'))
+    # A continued URIs field could hide an official URI, so it refuses the whole
+    # source before any stanza is dropped.
+    if any(stanza.get('uris', [[], False])[1] for stanza in stanzas):
+        raise unsupported('continued URIs field')
+    for stanza in stanzas:
         if not any(official(uri) for uri in stanza.get('uris', [[]])[0]):
             continue
         if set(stanza) != OFFICIAL_FIELDS:

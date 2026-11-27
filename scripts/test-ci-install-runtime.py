@@ -175,6 +175,13 @@ sys.exit(statuses[len(calls)] if len(calls) < len(statuses) else 99)
                 self.assertEqual([['update']], self.provision([100], ValueError))
                 self.assertNotIn('Retrying', self.output.getvalue())
 
+    def test_official_uri_only_on_a_continuation_refuses_with_another_official_stanza(self):
+        hidden = STANZA.format(uri='https://third-party.invalid/repo\n ' + AZURE).replace(
+            'noble noble-updates noble-backports', 'noble-security')
+        self.source.write_text(STANZA.format(uri=AZURE) + '\n' + hidden)
+        self.assertEqual([['update']], self.provision([100], ValueError))
+        self.assertNotIn('Retrying', self.output.getvalue())
+
     def test_disabled_repeated_or_comment_only_official_source_refuses_unchanged(self):
         for original in ('Enabled: no\n' + SOURCE.format(uri=AZURE),
                          SOURCE + 'Enabled : no\n',
