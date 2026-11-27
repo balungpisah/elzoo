@@ -1570,10 +1570,18 @@ defmodule Elzoo.Wave4ChannelExample do
            find_delivery_item(state, stream, operation, revision, revision, head.revision) do
       receipt = Elzoo.DurableLog.Codec.ack_receipt(item.idempotency_key, item.nonce)
 
-      case DurableLog.confirm_ack(state.command_store, receipt) do
-        {:committed, _} -> :ok
-        :superseded -> {:superseded, item.idempotency_key, item.nonce}
-        _ -> {:error, :delivery_ack}
+      case item.state do
+        # Still pending: the delivery pass of every later advance acknowledges
+        # it with this receipt before any step runs.
+        :pending ->
+          :ok
+
+        :acked ->
+          case DurableLog.confirm_ack(state.command_store, receipt) do
+            {:committed, _} -> :ok
+            :superseded -> {:superseded, item.idempotency_key, item.nonce}
+            _ -> {:error, :delivery_ack}
+          end
       end
     else
       _ -> {:error, :delivery_ack}
@@ -1731,6 +1739,23 @@ defmodule Elzoo.Wave4ChannelExample do
         :ok ->
           {:ok, state}
 
+        # Not sent: the item could not be read before the write, so the
+        # retry reads it again and sends the first acknowledgement.
+        {:not_sent, :superseded} ->
+          fail_delivery(
+            state,
+            {:delivery_ack, item.idempotency_key, item.nonce, :superseded},
+            {:blocked, :delivery_ack_superseded}
+          )
+
+        {:not_sent, reason} ->
+          fail_delivery(
+            state,
+            {:delivery, item.idempotency_key, {:ack_not_sent, reason}},
+            {:unknown, :delivery}
+          )
+
+        # Sent and indeterminate: only read-only confirmation follows.
         {:error, reason} ->
           fail_delivery(
             state,
@@ -2128,6 +2153,11 @@ defmodule Elzoo.Wave4ChannelExample do
             {{:blocked, :delivery_ack_superseded},
              %{state | poison: {:delivery_ack, key, nonce, :superseded}}}
 
+          # The acknowledgement proof could not be read: recovery observes again,
+          # read-only, on the next advance.
+          {:error, :delivery_ack} ->
+            {{:unknown, :recovery}, %{state | poison: {:v2_recovery, :delivery_ack}}}
+
           _ ->
             {{:unknown, :input_observation}, %{state | poison: {:input_observation, :unknown}}}
         end
@@ -2360,6 +2390,8 @@ defmodule Elzoo.Wave4ChannelExample do
          pending: nil
        }}
     else
+      {:superseded, _key, _nonce} = superseded -> superseded
+      {:error, :delivery_ack} -> {:error, :delivery_ack}
       _ -> {:error, :reply}
     end
   rescue
@@ -2415,9 +2447,14 @@ defmodule Elzoo.Wave4ChannelExample do
       {:completed, %{revision: association_revision, response: response}}
       when association_revision == revision + 1 ->
         if association_receipt?(response, ticket, run_id) and
-             conversation_association?(state, ticket, run_id),
-           do: {:ok, association_revision},
-           else: {:error, :association}
+             conversation_association?(state, ticket, run_id) do
+          case delivery_ack_verified(state, operation, association_revision) do
+            :ok -> {:ok, association_revision}
+            other -> other
+          end
+        else
+          {:error, :association}
+        end
 
       {:unknown, :not_observed} ->
         if reply_custody_recorded?(state, reply_operation, ticket, run_id) and
@@ -2571,7 +2608,10 @@ defmodule Elzoo.Wave4ChannelExample do
           {true, {:ok, %{text: text}}} ->
             if answer_receipt?(response, current.input_id, current.run_id, message_id) and
                  valid_answer_payload?(%{"answer" => text}) do
-              {:ok, :ack, %{current | answer: text}}
+              case delivery_ack_verified(state, current.answer_operation, revision) do
+                :ok -> {:ok, :ack, %{current | answer: text}}
+                other -> other
+              end
             else
               {:error, :answer}
             end
@@ -3353,12 +3393,9 @@ defmodule Elzoo.Wave4ChannelExample do
   defp reconcile_reply_association(state), do: {{:blocked, :reply_state}, state}
 
   defp reconcile_reply_ack(state, key, nonce) do
-    case acknowledge_original_item(state, key, nonce, @reply_destination) do
-      :ok ->
-        {{:reconciled, :reply_ack}, %{state | phase: :ack, poison: nil}}
-
-      {:error, reason} ->
-        {{:unknown, :reply_ack}, %{state | poison: {:reply_ack, key, nonce, reason}}}
+    case confirm_native_ack(state, key, nonce, @reply_destination) do
+      :ok -> {{:reconciled, :reply_ack}, %{state | phase: :ack, poison: nil}}
+      _ -> {{:unknown, :reply_ack}, state}
     end
   end
 
@@ -3984,6 +4021,12 @@ defmodule Elzoo.Wave4ChannelExample do
           :ok ->
             {{:reply_acknowledged, key}, %{state | phase: :ack}}
 
+          {:not_sent, :superseded} ->
+            {{:unknown, :reply_ack}, %{state | poison: {:reply_ack, key, nonce, :superseded}}}
+
+          {:not_sent, _reason} ->
+            {{:error, :unavailable}, state}
+
           {:error, reason} ->
             {{:unknown, :reply_ack}, %{state | poison: {:reply_ack, key, nonce, reason}}}
         end
@@ -4127,6 +4170,12 @@ defmodule Elzoo.Wave4ChannelExample do
       :ok ->
         finish_input(state)
 
+      {:not_sent, :superseded} ->
+        {{:blocked, :ack_superseded}, %{state | poison: {:ack, key, nonce, :superseded}}}
+
+      {:not_sent, _reason} ->
+        {{:error, :unavailable}, state}
+
       {:error, reason} ->
         {{:unknown, :ack}, %{state | poison: {:ack, key, nonce, reason}}}
     end
@@ -4136,38 +4185,82 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> {{:unknown, :ack}, %{state | poison: {:ack, c.item.key, c.item.nonce, :unknown}}}
   end
 
+  # The first acknowledgement of an item with its original key and nonce:
+  # `:ok` once it is acknowledged with that receipt; `{:not_sent, reason}`
+  # when no write was dispatched (the item could not be read, `:unavailable`,
+  # or another nonce already acknowledged it, `:superseded`); `{:error,
+  # reason}` when a write was dispatched and its outcome is not proven, after
+  # which only read-only confirmation by the original receipt may follow.
   defp acknowledge_original_item(state, key, nonce, destination) do
     case read_original_item(state, key, destination) do
       {:ok, %{state: :acked, nonce: ^nonce, ack_nonce: ^nonce}} ->
         :ok
 
+      {:ok, %{state: :acked, nonce: ^nonce}} ->
+        {:not_sent, :superseded}
+
       {:ok, %{state: :pending, nonce: ^nonce}} ->
-        case Outbox.ack(state.command_store, key, nonce) do
-          {:committed, _} ->
-            acknowledged_outbox_item(state, key, nonce, destination)
+        dispatch_ack(state, key, nonce, destination)
 
-          {:indeterminate, receipt} ->
-            request = Elzoo.DurableLog.Codec.ack_receipt(key, nonce)
-
-            if ack_evidence_matches?(receipt, request) and
-                 match?({:committed, _}, DurableLog.confirm_ack(state.command_store, request)) and
-                 match?(:ok, acknowledged_outbox_item(state, key, nonce, destination)) do
-              :ok
-            else
-              {:error, :unknown}
-            end
-
-          other ->
-            {:error, other}
-        end
+      {:ok, _other} ->
+        {:not_sent, :identity}
 
       _ ->
-        {:error, :identity}
+        {:not_sent, :unavailable}
+    end
+  end
+
+  defp dispatch_ack(state, key, nonce, destination) do
+    case Outbox.ack(state.command_store, key, nonce) do
+      {:committed, _} ->
+        case acknowledged_outbox_item(state, key, nonce, destination) do
+          :ok -> :ok
+          _ -> {:error, :unknown}
+        end
+
+      {:indeterminate, receipt} ->
+        request = Elzoo.DurableLog.Codec.ack_receipt(key, nonce)
+
+        if ack_evidence_matches?(receipt, request) and
+             match?({:committed, _}, DurableLog.confirm_ack(state.command_store, request)) and
+             match?(:ok, acknowledged_outbox_item(state, key, nonce, destination)) do
+          :ok
+        else
+          {:error, :unknown}
+        end
+
+      other ->
+        {:error, other}
     end
   rescue
     _ -> {:error, :unknown}
   catch
     _, _ -> {:error, :unknown}
+  end
+
+  # An indeterminate native acknowledgement is confirmed read-only by its
+  # original receipt (key, nonce and digest): `:ok` when committed with it,
+  # `:superseded` when another nonce won, `:unknown` otherwise (still
+  # pending, unreadable or mismatching). The host never writes the
+  # acknowledgement again in this lifetime: its writer may still be alive, so
+  # only a fenced reopen acknowledges again.
+  defp confirm_native_ack(state, key, nonce, destination) do
+    case DurableLog.confirm_ack(state.command_store, Elzoo.DurableLog.Codec.ack_receipt(key, nonce)) do
+      {:committed, _} ->
+        if acknowledged_outbox_item(state, key, nonce, destination) == :ok,
+          do: :ok,
+          else: :unknown
+
+      :superseded ->
+        :superseded
+
+      _ ->
+        :unknown
+    end
+  rescue
+    _ -> :unknown
+  catch
+    _, _ -> :unknown
   end
 
   defp acknowledge_primary_v1(state, c) do
@@ -4196,12 +4289,10 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp reconcile_ack(state, key, nonce, receipt) do
     if reply_profile?(state.profile) and match?(%{item: %{key: ^key, nonce: ^nonce}}, state.current) do
-      case acknowledge_original_item(state, key, nonce, @destination) do
-        :ok ->
-          finish_input(state)
-
-        {:error, _} ->
-          {{:unknown, :ack}, %{state | poison: {:ack, key, nonce, receipt}}}
+      case confirm_native_ack(state, key, nonce, @destination) do
+        :ok -> finish_input(state)
+        :superseded -> {{:blocked, :ack_superseded}, state}
+        :unknown -> {{:unknown, :ack}, state}
       end
     else
       reconcile_ack_legacy(state, key, nonce, receipt)
