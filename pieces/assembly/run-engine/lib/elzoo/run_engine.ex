@@ -2016,7 +2016,12 @@ defmodule Elzoo.RunEngine do
         end
 
       # A halt of current/1 (a failed winner read included) stays: status/1 shows it.
-      {:error, _, s} ->
+      {:error, _, %{halted: reason} = halted} when not is_nil(reason) ->
+        {:noreply, halted}
+
+      # Without a halt the pre-call state stays, so the next call runs the recovery of a
+      # replacement Unit again, before its own input is taken.
+      _ ->
         {:noreply, s}
     end
   end

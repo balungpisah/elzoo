@@ -270,12 +270,15 @@ enforce callback resource bounds.
 Fresh-event failures are exactly `:invalid_correlation`, `:invalid_payload`,
 `:source_not_found`, `:source_unavailable` and `:source_gap`, and `:unavailable`
 when the lookup of the input ID in the engine's journal fails after the source
-read (see Failure, size and audit limits). They append no event and settle
-nothing, but a failure after the source read keeps any Run-view synchronization
-that `current/1` committed after the read. The same `{:error, :unavailable}` is
-also the reply when the event committed and the drain after it halted on a
-failed winner read: `status/1` shows `reconciliation: nil` after the failed
-lookup (the same input can be sent again) and `reconciliation: :unavailable`
+read (see Failure, size and audit limits). They append no record of the
+submitted event and do not settle its wait. A failure after the source read
+keeps what `current/1` committed after the read: a Run-view synchronization and,
+when it recovered a replacement Unit, the records of that recovery and its drain
+(running local work settled `local_restart`, for one). The same
+`{:error, :unavailable}` is also the reply when the event committed and the
+drain after it halted on a failed winner read: `status/1` shows
+`reconciliation: nil` after the failed lookup (the call added no record, and the
+same input is sent again under the same ID) and `reconciliation: :unavailable`
 after the halt. Oversized fresh candidates return `:invalid_payload`. Provider
 errors are `{:error, :unavailable}` or `{:error, :gap}` from `head/1`, and
 `{:error, :not_found}`, `{:error, :unavailable}` or `{:error, :gap}` from
@@ -917,29 +920,38 @@ answer to a gap reply, or `{:error, {:pruned, low_water}}`) or a page whose head
 has `low_water` above zero cannot show the whole history, and the lookup gives
 no answer. For the first two lookups, `input/4` and `control/4` (pause, continue
 and cancel alike, never `:invalid_control` or `:cancel_unknown`) return
-`{:error, :unavailable}`, nothing is committed for the submitted ID, and the
-engine goes on with no halt: `status/1` shows `reconciliation: nil`, and the
-same call with the same ID can be sent again. A Run view that `current/1`
-committed before the lookup stays committed. A failed read of the winner is a
-failed reconciliation: the engine cannot establish whether the recorded winner
-matches its record, and it halts with the storage halt `:unavailable`. A
-complete scan that finds no winner contradicts the Unit's completed ID and is
-the halt `:integrity_failure`, as is a winner that differs from the engine's
-record on `:kind`, `:request` or `:occurrence`. Such a halt can also come in the
+`{:error, :unavailable}`: the failed call adds no record (an earlier record of
+the same ID, such as a recorded outcome sent again, stays as it was), the engine
+goes on with no halt, `status/1` shows `reconciliation: nil`, and the caller
+sends the same call again under the same ID, never another. What `current/1`
+committed before the lookup stays committed: a Run-view synchronization and,
+after a Unit replacement, the records of its recovery. A failed read of the
+winner is a failed reconciliation: the engine cannot establish whether the
+recorded winner matches its record, and it halts with the storage halt
+`:unavailable`. A complete scan that finds no winner contradicts the Unit's
+completed ID and is the halt `:integrity_failure`, as is a winner that differs
+from the engine's record on `:kind`, `:request` or `:occurrence`. Such a halt
+can also come in the
 drain after the call's own input committed: `input/4` then returns the halt
 reason, so `{:error, :unavailable}` there comes with
 `reconciliation: :unavailable`, and a cancel returns `{:error, :cancel_unknown}`
-with its record kept. A v2 local-work outcome
-whose delivery meets a halt in `current/1` is not committed, and the halt stays
-in `reconciliation`. A halted engine answers later
-`input/4` and `control/4` calls with its halt, with one exception: a halted v2
-engine still looks an outside-event input up in its journal, so a paired replay
-of a recorded event answers `{:ok, :unchanged}` and a changed replay
-`{:error, :input_id_conflict}` (an input that fails its checks, or whose lookup
-cannot read the journal, gets that error instead). None of these replies clears
+with its record kept. A v2 local-work outcome whose delivery meets a halt in
+`current/1` is not committed, and the halt stays in `reconciliation`; one whose
+delivery meets an error of `current/1` without a halt is not committed either,
+and the engine keeps its state from before the delivery, so the next call
+recovers the replacement Unit again before it takes its own input. A halted
+engine answers later `input/4` and `control/4` calls with its halt, with one
+exception: a halted v2 engine still looks an outside-event input up in its
+journal. A paired replay of a recorded event answers `{:ok, :unchanged}` and a
+changed replay `{:error, :input_id_conflict}` (an input that fails its checks,
+or whose lookup cannot read the journal, gets that error instead). Neither clears
 the halt: `status/1` shows it as `reconciliation` until an explicit host restart
 reopens the engine, so a caller reads `reconciliation`, not a replay reply, to
-learn whether intake has reopened.
+learn whether intake has reopened. An unpaired replay (the input recorded, its
+result not) fences instead: once the stops of the Unit and AsyncWork are
+confirmed, the engine replies with its halt and then stops, so no `status/1`
+call follows; when a stop cannot be confirmed, it replies
+`{:error, :stop_unknown}`, which becomes its halt.
 
 Payload/outcome JSON <=65536 bytes and depth <=32; ingress <=262144 bytes;
 DU record/output <=16777216 bytes; complete active slot <=131072 bytes;
@@ -1690,8 +1702,13 @@ returns `{:error, :cancel_unknown}`, the cancel record stays and the engine is
 halted `:unavailable`), `local_work_delivery_halts` (for each fault a v2
 local-work outcome whose fenced lookup reads and whose Run-view winner read in
 `current/1` fails leaves the engine halted `:unavailable` with the outcome not
-committed), `fresh_event_lookup_fails` (the v2 source read arms the fault, so it
-meets the lookup after the read: for each fault the outside event returns
+committed), `local_work_delivery_without_halt` (a v2 local-work outcome
+delivered after the Unit was stopped: its `current/1` recovers a replacement
+Unit, settles the running local work `local_restart` and ends at a `wait_event`
+whose source head fails, with no halt; the outcome is not committed, and the next
+input runs that recovery again and is not committed), `fresh_event_lookup_fails`
+(the v2 source read arms the fault, so it meets the lookup after the read: for
+each fault the outside event returns
 `{:error, :unavailable}`, the journal gains only the Run view that `current/1`
 committed after the read and there is no halt; then the event commits, the
 winner read in its drain fails, and the same reply comes with the halt
@@ -1714,7 +1731,9 @@ control error left to the existing else clause (`{:error, :invalid_control}`),
 the cancel error left to `:cancel_unknown` (`control_lookup_fails` fails), the
 cancel's `halted: nil` guard removed (`cancel_halts_after_commit` gets
 `{:error, :unavailable}`), the halted state of a local-work delivery dropped
-(`local_work_delivery_halts` sees no halt), the failed admission read taken as
+(`local_work_delivery_halts` sees no halt), the state that `current/1` returns
+kept for a delivery error without a halt (`local_work_delivery_without_halt`:
+the next input is committed), the failed admission read taken as
 no admission, in its lookup or in the recheck (`{:error, :input_id_conflict}`),
 a failed winner read taken as `:integrity_failure`, and a page whose head has
 low-water above zero taken as whole (seven tests fail: the `:low_water` case
@@ -1754,18 +1773,19 @@ applies, is a duplicate, or leaves no halt). Listed finite scenarios, not a proo
   match error in the middle of a call. When it is the lookup of the ID of an
   input or control, or of the admission of a settled occurrence whose outcome is
   sent again, `input/4` and `control/4` return `{:error, :unavailable}` (control
-  never `:invalid_control` or `:cancel_unknown` for it), nothing is committed for
-  that ID and the engine goes on; when it is the read of the winner after the Unit
+  never `:invalid_control` or `:cancel_unknown` for it), the failed call adds no
+  record and the engine goes on; when it is the read of the winner after the Unit
   refuses an internal record with `:input_id_conflict`, the engine halts with
   `:unavailable`. A complete scan with no winner still halts with
   `:integrity_failure`. A v2 local-work outcome whose delivery meets a halt in
   `current/1` is not committed and now leaves the engine halted, where the halt
   was dropped before. A v2 outside event can now return `{:error, :unavailable}`
   (its lookup after the source read). How to move: a caller that gets
-  `{:error, :unavailable}` reads `reconciliation` in `status/1`: `nil` means
-  nothing was committed for that ID and the same ID is sent again later, as after
-  an exit of the call; `:unavailable` is a storage halt, and the host restarts the
-  engine. No stored format changes; recorded journals replay as recorded.
+  `{:error, :unavailable}` reads `reconciliation` in `status/1`: `nil` means the
+  failed call added no record (an earlier record of the ID stays), and the caller
+  sends the same ID again later, never another, as after an exit of the call;
+  `:unavailable` is a storage halt, and the host restarts the engine. No stored
+  format changes; recorded journals replay as recorded.
 - ELZ-423 (2026-11-27): a new read, `deadlines/1`, gives the committed Run
   deadline and, while paused, the committed pause deadline with the phase of
   `status/1`, in one call to the engine process with the same 60,000 ms limit, from

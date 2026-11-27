@@ -258,6 +258,56 @@ defmodule Elzoo.RunEngineReadFailureTest do
     end
   end
 
+  describe "local_work_delivery_without_halt" do
+    test "a v2 local-work delivery whose replacement recovery fails without a halt leaves the next input uncommitted" do
+      parent = self()
+
+      # The source head fails: the wait_event stays ready, and each drain that reaches it
+      # ends in :source_unavailable with no halt.
+      source = %{
+        id: "events",
+        version: 1,
+        head: fn _ -> {:error, :unavailable} end,
+        read: fn _, _ -> {:error, :not_found} end
+      }
+
+      requests = [request_v2([action("slow"), action("wait", "wait_event")])]
+
+      c =
+        fixture(
+          protocol_version: 2,
+          event_source: source,
+          pattern: {TestPattern, :step, %{requests: requests}}
+        )
+
+      bindings =
+        Map.update!(
+          c.opts[:bindings],
+          "local_work",
+          &Map.put(&1, :work, fn a -> {TestPattern, :blocked, [parent, a["payload"]]} end)
+        )
+
+      engine = start(c, bindings: bindings)
+      first = start_input_v2()
+      assert {:error, :source_unavailable} = RunEngine.input(engine, "start", first, verified())
+      assert_receive {:local_started, task}, 5_000
+      assert view(engine).slots[{1, 1}].phase == :ready
+
+      # The delivery's current/1 recovers a replacement Unit (the running local work is
+      # settled local_restart) and its drain ends at the wait_event, with no halt.
+      assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+      send(task, :finish)
+      assert wait_for(engine, &(&1.slots[{1, 0}].phase == :settled)).reconciliation == nil
+      refute stable_id("local:", {1, "run", {1, 0}}) in input_ids(c)
+
+      # The next input runs that recovery again before it is taken, so it is not committed.
+      wake = Map.put(wake(), "version", 2)
+      assert {:error, :source_unavailable} = RunEngine.input(engine, "next", wake, verified())
+      refute "next" in input_ids(c)
+      assert view(engine).reconciliation == nil
+    end
+  end
+
   describe "fresh_event_lookup_fails" do
     test "a v2 outside event whose lookup fails after the source read gives unavailable with no halt" do
       requests = [
