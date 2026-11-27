@@ -1,4 +1,4 @@
-# ELZ-435 — CI: the runtime-library fallback updates only the Ubuntu archive source
+# ELZ-435 — CI: the runtime-library fallback reads only the official Ubuntu archive
 
 - Dependencies: none
 
@@ -14,14 +14,15 @@ image. On 2026-11-27, `packages.microsoft.com` answered 403 in Gleam run
 fallback then failed although the Ubuntu archive was reachable, and the job
 failed before its tests. A run a few minutes later passed.
 
-- The fallback's update and the install after it read only the rewritten
-  Ubuntu source, `/etc/apt/sources.list.d/ubuntu.sources`. The update keeps
-  `Error-Mode=any`. Use apt's documented source options (`apt.conf(5)`): set
-  `Dir::Etc::sourcelist` to that file and `Dir::Etc::sourceparts` to `-`, or
-  an equivalent. The script names the options it relies on in a comment. If
-  apt on Ubuntu 24.04 does not read a deb822 `.sources` file through
-  `Dir::Etc::sourcelist`, use another documented option, and the pull request
-  says why.
+- The fallback's update and the install after it read only the official
+  Ubuntu stanzas that the fallback rewrites to `archive.ubuntu.com`. They do
+  not read other stanzas of `ubuntu.sources`, and they do not read other
+  source files. Apt reads every enabled stanza of a `.sources` file, so the
+  fallback writes those stanzas to a separate temporary `.sources` file. It
+  points `Dir::Etc::sourcelist` at that file and sets `Dir::Etc::sourceparts`
+  to `-` (`apt.conf(5)`; apt hands a `.sources` main list to its deb822
+  parser). The update keeps `Error-Mode=any`. The script names the options it
+  relies on in a comment.
 - The first attempt is unchanged.
 - No new external dependency. The pinned package list is unchanged.
 
@@ -32,8 +33,10 @@ section 1).
 ## Acceptance
 
 - A test runs the fallback with a stubbed `apt-get` and asserts the exact
-  argument lists. The update and the install name only the Ubuntu source; the
-  update keeps `Error-Mode=any`.
+  argument lists. The update and the install name only the temporary source
+  file, and the update keeps `Error-Mode=any`. A second test uses an
+  `ubuntu.sources` fixture that also contains a third-party stanza: the
+  temporary file contains only the rewritten archive stanzas.
 - A negative control, a temporary edit that drops the source restriction,
   makes that test fail. The edit is reverted.
 - `python3 scripts/check-ci-runners.py`, `python3 scripts/test-ci-runners.py`,

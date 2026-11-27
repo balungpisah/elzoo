@@ -11390,17 +11390,17 @@
           "role": "In-place fix under the same ID: every caller of current/1 keeps a halt's state and otherwise its pre-call state, so a failed replacement recovery is retried before the next input."
         }
       ],
-      "acceptance": "ingest/4, control/4, the v1 durable-unit input and the v2 outside-event path keep a halt's state and otherwise the pre-call state; tests per caller with a recovery failing without a halt (no own record; recovery rerun before the next input; no duplicate recovery record) and a halt case; negative controls for ingest and control; Piece gate, strongest other-family review.",
+      "acceptance": "A replacement recovery that fails without a halt keeps the live replacement and marks recovery unfinished; every input or drain path resumes it first without reclassifying the replacement's own work; same-Unit errors keep the returned state; tests per caller incl. an outbox item and a local_work task between the failure and the next call; four negative controls; Piece gate, strongest other-family review.",
       "product_aims": [
         "P09"
       ],
       "issue": 1055,
       "url": "https://github.com/balungpisah/elzoo/issues/1055",
-      "issue_body_sha256": "c0a3f7880ead85b8cc19ef51188f2714f35be0e79ffaee257848775150dc6f29"
+      "issue_body_sha256": "a6f9b0627485bedf6db6100ed69fca67d405bcf9f2bf0a9adca4dec7107922c2"
     },
     {
       "id": "ELZ-435",
-      "title": "ELZ-435 — CI: the runtime-library fallback updates only the Ubuntu archive source",
+      "title": "ELZ-435 — CI: the runtime-library fallback reads only the official Ubuntu archive",
       "kind": "published",
       "release": "V2",
       "stage": "later",
@@ -11411,13 +11411,13 @@
         "tasks/ELZ-435-ci-runtime-fallback-ubuntu-sources-only.md"
       ],
       "outputs": [],
-      "acceptance": "The runtime-library fallback's update and install read only the rewritten Ubuntu source with Error-Mode=any; stubbed apt test of the exact arguments with a negative control; guard tests, full local gate and full hosted check; independent review.",
+      "acceptance": "The runtime-library fallback's update and install read only the rewritten official Ubuntu stanzas, from a temporary .sources file, with Error-Mode=any; stubbed apt tests of the exact arguments and of a third-party stanza left out, with a negative control; guard tests, full local gate and full hosted check; independent review.",
       "product_aims": [
         "P09"
       ],
       "issue": 1056,
       "url": "https://github.com/balungpisah/elzoo/issues/1056",
-      "issue_body_sha256": "e166fbb09fe552870fbccab4403e5c79f8e49bb09d79e254c92b894d7b270480"
+      "issue_body_sha256": "b16570cb6b55942962b7e9e505a54d41820735a264a7f9b82c27dfb53ec51da5"
     }
   ],
   "entries": [

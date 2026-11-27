@@ -5831,16 +5831,16 @@ Publication copy: [tasks/ELZ-434-run-engine-keep-recovery-after-failed-current.m
 
 **Product aims:** P09.
 
-**Acceptance:** ingest/4, control/4, the v1 durable-unit input and the v2 outside-event path keep a halt's state and otherwise the pre-call state; tests per caller with a recovery failing without a halt (no own record; recovery rerun before the next input; no duplicate recovery record) and a halt case; negative controls for ingest and control; Piece gate, strongest other-family review.
+**Acceptance:** A replacement recovery that fails without a halt keeps the live replacement and marks recovery unfinished; every input or drain path resumes it first without reclassifying the replacement's own work; same-Unit errors keep the returned state; tests per caller incl. an outbox item and a local_work task between the failure and the next call; four negative controls; Piece gate, strongest other-family review.
 
 **Secondary contribution:** assembly/run-engine — In-place fix under the same ID: every caller of current/1 keeps a halt's state and otherwise its pre-call state, so a failed replacement recovery is retried before the next input.
 
 ### ELZ-435
 
-ELZ-435 — CI: the runtime-library fallback updates only the Ubuntu archive source
+ELZ-435 — CI: the runtime-library fallback reads only the official Ubuntu archive
 
 Publication copy: [tasks/ELZ-435-ci-runtime-fallback-ubuntu-sources-only.md](../../tasks/ELZ-435-ci-runtime-fallback-ubuntu-sources-only.md).
 
 **Product aims:** P09.
 
-**Acceptance:** The runtime-library fallback's update and install read only the rewritten Ubuntu source with Error-Mode=any; stubbed apt test of the exact arguments with a negative control; guard tests, full local gate and full hosted check; independent review.
+**Acceptance:** The runtime-library fallback's update and install read only the rewritten official Ubuntu stanzas, from a temporary .sources file, with Error-Mode=any; stubbed apt tests of the exact arguments and of a third-party stanza left out, with a negative control; guard tests, full local gate and full hosted check; independent review.
