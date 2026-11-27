@@ -1556,6 +1556,7 @@ defmodule Elzoo.RunApprovalReleaseTest do
       p = owner(c)
       create(p, c)
       held = snapshot(p).revision
+      assert snapshot(p).renewed_since == held
       assert {:renewed, %{held: %{"runs" => _}}} = Lease.renew(c.lease, "owner", ["runs"], @ttl)
       written = history(c)
       ref = Process.monitor(p)
@@ -1568,6 +1569,8 @@ defmodule Elzoo.RunApprovalReleaseTest do
       assert head == held + 2
       assert Enum.map(rows, & &1.kind) == ["lease_renewed", "lease_renewed"]
       assert history(c) == written
+      # A replacement on the token that both renewals left reads renewals alone since `held`.
+      assert %{revision: ^head, renewed_since: ^held} = snapshot(owner(c))
     end
 
     test "a renewal unknown after commit stops the owner with its receipt", c do
@@ -1587,7 +1590,7 @@ defmodule Elzoo.RunApprovalReleaseTest do
       renewed = before + 1
       assert {:ok, %{revision: ^renewed}} = Store.read(c.store, :head, ["runs"])
       p = owner(c, Keyword.put(c.opts, :reconcile, receipt))
-      assert snapshot(p).revision == renewed
+      assert %{revision: ^renewed, renewed_since: ^before} = snapshot(p)
     end
 
     test "a Memory renewal whose backend dies after the append is unknown without a receipt" do
@@ -1850,15 +1853,19 @@ defmodule Elzoo.RunApprovalReleaseTest do
       p = restart(c, p)
       assert %{revision: ^again, renewed_since: ^claimed} = snapshot(p)
 
-      # So is a seize, which appends a release and the seize.
+      # So is a seize, which appends a release and the seize: another holder takes over.
       GenServer.stop(p)
 
-      assert {:held, %{live: %{revision: seized}}} =
-               Lease.seize(c.lease, "runs", "owner", @ttl, :operator_takeover)
+      assert {:held, %{owner: "other", live: %{revision: seized}} = taken} =
+               Lease.seize(c.lease, "runs", "other", @ttl, :operator_takeover)
 
       assert seized == again + 2
-      p = owner(c)
+      {:ok, p} = Run.start_link(Keyword.put(c.opts, :held, taken))
+      Process.unlink(p)
+      on_exit(fn -> if Process.alive?(p), do: GenServer.stop(p) end)
       assert %{revision: ^seized, renewed_since: ^seized} = snapshot(p)
+      assert {:ok, renewed_by_other, _} = Run.renew(p, @ttl)
+      assert %{revision: ^renewed_by_other, renewed_since: ^seized} = snapshot(p)
     end
   end
 

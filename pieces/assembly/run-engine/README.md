@@ -765,7 +765,7 @@ with the same phase switch, so they reach the state of the fold.
 
 Run views. The engine keeps the revision of the Run owner's stream that it took last
 as `control.run_revision`. Each time it reads the owner's `status/2` to bring its
-view up to date (at startup and recovery, before every input and control, after a
+view up to date (at startup and recovery, before an input or a control, after a
 control or a completion that it sends to the owner, and before a dispatch), it
 learns the owner's held (fenced) revision from `revision` and, from
 `renewed_since`, the revision of the owner's latest committed record that is not a
@@ -787,7 +787,9 @@ without `renewed_since` is no proof: the engine then journals every change of
 `revision`, as before. The owner rebuilds `renewed_since` from its whole stream
 when it starts, so a replacement owner started on the token that renewals left
 gives a reopened engine the same answer, and the engine's startup commits no record
-for those renewals.
+for those renewals. Not every input reads the Run: the replay of a native v2
+`outside_event` that is already recorded and paired answers `{:ok, :unchanged}`
+without it, and a halted engine reads nothing.
 
 At a change of Attempt the engine settles, in the same fold step and at the
 time of the view record, every slot of the older Attempt that is not settled,
@@ -1663,12 +1665,14 @@ disposable PostgreSQL. A second test of
 `RunApprovalRelease.renew/2` before the child's result at 15,000 ms: the parent
 gets the child amount 5 in the same step, the child Budget commits 5, no
 `:nested_actual` and no outcome record is written, and the result's own record is
-the one record that the input adds. The group `renewal_is_not_a_transition` has six
+the one record that the input adds. The group `renewal_is_not_a_transition` has seven
 tests. `several renewals between the commands of a live Run`: an ASK tool call and a
 finish that names it, with two renewals after the start, the request, the consent
 and the result, give the journal (record kinds, occurrences, actuals, times and
-phases) and the Run records of the same Run without renewals; every `:run_view`
-follows an owner record that is not a renewal, and the Run is completed.
+phases) of the same Run without renewals and the same kinds of owner Run records in
+the same order (not equal records: the terminal record holds its completion
+revision, which the renewals move); every `:run_view` follows an owner record that
+is not a renewal, and the Run is completed.
 `an Approval request and its evidence among renewals`: the request, with the intent
 that the dispatch path binds, gets one `:run_view` at the engine's next read after
 the renewals, the evidence one at its own revision right after the command, a wake
@@ -1684,15 +1688,24 @@ applies on a freshly read revision with its `:run_view` at the evidence revision
 `a new Attempt after renewals` and `an outcome after renewals`: a `begin_attempt` or
 a completion on the owner between renewals is journaled at the next wake, with the
 slots, Budgets and journal of the same change without renewals (the dispatched tool
-call `unknown`, no actual, its reservation held). Four temporary negative controls
+call `unknown`, no actual, its reservation held). `an owner view without
+renewed_since`: through a test owner whose `status/2` replies lack the field, a
+renewal before the child's result of the one-step case gives, as before ELZ-429, a
+`:run_view` at the renewed revision that closes the parent, then the result's record
+and a `:nested_actual` record (parent actual 5); after one more renewal a restart of
+the engine against the owner itself replays that journal to an equal state with no
+new row, and a wake then adds only its own record. Four temporary negative controls
 each made named tests fail and were reverted: a `:run_view` committed for a
 renewal-only change (the one-step test with a renewal fails: a `nested_actual`
-record is written; so do the first, second and fourth tests of the group), the
-owner's `renewed_since` set from its startup floor (the replacement test fails: the
-reopened engine commits a record), `renewed_since` counted from Run records only
-(the release test fails: no `:run_view` after recovery) and the suppression without
-its boundary check (every test of the group, both one-step tests and the document
-publication test fail). Listed finite scenarios, not a proof.
+record is written; so do the group's tests of several renewals, of the Approval
+request and evidence, of the replacement owner and of the owner view without
+`renewed_since`, at its restart), the owner's `renewed_since` set from its startup
+floor (the replacement test fails: the reopened engine commits a record, before its
+owner-status check), `renewed_since` counted from Run records only (the release test
+fails: no `:run_view` after recovery, before its owner-status check) and the
+suppression without its boundary check (the document publication test, both
+one-step tests and every test of the group but the one without `renewed_since`
+fail). Listed finite scenarios, not a proof.
 
 ## Changes
 

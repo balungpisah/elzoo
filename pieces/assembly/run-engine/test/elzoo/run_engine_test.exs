@@ -6819,7 +6819,8 @@ defmodule Elzoo.RunEngineTest do
   # open. The engine clock is 2,000. After "src" the root asks one request too many: the
   # request-cap stop with budget_rule :finish makes the Run terminal, and the stop retains
   # the open parents and tool calls.
-  defp retained_run(parents) do
+  # `owner` gives the Run owner that the engine talks to (the fixture's own by default).
+  defp retained_run(parents, owner \\ & &1.run) do
     test_pid = self()
     ids = parents |> Map.keys() |> Enum.sort()
 
@@ -6860,7 +6861,7 @@ defmodule Elzoo.RunEngineTest do
         &Map.put(&1, :work, fn a -> {TestPattern, :blocked, [test_pid, a["payload"]]} end)
       )
 
-    engine = start(c, bindings: bindings)
+    engine = start(c, bindings: bindings, run_owner: owner.(c))
     assert {:ok, :applied} = bounded(fn -> send_input(engine) end, 20_000)
     for _ <- ids, do: assert_receive({:effect_started, _provider, _}, 5_000)
     assert_receive {:local_started, task}, 5_000
@@ -12353,6 +12354,26 @@ defmodule Elzoo.RunEngineTest do
     end
   end
 
+  # A Run owner as before ELZ-429: every call goes to the real owner, and the replies of
+  # status/2 have no `renewed_since`.
+  defmodule LegacyStatusOwner do
+    use GenServer
+
+    def init(run), do: {:ok, run}
+
+    def handle_call({:status, _} = msg, _from, run) do
+      reply =
+        case GenServer.call(run, msg, 60_000) do
+          {:ok, view} -> {:ok, Map.delete(view, :renewed_since)}
+          other -> other
+        end
+
+      {:reply, reply, run}
+    end
+
+    def handle_call(msg, _from, run), do: {:reply, GenServer.call(run, msg, 60_000), run}
+  end
+
   # ELZ-429. A renewal of the Run owner's lease (RunApprovalRelease.renew/2) moves the
   # revision that status/2 reports, and no Run fact.
   describe "renewal_is_not_a_transition" do
@@ -12394,7 +12415,7 @@ defmodule Elzoo.RunEngineTest do
           assert {:held, _} = Elzoo.Lease.claim(c.lease, "runs", "owner", 3_600_000)
         end)
 
-      assert {:ok, %{revision: claimed, renewed_since: claimed}} = Run.status(c.run, "run")
+      assert {:ok, %{revision: claimed}} = Run.status(c.run, "run")
       engine = bounded_start(c)
 
       assert Enum.drop(run_views(c), length(views)) == [
@@ -12407,6 +12428,8 @@ defmodule Elzoo.RunEngineTest do
                  at_ms: 2_000
                }
              ]
+
+      assert {:ok, %{renewed_since: ^claimed}} = Run.status(c.run, "run")
 
       wake_as(engine, "after-claim")
       assert length(run_views(c)) == length(views) + 1
@@ -12424,10 +12447,10 @@ defmodule Elzoo.RunEngineTest do
       stop_engine(c, engine)
       before = rows(c)
       c = replace_owner(c)
-      assert {:ok, %{revision: ^r2, renewed_since: ^recorded}} = Run.status(c.run, "run")
       engine = bounded_start(c)
       # The startup reads only renewals since the recorded revision: it commits nothing.
       assert rows(c) == before
+      assert {:ok, %{revision: ^r2, renewed_since: ^recorded}} = Run.status(c.run, "run")
 
       # Explicit revisions from before the replacement's start conflict, as before.
       for stale <- [recorded, r1] do
@@ -12468,6 +12491,47 @@ defmodule Elzoo.RunEngineTest do
       assert budget_status(c, "root") == %{committed: 0, reserved: 1}
       assert view(engine).joins[1].closed
       for p <- [plain_provider, provider], do: send(p, {:result, %{}})
+    end
+
+    test "an owner view without renewed_since keeps the :run_view of a renewal, as before, and the new owner replays that journal without another row" do
+      legacy = fn c ->
+        start_supervised!(%{
+          id: make_ref(),
+          start: {GenServer, :start_link, [LegacyStatusOwner, c.run]}
+        })
+      end
+
+      {c, bindings, engine, before} = retained_run(%{"nested" => 10_000}, legacy)
+      parent = key_of(before, "nested")
+      tool = key_of(before, "tool-nested")
+      Agent.update(c.clock, fn _ -> 15_000 end)
+      journal = journal(c)
+      assert {:ok, renewed, _} = Run.renew(c.run, 3_600_000)
+
+      # As before ELZ-429: the renewal's :run_view closes the parent at 15,000 before the
+      # result is folded, and a :nested_actual record follows.
+      assert {:ok, :applied} = child_result(engine, before, "tool-nested", 5)
+      assert %{revision: ^renewed} = List.last(run_views(c))
+
+      assert [
+               {:run_view, nil, nil, nil, nil},
+               {:protocol, "action_outcome", "tool-nested", "completed", _, 5, ^tool, _},
+               {:nested_actual, ^parent, 5, _, _}
+             ] = Enum.drop(journal(c), length(journal))
+
+      assert unit_state(c).slots[parent].actual == 5
+      # The new owner, whose view has renewed_since, on that journal after one more
+      # renewal: the restart replays the recorded settlement and writes no row, and a
+      # wake adds only its own record.
+      assert {:ok, _, _} = Run.renew(c.run, 3_600_000)
+      recorded = rows(c)
+      state = unit_state(c)
+      engine = bounded_restart(c, engine, bindings: bindings)
+      assert rows(c) == recorded
+      assert unit_state(c) == state
+      journal = journal(c)
+      wake_as(engine, "after-reopen")
+      assert [{:protocol, "wake", _, _, _, _, _, _}] = Enum.drop(journal(c), length(journal))
     end
 
     test "an outcome after renewals is a Run transition with today's effects" do

@@ -246,9 +246,13 @@ renewals and moved by a Run write on a revision from before them, by a child
 attachment and by a death write, the same for every Run of the owner; and a new
 owner reads it from the stream: after renewals a replacement reports the record
 before them, after a release and a claim the claim (also after a later renewal and
-a restart), and after a seize the seize. A temporary mutation that sets it from the
-startup floor fails the second case, and one that counts Run records only fails it
-at the claim; both are restored.
+a restart), and after another holder's seize the seize (also after that holder's
+renewal). The `lease_renewal` cases of a renewal outside the owner and of a renewal
+unknown after commit check it too: a replacement after the fence, and the owner
+recovered with the receipt, report the renewed revision with the record before the
+renewals. A temporary mutation that sets it from the startup floor fails the second
+case and those two cases, and one that counts Run records only fails the second
+case at the claim; both are restored.
 
 - **Needs:** authenticated caller/approver evidence and fresh policy/authority;
   canonical arguments and exact descriptor binding; host serialization of
