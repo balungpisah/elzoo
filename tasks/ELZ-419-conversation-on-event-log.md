@@ -164,7 +164,7 @@ and the pending outbox item still commit in one append. The conversation
 append becomes a delivery after the commit:
 
 - Before command commit, the channel validates the exact Conversation intent
-  against the tenant's ordered admitted state, including committed intents
+  against the conversation's ordered admitted state, including committed intents
   not yet visible in Conversation: it calls `check/2` with this
   conversation's earlier committed, undelivered intents in command sequence
   order followed by the candidate, and admits the candidate only when every
@@ -182,18 +182,23 @@ append becomes a delivery after the commit:
   channel is the sole writer of the conversation streams it delivers to.
   `check/2` does not reserve a message ID. If an outside writer commits the
   same ID with different content before delivery, delivery is refused and
-  blocks later deliveries for the tenant. An identical outside write is
+  blocks later deliveries to that conversation. An identical outside write is
   indistinguishable from redelivery, so the exclusivity requirement is not
   enforced by `check/2`.
 - Every Conversation-writing command, including associations and answers, is
   configured with a delivery notification (today the association and answer
-  descriptors have no outbox destination). The channel processes
-  not-yet-delivered intents in command sequence order, rebuilding each from
-  its committed receipt (`CheckedCommand.result/3` by the identity in the
-  notification) and appending it through the conversation owner. An unknown
-  delivery remains pending and is retried with the identical intent before
-  any later intent is delivered. A definite refusal is reported, leaves the
-  item pending, and blocks later deliveries for that tenant.
+  descriptors have no outbox destination). The channel processes each
+  conversation's not-yet-delivered intents in command sequence order,
+  rebuilding each from its committed receipt (`CheckedCommand.result/3` by the
+  identity in the notification) and appending it through that conversation's
+  owner. An unknown delivery remains pending and is retried with the identical
+  intent before any later intent of the same conversation is delivered. A
+  definite refusal is reported, leaves the item pending, and blocks later
+  deliveries to that conversation. Order is kept within a conversation, the
+  only scope its records reference; an undelivered intent of another
+  conversation of the tenant does not hold back this conversation's
+  deliveries. The tenant's outbox window stays shared: admission and
+  observation keep refusing new commands while the window is full.
 - A proven Conversation append (`{:ok, _}` or `{:ok, :already_present}`)
   marks delivery complete; it does not discharge primary/reply native-work
   custody. Once delivery is durably proven, the channel acknowledges the

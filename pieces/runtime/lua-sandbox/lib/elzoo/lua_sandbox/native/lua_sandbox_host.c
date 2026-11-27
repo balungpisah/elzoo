@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
-** Owned C host of the Elzoo Lua sandbox (policy version 3: the safe helper set and
+** Owned C host of the Elzoo Lua sandbox (policy version 4: the safe helper set and
 ** module-call bindings).
 **
 ** One process runs one request: it reads one frame (u32 little-endian
@@ -10,9 +10,23 @@
 ** process except as the plain result value of a successful run.
 **
 ** Private-layout coupling (maintenance limitation): the string guard in
-** `host_alloc` reads `offsetof(TString, contents)` and the allocation tag of
-** strings (`LUA_TSTRING`) from the pinned checkout's internal `lobject.h`.
-** The build verifies the exact upstream bytes before it compiles this file.
+** `host_alloc` reads the allocation tag of strings (`LUA_TSTRING`), the
+** offsets `offsetof(TString, contents)` and `offsetof(TString, falloc)` of the
+** pinned checkout's internal `lobject.h`, and `LUAI_MAXSHORTLEN` of its
+** internal `lstring.h`. Lua 5.5.1 allocates a short string as
+** `offsetof(TString, contents) + length + 1` bytes and a long string as
+** `offsetof(TString, falloc) + length + 1` bytes; the guard derives the
+** content length from the allocation size along the one branch that the size
+** can belong to. An external string (LSTRFIX or LSTRMEM) keeps its content in
+** a separate allocation that the tag cannot see: it exists here only because
+** the buffer library of `lauxlib.c` finishes a large buffer as one; no other
+** path of this host can create one. The build
+** compiles that one file with `lua_pushexternalstring` renamed, so its one
+** internal call resolves to `elz_laux_pushexternalstring` below, which charges
+** the content length exactly before the string exists (the host itself uses
+** no `lua_pushexternalstring` and accepts no bytecode, so no other external
+** string can exist). The build verifies the exact upstream bytes before it
+** compiles this file.
 **
 ** Build identity arrives as -D macros: ELZ_LUA_RELEASE, ELZ_LUA_REVISION,
 ** ELZ_HOST_SHA256, ELZ_BUILD_OPTIONS, ELZ_SEED and ELZ_POLICY_IDENTITY (each a
@@ -37,6 +51,7 @@
 #include "lauxlib.h"
 #include "lualib.h"
 #include "lobject.h" /* TString layout: private, see the note above */
+#include "lstring.h" /* LUAI_MAXSHORTLEN: private, same note */
 
 #if !defined(ELZ_LUA_RELEASE) || !defined(ELZ_LUA_REVISION) || \
     !defined(ELZ_HOST_SHA256) || !defined(ELZ_BUILD_OPTIONS) || !defined(ELZ_SEED) || \
@@ -643,9 +658,20 @@ static void *host_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
   }
   old = ptr ? osize : 0;
   if (!ptr && G.armed && osize == LUA_TSTRING) {
-    /* a new string object: size is offsetof(TString, contents) + length + 1 */
-    size_t head = offsetof(TString, contents);
-    if (nsize > head + 1 && nsize - head - 1 > G.value_bytes) {
+    /* a new string object. Lua 5.5.1 allocates a short string as
+    ** offsetof(TString, contents) + length + 1 bytes and a long string as
+    ** offsetof(TString, falloc) + length + 1 bytes; the shortest long string
+    ** is larger than the longest short-string allocation, so the size belongs
+    ** to exactly one branch (external strings exist here only through the
+    ** shimmed buffer path, see the top note). The length is exact on either
+    ** branch. */
+    size_t shlen = nsize > offsetof(TString, contents) + 1 ? nsize - offsetof(TString, contents) - 1 : 0;
+    size_t len;
+    if (shlen <= LUAI_MAXSHORTLEN)
+      len = shlen;
+    else
+      len = nsize - offsetof(TString, falloc) - 1;
+    if (len > G.value_bytes) {
       set_sticky(STOP_VALUE);
       return NULL;
     }
@@ -666,6 +692,25 @@ static void *host_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
   G.live = G.live - old + nsize;
   return p;
 }
+
+/* lauxlib.c is compiled with lua_pushexternalstring renamed to this symbol,
+** so the buffer library's one internal call (the finish of a large buffer in
+** luaL_pushresult) arrives here. The content memory is already allocated and
+** accounted in live bytes; what the allocator could not see is the length.
+** Charge it exactly, the same refusal as a string the run allocates itself,
+** and free the content first, as upstream does when the creation fails. */
+const char *elz_laux_pushexternalstring(lua_State *L, const char *s, size_t len,
+                                        lua_Alloc falloc, void *ud) {
+  if (G.armed && len > G.value_bytes) {
+    if (falloc) (*falloc)(ud, (void *)s, len + 1, 0);
+    set_sticky(STOP_VALUE);
+    lua_pushliteral(L, "not enough memory");
+    lua_error(L);
+    return NULL;
+  }
+  return lua_pushexternalstring(L, s, len, falloc, ud);
+}
+
 
 __attribute__((noreturn)) static int panic(lua_State *L) {
   (void)L;
@@ -749,7 +794,7 @@ static void charge(lua_State *L, long long n) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Wrappers (policy version 3)                                           */
+/* Wrappers (policy version 4)                                           */
 /* ------------------------------------------------------------------ */
 
 static int unlisted(lua_State *L) {
@@ -775,7 +820,7 @@ static int w_pcall(lua_State *L) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Helpers (policy version 3): fields of the global `helpers`            */
+/* Helpers (policy version 4): fields of the global `helpers`            */
 /* ------------------------------------------------------------------ */
 
 /* Record the table at the top of the stack as an array (kind 1) or an object (kind 2)
@@ -1253,10 +1298,16 @@ static int w_tostring(lua_State *L) {
   return luaL_error(L, "tostring: value has no portable text");
 }
 
-/* Reject any table whose keys are not exactly 1..n. */
+/* Require a table whose keys are exactly 1..n. Every caller is a granted table
+** function that indexes this argument. Lua 5.5.1 lets a string stand in for a
+** read-only table (a string needs no __len for its length), so the library would
+** index it through the shared string metatable, whose strict lookup turns the
+** numeric key into the sticky unlisted_name. Any argument that is not a table is
+** an ordinary argument error instead, raised before the upstream function runs,
+** so pcall can catch it. */
 static void check_dense(lua_State *L, int idx) {
   lua_Integer n, count = 0;
-  if (lua_type(L, idx) != LUA_TTABLE) return;
+  if (lua_type(L, idx) != LUA_TTABLE) luaL_typeerror(L, idx, "table");
   idx = lua_absindex(L, idx);
   n = (lua_Integer)lua_rawlen(L, idx);
   charge(L, (long long)n + 1);
@@ -1380,7 +1431,7 @@ static int string_index(lua_State *L) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Environment (policy version 3)                                         */
+/* Environment (policy version 4)                                         */
 /* ------------------------------------------------------------------ */
 
 static const char *const string_names[] = {"byte", "char", "find", "format", "gmatch", "gsub", "len",
@@ -1927,8 +1978,13 @@ static size_t read_full(int fd, unsigned char *b, size_t n) {
   return got;
 }
 
+/* Lua 5.5.1 takes the hash seed as the third argument of lua_newstate (the
+** luai_makeseed coupling of 5.4 is gone). main parses the build-time literal
+** once before any state exists. */
+static unsigned host_seed;
+
 static lua_State *new_state(void) {
-  lua_State *L = lua_newstate(host_alloc, NULL);
+  lua_State *L = lua_newstate(host_alloc, NULL, host_seed);
   if (!L) {
     if (G.sticky) reply_sticky();
     _exit(70);
@@ -2233,6 +2289,8 @@ int main(int argc, char **argv) {
   }
   signal(SIGALRM, SIG_DFL);
   signal(SIGPIPE, SIG_DFL);
+
+  host_seed = (unsigned)strtoul(ELZ_SEED, NULL, 0);
 
   if (argc == 2 && strcmp(argv[1], "--audit") == 0) {
     G.mem_limit = SIZE_MAX;

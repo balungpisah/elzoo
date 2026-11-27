@@ -6,14 +6,14 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
 
   * (a) probes from inside the sandbox: one process per name asks `type(name)`. There is
     no `pairs` or `next`, so the names come from a fixed universe: every name of the
-    upstream 5.4 libraries plus the names that this policy must not grant. A listed name
+    upstream 5.5 libraries plus the names that this policy must not grant. A listed name
     gives its type, any other name is `{:refused, :unlisted_name}`.
   * (b) the `--audit` frame of the C host (environment, each library table, the shared
     string metatable). The audit is an argument of the executable: no request, no Lua
     name and no frame can reach it.
   * (c) the descriptor of `Elzoo.LuaSandbox.policy/0`, and fixed probes of constants.
 
-  The expected lists below are copied from the contract (Policy version 3), not from the
+  The expected lists below are copied from the contract (Policy version 4), not from the
   descriptor, so a change of any one source fails here.
 
   Negative control (recorded in the pull request, never committed): granting `print` in
@@ -36,7 +36,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
   @math_constants ~w(huge maxinteger mininteger pi)
   @libraries ~w(math string table)
   @operator_metamethods ~w(__add __div __idiv __mod __mul __pow __sub __unm)
-  # The helpers of policy version 3: name => type of the value (each part adds its names).
+  # The helpers of policy version 4: name => type of the value (each part adds its names).
   @helpers %{
     "json_decode" => "function",
     "json_encode" => "function",
@@ -75,8 +75,8 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
                     tostring type warn xpcall _G _VERSION)
   @upstream_string ~w(byte char dump find format gmatch gsub len lower match pack packsize rep
                       reverse sub unpack upper)
-  @upstream_table ~w(concat insert move pack remove sort unpack)
-  @upstream_math ~w(abs acos asin atan ceil cos deg exp floor fmod huge log max maxinteger min
+  @upstream_table ~w(concat create insert move pack remove sort unpack)
+  @upstream_math ~w(abs acos asin atan ceil cos deg exp floor fmod frexp huge ldexp log max maxinteger min
                     mininteger modf pi rad random randomseed sin sqrt tan tointeger type ult)
   @upstream_libraries ~w(coroutine debug io math os package string table utf8)
   @excluded_extra ~w(loadstring json text time clock now helper_echo bindings
@@ -313,6 +313,60 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
       assert {:refused, :lua_error} = Helper.run(exe, Helper.function_source("return (nil).len"))
     end
 
+    test "a granted table function given a string is an argument error that pcall catches", %{
+      executable: exe
+    } do
+      # Lua 5.5.1 lets a string stand in for a read-only table. The table wrappers
+      # require a table for every argument they index, before the upstream function
+      # runs, so the library never indexes the string through the strict string
+      # metatable: the error is an ordinary one and the evaluation continues. The
+      # source of move is also checked with a separate writable destination, which
+      # upstream accepts, so only the wrapper stops the read; the empty ranges of
+      # unpack('') and of move are errors too, where 5.4.9 gave zero values and the
+      # destination.
+      for {arguments, input, position} <- [
+            {"table.concat, s", "blue", 1},
+            {"table.unpack, s", "blue", 1},
+            {"table.insert, s, 'x'", "blue", 1},
+            {"table.remove, s", "blue", 1},
+            {"table.sort, s", "blue", 1},
+            {"table.move, s, 1, 1, 1", "blue", 1},
+            {"table.move, s, 1, 1, 1, {}", "blue", 1},
+            {"table.move, {1}, 1, 1, 1, s", "blue", 5},
+            {"table.unpack, s", "", 1},
+            {"table.move, s, 2, 1, 1, {}", "abc", 1}
+          ] do
+        source =
+          "return function(s) local ok, e = pcall(#{arguments}) return {ok, e, 'fallback'} end"
+
+        assert {:ok, %{value: [false, message, "fallback"]}} = Helper.run(exe, source, input),
+               arguments
+
+        assert message =~ "bad argument ##{position} to ", arguments
+        assert String.ends_with?(message, "(table expected, got string)"), arguments
+      end
+
+      # uncaught, the same call is an ordinary error of the run
+      assert Helper.run(exe, "return function(s) return table.concat(s) end", "blue") ==
+               {:refused, :lua_error}
+
+      # a direct index of a string is still a lookup of the strict string metatable
+      assert Helper.run(exe, Helper.function_source("return ('abc')[1]")) ==
+               {:refused, :unlisted_name}
+
+      # so is ipairs of a string, as in 5.4.9: the iterator is made, and its first
+      # step indexes the string, a sticky stop that pcall cannot catch
+      assert {:ok, %{value: "function"}} =
+               Helper.run(exe, Helper.function_source("return type(ipairs('abc'))"))
+
+      assert Helper.run(
+               exe,
+               Helper.function_source(
+                 "local ok = pcall(function() for _ in ipairs('abc') do end end) return ok"
+               )
+             ) == {:refused, :unlisted_name}
+    end
+
     test "a missing field of each library table", %{executable: exe} do
       for library <- @libraries, field <- ~w(nope dump random getn len2 __index __metatable) do
         source = Helper.function_source("return #{library}.#{field}")
@@ -468,7 +522,10 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
         {"1.5", "1.5"},
         {"-0.0", "-0.0"},
         {"1e15", "1e+15"},
-        {"2^53", "9.007199254741e+15"},
+        {"2^53", "9007199254740992.0"},
+        {"1 / 3", "0.33333333333333331"},
+        {"2 / 3", "0.66666666666666663"},
+        {"1e-5", "1e-05"},
         {"100 / 2", "50.0"},
         {"0.1", "0.1"},
         {"math.maxinteger", "9223372036854775807"},

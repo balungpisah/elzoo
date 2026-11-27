@@ -27,6 +27,8 @@ defmodule Elzoo.RunEngine do
 
   def status(engine), do: GenServer.call(engine, :status, @call_limit)
 
+  def deadlines(engine), do: GenServer.call(engine, :deadlines, @call_limit)
+
   def result(engine, scope, limits),
     do: GenServer.call(engine, {:result, scope, limits}, @call_limit)
 
@@ -1864,6 +1866,16 @@ defmodule Elzoo.RunEngine do
         joins: joins,
         reconciliation: s.halted
       }}, s}
+  end
+
+  # The committed lifecycle deadlines, from the same state that status/1 reads: the
+  # Run deadline in every phase, the pause deadline only while paused.
+  def handle_call(:deadlines, _, s) do
+    {state, s} = read_state(s)
+    life = state.control.lifecycle
+    pause = if life.phase == :paused, do: life.pause_deadline
+
+    {:reply, {:ok, %{phase: life.phase, run_deadline: life.run_deadline, pause_deadline: pause}}, s}
   end
 
   def handle_call({:result, scope, limits}, _, s) do
