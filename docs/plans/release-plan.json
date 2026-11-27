@@ -12483,12 +12483,12 @@
     {
       "id": "state/conversation",
       "job": "ELZ-250",
-      "note": "One caller-supervised owner per conversation appends immutable, self-contained input, input-to-Run association and completed-answer records to the event-log stream conversation/<target_tenant>/<conversation_id> through the Store's head compare-and-set. Exact host-vouched DTOs; an identical record is {:ok, :already_present}; every other write follows the Cure decision table with today's refusal codes and precedence; a lost compare-and-set reads only the new rows and decides again, at most 9 attempts; an unknown append is resolved by its own nonce and bytes or by the identical record, never by the referenced input. check/2 decides ordered intents against a copy of the refreshed history without appending. Owner-free page/5 and tail/4 validate scope and grant before any Store call and every row they return. import_v1/3 migrates a version 1 field snapshot offline. No message cap; owner memory and start time grow with the conversation. No authentication, authorization, Run creation, retention or writer exclusivity.",
+      "note": "One caller-supervised owner per conversation appends immutable, self-contained input, input-to-Run association and completed-answer records to the event-log stream conversation/<target_tenant>/<conversation_id> through the Store's head compare-and-set. Exact host-vouched DTOs; an identical record is {:ok, :already_present}; every other write follows the Cure decision table with today's refusal codes and precedence, and a refusal is decided only after reading the rows after the owner's head; a lost compare-and-set reads only the new rows and decides again, at most 9 attempts; an unknown append is resolved by its own nonce and bytes or by the identical record, never by the referenced input. check/2 decides ordered intents against a copy of the refreshed history without appending. Owner-free page/5 and tail/4 validate scope and grant before any Store call and every row they return. import_v1/3 migrates a version 1 field snapshot offline. No message cap; owner memory and start time grow with the conversation. No authentication, authorization, Run creation, retention or writer exclusivity.",
       "baseline_status": "planned",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/conversation/piece.json",
-      "manifest_sha256": "811447583f1872884ea62858e037482aedcd73e0b779d7539425182083b7e4bf"
+      "manifest_sha256": "34a83627579155e12a947185ee986d75a120ce7791f64af530e65fc81c6a7d4d"
     },
     {
       "id": "state/crdt",
