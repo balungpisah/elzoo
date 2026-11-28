@@ -205,19 +205,40 @@ defmodule Elzoo.RunHost.Runner do
     end)
   end
 
+  # The claim goes to the host first, which bounds the confirmation phase on receipt (a
+  # reading that blocks leaves the Run fenced by then, the worker stopped by the
+  # teardown). The worker then reads the lease, judged against the claim's `until` before
+  # any record read, until a reading taken after the claim returned confirms it (every
+  # 100 ms while the host answers `:pending`); only then does the start go on.
   defp claim(s) do
     case Lease.claim(s.c.lease, s.stream, s.c.owner_id, s.c.lease_ttl_ms) do
       {:held, held} ->
-        claimed = RunHost.mark()
-        {t0, read} = RunHost.lease_reading(s.c.lease, s.stream, s.c.owner_id)
-        :ok = host(s, {:held, held, claimed, t0, read})
-        {:ok, %{s | held: held}}
+        :ok = host(s, {:held, held, RunHost.mark()})
+
+        with :ok <- confirm(s, held.live.until),
+             do: {:ok, %{s | held: held}}
 
       {:lease_refused, refusal} ->
         {:error, {:lease_refused, refusal}}
 
       other ->
         {:error, {:lease, other}}
+    end
+  end
+
+  defp confirm(s, until) do
+    {t0, read} = RunHost.lease_reading(s.c.lease, s.stream, s.c.owner_id, until)
+
+    case host(s, {:claim_read, t0, read}) do
+      :confirmed ->
+        :ok
+
+      :pending ->
+        Process.sleep(100)
+        confirm(s, until)
+
+      error ->
+        error
     end
   end
 
@@ -256,22 +277,22 @@ defmodule Elzoo.RunHost.Runner do
 
   # Runs inside an EffectIntent process, in its init: the host grants an activation
   # only to a Run whose predecessor check has passed, while a reading of the lease
-  # taken here shows it held by this owner and live.
+  # taken here shows it held by this owner and live by the last confirmed `until` that the
+  # host gives for this tenure (the cutoff the reading is judged against before any record
+  # read, so a loss that its first status shows is the reading).
   defp authorize(s) do
     %{host: host, run_ref: run_ref, token: token, stream: key} = s
     %{lease: lease, owner_id: owner} = s.c
 
     fn request, generation ->
-      {t0, read} = RunHost.lease_reading(lease, key, owner)
-
-      case GenServer.call(host, {:authorize, run_ref, token, t0, read}) do
-        :granted ->
-          if request.revision == 0 and generation == 0,
-            do: :fresh,
-            else: {:recovered, generation}
-
-        _ ->
-          :refused
+      with {:ok, until} <- GenServer.call(host, {:cutoff, run_ref, token}),
+           {t0, read} = RunHost.lease_reading(lease, key, owner, until),
+           :granted <- GenServer.call(host, {:authorize, run_ref, token, t0, read}) do
+        if request.revision == 0 and generation == 0,
+          do: :fresh,
+          else: {:recovered, generation}
+      else
+        _ -> :refused
       end
     end
   end
