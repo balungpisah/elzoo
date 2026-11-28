@@ -39,9 +39,112 @@ ELZ-415).
   `install_lifecycle/3`. The owner records `:out_of_time` and `result/3`
   returns `{:terminal, :out_of_time}`. A later lifecycle request can replace
   an earlier lifecycle stop, such as `:cancelled`, through the same function.
-- Histories without a stale pending stop, and without a later lifecycle
-  request that would replace a pending stop, keep their journal,
-  transcripts, frozen fixtures and cold-recovery results unchanged.
+- A stop that this fold sets records its Attempt and the stop in the Run's
+  recorded control state, as the key `stop_attempt` with the value
+  `{attempt_id, stop}`, from the step that sets the stop to the step that
+  clears it. This fold never replaces a pending stop (the first stop wins,
+  above); a value that is not the current Attempt and the pending stop
+  counts as no mark.
+- Admission keeps room for a stop. While no stop is pending, every check
+  that admits growth of the recorded state (a configuration, a request, an
+  invocation entry, a pending input, a Resource cursor transition) counts
+  the growth that the admitted work adds later too (such as the wait of an
+  ask, and what a cancel records for that wait) and leaves free a constant
+  number of bytes, which the README states with its parts: the largest mark
+  (for the longest valid Attempt ID), the largest growth of a step that sets
+  a stop (a cancel), and the growths that no check admits (a change to a
+  longer Attempt ID, the encodings of the Run revision and of the recorded
+  deadlines, and the lifecycle phase). So a state admitted with that room
+  never fails the state bound at the step that sets a stop, and the stop is
+  marked. A Resource cursor transition (the cursor record with the Budget
+  and the slot that its entry settles) that would cut into the room is not
+  committed: that Resource's entries stay unconsumed, in order, and a slot
+  waiting on that Resource stays open until its entry is consumed or the
+  Run stops (a README limit). Work that the earlier revision admitted near
+  the bound can now be refused; the README `## Changes` entry states this
+  and how to move.
+- Every time and Run revision that the engine records is at most
+  2^63 − 1, so their encodings are bounded. A start option, a control, an
+  input context or a clock sample at an input with a larger time is
+  refused with no write, before any write that reconciles the owner's Run
+  view. A Run view with a larger revision, and an action binding whose
+  facts give a larger `deadline_ms`, halt the engine before it commits
+  (README `## Changes`: to move, keep times within that bound). For the
+  records that the engine makes itself, the clock and the context callback
+  give times within that bound (Needs). A Run that the earlier revision
+  started with a `run_deadline` above that bound is not restarted: its
+  start fails with no write, and the host finishes such a Run on the
+  earlier revision before it upgrades (README `## Changes`). Under
+  `budget_rule: :pause` an input needs a pause deadline after the clock, so
+  no wake reaches a Run deadline of 2^63 − 1; the largest that a wake
+  reaches is 2^63 − 2 (a README limit).
+- A state that an earlier revision recorded without that room takes its
+  stop unmarked when the unmarked step fits, and that stop follows the rule
+  for a stop that the earlier fold set. A step that does not fit even
+  unmarked fails after its input commits, as before this change: the
+  README's existing limit for a state at the exact byte of the control
+  bound, which this change neither adds nor widens.
+- The mark adds to the stored format; the README `## Changes` entry states
+  it. Apart from that key, already-recorded histories keep their journal,
+  transcripts, frozen fixtures and cold-recovery results unchanged when
+  they hold no stale pending stop and no later lifecycle request that would
+  replace a pending stop, except for the refusal of a stop that the earlier
+  fold set, the close that is no longer accepted (both below), and a Run
+  started with a `run_deadline` above 2^63 − 1 (above). A new
+  execution near the former limit can differ, because admission keeps the
+  room.
+- Rollback Need (README `## Changes` and Limits, `piece.json` limits): no
+  earlier revision runs on a journal that this revision wrote. Where the
+  mark's key is not an existing atom (a fresh VM of the earlier revision),
+  its safe term decoder refuses each row or snapshot that holds the mark, so
+  its Unit does not open. Where the atom exists, it can run, and can deliver
+  a stale stop (the defect that this change fixes). A stop that it sets in
+  place of a marked one, or keeps across a change of Attempt, no longer
+  matches the mark when its final stop or Attempt differs; this revision,
+  taken again, then decides it by the rule for an unmarked stop. The mark
+  does not identify the writer: the same stop set again in the same Attempt
+  still matches, and only this Need excludes it.
+- A start, and a replacement Unit, decide a pending stop before any engine
+  write (a new input, an evidence row or an owner command), from the owner's
+  committed Run view:
+  - When that view is terminal, or names an Attempt newer than the engine's,
+    the engine takes it: its fold ends the Run, or drops the stop at the
+    change of Attempt.
+  - Otherwise a stop with a matching mark is delivered as committed, with no
+    new reading of the clock, Budget or request cap.
+  - A stop with no matching mark (the fold before this change set it, or
+    replaced a marked stop) is delivered as committed only when the owner
+    has never had an Attempt other than the engine's. This includes a stop
+    that the earlier fold set in place of another stop of the same Attempt
+    (a README limit).
+    Otherwise the start returns `{:error, :stop_origin_unknown}`, and a
+    replacement Unit halts the engine with that reason, with no engine
+    write. The host ends the Run, or begins a new Attempt, on the owner and
+    starts the engine again; the first rule then applies. This is the
+    README's migration step; the README never tells a host to deliver such a
+    stop under the earlier revision.
+  - The Unit completes an input committed before the start
+    (`finish_pending/1`) with this revision's fold, before the decision.
+    That fold never replaces a pending stop: a Run view that changes the
+    Attempt drops it, and a terminal Run view ends the Run.
+- Every path that can drain the engine (an outbox offer, a control, an
+  input) runs the replacement check of a new Unit first. A replacement Unit
+  takes the decision above, then the Run view, then the local losses: the
+  start's order.
+- A `cancel` control cancels the tasks of only the local work that its
+  committed cancel closed. No caller context can ask for a task's
+  cancellation.
+- History reads compare each replayed step exactly (`===`) with the step of
+  this fold or of the fold before this change, the mark included: the close
+  markers of an event wait and the terminal-view comparisons check the
+  mark's presence and value. Every terminal Run view is replayed exactly,
+  with or without a pending stop. The close of a terminal Run view as
+  revisions before ELZ-215 recorded it (the local work closed, a waiting
+  ask left open) is no longer accepted: such a step is `{:error, :history}`,
+  in v1 and v2, also for an owner view that ends the Run directly with no
+  stop pending. Those revisions all precede the release commit; the README
+  `## Changes` entry gives the migration step (read such a Run's retained
+  history with the revision that wrote it before taking this one).
 - The README `## Changes` entry names the change; a changed `piece.json` gets
   a new `manifest_sha256` in its `entries` row, with `note` equal to a changed
   `contract`.
@@ -89,7 +192,84 @@ Paths: `pieces/assembly/run-engine/**`, its `entries` row in
   stale stop; the owner command uses the owner's current Attempt; the reader
   accepts an older Attempt's stop; `install_lifecycle/3` replaces a pending
   stop.
-- The frozen-row and cold-recovery tests pass unchanged.
+- Stops that the fold before this change set (journals that the earlier fold
+  built from the producing step on, never a current-fold step with its mark
+  removed, in v1 and v2):
+  - in a Run whose owner has only had the engine's Attempt, a pending
+    completion, a cancel, a limit stop, and a stop that replaced another stop
+    of that Attempt are each delivered as committed;
+  - in a Run whose owner has had two Attempts, with the engine at the newer
+    one, each is refused with `{:error, :stop_origin_unknown}` and no new
+    input, evidence row or owner command, also after owner changes that are
+    neither a new Attempt nor an outcome (a lease renewal). After the host
+    ends the Run on the owner, the next start takes the terminal view; after
+    it begins a new Attempt, the next start is open in that Attempt;
+  - from a replacement Unit, the same refusal halts the engine, also when
+    the first call after the replacement is an outbox offer;
+  - a committed but unpaired wake after such a stop: the start completes the
+    wake, the stop stays pending, and the start is refused with no engine
+    write.
+- Room for a stop: with an Attempt ID of the longest valid length and a
+  state at the admission limit, a deadline wake and, separately, a cancel
+  each commit, the stop is marked and the Unit reopens; the same holds when
+  the Run view of a new Attempt with a longer ID comes between, and with
+  the Run revision at 2^63 − 1 and the Run deadline at the largest that a
+  wake reaches: under `budget_rule: :finish` 2^63 − 1, with the wake at
+  that deadline; under `:pause` 2^63 − 2, with the pause deadline at
+  2^63 − 1. A fresh configuration, and an ask with the wait that it adds,
+  are admitted only with the room; with that ask still waiting, a cancel
+  commits marked. At the admission limit, a Resource entry whose cursor
+  transition would cut into the room (also a same-width advance that
+  settles a held Budget) writes no row and leaves the cursor unchanged, and
+  a slot waiting on that Resource is still open at its own deadline and
+  settles when the Run stops. An entry refused at the check before its
+  cursor record, after its inputs committed, keeps those inputs committed,
+  leaves the cursor and the Budget unchanged, and a later pass reads the
+  entry again. A time of 2^63 in a start option, a control, an input
+  context and a clock sample at an input, and a Run view revision of 2^63,
+  each write nothing, also while the owner has a revision that the engine
+  has not yet taken; a version 2 outside event with such a clock sample is
+  `{:error, :invalid_input}`. An `ask_person` binding that gives a
+  `deadline_ms` of 2^63 halts the engine before the admission commits,
+  with no row. A journal that the earlier revision started
+  with a `run_deadline` of 2^63 fails its restart with the same options,
+  with no write. A state that an earlier revision recorded at the largest
+  size whose unmarked stop step fits takes the same wake unmarked; the Unit
+  reopens and the start follows the rule for an unmarked stop. One byte
+  more, the step fails after its input commits and a reopen fails the same
+  way, as before this change (the stated limit).
+- Rollback, then this revision again: this revision sets a completion in
+  Attempt B; the earlier fold, keeping the mark, replaces it with
+  `:out_of_time`. With one owner Attempt the start delivers that stop; with
+  two it is `{:error, :stop_origin_unknown}` with no engine write.
+- In v1 and v2, a protocol cancel whose paired result's mark alone names
+  another Attempt (row digest recomputed) is `{:error, :history}`, also while
+  the stop stays pending; so is, for `transcript/3` and `event_waits/3`, a
+  timely cancel whose paired result records another stop together with a
+  mark for that stop.
+- A terminal Run view recorded with the close before ELZ-215 is
+  `{:error, :history}` in v1 and v2, both with a stop pending and for an
+  owner view that ends the Run directly with none pending. An `input/4`
+  whose context carries a cancel flag, past a running slot's deadline,
+  cancels no task.
+- Further negative controls (each recorded and reverted): an earlier-fold
+  stop delivered in a two-Attempt Run; an outbox offer that drains without
+  the replacement check; a replacement that records local losses before it
+  takes the Run view; task cancellation read from caller context; a mark of
+  another Attempt or another stop counted as a mark; a history read that
+  checks only the mark's presence; admission with no room for the mark; a
+  terminal-view replay skipped when no stop is pending; a cursor record
+  committed without the room check; a cursor transition sized by its cursor
+  alone; a configuration or an ask admitted without the room; a public time
+  checked after a reconciliation write; an input time above 2^63 − 1
+  accepted; a binding deadline or a Run view revision above it accepted;
+  a new mark checked
+  against its result instead of its input. The pull request records the
+  controls as run on its final head.
+- The frozen-row tests pass unchanged. A cold-recovery capture changes only
+  where its history holds a pending stop, and only by the `stop_attempt`
+  key; the pull request records, once, that removing that key from the
+  recorded states gives the old capture. The other captures are unchanged.
 - `mix check --piece "$(git merge-base origin/main HEAD)"` and
   `git diff --check` exit 0, or the pull request records the exact reason a
   command cannot run on the host. The hosted check is green on the exact head.
