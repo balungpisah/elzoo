@@ -5502,7 +5502,10 @@ defmodule Elzoo.RunEngine do
         extra = Map.update(extra, parent.callable, amount, &(&1 + amount))
         open = parent.phase != :settled
         control = control + 2 * bytes(amount) + 32 + if(open, do: 4_096, else: 0)
-        retained = if open, do: retained_outcome_bytes(state, key, parent, node, amount), else: 0
+
+        retained =
+          if open, do: retained_outcome_bytes(state, key, parent, id, node, amount), else: 0
+
         grow = bytes(amount) + 16 + if(open, do: 17 + retained, else: 0)
         {extra, control, Map.update(slots, key, grow, &(&1 + grow))}
       else
@@ -5513,9 +5516,10 @@ defmodule Elzoo.RunEngine do
   end
 
   # The bytes of the pending input that an open parent's internal outcome at `amount` keeps
-  # in its slot while the Run is paused, at the largest of its forms (the child's kept
-  # finish, a failed or a completed refusal), with the largest time and pause deadline.
-  defp retained_outcome_bytes(state, key, parent, child, amount) do
+  # in its slot while the Run is paused, at the largest of its forms, with the largest time
+  # and pause deadline: a failed or a completed refusal, and each finish that the child can
+  # give its parent (reachable_finishes/3).
+  defp retained_outcome_bytes(state, key, parent, child_id, child, amount) do
     refusal = fn class, reason ->
       outcome(
         state.version,
@@ -5532,18 +5536,17 @@ defmodule Elzoo.RunEngine do
       {refusal.("completed", "nested_completed"), %{actual: amount}}
     ]
 
-    inputs =
-      case child[:finish] do
-        %{schema_id: id, schema_version: version, payload: payload} ->
-          finish =
-            outcome(state.version, parent.action_id, "completed", id, payload, @max_time)
-            |> Map.put("schema_version", version)
+    finishes =
+      for %{schema_id: id, schema_version: version, payload: payload} <-
+            reachable_finishes(state, child_id, child) do
+        finish =
+          outcome(state.version, parent.action_id, "completed", id, payload, @max_time)
+          |> Map.put("schema_version", version)
 
-          [{finish, %{actual: amount}} | inputs]
-
-        _ ->
-          inputs
+        {finish, %{actual: amount}}
       end
+
+    inputs = finishes ++ inputs
 
     inputs
     |> Enum.map(fn {input, correlation} ->
@@ -5561,6 +5564,26 @@ defmodule Elzoo.RunEngine do
       bytes({:pending_input, %{order: 2_147_483_647, record: record}})
     end)
     |> Enum.max()
+  end
+
+  # The finishes that a child callable can still give its parent (ELZ-430): the one that it
+  # keeps, when it keeps one; otherwise, while it is open, the finish of each of its admitted
+  # finish actions that its continuation can still keep (authorizing, waiting for Approval
+  # or ready), any of which can be the first kept. The bound takes the largest.
+  defp reachable_finishes(state, child_id, child) do
+    cond do
+      is_map(child[:finish]) ->
+        [child.finish]
+
+      child.closed ->
+        []
+
+      true ->
+        for {_, slot} <- state.slots,
+            slot.callable == child_id and slot.kind == "finish" and
+              slot.phase in [:authorizing, :approval, :ready] and is_map(slot[:action]),
+            do: kept_finish(slot.action)
+    end
   end
 
   # Whether the :configure `record` on `snapshot` (the empty state, or the terminal state

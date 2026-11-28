@@ -712,7 +712,10 @@ no actual yet, at its committed amount so far, a child whose cost ends unknown
 included. Each such charge is counted at an upper bound of its growth (twice the
 amount's bytes and 32 in control; the amount's bytes and 16 in the parent slot and, for
 an open parent, 17 for its outcome, the largest record that the parent keeps as its
-pending input while paused, and 4,096 in control for that settlement), with no
+pending input while paused, with the largest finish that the child can still give it:
+the finish that it keeps, or while it keeps none each admitted finish of its own that
+waits for its authorization or Approval or is ready, and 4,096 in control for that
+settlement), with no
 release counted (no reservation, slot reserve or kept finish freed), and an ancestor's
 charge counts every charge below it; the state that the step writes fits too, and so
 does each slot and the slots map with these charges. A cancel records nothing for a
@@ -2213,6 +2216,15 @@ paused parent: in a v1 Run under
 paused, gets the tool's result with a 70 KiB actual: `{:error, :record_size}` with no
 row and the tool slot open (the parent's outcome would keep the actual twice in its
 slot); an actual of 7 is applied and the parent keeps its outcome as its pending input.
+A nested child asks in one request for a tool call (dispatched with no Approval) and a
+finish of 60,000 bytes that waits for Approval, under `budget_rule: :pause` with a root
+Budget of 5; in each order (the tool's result before the Approval, and the Approval
+before the result) a result with a 40,000-byte actual gives `{:error, :record_size}`,
+appends no record of the result (the call adds only a Run view and its result row,
+journaled before its check) and leaves the tool slot open; a result with
+actual 7 is applied, and once the finish is kept the parent's outcome, which spends the
+root Budget, pauses the Run and keeps that outcome as the parent's pending input with
+actual 7 and the finish payload.
 
 `completion_by_its_finish_record`: a root finish held for Approval, settled by its
 correlated outcome and named as the source of another root finish, completes the
@@ -2299,7 +2311,8 @@ one-sample test); a control that does not give a stored halt first (1: the bindi
 deadline of 2^63); and a control's clock sample `nil` taken as a time (1: the cancel
 whose sample is `nil`). Listed finite scenarios, not a proof.
 
-On this revision, 52 temporary edits (the 45 above, ported to its engine by applying
+On the revision before the bound counted a child's finish that waits for Approval
+(commit 7aea5934), 52 temporary edits (the 45 above, ported to its engine by applying
 their diffs, three of them rebuilt by hand where the code moved, and seven more: the
 retained parent record not counted, the no-growth exemption for a cursor with a Budget
 command, the room demanded in full of a step that sets a stop, no unmarked stop on a
@@ -2315,13 +2328,17 @@ test of a Budget-spending answer whose step and mark take part of the room was a
 it fails in the second run. One (a nested start admitted by the state after its step
 alone) failed no test in any run: with it the byte-by-byte nested start test also
 passes, because that test finds its own least admitted padding (measured 68,772 bytes
-with the edit and 68,815 on this revision, 43 bytes apart, values of that fixture, not
+with the edit and 68,815 on that revision, 43 bytes apart, values of that fixture, not
 a policy) and at every padding it admits the stop is marked. The outcome differs: at a
 fixed padding in that band the edit admits the nested start and marks its stop where
-this revision refuses it `record_size`. No test asserts the outcome at a fixed padding
+that revision refuses it `record_size`. No test asserts the outcome at a fixed padding
 there, so the tests do not detect that edit (a limit of these tests). So 51 of the 52
-edits made named tests fail across the two runs, not in one run. Listed finite
-scenarios, not a proof.
+edits made named tests fail across the two runs, not in one run. That inventory was not
+run on this revision. On this revision one temporary edit, the bound counting only the
+finish that a child keeps (not one that waits for Approval), was made in place and made
+the test of the 60,000-byte finish fail (its 40,000-byte actual applied, before the
+Approval); the engine was restored byte for byte and the test passed again. Listed
+finite scenarios, not a proof.
 
 `test/elzoo/run_engine_deadlines_test.exs` exercises `deadlines/1` in four groups
 on disposable PostgreSQL, each read checked against the `phase` of `status/1`.

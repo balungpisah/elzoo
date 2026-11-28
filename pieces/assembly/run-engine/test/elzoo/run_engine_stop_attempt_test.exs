@@ -1681,6 +1681,49 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       send(provider, {:result, %{}})
     end
 
+    test "approved child finish of 60,000 bytes: a 40,000-byte tool actual is refused before or after the Approval, a small one is kept with the finish" do
+      # The parent's outcome, which exhausts the root Budget under budget_rule :pause and so
+      # is kept while paused, carries the child's finish and its actual twice in its slot.
+      for order <- [:actual_first, :approval_first] do
+        {c, engine, provider} = approved_child()
+        tool = slot_key(c, "tool")
+        result = Elzoo.RunEngine.TestHelper.result("tool")
+
+        context = fn actual ->
+          verified(%{occurrence: tool, actual: actual, dispatch: "dispatched"})
+        end
+
+        big = Integer.pow(2, 8 * 40_000)
+
+        if order == :approval_first, do: approve_finish(c, engine)
+        before = rows(c)
+
+        assert {:error, :record_size} = RunEngine.input(engine, "big", result, context.(big)),
+               "#{order}"
+
+        # No record of the refused input is appended; the rows that the call adds are only
+        # those of the owner's Run view that current/1 journals before the check.
+        added = for row <- Enum.drop(rows(c), length(before)), do: decode(row)
+
+        IO.puts(
+          "ELZ-430: #{order}: rows added by the refused call: #{inspect(Enum.map(added, &row_kind/1))}"
+        )
+
+        refute Enum.any?(added, &match?({1, {"big", _}}, &1))
+        assert Enum.all?(added, &(row_kind(&1) in [:run_view, :result]))
+        refute unit_state(c).slots[tool].phase == :settled
+
+        assert {:ok, :applied} = RunEngine.input(engine, "small", result, context.(7))
+        if order == :actual_first, do: approve_finish(c, engine)
+        state = unit_state(c)
+        assert state.control.lifecycle.phase == :paused, "#{order}"
+        assert %{pending_input: %{record: record}} = state.slots[{1, 0}]
+        assert record.correlation.actual == 7
+        assert record.input =~ String.duplicate("x", 60_000)
+        send(provider, {:result, %{}})
+      end
+    end
+
     test "after a change of Attempt settled a nested parent with no actual, its child's last Resource charge is admitted only with room for the charge that the parent takes after it; refused, it writes no row and strands no input" do
       {c, opts, changed, record} = settled_parent_with_resource(@rate)
       parent = {1, 0}
@@ -1734,6 +1777,55 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       start(c, opts)
       assert unit_state(c).control.cursors == changed.control.cursors
     end
+  end
+
+  # A root nested_callable whose child asks in one request for a tool call (dispatched with
+  # no Approval) and a finish of 60,000 bytes that waits for Approval, under
+  # budget_rule :pause with a root Budget of 5. Returns the fixture, the engine and the
+  # tool's provider; the finish waits for Approval and the tool runs.
+  defp approved_child do
+    finish = finish_action("fin", %{"x" => String.duplicate("x", 60_000)})
+    child = %{requests: [request([action("tool", "tool_call"), finish])]}
+    script = fn frame -> [frame.([action("nested", "nested_callable")])] end
+    budget = %{cap: 5, unit: "credits", id: "budget", incarnation: "sealed"}
+    c = run_fixture(script, 1, budget_rule: :pause, budget: budget)
+    require_approval(c)
+    base = c.opts[:bindings]["nested_callable"]
+
+    nested = %{
+      base
+      | facts: fn a -> %{base.facts.(a) | estimate: 5} end,
+        nested: fn a -> %{base.nested.(a) | initial_state: child} end
+    }
+
+    bindings =
+      c.opts[:bindings]
+      |> Map.put("nested_callable", nested)
+      |> Map.update!("tool_call", &%{&1 | effect_class: "compute"})
+      |> Map.update!("finish", &%{&1 | effect_class: "publish"})
+
+    engine = start(c, bindings: bindings)
+    assert {:ok, :applied} = start_run(c, engine)
+    assert_receive {:effect_started, provider, _}, 5_000
+    wait_for(engine, &match?({_, %{phase: :approval}}, slot_of(&1, "fin")))
+    {c, engine, provider}
+  end
+
+  # The host gives the Approval evidence of the child's finish.
+  defp approve_finish(c, engine) do
+    {:ok, run} = Run.status(c.run, "run")
+    [%{request_key: key}] = run.approvals
+    approval = %{kind: :approval_evidence, request_key: key, evidence: consent(key)}
+    assert {:ok, :applied} = RunEngine.control(engine, "approve", approval, verified())
+  end
+
+  # The kind of a decoded Unit row: an input's record kind, or :result for a result row.
+  defp row_kind({1, {_id, %{kind: kind}}}), do: kind
+  defp row_kind(_), do: :result
+
+  defp slot_key(c, action_id) do
+    {key, _} = slot_of(unit_state(c), action_id)
+    key
   end
 
   describe "bounded_times" do
