@@ -222,10 +222,17 @@ estimate, is dropped with no append of it, and its slot stays open the same way.
 Resource entry's input is not committed, and its entry stays unconsumed for a later
 pass (see the limits of the invocation entries). An outcome that the engine gives
 itself (a refusal, a nested parent's outcome, whose actual admission counted when it
-admitted the child, and the `local_restart` loss that a start or a replacement Unit
-records for running local work) is not written, and its slot stays as it is: a later
-drain gives it again, and a `local_restart` loss is recorded once it fits, at the latest
-after a continue resumes the Run. The step stores the actual twice in the Budget and
+admitted the child, the `local_restart` loss that a start or a replacement Unit records
+for running local work, and the `lost_outcome` of a model or tool call whose intent was
+already tried) is not written, and its slot stays as it is. A refusal or a nested
+outcome is given again by a later drain; a `local_restart` or `lost_outcome` loss, which
+no drain selects again, is kept by the engine and given again in each drain after a
+pending stop and after the retained inputs and held reports that the drain gives first,
+once it fits, at the latest after a continue resumes the Run, with no second dispatch to
+the provider and no new intent attempt (an engine that stops forgets it, and the next
+start or replacement Unit records it again). A refusal writes nothing of the refused
+record, and what the call committed before its check (a stop that a Resource outcome
+set in the same call, for one) is drained all the same. The step stores the actual twice in the Budget and
 once in the slot; a slot that the step settles frees its 4,096-byte reserve and its
 listed wait, while a slot that keeps the input as its pending input while paused frees
 its listed wait but keeps its reserve (it stays active until continue gives the input),
@@ -778,14 +785,18 @@ last 227 bytes a state keeps only what it can still take: each is measured from 
 it stands (a Run revision whose encoding grew from 255 to 256 has 3 bytes fewer to
 grow, and the 3 that it took are not kept again). The room for the step that sets a
 stop is its 468 bytes and that part, after the waits and charges that admission
-counts. Every state that this revision writes keeps it: with no stop pending
-(admission keeps at least that, and each growth that no check admits takes from the
-free bytes what it takes from the part kept); after a step that sets a stop, whose
-marked state keeps that part free and whose state with the stop dropped (as a change of
-Attempt drops it) keeps the whole room; and while a stop is pending, where growth that
-is admitted (an answer's actual, a Resource cursor) keeps the room of the state with
-the stop dropped (an answer that would not is refused `record_size`, its slot open).
-The step that sets a stop adds the mark when the marked state passes the state bound
+counts, measured with the classification at its shortest (`:late`): every protocol step
+replaces the classification with no check (a timely wake that calls no pattern while an
+ask waits takes it from `{:gate, 1}` to `:remain_waiting`, 6 bytes more), and the 468
+bytes are counted from `:late`. Every state that this revision writes keeps it: with no
+stop pending (admission keeps at least that, and each growth that no check admits takes
+from the free bytes what it takes from the part kept); after a step that sets a stop,
+whose marked state keeps that part free and whose state with the stop dropped as a
+change of Attempt drops it (the stop and its mark removed) keeps the whole room; and
+while a stop is pending, where growth that is admitted (an answer's actual, a Resource
+cursor) keeps the room of the state with the stop and its mark dropped (an answer that
+would not is refused `record_size`, its slot open). The step that sets a stop adds the
+mark when the marked state passes the state bound
 and leaves the stop unmarked otherwise; from a state that this revision wrote it marks
 the stop and never fails the bound. A state without that room is one that an earlier
 revision recorded near the bound, and only such a state leaves a stop unmarked: its
@@ -1663,9 +1674,13 @@ again under the same ID as a second journal pair. Its fold gives it no second pa
 call where the first took one (its entry in `control.invocations` makes it a
 duplicate) and none in an older Attempt (it is late), but the second pair is written.
 The cursor refusal and the waiting slot's own deadline do not settle a slot that waits
-on that Resource (the expiry pass does not settle a Resource slot, and its outcome is
-in the unconsumed entries): while its Attempt and the Run stay open it stays open past
-its own deadline until its entry is consumed. The existing close rules still apply. A
+on that Resource (the expiry pass does not settle a Resource slot): while its Attempt
+and the Run stay open, and while its own outcome has not committed, it stays open past
+its own deadline until its entry is consumed. An entry can carry several inputs (a
+Resource close settles each waiting or active action and adds its closed event) and
+each commits on its own before the check before the cursor record, so a slot whose own
+outcome committed is settled while the cursor has not moved and the entry stays
+unconsumed for its later inputs or its cursor record. The existing close rules still apply. A
 change of Attempt settles a sent Resource slot of the older Attempt `unknown`, with no
 actual and its Budget entry held, in the fold of the new Attempt's Run view, before any
 later pass reads the Resource; the Resource's cursor does not move. A stop whose end of
@@ -2170,8 +2185,8 @@ mark and one before it 462; with exactly 468 bytes left the cancel at the deadli
 commits marked with none left, and with 467 it commits unmarked with 233 left. At
 request cap 1, a nested start whose child's first request passes the cap (stopping the
 charge and asking for `out_of_budget`) is admitted at the least headroom that admission
-takes (found by search) with the stop marked and at least 227 bytes left after the
-mark, and one byte under it is refused `record_size` with no child, no stop and no
+takes (found by search) with the stop marked and, after the mark, at least what of the
+227 bytes the state can still take, and one byte under it is refused `record_size` with no child, no stop and no
 mark. An ask's verified answer with an actual of about 32 KiB, at the admission limit,
 fails the bound by the fold alone and is not admitted by `actual_admits?/2`; through the
 engine it gives `{:error, :record_size}` with no row and the ask still waiting, and with
@@ -2183,7 +2198,13 @@ under its action ID), and not the charges of nested children (the test that need
 them measures them); the tests that use it pass unchanged. The 32 KiB answer, refused
 at the limit, is refused again after the owner moved, appending only the Run view that
 the call journaled; the Unit reopens with the ask waiting after the refusal and, after
-the accepted settlement, delivers the marked stop. An answer whose actual spends the
+the accepted settlement, delivers the marked stop. Padded states in these tests are
+synthetic boundary-sized predecessors: `pad_invocations/2` adds invocation entries of
+up to 8,000-byte IDs keyed by digests of the padding itself (a public input ID is at
+most 160 bytes), and `journal_state/3` installs such a state with a `:pad` record; they
+stand for a state that an earlier revision recorded near the bound or that admission
+left at its limit, not for a history that an engine recorded, and the engine calls that
+follow them are real. An answer whose actual spends the
 Budget and whose step grows control by 100 to 200 bytes past what its settlement frees
 is admitted, on a state without the room for a step that sets a stop and within the
 bound (none left, found by bisection), at the padding where its unmarked step fits with
@@ -2195,40 +2216,63 @@ of a 200-byte Attempt drops its stop, keeps the room: there a cancel at the Run 
 marks its stop. The same holds through the engine with an actual of 2,400 bytes: at
 that least padding the answer commits its stop marked, the engine is killed at its
 owner command, the host begins a 200-byte Attempt, the restart drops the stop, and a
-cancel at the Run deadline commits marked and is delivered. With an ask admitted at the
+cancel at the Run deadline commits marked and is delivered (no input comes while that
+stop is pending). With an ask admitted at the
 limit and an owner update in the same Attempt that takes the Run revision from 255 to
 256 (3 bytes of the room, with no check), an answer whose step marks its stop is
 admitted, and the smallest actual whose step the fold leaves unmarked (its mark does not
-fit) is refused. Beside a nested child open at zero cost, a state without the room takes
+fit) is refused. With an ask admitted at the limit in a 1-byte Attempt, the Run revision
+and a Run deadline of 250 below 256 and no pause deadline (4 of the 227 bytes spare),
+a timely wake that calls no pattern takes the classification to `:remain_waiting`, and
+the smallest actual whose step the fold leaves unmarked is refused (on the engine of
+commit 9147a57c, which measured the room with the classification as it stood, it was
+admitted unmarked). Through public calls, a Resource open's outcome that the call's
+own reconciliation takes makes the root ask past request cap 1 and sets the request-cap
+stop; an ask's verified answer of actual 3 in that call is then applied while the stop is
+pending and the stop is delivered (`out_of_budget`, reason `"request_cap"`), and, in v1
+and v2, a local outcome of the engine's mailbox form whose actual the slot bound cannot
+hold is refused with no record of it, and the stop that the reconciliation set is
+delivered all the same, the local work still running. Beside a nested child open at zero cost, a state without the room takes
 a Budget-spending answer unmarked at exact fit: no charge of the child is counted against
 that step. An answer of another Run that names the open ask's Attempt, action and
-occurrence is late: it is admitted, its step changes no slot or Budget, and
-`own_settlement?/3` is false for it. A paused v2 answer is refused with no row and the
+occurrence is, by the fold and its size check, late: it is admitted, its step changes
+no slot or Budget, and `own_settlement?/3` is false for it (through `input/4` the
+public validation of its time, ID, schema and correlation comes first). A paused v2
+answer is refused with no row and the
 ask waiting at a padding where the fold would settle it and drop its pending input
 (`record_size`); with room it is applied, kept as the slot's pending input with its wait
 removed, and continue gives it to the pattern once. Under `budget_rule: :pause`, a v2
 answer with no actual whose own step pauses the Run on a Budget that an earlier Budget
 step exhausted is refused the same way, and kept with room. In a paused v2 Run, a
 Resource entry whose completed open the fold would settle without keeping it writes no
-row and leaves the slot open and the cursor unmoved, and with room it is kept and
-continue gives it once; a running local work lost at a restart writes no
-`local_restart` loss where its step could not keep it and stays running, and the
+row and leaves the slot open and the cursor unmoved; on the same engine a continue
+resumes the Run, and the next call's pass consumes the entry and gives its outcome to the
+pattern once. A running local work lost at a restart writes no
+`local_restart` loss where its step could not keep it and stays running; the Unit is
+then replaced in the same Attempt, whose recovery refuses the loss again, and the
 continue that resumes the Run records the loss and gives it to the pattern once. A
+dispatched tool call lost at a restart writes no `lost_outcome` where its step could
+not keep it; the continue records it and gives it once, with no second dispatch. With
+`expiry_reports: :owner`, an ask's expiry report held while paused and a running local
+work whose loss could not be kept are given after continue in that order: the report,
+then the loss. A
 nested start with an estimate of 4 KiB, a 60,000-byte child Budget ID and an empty child
 script is stepped at the least admitted padding and the 64 above it: each admitted step
 keeps the bound, and so does the Run view of a new Attempt after it, which closes the
 open child (its cost known, zero) and settles the parent `unknown` at actual 0 in its
 own step. A child's Resource cursor is stepped the same way, and so is one whose
-parent's charge lands in a root Budget holding 60 one-credit entries that expire at 100
-(entries of a Run on a clock below 100), whose sweep grows them 60 bytes: after each
+parent's charge lands in a root Budget to which the test adds 60 one-credit entries
+that expire at 100 (a constructed Budget state: entries put in by the Budget's own
+reserve step, with no engine slot), whose sweep grows them 60 bytes: after each
 admitted cursor, the charge keeps the bound and leaves the room for a stop free (on the
-revision before this one, whose bound left the sweep out, the same charge left the
+engine of commit 8323c705, whose bound left the sweep out, the same charge left the
 room 29 bytes short). On a state that keeps the room, a
 Budget-spending answer whose step and mark take part of the room (the smallest actual,
 by its bytes, that does) is admitted and marks its stop; and a nested start at request
 cap 1 with a fixed 300-byte child Budget ID, stepped at every padding from 64 bytes
 under its least admitted padding to 64 above (that least padding measured 65,345 bytes
-of headroom on this revision, a value of that fixture, not a policy), is refused at each
+of headroom on the engines of commit 9147a57c and of this revision, 64,946 on that of
+8323c705: a value of that fixture, not a policy), is refused at each
 of the 64 paddings under it and admitted with its stop marked at it and each of the 64
 above, and no padding admits it with its stop unmarked.
 
@@ -2431,19 +2475,20 @@ fixed padding in that band the edit admits the nested start and marks its stop w
 that revision refuses it `record_size`. No test asserts the outcome at a fixed padding
 there, so the tests do not detect that edit (a limit of these tests). So 51 of the 52
 edits made named tests fail across the two runs, not in one run. That inventory was not
-run on this revision. At commit 815d4362 one temporary edit, the bound counting only the
+run on a later revision as such. At commit 815d4362 one temporary edit, the bound counting only the
 finish that a child keeps (not one that waits for Approval), was made in place and made
 the test of the 60,000-byte finish fail (its 40,000-byte actual applied, before the
-Approval); the engine was restored byte for byte and the test passed again. On this
-revision three temporary edits, each made in place and the engine restored byte for byte
-after it, made named tests fail: the retained parent record counted for every open
-parent, also one whose child has no finish (two of the four admission tests of
-`test/elzoo/run_engine_test.exs` run with it: the nested starts refused out of order and
-the root's state that can grow, a refused later start admitted), the retained record
-never counted (the paused v1 parent with a 70 KiB actual and the 60,000-byte finish
-waiting for Approval), and a stop-setting step that keeps none of the room after its
-mark (the nested start at request cap 1: 38 bytes left after the mark, not 227). Listed
-finite scenarios, not a proof.
+Approval); the engine was restored byte for byte and the test passed again. On the engine
+of commit 350340f7 (the engine of 8323c705) three temporary edits, each made in place and
+the engine restored byte for byte after it, made named tests fail: the retained parent
+record counted for every open parent, also one whose child has no finish (two of the
+four admission tests of `test/elzoo/run_engine_test.exs` run with it: the nested starts
+refused out of order and the root's state that can grow, a refused later start
+admitted), the retained record never counted (the paused v1 parent with a 70 KiB actual
+and the 60,000-byte finish waiting for Approval), and a stop-setting step that keeps none
+of the room after its mark (the nested start at request cap 1: 38 bytes left after the
+mark, not 227). Those are results of the revisions named, not of this one. Listed finite
+scenarios, not a proof.
 
 `test/elzoo/run_engine_deadlines_test.exs` exercises `deadlines/1` in four groups
 on disposable PostgreSQL, each read checked against the `phase` of `status/1`.
@@ -2680,7 +2725,9 @@ fail). Listed finite scenarios, not a proof.
   still give it (else `input/4` gives `{:error, :record_size}`, a local work's outcome
   is dropped, a Resource entry stays unconsumed, and an outcome or loss of the engine
   is left for a later drain, each with no record appended; a Run view that the call
-  journaled before the check stays); an input of another Run is late before any check;
+  journaled before the check stays, and what the call committed before the check is
+  drained); in the fold, an input of another Run is late before any settlement or size
+  check (`input/4` validates its time, ID, schema and correlation first);
   the engine refuses a time or a Run revision above 2^63 - 1 where it enters (a start
   option, a control, an input's context, a clock sample, a Run view), before any write
   that reconciles the owner's Run view, and reads one clock sample for an input, a
