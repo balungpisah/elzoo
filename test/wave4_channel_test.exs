@@ -8231,6 +8231,62 @@ defmodule Elzoo.Wave4ChannelTest do
              appends_of(take_conversation_appends(), :append_input)
   end
 
+  @tag timeout: 300_000
+  test "an input that an approval release's window read shows stays held when the release then fails: an outside acknowledgement without its row is fenced at the next advance",
+       %{fixture: fixture} do
+    # Every signed input asks for approval, and the release authority grants
+    # nothing: a release passes its window read, then fails.
+    fixture =
+      host_with_gates(fixture, fixture.gates,
+        policy: fn _mode, _event, _now -> Elzoo.Wave4ChannelTestHelper.policy(:ask) end,
+        authority: fn _mode, _event, _request, _facts -> %{} end
+      )
+
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event(%{"event_id" => "release-window"})
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    operation = Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])
+    principal = %{tenant: fixture.profile.tenant, actor: fixture.profile.actor}
+
+    assert {:approval_pending, %{key: key}} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               principal,
+               {fixture.profile.tenant, fixture.profile.actor, operation}
+             )
+
+    # Another caller commits an input of the conversation; the release's
+    # window read is the first read of this host that shows it.
+    other =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "release-window-other",
+        "input_id" => "release-window-other-input"
+      })
+
+    assert {{:completed, %{revision: 1}}, _writes} = seed_input_command!(fixture, other, :allow)
+    assert {:ok, [item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    envelope =
+      release_envelope(fixture.profile, key, System.system_time(:millisecond), "release-window")
+
+    assert {:error, :unavailable} =
+             Wave4ChannelExample.release(
+               fixture.host,
+               normalized_event(event),
+               Elzoo.Wave4ChannelTestHelper.scope(fixture.profile),
+               envelope
+             )
+
+    # A competing caller acknowledges the shown input with its original
+    # nonce, without its row: the next advance fences on it.
+    assert {:committed, _} = Outbox.ack(fixture.command_store, item.idempotency_key, item.nonce)
+    trace_conversation_appends(fixture.host)
+    assert {:blocked, :delivery_unproven} = Wave4ChannelExample.advance(fixture.host)
+    item_key = item.idempotency_key
+    assert {:delivery_unproven, :input, ^item_key} = :sys.get_state(fixture.host).poison
+    assert take_conversation_appends() == []
+  end
+
   # Another caller commits an input of the conversation. A signed input
   # then reaches admission, whose window read shows that input: the signed
   # input waits behind it (`:busy`), or, naming the input's message ID with
