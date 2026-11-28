@@ -12538,7 +12538,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/conversation/piece.json",
-      "manifest_sha256": "c49c6f6759b723b3bf96f995ea1dd370cd586d6f8a35caf07b34b0fc5feaf350"
+      "manifest_sha256": "472d0083381aaa17f142fa6d8e9f461b90675e85b88e4f2e46c48b585cde51b4"
     },
     {
       "id": "state/crdt",
