@@ -2351,7 +2351,9 @@ defmodule Elzoo.RunHostTimeTest do
       # that second reading waits in the backend. Still the start is not answered, no Run
       # owner or engine has started and the claim is unconfirmed. Then the backend goes on
       # with the host suspended: the worker's second reading, correlated with the claim's
-      # record, reaches the host, which confirms the claim on it; the start is answered.
+      # record, is queued at the host before the start is answered. (Which reading then
+      # confirms the claim, that one or a host expiry check's queued with it, is not
+      # identified.)
       %{held: %{live: %{revision: claimed}}} = run(host, :claim_only)
       :sys.suspend(backend)
       :erlang.resume_process(worker)
@@ -2711,14 +2713,24 @@ defmodule Elzoo.RunHostTimeTest do
 
       # The test's reading leaves the deadline passed; the input's, sampled after it, is not
       # accepted: the input is answered {:error, :unavailable} and nothing of it reaches the
-      # worker; the fence, already due, loses the Run once the host resumes.
+      # worker; the fence, already due, loses the Run once the host resumes. The worker is
+      # monitored before that: once it has ended and every trace message sent so far has
+      # been delivered, no call of the input is among the worker's received messages.
+      down = Process.monitor(worker)
       :sys.resume(host)
       assert {:error, :unavailable} = Task.await(input)
       assert {:error, :unavailable} = Task.await(first)
       assert_receive {:lost, :straddling, :expired, _}, 1_000
-      :erlang.trace(worker, false, [:receive])
+      assert_receive {:DOWN, ^down, :process, ^worker, _}, 5_000
+      delivered = :erlang.trace_delivered(:all)
+      assert_receive {:trace_delivered, :all, ^delivered}, 1_000
       input_pid = input.pid
-      refute_received {:trace, ^worker, :receive, {:"$gen_call", {^input_pid, _}, _}}
+
+      assert for(
+               {:trace, ^worker, :receive, {:"$gen_call", {^input_pid, _}, _}} = t <-
+                 drain_traces([]),
+               do: t
+             ) == []
     end
 
     test "a renewal stays pending after a newer short re-claim reading marked before the reply; only the older, longer reading taken after the reply confirms it (the short mark set by the test)" do
@@ -2745,11 +2757,13 @@ defmodule Elzoo.RunHostTimeTest do
       %{lease: %{pending: %{record: renewed, replied: replied}}} = run(host, :pending_longer)
       assert early < replied
 
-      # With the host suspended, every reading task that it has dispatched is suspended too
-      # (held until the end of the test's readings, so none gives a result meanwhile; new
-      # ones read the failing clock): a reading of the renewal's record (after the reply,
-      # the longer until), then a same-holder re-claim for 1 s and a reading of it (newer in
-      # the Store), whose mark the test sets to the early one.
+      # With the host suspended, every reading task that it has dispatched so far is
+      # suspended too, held across the window in which the lease clock can be read and until
+      # after the confirmation below, so none of them gives a result meanwhile; a reading
+      # task started later (after the host resumes) reads the failing clock. Then: a reading
+      # of the renewal's record (after the reply, the longer until), a same-holder re-claim
+      # for 1 s and a reading of it (newer in the Store), whose mark the test sets to the
+      # early one.
       :sys.suspend(host)
 
       held =
@@ -2829,9 +2843,10 @@ defmodule Elzoo.RunHostTimeTest do
 
       # The worker's status read waits in the suspended backend for good. The bound counts
       # from the host's receipt of the claim, which neither of the test's times observes:
-      # `started` is taken before the test launches the task that calls the start,
-      # `notified` when the test receives the notification sent from inside the claim's
-      # write, and `lost_at` inside the `on_lost` callback, after the host fenced the Run.
+      # `started` is the test's clock sample before it launches the task that calls the
+      # start, `notified` when the test receives the notification sent from inside the
+      # claim's write, and `lost_at` when the `on_lost` callback runs (the host starts it
+      # before the teardown, so it times neither a confirmed fence nor the start's return).
       queued_reader!(backend, key, [])
       assert_receive {:lost, :hung, :expired, lost_at}, 4_000
       assert lost_at >= started + 2_000
