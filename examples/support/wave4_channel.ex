@@ -2700,7 +2700,7 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp observe_window(state, items) do
     case unseen_held_proven(state, items) do
-      {:ok, state} ->
+      {:ok, state, items} ->
         if reply_profile?(state.profile),
           do: observe_reply_profile(state, items),
           else: observe_pending_input(state, items)
@@ -2715,8 +2715,10 @@ defmodule Elzoo.Wave4ChannelExample do
     _ -> {{:unknown, :input_observation}, %{state | poison: {:rediscover, :exception}}}
   end
 
+  # The window as last observed (`unseen_held_proven/2`): an item that a
+  # later read saw acknowledged is never adopted.
   defp observe_pending_input(state, items) do
-    case Enum.find(items, &(&1.destination == @destination)) do
+    case Enum.find(items, &(&1.destination == @destination and &1.state == :pending)) do
       nil ->
         # A full window may hide this conversation's next input behind other
         # conversations' items: discovery is retried, read first.
@@ -4062,7 +4064,7 @@ defmodule Elzoo.Wave4ChannelExample do
   defp observe_reply(state), do: {{:blocked, :reply_state}, state}
 
   defp observe_reply_window(state, reply, current, pending) do
-    with {:ok, state} <- unseen_held_proven(state, pending),
+    with {:ok, state, pending} <- unseen_held_proven(state, pending),
          {:ok, item} <- observed_reply_item(state, reply, current, pending) do
       adopt_reply(state, reply, item)
     else
@@ -5397,27 +5399,39 @@ defmodule Elzoo.Wave4ChannelExample do
   # does not settle an acknowledgement under another nonce. In version 1,
   # before a round is restored, the held primaries that the window no longer
   # shows still name their rounds' delivery items (`unseen_roots/2`): each
-  # is read once, decided with the other held items, and then checked with
-  # the items that its custody names (`roots_proven/3`).
+  # is read once and its custody discovered (`roots_discovered/5`) before
+  # anything is decided. Those reads are later observations than the
+  # window: a window item that one of them saw acknowledged is no longer
+  # shown. The unseen held items and the items that the roots name are then
+  # decided together in command order (`held_proven/3`), so the earliest
+  # breach fences. A settled root is released; each item that an unsettled
+  # root names and that is not settled is held by its key, so that a round
+  # adopted later still checks it. `{:ok, state, window}` with the window
+  # as last observed, or `{failure, state}`.
   defp unseen_held_proven(state, window) do
-    shown = MapSet.new(window, & &1.idempotency_key)
+    roots = unseen_roots(state, MapSet.new(window, & &1.idempotency_key))
 
-    unseen =
+    with {:ok, seen} <- root_reads(state, roots),
+         {:ok, settled, named, seen} <- roots_discovered(state, roots, seen, [], []) do
+      window = Enum.map(window, &Map.get(seen, &1.idempotency_key, &1))
+      shown = for %{state: :pending} = item <- window, into: MapSet.new(), do: item.idempotency_key
+
       state
       |> held_list()
       |> Enum.reject(fn {_kind, _destination, key} -> MapSet.member?(shown, key) end)
+      |> Kernel.++(named)
+      |> Enum.uniq_by(fn {_kind, _destination, key} -> key end)
+      |> held_proven(state, seen)
+      |> case do
+        {:ok, state} ->
+          state = release_held(state, settled)
+          {:ok, Enum.reduce(named, state, &hold_unsettled(&2, &1, seen)), window}
 
-    roots = unseen_roots(state, shown)
-
-    case root_reads(state, roots) do
-      {:ok, seen} ->
-        case held_proven(unseen, state, seen) do
-          {:ok, state} -> roots_proven(state, roots, seen)
-          failure -> failure
-        end
-
-      error ->
-        {error, state}
+        failure ->
+          failure
+      end
+    else
+      error -> {error, state}
     end
   end
 
@@ -5447,39 +5461,33 @@ defmodule Elzoo.Wave4ChannelExample do
     end)
   end
 
-  # Each root in command order, with the items that its custody names,
-  # discovered and decided from those reads (`custody_items/2`); the root
-  # itself was decided with the other unseen held items. Once the root and
-  # each item it names is acknowledged with its own nonce, its append
-  # proven, nothing of that round is left to fence: the root is released,
-  # and the next root is checked the same way. A root whose round is not
-  # settled stays the custody root. A read that fails keeps everything
-  # held, and is retried.
-  defp roots_proven(state, [], _seen), do: {:ok, state}
+  # Each root in command order with the items that its custody names
+  # (`custody_items/2`), whose reads replace older ones in `seen`. A root
+  # whose round these reads show settled (the root and each item that it
+  # names acknowledged with its own nonce) lets the next root be
+  # discovered; the first that is not ends discovery and stays the custody
+  # root. `{:ok, settled, named, seen}`, or `{:error, reason}` when a read
+  # fails: nothing is decided, everything stays held, and the step is
+  # retried.
+  defp roots_discovered(_state, [], seen, settled, named), do: {:ok, settled, named, seen}
 
-  defp roots_proven(state, [key | roots], seen) do
+  defp roots_discovered(state, [key | roots], seen, settled, named) do
     root = Map.fetch!(seen, key)
 
-    case custody_items(state, {root.sequence, {:primary, root}}) do
-      {:ok, named, found} ->
-        seen = Map.merge(seen, found)
+    with {:ok, items, found} <- custody_items(state, {root.sequence, {:primary, root}}) do
+      seen = Map.merge(seen, found)
+      named = named ++ items
 
-        case held_proven(named, state, seen) do
-          {:ok, state} ->
-            if Enum.all?([{:input, @destination, key} | named], fn {_kind, _destination, key} ->
-                 settled?(Map.get(seen, key))
-               end),
-               do: state |> release_held([key]) |> roots_proven(roots, seen),
-               else: {:ok, state}
-
-          failure ->
-            failure
-        end
-
-      {:error, reason} ->
-        {{:error, reason}, state}
+      if Enum.all?([{:input, @destination, key} | items], fn {_kind, _destination, key} ->
+           settled?(Map.get(seen, key))
+         end),
+         do: roots_discovered(state, roots, seen, [key | settled], named),
+         else: {:ok, settled, named, seen}
     end
   end
+
+  defp hold_unsettled(state, {_kind, _destination, key} = item, seen),
+    do: if(settled?(Map.get(seen, key)), do: state, else: hold_item(state, item))
 
   defp settled?(%{state: :acked, ack_nonce: nonce, nonce: nonce}), do: true
   defp settled?(_item), do: false

@@ -8179,6 +8179,328 @@ defmodule Elzoo.Wave4ChannelTest do
   end
 
   @tag timeout: 300_000
+  test "a queued v1 primary that a settled root's receipt scan reads acknowledged under another nonce is fenced, never adopted from the window that showed it pending",
+       %{fixture: fixture} do
+    other_nonce = :crypto.strong_rand_bytes(16)
+
+    {fixture, input_id, later, later_event} =
+      settled_root_with_queued_input!(fixture, fn fixture, later ->
+        refute other_nonce == later.nonce
+        {:committed, _} = Outbox.ack(fixture.command_store, later.idempotency_key, other_nonce)
+      end)
+
+    later_key = later.idempotency_key
+    later_nonce = later.nonce
+    later_id = later_event["input_id"]
+
+    # The scan's read, not the older window, decides the later input: the
+    # superseded fence, no round adopted and no association command.
+    assert {:blocked, :delivery_ack_superseded} = Wave4ChannelExample.advance(fixture.host)
+
+    assert %{poison: {:delivery_ack, ^later_key, ^later_nonce, :superseded}, current: nil} =
+             :sys.get_state(fixture.host)
+
+    assert {:blocked, :delivery_ack_superseded} = Wave4ChannelExample.advance(fixture.host)
+    appends = take_conversation_appends()
+    assert [^input_id, ^later_id] = for({:append_input, dto} <- appends, do: dto.message_id)
+    assert appends_of(appends, :associate_run) == []
+    assert {:ok, entries} = Elzoo.Wave4ChannelTestHelper.conversation_entries(fixture)
+    assert [%{input_message_id: ^input_id}] = Enum.filter(entries, &(&1.kind == :association))
+
+    assert {:error, :not_found} =
+             RunApprovalRelease.status(fixture.owner, run_id_of(fixture, later_event))
+  end
+
+  @tag timeout: 300_000
+  test "a queued v1 primary that a settled root's receipt scan reads acknowledged with its own nonce, its row proven, is not adopted from the window that showed it pending",
+       %{fixture: fixture} do
+    {fixture, input_id, _later, later_event} =
+      settled_root_with_queued_input!(fixture, fn fixture, later ->
+        {:committed, _} = Outbox.ack(fixture.command_store, later.idempotency_key, later.nonce)
+      end)
+
+    later_id = later_event["input_id"]
+
+    # Its own receipt and its row settle it, as when no window shows it: the
+    # host idles, with no round for it and no association command.
+    assert {:idle, :no_input} = Wave4ChannelExample.advance(fixture.host)
+    assert %{poison: nil, current: nil} = :sys.get_state(fixture.host)
+    appends = take_conversation_appends()
+    assert [^input_id, ^later_id] = for({:append_input, dto} <- appends, do: dto.message_id)
+    assert appends_of(appends, :associate_run) == []
+
+    assert {:error, :not_found} =
+             RunApprovalRelease.status(fixture.owner, run_id_of(fixture, later_event))
+  end
+
+  # A reopened v1 host whose round is settled: its primary's association
+  # was appended and acknowledged with its own nonce, its Run created, and
+  # no answer committed. A later input of the conversation is queued behind
+  # it. The reopened host's delivery pass appends both inputs; a competing
+  # caller then acknowledges the primary with its original nonce before the
+  # observation's window read, which therefore shows only the later input.
+  # The observation checks the settled round, and its association receipt
+  # scan reads the later input after `act` ran on it. Returns the reopened
+  # fixture, the primary's input ID, the later input's item and its event.
+  defp settled_root_with_queued_input!(fixture, act) do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+    run_id = run_id_of(fixture, event)
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+    later_key = commit_later_input!(fixture)
+
+    assert {:ok, [primary, %{idempotency_key: ^later_key} = later]} =
+             Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    later_event =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "held-anchor-later",
+        "input_id" => "held-anchor-later-input"
+      })
+
+    assert {:ok, fixture} = Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, listener)
+    stream = Elzoo.Wave4ChannelTestHelper.command_stream(fixture.profile.tenant)
+    probe = probe_host_command_store!(fixture)
+
+    Elzoo.Wave4ChannelTest.ReadProbe.transform(probe, :pending, fn
+      _result, 2 ->
+        {:committed, _} =
+          Outbox.ack(fixture.command_store, primary.idempotency_key, primary.nonce)
+
+        Elzoo.DurableLog.Store.read(fixture.command_store, :pending, [stream, 64])
+
+      result, _count ->
+        result
+    end)
+
+    act_on_read_within!(probe, fixture, later_key, :unseen_held_proven, fn ->
+      act.(fixture, later)
+    end)
+
+    trace_conversation_appends(fixture.host)
+    {fixture, input_id, later, later_event}
+  end
+
+  @tag timeout: 300_000
+  test "an earlier v1 association acknowledged without its row is the fence when two held primaries are acknowledged without a window showing them, never the later input",
+       %{fixture: fixture} do
+    {fixture, association_key} = acked_association_and_held_inputs!(fixture)
+    trace_conversation_appends(fixture.host)
+    assert {:blocked, :delivery_unproven} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:delivery_unproven, :association, ^association_key} =
+             :sys.get_state(fixture.host).poison
+
+    assert {:blocked, :delivery_unproven} = Wave4ChannelExample.advance(fixture.host)
+    assert take_conversation_appends() == []
+  end
+
+  @tag timeout: 300_000
+  test "an earlier v1 association acknowledged without its row is the fence before a later admitted input, with two held primaries acknowledged, never the later held input",
+       %{fixture: fixture} do
+    {fixture, association_key} = acked_association_and_held_inputs!(fixture)
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+
+    next =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "earliest-breach-next",
+        "input_id" => "earliest-breach-next-input",
+        "expected_revision" => 3
+      })
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, next)
+    trace_conversation_appends(fixture.host)
+    assert {:blocked, :delivery_unproven} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:delivery_unproven, :association, ^association_key} =
+             :sys.get_state(fixture.host).poison
+
+    assert take_conversation_appends() == []
+  end
+
+  @tag timeout: 300_000
+  test "an earlier v1 association acknowledged without its row is the fence once a failed receipt scan of the empty window is retried, never the later held input",
+       %{fixture: fixture} do
+    {fixture, association_key} = acked_association_and_held_inputs!(fixture)
+    probe = probe_host_command_store!(fixture)
+    fail_reads_within!(probe, :read_ack, :find_delivery_item, :once)
+    trace_conversation_appends(fixture.host)
+
+    # The round's items cannot all be named yet: nothing is decided, and
+    # discovery is retried, read first.
+    assert {:unknown, :input_observation} = Wave4ChannelExample.advance(fixture.host)
+    assert {:blocked, :delivery_unproven} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:delivery_unproven, :association, ^association_key} =
+             :sys.get_state(fixture.host).poison
+
+    assert take_conversation_appends() == []
+  end
+
+  # A reopened v1 round whose association a competing caller acknowledged
+  # with its original nonce and no row (`acked_association_after_reopen!/1`),
+  # with a later input of the conversation queued behind that association.
+  # A signed input then waits behind them (503): admission's window read
+  # shows, and so holds, both inputs. A competing caller then acknowledges
+  # both with their original nonces; the later input has no row. Returns the
+  # fixture and the association's key.
+  defp acked_association_and_held_inputs!(fixture) do
+    {fixture, _input_id, primary, association_key} = acked_association_after_reopen!(fixture)
+    later_key = commit_later_input!(fixture)
+
+    assert {:ok, [^primary, %{idempotency_key: ^later_key} = later]} =
+             Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+
+    waiting =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "earliest-breach-waiting",
+        "input_id" => "earliest-breach-waiting-input",
+        "expected_revision" => 3
+      })
+
+    assert {:ok, {{_, 503, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, waiting)
+
+    assert %{
+             primary.idempotency_key => {:input, "wave4-channel-input"},
+             later_key => {:input, "wave4-channel-input"}
+           } == :sys.get_state(fixture.host).held
+
+    assert {:committed, _} =
+             Outbox.ack(fixture.command_store, primary.idempotency_key, primary.nonce)
+
+    assert {:committed, _} = Outbox.ack(fixture.command_store, later_key, later.nonce)
+    {fixture, association_key}
+  end
+
+  @tag timeout: 300_000
+  test "a v1 association that a backlog hid, named while another primary is adopted, fences that round's later appends and Run once acknowledged without its row",
+       %{fixture: fixture} do
+    {fixture, association, later} = backlog_hidden_association!(fixture)
+    key = association.idempotency_key
+    assert {:committed, _} = Outbox.ack(fixture.command_store, key, association.nonce)
+    trace_conversation_appends(fixture.host)
+    assert {:blocked, :delivery_unproven} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_unproven, :association, ^key} = :sys.get_state(fixture.host).poison
+    assert {:blocked, :delivery_unproven} = Wave4ChannelExample.advance(fixture.host)
+    assert take_conversation_appends() == []
+
+    assert {:error, :not_found} =
+             RunApprovalRelease.status(fixture.owner, run_id_of(fixture, later))
+  end
+
+  @tag timeout: 300_000
+  test "a v1 association that a backlog hid, named while another primary is adopted, is delivered in its turn and then released",
+       %{fixture: fixture} do
+    {fixture, association, later} = backlog_hidden_association!(fixture)
+    key = association.idempotency_key
+    nonce = association.nonce
+    later_id = later["input_id"]
+    later_run = run_id_of(fixture, later)
+
+    # The observation that adopted the later input named the association and
+    # holds it. The delivery pass appends and acknowledges it in its turn,
+    # before the later input; the next check that reads it by its key
+    # releases it, and the adopted round goes on.
+    assert Map.has_key?(:sys.get_state(fixture.host).held, key)
+    trace_conversation_appends(fixture.host)
+    assert {:associated, ^later_run} = Wave4ChannelExample.advance(fixture.host)
+    appends = take_conversation_appends()
+    assert [{:associate_run, %{input_message_id: "input-1"}}] = appends_of(appends, :associate_run)
+    assert [{:append_input, %{message_id: ^later_id}}] = appends_of(appends, :append_input)
+
+    assert {:ok, %{state: :acked, ack_nonce: ^nonce}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [key])
+
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+    refute Map.has_key?(:sys.get_state(fixture.host).held, key)
+  end
+
+  # A v1 round whose association commits behind a backlog: between the
+  # association's admission and its commit, another conversation of the
+  # tenant commits 63 associations, so the association's item lies beyond a
+  # full window behind the primary. A later input of the conversation
+  # commits after it, and its exact row is written from outside (an
+  # identical outside write). The host is replaced; its delivery pass shows
+  # only the primary and the backlog. A competing caller then acknowledges
+  # the primary with its original nonce, and the backlog drains, before the
+  # observation's window read, which shows the association, pending without
+  # its row, and the later input: the later input is observed. Returns the
+  # reopened fixture, the association's item and the later event.
+  defp backlog_hidden_association!(fixture) do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+    run_id = run_id_of(fixture, event)
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+
+    commit_between_check_and_commit!(fixture, :association, fn ->
+      seed_foreign_deliveries!(fixture, 63, "hidden-association")
+    end)
+
+    assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+    backlog = foreign_items!(fixture, "hidden-association")
+    assert length(backlog) == 63
+    backlog_keys = MapSet.new(backlog, & &1.idempotency_key)
+    stream = Elzoo.Wave4ChannelTestHelper.command_stream(fixture.profile.tenant)
+    {:ok, pending} = Outbox.pending(fixture.command_store, stream, 4_096)
+    [primary | _] = pending
+    assert primary.destination == "wave4-channel-input"
+
+    [association] =
+      Enum.reject(pending, &(&1 == primary or MapSet.member?(backlog_keys, &1.idempotency_key)))
+
+    assert association.destination == "wave4-channel-delivery"
+    assert Enum.all?(backlog, &(&1.sequence < association.sequence))
+
+    later =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "hidden-association-later",
+        "input_id" => "hidden-association-later-input",
+        "expected_revision" => 2
+      })
+
+    assert {{:completed, %{revision: 3} = completed}, _writes} =
+             seed_input_command!(fixture, later, :allow)
+
+    assert {:ok, :input, dto} = Wave4ChannelExample.Intents.delivery(completed.response)
+
+    assert {:ok, _} =
+             Conversation.append_input(
+               Elzoo.Wave4ChannelTestHelper.conversation_owner(fixture),
+               dto
+             )
+
+    assert {:ok, fixture} = Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, listener)
+    probe = probe_host_command_store!(fixture)
+
+    Elzoo.Wave4ChannelTest.ReadProbe.transform(probe, :pending, fn
+      _result, 2 ->
+        {:committed, _} =
+          Outbox.ack(fixture.command_store, primary.idempotency_key, primary.nonce)
+
+        drain!(fixture, backlog)
+        Elzoo.DurableLog.Store.read(fixture.command_store, :pending, [stream, 64])
+
+      result, _count ->
+        result
+    end)
+
+    later_id = later["input_id"]
+    trace_conversation_appends(fixture.host)
+    assert {:observed, ^later_id} = Wave4ChannelExample.advance(fixture.host)
+    assert [{:append_input, %{message_id: ^input_id}}] = take_conversation_appends()
+    Elzoo.Wave4ChannelTest.ReadProbe.reset(probe)
+    {fixture, association, later}
+  end
+
+  @tag timeout: 300_000
   test "an input that a signed admission's window read shows stays held: an outside acknowledgement without its row before the next advance is fenced with no append, and the input admitted after it is not delivered",
        %{fixture: fixture} do
     {item, _later} = admission_window_case!(fixture, :busy)
