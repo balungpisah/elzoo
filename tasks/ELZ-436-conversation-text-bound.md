@@ -36,9 +36,10 @@ refused at `append_answer/2`, and the conversation never gets the answer.
   `count`.
 - This change is breaking (README `## Changes`):
   - A Store whose `max_record_bytes` lies between the old and the new worst
-    case is now refused at owner start, at import, and by `page/5` and
-    `tail/4` (`{:error, :invalid_request}`, also for an empty stream). To
-    move, raise the Store limit.
+    case is now refused, also for an empty stream: the owner's start and
+    `import_v1/3` return `{:error, :unsupported_store}`, and `page/5` and
+    `tail/4` return `{:error, :invalid_request}`. To move, raise the Store
+    limit.
   - A copy taken before this change refuses a stream that holds a text above
     4,096 bytes: its owner at start, as damaged; its `page/5` and `tail/4`
     with `{:error, :damaged}`, but only when the range they read holds such a
@@ -66,8 +67,9 @@ from current `main`. New external dependencies: none.
     control bytes that Jason escapes to six bytes each (such as `0x01` and
     `0x02`; not `\b`, `\t`, `\n`, `\f` or `\r`, which take two), so it is
     not a `duplicate_message_id`.
-- A Store limit one byte below the worst case is refused at owner start, at
-  `import_v1/3`, and by `page/5` and `tail/4`, also on an empty stream.
+- A Store limit one byte below the worst case, also on an empty stream: the
+  owner's start and `import_v1/3` give `{:error, :unsupported_store}`, and
+  `page/5` and `tail/4` give `{:error, :invalid_request}`.
 - An owner start over a stream longer than 169 rows, and an owner that
   catches up after another writer appended more than 169 rows, read in
   Store reads of at most 169 rows (assert the Store's read calls).

@@ -102,10 +102,13 @@ command. For each call:
   absent ack row above `low_water` proves nothing. A pending ASK is never
   evicted. So a retry returns the first result until its receipt is evicted:
   never a second execution. After eviction, `execute/3` with the original
-  issuance is `{:refused, :expired}`; `release/4`, which has no issuance
-  operand, returns `:not_found`; `result/3` returns
-  `{:unknown, :not_observed}`, as for an identity never seen. A host
-  reconciles an unknown outcome within `window_ms`.
+  issuance is refused and never executed again: `{:refused, :expired}` once
+  the descriptor and clock checks pass, or the descriptor or clock refusal
+  that comes first (`{:refused, :clock_behind}` for a clock more than
+  `max_skew_ms` behind `W`). `release/4`, which has no issuance operand,
+  returns `:not_found`; `result/3` returns `{:unknown, :not_observed}`, as
+  for an identity never seen. A host reconciles an unknown outcome within
+  `window_ms`.
 - A pending ASK, of either version, stays releasable at any later time with
   fresh evidence. Its release appends a row and advances `W`.
 
@@ -248,16 +251,18 @@ is not proof that the ack did not commit.
 **Needs (README).** The Issuing Need above. The Verifier Need and the Clock
 Need of ELZ-417 for the host's evidence verifiers and clock. The Retirement
 Need of ELZ-417 holds through the Issuing Need: an evicted identity can only
-come back with its original time, which is `:expired` before it reaches
-Approval.
+come back with its original time, so it is refused before it reaches
+Approval, with `{:refused, :expired}` once the descriptor and clock checks
+pass, or with the descriptor or clock refusal that comes first.
 
 Clock bound (README): the hosts that call one stream keep their clocks within
 `max_skew_ms` of each other. `max_skew_ms` refuses a clock behind `W` but
 cannot cap one that runs ahead: an accepted clock that runs ahead advances `W`
 and shortens every caller's window, and a caller more than `max_skew_ms`
 behind the new `W` gets `:clock_behind`. Safety does not rest on this bound:
-under the Issuing Need, an evicted identity is `{:refused, :expired}` and is
-never executed again.
+under the Issuing Need, an evicted identity is never executed again. It is
+`{:refused, :expired}` once the descriptor and clock checks pass; a caller
+more than `max_skew_ms` behind `W` gets `{:refused, :clock_behind}` first.
 
 **Wave 4 (ELZ-419's handover).** The names below are checked against
 ELZ-419's head `d927017f`; the worker rechecks them against `main` when it
@@ -274,10 +279,13 @@ claims. The Wave 4 files that call this Piece, and their calls:
   `result/3`, `resource/3`.
 
 The channel moves to the version 2 API and keeps the behavior that it has on
-`main`. Its proofs read original command rows, receipts and acknowledged
-outbox rows. Its reply source is its tenant stream, which the run engine
-reads as a v2 event source, and that source refuses a head with a positive
-`low_water` (the engine README: the first profile starts at low-water zero).
+`main`. Besides the custody facts that ELZ-419 persists (the reply source,
+the association and the original key and nonce), its proofs read original
+command rows, receipts and acknowledgement rows (for example, the original
+acknowledgement read by its key). Its reply source is its tenant stream,
+which the run engine reads as a v2 event source, and that source refuses a
+head with a positive `low_water` (the engine README: the first profile
+starts at low-water zero).
 So:
 
 - Every descriptor on the channel's tenant stream, in the example and in its
@@ -287,18 +295,28 @@ So:
   Issuing Need). Contexts take `now` from the channel's clock; a test whose
   clock moves back by more than `max_skew_ms` sets a larger `max_skew_ms` on
   every descriptor of that stream.
-- The channel never calls `maintain/3`, so its tenant stream keeps
-  `low_water` 0. With no evictable receipt, no cycle appends a maintenance
-  marker on that stream, so its head moves only by commands, as today.
+- No retention on the channel's tenant stream, a Need that the module
+  documentation states: no participant calls `maintain/3` on that stream,
+  and no other Store user retains it. The channel itself never calls
+  `maintain/3`. So the stream keeps `low_water` 0; with no evictable
+  receipt, no cycle appends a maintenance marker on it, so its head moves
+  only by commands, as today. The existing test that retains the stream
+  and gets `:gap` from the reply source stays.
 - The channel keeps its row bounds and head checks as on `main`. Its
-  capacity preflights refuse a step when the stream head is above a limit
-  between 1,017 and 1,021 rows: they proved that a round fits under this
-  Piece's old cap of 1,024 operations, and now bound the channel itself.
-  `ReplySource` reads at most 4,096 rows. The channel's command Stores set
-  `max_checkpoint_bytes` to at least this Piece's minimum and to at least the
-  largest checkpoint that the channel can produce within those bounds, so a
-  checkpoint never refuses the channel before its own bounds do. The module
-  documentation states the figure and how it was computed.
+  capacity preflights refuse a step when the stream head is above that
+  step's limit, from 1,017 to 1,023 rows (the answer's limit is 1,023), so
+  an admitted round can end above the last limit that it checked (ELZ-419's
+  headroom tests end a round at a head of 1,024 rows; the worker determines
+  the highest head that an admitted round can reach, a reply custody
+  command included, when it claims). They proved that a
+  round fits under this Piece's old cap of 1,024 operations, and now bound
+  the channel itself. `ReplySource` reads at most 4,096 rows. The channel's
+  command Stores set `max_checkpoint_bytes` to at least this Piece's
+  minimum and to at least the largest checkpoint that the channel can
+  produce within those bounds, the projection at the highest head that an
+  admitted round reaches included, so a checkpoint never refuses the
+  channel before its own bounds do. The module documentation states the
+  figure, that head and how both were computed.
 
 Not this task's: running the channel after retention, which first needs an
 event source with a positive low-water in `assembly/run-engine` and a signed
@@ -352,8 +370,9 @@ Memory and PostgreSQL Stores unless a case says otherwise:
   write.
 - Retries: a retry inside the window returns the first result with no second
   effect; changed bytes for a retained identity are `{:conflict, :identity}`;
-  after eviction `execute/3` with the original issuance is
-  `{:refused, :expired}` and `release/4` is `:not_found`, with no effect; a
+  after eviction, with the clock within `max_skew_ms` of `W`, `execute/3`
+  with the original issuance is `{:refused, :expired}` and `release/4` is
+  `:not_found`, with no effect; a
   `release/4` retry of a terminal receipt read from a checkpoint with another
   descriptor or other facts is `{:release_refused, :binding_mismatch}`; a
   request issued more than `max_skew_ms` ahead is
@@ -406,18 +425,24 @@ Memory and PostgreSQL Stores unless a case says otherwise:
   pending ASK, terminal receipts, an unacknowledged outbox item) loads through
   an upgraded fold; exact retries return their results; the pending ASK
   releases; the item acknowledges; version 2 commands follow.
-- Retention is explicit: on Memory and PostgreSQL, after `3 × checkpoint_rows`
-  commands with every item acknowledged and every receipt evictable, the
-  automatic cycles have confirmed checkpoints and `low_water` is still 0; one
-  `maintain/3` call then retains, and a reopen recovers from its checkpoint.
+- Retention is explicit: on Memory and PostgreSQL, an older cohort of
+  commands is issued more than `window_ms` before the newest command, so at
+  the committed `W` their receipts are evictable and the newest receipt is
+  retained. Every item is acknowledged, and an automatic checkpoint
+  threshold is crossed after that prefix became acknowledged and
+  evictable. The automatic cycles have confirmed checkpoints and
+  `low_water` is still 0; one `maintain/3` call then retains through the
+  older cohort, and a reopen recovers from its checkpoint.
 - Wave 4: every Wave 4 test passes on the version 2 API, with two seeds. One
-  added test, on PostgreSQL, runs enough rounds on one tenant to pass the
-  channel's `checkpoint_rows` (a small value is allowed): the stream then has
-  a confirmed checkpoint of this Piece, `low_water` 0 and no maintenance
-  marker, and after a fenced reopen the next round completes from that
-  checkpoint plus the tail (assert the checkpoint read). The headroom tests
-  at the channel's preflight limits (heads 1,017 to 1,021) pass with its
-  checkpoint budget.
+  added test, on PostgreSQL, runs enough rounds on one tenant to cross the
+  channel's `checkpoint_rows` (a small value is allowed) after an earlier
+  prefix of rounds is acknowledged, so a retention would move the floor:
+  the stream then has a confirmed checkpoint of this Piece, `low_water` 0
+  and no maintenance marker, and after a fenced reopen the next round
+  completes from that checkpoint plus the tail (assert the checkpoint
+  read). The headroom tests at the channel's preflight limits (heads 1,017
+  to 1,023, with a round that reaches the highest head that the module
+  documentation states) pass with its checkpoint budget.
 - Negative control (recorded and reverted): an automatic cycle that also
   retains; the explicit-retention test and the added Wave 4 test fail.
 - The tests of `domain/kill-switch` and `workflow/tenant-lifecycle`, and the

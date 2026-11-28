@@ -99,7 +99,10 @@ deadline, tenant and principal, and the result reader's retention.
   AI sink tuple sent to the engine directly would fall into its catch-all and
   be dropped). On wake it rebuilds that route from the committed action facts
   and the stable binding configuration, not from `status/1` alone, and holds
-  deliveries during startup until the route is verified.
+  deliveries during startup until the route is verified. A start or wake is
+  answered only after that verification; a route that cannot be read gives
+  `{:error, {:route, reason}}`, and a moment's read failure is retried
+  first.
 - An `Elzoo.AiText.admission/2` refusal (`{:error, {:refused, reason}}`, for
   example `:unsupported_feature` for an image part, because the host
   configures no artifact reader, or `:too_large`) never reaches `facts/1`. The
@@ -153,7 +156,7 @@ deadline, tenant and principal, and the result reader's retention.
 **Recovery.** `wake(host, run_refs)` returns one explicit disposition per
 Run: `:woken` or `{:error, reason}` (the README lists each reason, including
 `:incompatible_recovery`, `{:lease_refused, _}`, `:capacity`,
-`:fencing_unproven` and a Run with no current Attempt).
+`:fencing_unproven`, `{:route, _}` and a Run with no current Attempt).
 
 - It opens only Runs that already have a current Attempt.
 - It rebuilds the spec through the `spec` callback and starts the engine on
@@ -177,8 +180,11 @@ Run: `:woken` or `{:error, reason}` (the README lists each reason, including
   `fencing_proof`, every predecessor check fails. It never reuses a cached
   attestation keyed only by `run_ref`. Absent, invalid or unproven evidence
   returns `{:error, :fencing_unproven}`, starts no engine and grants neither
-  a fresh nor a recovered activation (the effect-intent host's `authorize` reply
-  `:fresh` or `{:recovered, generation}`).
+  a fresh nor a recovered activation (the effect-intent host's `authorize`
+  reply `:fresh` or `{:recovered, generation}`). The README claims no fencing
+  of outstanding writes beyond this attestation. Reaping, releasing the lease
+  and freeing the reservation need no attestation, and a fresh Run can take
+  the freed slot.
 - An active recovered intent with a recorded attempt settles `unknown`
   (`lost_outcome`) and is never sent again; a read-only recovered intent leaves
   its slot in reconciliation (README).
@@ -205,9 +211,12 @@ confirmed. The host stops admission for that Run (`{:error, :lease_lost}`)
 and fences its processes on `{:refused, {:lease_lost, refusal}}`,
 `{:refused, {:fenced, facts}}`, `{:indeterminate, receipt}` or
 `{:unknown, :no_receipt}` (each of these stops the owner), and calls
-`on_lost.(run_ref, reason)`. A `renew/2` call that exits on its caller
-timeout is an unconfirmed renewal: the host treats it like
-`{:unknown, :no_receipt}` (stops admission for that Run and fences). Test:
+`on_lost.(run_ref, reason)`. A `renew/2` call that exits, on its caller
+timeout or for any other reason, is an unconfirmed renewal: the host treats
+it like `{:unknown, :no_receipt}` (stops admission for that Run and fences).
+Once the host's own teardown of that Run has begun (`reap/2`, or a failed
+start), a renewal result or exit only records its receipt: it calls no
+`on_lost` and no `on_terminal`. Test:
 delay a renewal reply until after the caller timeout; the host stays alive,
 stops admission, calls `on_lost` and confirms the old owner is fenced before
 any replacement, and a late successful renewal neither reopens admission nor
@@ -250,10 +259,12 @@ manual-clock Lease backend and EffectIntent's explicit
   exactly once in total, the slot settles `unknown` once (`lost_outcome`,
   not resent), and the Run is readable as `:failed`
   (`model_call_not_completed`). Also test lease expiry alone, and the host's
-  own confirmed teardown while a predecessor's Store write is held after its
-  submission, each with no proof: `{:error, :fencing_unproven}`, no grant, no
-  engine and no new send; once the held write lands, a wake with proof reads
-  it and the slot settles once. Test the same predecessor check on an
+  own confirmed teardown while an EffectIntent write of the predecessor is
+  held after its submission (settling the Unit slot need not advance the
+  intent head), each with no proof: `{:error, :fencing_unproven}`, no grant,
+  no engine and no new send; once the held write lands, a wake with proof
+  reads it and the slot settles once. Every positive case that opens an
+  existing journal passes fresh proof. Test the same predecessor check on an
   interrupted `start_run/3` retry that opens an existing journal: with no
   proof it is `{:error, :fencing_unproven}` and no engine starts.
 - Routing: for startup routing, use an untried intent first dispatched
@@ -268,6 +279,14 @@ manual-clock Lease backend and EffectIntent's explicit
   delivery gives no settlement. Under `budget_rule: :pause`, the first sink
   outcome settles, and its duplicate is recognized even after the trusted
   context would supply a different pause deadline.
+- Oversized completion, each with reported usage that converts: a completed
+  view over the byte bound and, separately, a small completed view whose
+  tool-proposal arguments nest past the depth bound are each journaled as
+  outcome `refused` with reason `too_large`, `dispatch` `"dispatched"` and
+  no `actual`, and the reservation stays reserved (assert the journaled
+  input and the reservation). A view one level under the depth bound settles
+  `completed` with its `actual`. Negative control (recorded and reverted):
+  without the depth case of the mapping, the depth case fails.
 - Capacity: with `max_runs` Runs held (one terminal and not reaped, one with a
   sleeping Unit), one more start is `{:error, :capacity}`. After `reap/2` no
   process of that Run remains (count them before and after), its lease is
@@ -286,9 +305,10 @@ manual-clock Lease backend and EffectIntent's explicit
   the engine by a Budget exhaustion under `budget_rule: :pause`); each ends
   the Run at the earlier one. A `continue` that replaces the Run deadline
   moves the timer, and the replaced timer produces no input.
-- Fingerprint: a `spec` callback that changes the gate version or the request
-  cap at wake gives `{:error, :incompatible_recovery}` for that Run, its Unit is
-  confirmed stopped, and another Run in the same batch wakes.
+- Fingerprint: with fresh proof, a `spec` callback that changes the gate
+  version or the request cap at wake gives `{:error, :incompatible_recovery}`
+  for that Run, its Unit is confirmed stopped, and another Run in the same
+  batch wakes.
 - Wake dispositions: a batch with a Run that has no current Attempt and a Run
   whose lease another owner holds gives one disposition for each Run, starts
   no engine for those two, and leaves no process of them behind.
