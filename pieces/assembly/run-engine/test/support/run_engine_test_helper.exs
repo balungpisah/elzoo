@@ -934,7 +934,7 @@ defmodule Elzoo.RunEngine.TestHelper do
   # placed in it), the receipt reserve (1,024 for each receipt that can still come),
   # 4,096 for each active slot, for each callable that is not closed the room that
   # is left of its state bound (`state_bytes`, 65,536 when absent) after its stored
-  # state, and, while no stop is pending, the room of 665 bytes that admission keeps for a
+  # state, and, while no stop is pending, the room of 693 bytes that admission keeps for a
   # stop and its mark (ELZ-430). A negative value is a broken bound (with no stop pending,
   # of the bound that admission keeps).
   def control_headroom(state) do
@@ -979,7 +979,7 @@ defmodule Elzoo.RunEngine.TestHelper do
               )
       end)
 
-    stop_room = if is_nil(c.stop_pending), do: 665, else: 0
+    stop_room = if is_nil(c.stop_pending), do: 693, else: 0
 
     reserve =
       (c.cap + 1 - map_size(c.receipts)) * 1_024 + active * 4_096 + open_reserve + stop_room

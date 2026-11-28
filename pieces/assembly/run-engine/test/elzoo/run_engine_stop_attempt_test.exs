@@ -61,6 +61,15 @@ defmodule Elzoo.RunEngineStopAttemptTest.CompleteForwarder do
     {:noreply, {run, :spent}}
   end
 
+  # `:over_revision` answers each status read with the owner's view at revision 2^63, one
+  # past the largest that the engine takes; `{:set_mode, mode}` switches the mode.
+  def handle_call({:set_mode, mode}, _from, {run, _}), do: {:reply, :ok, {run, mode}}
+
+  def handle_call({:status, _} = status, _from, {run, :over_revision} = state) do
+    {:ok, view} = GenServer.call(run, status, 60_000)
+    {:reply, {:ok, %{view | revision: 9_223_372_036_854_775_808}}, state}
+  end
+
   def handle_call(message, _from, {run, _} = state),
     do: {:reply, GenServer.call(run, message, 60_000), state}
 end
@@ -110,6 +119,12 @@ defmodule Elzoo.RunEngineStopAttemptTest do
   # them (earlier/2): {source, replaced}, where `replaced` adds a wake past the Run deadline
   # whose out_of_time that fold let take the place of the stop (a cancel here).
   @earlier [completed: false, cancelled: false, run_deadline: false, cancelled: true]
+
+  # The bytes of the control bound that admission keeps free while no stop is pending.
+  @room 693
+
+  # The largest time and Run revision that the engine takes.
+  @max_time 9_223_372_036_854_775_807
 
   # Each source of a pending stop. `:completed` is a root finish naming a completed
   # action; `:failed` a root finish naming no action; `:cancelled` a cancel while local
@@ -792,6 +807,29 @@ defmodule Elzoo.RunEngineStopAttemptTest do
         small = protocol_record("w", wake(), attempt_id: "a")
         assert {:Transition, refused, :none} = RunEngine.step(padded, small)
         assert refused.control.classification == :record_size, "#{kind}"
+
+        # By the fold alone, past the largest growth that no admission checks before such a
+        # step: the Run view of the 200-byte Attempt with the largest Run revision, then a
+        # cancel, which marks its stop within the bound.
+        view = %{
+          version: 1,
+          kind: :run_view,
+          view: %{
+            id: "run",
+            operation_id: "operation",
+            current_attempt: long,
+            revision: 9_223_372_036_854_775_807,
+            outcome: nil,
+            at_ms: 2_000
+          }
+        }
+
+        assert {:Transition, viewed, :none} = RunEngine.step(padded, view)
+        cancel = input(c, "cancel", %{"attempt_id" => long})
+        fold_cancel = record(c, "fold-cancel", cancel, attempt_id: long)
+        assert {:Transition, cancelled, :none} = RunEngine.step(viewed, fold_cancel)
+        assert cancelled.control.stop_attempt == {long, :cancelled}
+        assert control_headroom(cancelled) >= 0
         journal_state(c, padded)
 
         # The host begins a 200-byte Attempt; the start takes its Run view, which admits
@@ -826,7 +864,7 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       # The largest state that an earlier revision recorded without the room from which the
       # unmarked wake still fits: from `:late` the wake grows control by 34 bytes, which
       # leave none of the bound, and its mark does not fit.
-      padded = pad_invocations(put_in(state.control.classification, :late), 34 - 665)
+      padded = pad_invocations(put_in(state.control.classification, :late), 34 - @room)
       late = protocol_record("late-wake", Map.put(wake(), "at_ms", 61_000), attempt_id: long)
       assert {:Transition, next, :none} = RunEngine.step(padded, late)
       assert next.control.stop_pending == :out_of_time
@@ -845,6 +883,145 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert :ok = DynamicUnits.stop(c.directory, c.prefix)
       assert_refused(c)
       assert unit_state(c) == committed
+    end
+
+    test "one byte past that state: the wake past the Run deadline fails after its input commits, as before ELZ-430, and the Unit does not reopen" do
+      long = String.duplicate("l", 200)
+      {c, state} = in_attempt(long)
+      padded = pad_invocations(put_in(state.control.classification, :late), 33 - @room)
+      late = protocol_record("late-wake", Map.put(wake(), "at_ms", 61_000), attempt_id: long)
+      assert_raise MatchError, fn -> RunEngine.step(padded, late) end
+      journal_state(c, padded)
+
+      engine = start(c)
+      refute match?({:ok, _}, stop_request(c, engine, :wake, long))
+      if Process.alive?(engine), do: call(fn -> GenServer.stop(engine) end)
+
+      # The input is committed with no result; each start fails and writes nothing.
+      failed = rows(c)
+      [last | _] = Enum.reverse(failed)
+      assert last.kind == "input"
+      assert {1, {"late-wake", _}} = decode(last)
+
+      for _ <- 1..2 do
+        assert {:error, _} = RunEngine.start_link(c.opts)
+        assert rows(c) == failed
+      end
+    end
+
+    test "a Resource cursor record that adds its key or lengthens its sequence's encoding is admitted only with the room; one that does neither always is" do
+      {_c, state} = in_attempt("a")
+      padded = pad_invocations(put_in(state.control.classification, :late), 0)
+      refute RunEngine.cursor_admits?(padded, "document", 1)
+      at_255 = put_in(padded.control.cursors["document"], 255)
+      refute RunEngine.cursor_admits?(at_255, "document", 256)
+      assert RunEngine.cursor_admits?(at_255, "document", 254)
+
+      assert RunEngine.cursor_admits?(
+               put_in(at_255.control.cursors["document"], 200),
+               "document",
+               255
+             )
+
+      roomy = pad_invocations(put_in(state.control.classification, :late), 64)
+      assert RunEngine.cursor_admits?(roomy, "document", 1)
+    end
+
+    test "at the admission limit, the entry of an opened Resource whose cursor record would add its key writes no row and leaves the cursor unchanged, and a cancel then commits marked" do
+      payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+      c = run_fixture(fn frame -> [frame.([action("open", "resource_open", payload)])] end, 1)
+      {owner, bindings} = resource(c)
+      opts = [resources: %{"document" => owner}, bindings: bindings]
+      engine = start(c, opts)
+      assert {:ok, :applied} = start_run(c, engine)
+      assert_receive {:effect_started, _opening, _}, 5_000
+      GenServer.stop(engine)
+      # The Resource's first entries were read with room; its key is removed from the
+      # recorded state, padded to the admission limit, so that the next entry that the
+      # engine reads would add it again.
+      state = put_in(unit_state(c).control.classification, :late)
+      assert %{"document" => _} = state.control.cursors
+      padded = pad_invocations(update_in(state.control.cursors, &Map.delete(&1, "document")), 0)
+      journal_state(c, padded)
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "opened",
+                 at_ms: 2_000,
+                 body:
+                   {:observed, ["tenant", "account", "effect", "publish", "open"],
+                    {:completed, %{opened_at_ms: 2_000}}}
+               })
+
+      before = rows(c)
+      engine = start(c, [run_owner: forwarder(c, :kill)] ++ opts)
+      monitor = Process.monitor(engine)
+      # The start reconciles the open's tried intent (a :continuation record); the entry
+      # itself writes no row: no input of it and no cursor record.
+      entry_rows = fn ->
+        for row <- Enum.drop(rows(c), length(before)),
+            {1, {id, record}} <- [decode(row)],
+            Map.get(record, :kind) == :resource_cursor or String.starts_with?(id, "resource:"),
+            do: id
+      end
+
+      assert entry_rows.() == []
+      refute Map.has_key?(unit_state(c).control.cursors, "document")
+
+      cancel = input(c, "cancel", %{"attempt_id" => "attempt"})
+      call(fn -> RunEngine.input(engine, "cancel", cancel, verified()) end)
+      assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+      control = unit_state(c).control
+      assert control.stop_attempt == {"attempt", :cancelled}
+      refute Map.has_key?(control.cursors, "document")
+      assert entry_rows.() == []
+    end
+  end
+
+  describe "bounded_times" do
+    test "a time above 2^63 - 1 is refused with no write: the run_deadline start option, a pause or continue control, an input's context pause_deadline and a clock sample" do
+      c = run_fixture(fn _frame -> [] end, 1)
+      over = @max_time + 1
+      assert {:error, _} = RunEngine.start_link(Keyword.put(c.opts, :run_deadline, over))
+      assert rows(c) == []
+      engine = start(c)
+      assert {:ok, :applied} = start_run(c, engine)
+      before = rows(c)
+      pause = %{kind: :pause, pause_deadline: over}
+      assert {:error, :invalid_control} = RunEngine.control(engine, "pause", pause, verified())
+      continue = %{kind: :continue, run_deadline: over, person_id: "person"}
+
+      assert {:error, :invalid_control} =
+               RunEngine.control(engine, "continue", continue, verified())
+
+      far = verified(%{pause_deadline: over})
+
+      assert {:error, :pause_deadline_required} =
+               RunEngine.input(engine, "far", input(c, "wake"), far)
+
+      Agent.update(c.clock, fn _ -> over end)
+
+      assert {:error, :invalid_input} =
+               RunEngine.input(engine, "late", input(c, "wake"), verified())
+
+      assert rows(c) == before
+      assert %{reconciliation: nil} = view(engine)
+    end
+
+    test "a Run view whose revision is above 2^63 - 1 fails the start with no write, and later halts the engine before its commit" do
+      c = run_fixture(fn _frame -> [] end, 1)
+      over = forwarder(c, :over_revision)
+      assert {:error, _} = RunEngine.start_link(Keyword.put(c.opts, :run_owner, over))
+      assert rows(c) == []
+      seam = forwarder(c, :spent)
+      engine = start(c, run_owner: seam)
+      assert {:ok, :applied} = start_run(c, engine)
+      before = rows(c)
+      assert :ok = GenServer.call(seam, {:set_mode, :over_revision})
+      wake = input(c, "wake")
+      assert {:error, :integrity_failure} = RunEngine.input(engine, "next", wake, verified())
+      assert rows(c) == before
+      assert %{reconciliation: :integrity_failure} = view(engine)
     end
   end
 

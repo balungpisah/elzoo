@@ -12,19 +12,26 @@ defmodule Elzoo.RunEngine do
   @control_bytes 2_097_152
   @request_bytes 4_456_448
   @slot_bytes 131_072
-  # The room for a stop (ELZ-430): while no stop is pending, admission (admits?/1) leaves
-  # this many bytes of the control bound free, so that the step that sets a stop can mark
-  # it, also after a change to a longer Attempt ID. The mark is the key `stop_attempt` with
-  # {Attempt, stop}; with a 200-byte Attempt ID (the longest that the engine and the Run
-  # owner take) and `:out_of_budget`, the longest stop, it has 236 bytes. The largest
-  # growth of a step that sets a stop is a cancel's: its record of that Attempt ID (200),
-  # its stop (6) and its classification, from the shortest one (`:late`) to
-  # {:request_outcome, :cancelled} (24): 230 bytes. A step that sets a stop without
-  # settling a slot grows control by no more (a wake: 38 at most); one that settles a slot
-  # (a finish, a settling outcome) also frees that slot's reserve. A Run view of a new
-  # Attempt, which admits nothing, can grow the recorded Attempt ID from 1 to 200 bytes:
-  # 199 bytes. 236 + 230 + 199 = 665.
-  @stop_room 665
+  # The room for a stop (ELZ-430): while no stop is pending, every check that admits growth
+  # (admits?/1) leaves this many bytes of the control bound free, so that the step that
+  # sets a stop marks it and never fails the state bound. It covers what can grow with no
+  # such check from an admitted state to the end of that step, each at its largest: the
+  # mark, the key `stop_attempt` with {Attempt, stop} for a 200-byte Attempt ID (the
+  # longest that the engine and the Run owner take) and `:out_of_budget`, the longest stop
+  # (236 bytes); the step's own growth, at most a cancel's: its record of that Attempt ID
+  # (200), its stop (6) and its classification from the shortest, `:late`, to
+  # {:request_outcome, :cancelled} (24), 230 bytes (a wake grows 38 at most; a step that
+  # settles a slot also frees that slot's reserve); a change to a longer Attempt ID at a
+  # Run view, 1 to 200 bytes (199); the encodings of the recorded Run revision, the pause
+  # deadline and the Run deadline, each from 2 to 11 bytes (27), since the engine refuses a
+  # time or a Run revision above @max_time where it enters; and the lifecycle phase,
+  # `:active` to `:waiting` (1). A Resource cursor record that adds its key or lengthens
+  # its sequence's encoding is admitted as other growth is (cursor_admits?/3), so the room
+  # counts no cursor. 236 + 230 + 199 + 27 + 1 = 693.
+  @stop_room 693
+  # The largest time and Run revision that the engine takes (2^63 - 1, the largest
+  # sequence of a journal): each encodes in at most 11 bytes.
+  @max_time 9_223_372_036_854_775_807
   @empty %{version: 1, control: nil, slots: %{}, requests: %{}}
   @empty_v2 %{version: 2, control: nil, slots: %{}, requests: %{}}
   @refusal_schema "elzoo.run-engine.refusal"
@@ -1812,11 +1819,14 @@ defmodule Elzoo.RunEngine do
            is_map(opts[:schemas]) and is_map(opts[:resources]) and is_map(opts[:effect_intent]),
          true <- text?(opts[:tenant], 200) and text?(opts[:principal], 200),
          {:ok, view} <- Run.status(opts[:run_owner], opts[:run_id]),
-         true <- is_binary(view.current_attempt),
+         true <-
+           is_binary(view.current_attempt) and is_integer(view.revision) and
+             view.revision <= @max_time,
          %{cap: budget_cap, unit: unit, id: budget_id, incarnation: incarnation} <- opts[:budget],
          {:ok, budget} <- Budget.initial(budget_id, incarnation, budget_cap, unit),
          rule when rule in [:pause, :finish] <- opts[:budget_rule],
-         deadline when is_integer(deadline) and deadline > 0 <- opts[:run_deadline],
+         deadline when is_integer(deadline) and deadline > 0 and deadline <= @max_time <-
+           opts[:run_deadline],
          {:ok, pid} <- start_unit(opts[:directory], opts[:identity]) do
       identity =
         {{module, function}, schema_identities(opts[:schemas]), binding_identities(opts[:bindings]),
@@ -2390,7 +2400,7 @@ defmodule Elzoo.RunEngine do
              Map.get(wait, :event_source_version) == original_slot.event_source_version and
              source.id == original_slot.event_source_id and
              source.version == original_slot.event_source_version,
-         at when is_integer(at) and at > 0 <- s.opts.clock.(),
+         at when is_integer(at) and at > 0 and at <= @max_time <- s.opts.clock.(),
          true <- is_integer(Map.get(wait, :deadline_ms)) and at < Map.get(wait, :deadline_ms) do
       {:ok, s, wait, at}
     else
@@ -2598,7 +2608,7 @@ defmodule Elzoo.RunEngine do
   end
 
   defp ingest_current(s, id, neutral, context, cancel_work) do
-    with at when is_integer(at) and at > 0 <- s.opts.clock.(),
+    with at when is_integer(at) and at > 0 and at <= @max_time <- s.opts.clock.(),
          input = Map.put(neutral, "at_ms", at),
          {:ok, _} <- decode_step(input, protocol_version(s)) do
       case checked_ingress(s, input, context) do
@@ -2713,7 +2723,9 @@ defmodule Elzoo.RunEngine do
               end
 
             candidate.control.lifecycle.phase == :terminal or not retain? ->
-              if fits?(finalize_step_state(candidate)), do: :ok, else: {:error, :invalid_payload}
+              if admits?(finalize_step_state(candidate)),
+                do: :ok,
+                else: {:error, :invalid_payload}
 
             true ->
               {:error, :invalid_payload}
@@ -3213,25 +3225,30 @@ defmodule Elzoo.RunEngine do
       {state, s} = read_state(s)
       c = state.control
 
-      if c.run_revision == view.revision or renewals_only?(c.run_revision, view) do
-        if view.outcome, do: end_resources(s, view.outcome), else: {:ok, s}
-      else
-        with {:ok, _, s} <-
-               commit(s, "run:" <> Integer.to_string(view.revision), %{
-                 version: protocol_version(s),
-                 kind: :run_view,
-                 view:
-                   Map.put(
-                     Map.take(
-                       view,
-                       [:id, :operation_id, :current_attempt, :revision, :outcome]
-                     ),
-                     :at_ms,
-                     s.opts.clock.()
-                   )
-               }) do
+      cond do
+        not (is_integer(view.revision) and view.revision <= @max_time) ->
+          halt(s, :integrity_failure)
+
+        c.run_revision == view.revision or renewals_only?(c.run_revision, view) ->
           if view.outcome, do: end_resources(s, view.outcome), else: {:ok, s}
-        end
+
+        true ->
+          with {:ok, _, s} <-
+                 commit(s, "run:" <> Integer.to_string(view.revision), %{
+                   version: protocol_version(s),
+                   kind: :run_view,
+                   view:
+                     Map.put(
+                       Map.take(
+                         view,
+                         [:id, :operation_id, :current_attempt, :revision, :outcome]
+                       ),
+                       :at_ms,
+                       s.opts.clock.()
+                     )
+                 }) do
+            if view.outcome, do: end_resources(s, view.outcome), else: {:ok, s}
+          end
       end
     else
       _ -> {:error, :run_unavailable, %{s | halted: :run_unavailable, state: nil, decoded: %{}}}
@@ -3942,7 +3959,7 @@ defmodule Elzoo.RunEngine do
 
         with {:ok, %{revision: revision} = head} <- head,
              :ok <- valid_activation_head(head),
-             at when is_integer(at) and at > 0 <- s.opts.clock.(),
+             at when is_integer(at) and at > 0 and at <= @max_time <- s.opts.clock.(),
              {:ok, owner} <- Run.status(s.opts.run_owner, s.opts.run_id),
              true <- is_nil(owner.outcome) and owner.current_attempt == state.control.attempt_id,
              {current, s} = read_state(s),
@@ -4272,49 +4289,53 @@ defmodule Elzoo.RunEngine do
     {:ok, %{entries: entries}} = RunResource.read(resource, cursor)
 
     Enum.reduce_while(entries, {:ok, s}, fn entry, {:ok, acc} ->
+      # An entry whose cursor record would cut into the room commits nothing (cursor_room/3).
       result =
-        Enum.reduce_while(Enum.with_index(entry.inputs), {:ok, acc}, fn {input, index},
-                                                                        {:ok, acc} ->
-          {acc_state, acc} = read_state(acc)
+        Enum.reduce_while(Enum.with_index(entry.inputs), cursor_room(acc, name, entry.seq), fn
+          _, {:no_room, _} = no_room ->
+            {:halt, no_room}
 
-          key =
-            Enum.find_value(acc_state.slots, fn {key, slot} ->
-              if slot.action_id == input["action_id"] and slot[:resource_name] == name, do: key
-            end)
+          {input, index}, {:ok, acc} ->
+            {acc_state, acc} = read_state(acc)
 
-          id = stable_id("resource:", {s.opts.run_id, name, entry.seq, index})
+            key =
+              Enum.find_value(acc_state.slots, fn {key, slot} ->
+                if slot.action_id == input["action_id"] and slot[:resource_name] == name, do: key
+              end)
 
-          correlation = %{occurrence: key, resource: name}
-          context = Map.take(acc.opts.context.(), [:pause_deadline])
+            id = stable_id("resource:", {s.opts.run_id, name, entry.seq, index})
 
-          with {:ok, _} <- PatternStep.decode(input),
-               native_input = Map.put(input, "version", protocol_version(acc)),
-               {:ok, _} <- decode_step(native_input, protocol_version(acc)),
-               {:ok, checked, correlation, acc} <-
-                 checked_ingress(acc, native_input, correlation),
-               :ok <- pause_operand(acc, context, input["at_ms"]) do
-            record = %{
-              version: protocol_version(acc),
-              kind: :protocol,
-              id: id,
-              run_id: s.opts.run_id,
-              attempt_id:
-                if(key,
-                  do: acc_state.slots[key].attempt_id,
-                  else: acc_state.control.attempt_id
-                ),
-              input: checked,
-              correlation: correlation,
-              context: context
-            }
+            correlation = %{occurrence: key, resource: name}
+            context = Map.take(acc.opts.context.(), [:pause_deadline])
 
-            case commit(acc, id, record) do
-              {:ok, _, acc} -> {:cont, {:ok, acc}}
-              error -> {:halt, error}
+            with {:ok, _} <- PatternStep.decode(input),
+                 native_input = Map.put(input, "version", protocol_version(acc)),
+                 {:ok, _} <- decode_step(native_input, protocol_version(acc)),
+                 {:ok, checked, correlation, acc} <-
+                   checked_ingress(acc, native_input, correlation),
+                 :ok <- pause_operand(acc, context, input["at_ms"]) do
+              record = %{
+                version: protocol_version(acc),
+                kind: :protocol,
+                id: id,
+                run_id: s.opts.run_id,
+                attempt_id:
+                  if(key,
+                    do: acc_state.slots[key].attempt_id,
+                    else: acc_state.control.attempt_id
+                  ),
+                input: checked,
+                correlation: correlation,
+                context: context
+              }
+
+              case commit(acc, id, record) do
+                {:ok, _, acc} -> {:cont, {:ok, acc}}
+                error -> {:halt, error}
+              end
+            else
+              {:error, reason} -> {:halt, {:error, reason, acc}}
             end
-          else
-            {:error, reason} -> {:halt, {:error, reason, acc}}
-          end
         end)
 
       with {:ok, acc} <- result do
@@ -4338,6 +4359,7 @@ defmodule Elzoo.RunEngine do
                  else: {:error, :resource_budget, acc}
                ),
              {:ok, acc} <- resource_effects(acc, name, resource, entry.effects),
+             {:ok, acc} <- cursor_room(acc, name, entry.seq),
              {:ok, _, acc} <-
                commit(acc, stable_id("cursor:", {s.opts.run_id, name, entry.seq}), %{
                  version: protocol_version(acc),
@@ -4350,12 +4372,38 @@ defmodule Elzoo.RunEngine do
                }) do
           {:cont, {:ok, acc}}
         else
+          {:no_room, acc} -> {:halt, {:ok, acc}}
           error -> {:halt, error}
         end
       else
+        {:no_room, acc} -> {:halt, {:ok, acc}}
         error -> {:halt, error}
       end
     end)
+  end
+
+  # A Resource cursor record that adds the Resource's key or lengthens the encoding of its
+  # sequence grows control with no other check, so it is admitted as other growth is
+  # (cursor_admits?/3): before the entry's first commit and again before its cursor record.
+  # When it is refused, nothing more of the entry is committed, and the Resource's
+  # consumption stops at that entry for the pass; a later pass reads it again.
+  defp cursor_room(s, name, sequence) do
+    {state, s} = read_state(s)
+    if cursor_admits?(state, name, sequence), do: {:ok, s}, else: {:no_room, s}
+  end
+
+  @doc false
+  # Whether a cursor record for `name` at `sequence` may be committed on `state`: one that
+  # adds the key or lengthens the sequence's encoding only when the state with it is
+  # admitted (admits?/1, so fits?/1 while a stop is pending); any other always.
+  def cursor_admits?(state, name, sequence) do
+    grows =
+      case Map.fetch(state.control.cursors, name) do
+        {:ok, cursor} -> sequence > cursor and bytes(sequence) > bytes(cursor)
+        :error -> true
+      end
+
+    not grows or admits?(put_in(state.control.cursors[name], sequence))
   end
 
   defp resource_effects(s, name, owner, effects) do
@@ -4478,8 +4526,11 @@ defmodule Elzoo.RunEngine do
       |> Map.put(:attempt_id, state.control.attempt_id)
 
     context = Map.take(context, [:verified_person, :pause_deadline])
+    times = [event.at_ms, event[:pause_deadline], event[:run_deadline], context[:pause_deadline]]
 
-    with {:ok, record} <-
+    # A time above @max_time is refused with no write (ELZ-430).
+    with true <- Enum.all?(times, &(not is_integer(&1) or &1 <= @max_time)),
+         {:ok, record} <-
            original_record(s, id, %{
              version: protocol_version(s),
              kind: :lifecycle,
@@ -5097,11 +5148,19 @@ defmodule Elzoo.RunEngine do
       is_binary(s) and byte_size(s) in 1..max and String.valid?(s) and
         not String.contains?(s, <<0>>)
 
+  # A context pause deadline above @max_time is refused as one that is not in the future.
   defp pause_operand(s, context, at) do
-    if s.opts.budget_rule == :finish or
-         (is_integer(context[:pause_deadline]) and context.pause_deadline > at),
-       do: :ok,
-       else: {:error, :pause_deadline_required}
+    cond do
+      is_integer(context[:pause_deadline]) and context.pause_deadline > @max_time ->
+        {:error, :pause_deadline_required}
+
+      s.opts.budget_rule == :finish or
+          (is_integer(context[:pause_deadline]) and context.pause_deadline > at) ->
+        :ok
+
+      true ->
+        {:error, :pause_deadline_required}
+    end
   end
 
   defp classify(state, classification), do: put_in(state.control.classification, classification)
