@@ -11481,7 +11481,7 @@
       "baseline_status": "not in baseline (new row, ELZ-421)",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/run-host/piece.json",
-      "manifest_sha256": "3d3d0580b835afb8f564952b7fb67808d66f29563221885839838a73462f3e50",
+      "manifest_sha256": "6b26e1ce040b88256f5f654567342f44afeaa5a37fe72b7e7c967e060ba30b54",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
