@@ -21,13 +21,15 @@ defmodule Elzoo.RunEngine do
   # (236 bytes); the step's own growth, at most a cancel's: its record of that Attempt ID
   # (200), its stop (6) and its classification from the shortest, `:late`, to
   # {:request_outcome, :cancelled} (24), 230 bytes (a wake grows 38 at most; a step that
-  # settles a slot also frees that slot's reserve); a change to a longer Attempt ID at a
-  # Run view, 1 to 200 bytes (199); the encodings of the recorded Run revision, the pause
-  # deadline and the Run deadline, each from 2 to 11 bytes (27), since the engine refuses a
-  # time or a Run revision above @max_time where it enters; and the lifecycle phase,
-  # `:active` to `:waiting` (1). A Resource cursor record that adds its key or lengthens
-  # its sequence's encoding is admitted as other growth is (cursor_admits?/3), so the room
-  # counts no cursor. 236 + 230 + 199 + 27 + 1 = 693.
+  # settles a slot also frees that slot's reserve; a cancel records nothing for a listed
+  # wait); a change to a longer Attempt ID at a Run view, 1 to 200 bytes (199); the
+  # encodings of the recorded Run revision, the pause deadline and the Run deadline, each
+  # from 2 to 11 bytes (27), since the engine refuses a time or a Run revision above
+  # @max_time where it enters; and the lifecycle phase, `:active` to `:waiting` (1).
+  # Admission counts the growth that admitted work adds later besides the room (the wait
+  # that a model call, a tool call or an ask lists: future_waits/1), and a Resource cursor
+  # transition is admitted whole as other growth is (cursor_admits?/2), so the room counts
+  # neither. 236 + 230 + 199 + 27 + 1 = 693.
   @stop_room 693
   # The largest time and Run revision that the engine takes (2^63 - 1, the largest
   # sequence of a journal): each encodes in at most 11 bytes.
@@ -325,13 +327,17 @@ defmodule Elzoo.RunEngine do
               slot = Map.merge(slot, %{phase: :authorizing, reservation: reservation})
               admitted = put_in(state.slots[key], slot)
 
-              # A first finish of a non-root child is kept in control until its parent
-              # settles. The admitted state counts it as pending, so it is admitted only
-              # when control with that finish in it fits; otherwise the Budget step is
-              # dropped with the refusal and the child callable stays open.
-              if keeps_first_finish?(c, slot) and not admits?(admitted),
-                do: {deny(before_budget, key, "record_size"), :none},
-                else: {admitted, :none}
+              # Admission keeps the room for a stop (admits?/1, ELZ-430): the admitted state,
+              # with its Budget reservation and the growth that the action adds later, is
+              # admitted only when it leaves the room; otherwise the Budget step is dropped
+              # with the refusal. That growth is the wait that the continuation of a model
+              # call, a tool call or an ask lists (future_waits/1) and the first finish of a
+              # non-root child, which is kept in control until its parent settles and which
+              # the admitted state counts as pending (fits?/2); refused, its child callable
+              # stays open.
+              if admits?(admitted),
+                do: {admitted, :none},
+                else: {deny(before_budget, key, "record_size"), :none}
 
             {:rejected, _} ->
               {deny(state, key, "out_of_budget"), :none}
@@ -381,23 +387,12 @@ defmodule Elzoo.RunEngine do
           do: put_in(state.control.callables[facts.finish_callable][:finish], finish),
           else: state
 
-      wait_kind =
-        case slot.kind do
-          "model_call" -> :model
-          "tool_call" -> :tool
-          "ask_person" -> :person
-          _ -> nil
-        end
+      wait = slot_wait(slot)
 
       state =
-        if wait_kind && phase in [:running, :waiting] do
-          put_in(
-            state.control.lifecycle.waits[slot.action_id],
-            %{kind: wait_kind, attempt_id: slot.attempt_id, one_shot: true}
-          )
-        else
-          state
-        end
+        if wait && phase in [:running, :waiting],
+          do: put_in(state.control.lifecycle.waits[slot.action_id], wait),
+          else: state
 
       state =
         if phase in [:running, :waiting] and state.control.lifecycle.phase == :active,
@@ -1926,18 +1921,21 @@ defmodule Elzoo.RunEngine do
       }
 
       snapshot = DurableUnit.snapshot(pid)
+      configure = %{version: protocol_version, kind: :configure, control: control}
 
+      # A fresh or rollover configuration is admitted only with the room for a stop, like
+      # any other admitted growth (ELZ-430): when its state leaves less, the start fails
+      # with record_size and writes nothing. A Unit that an earlier revision configured is
+      # taken as recorded.
       result =
         cond do
           snapshot == empty_state(protocol_version) or
               (snapshot.version == protocol_version and is_map(snapshot.control) and
                  snapshot.control.run_id != opts[:run_id] and
                  snapshot.control.lifecycle.phase == :terminal and active_count(snapshot) == 0) ->
-            commit(s, stable_id("configure:", opts[:run_id]), %{
-              version: protocol_version,
-              kind: :configure,
-              control: control
-            })
+            if configure_admits?(snapshot, configure),
+              do: commit(s, stable_id("configure:", opts[:run_id]), configure),
+              else: {:error, :record_size, s}
 
           snapshot.version == protocol_version and snapshot.control.fingerprint == fingerprint and
               snapshot.control.run_id == opts[:run_id] ->
@@ -2028,7 +2026,10 @@ defmodule Elzoo.RunEngine do
   end
 
   def handle_call({:control, id, command, context}, _, s) do
-    result = with {:ok, s} <- current(s), do: apply_control(s, id, command, context)
+    result =
+      with {:ok, s} <- control_times(s, command, context),
+           {:ok, s} <- current(s),
+           do: apply_control(s, id, command, context)
 
     case result do
       {:ok, s} -> {:reply, {:ok, :applied}, s}
@@ -2226,8 +2227,10 @@ defmodule Elzoo.RunEngine do
       if protocol_version(s) == 2 and neutral["kind"] == "outside_event" do
         ingest_outside_event(s, id, neutral, context)
       else
-        case current(s) do
-          {:ok, s} -> ingest_current(s, id, neutral, context, cancel_work)
+        with {:ok, s} <- input_times(s, context),
+             {:ok, s} <- current(s) do
+          ingest_current(s, id, neutral, context, cancel_work)
+        else
           {:error, reason, s} -> {{:error, reason}, s}
         end
       end
@@ -2328,7 +2331,10 @@ defmodule Elzoo.RunEngine do
   end
 
   defp fresh_outside_event(s, id, neutral, context) do
-    with :ok <- decode_outside_event(neutral),
+    # A context pause deadline above @max_time is refused before the source read and
+    # current/1 (ELZ-430); recheck_fresh_event/3 refuses a clock sample above it.
+    with :ok <- bounded_pause(context),
+         :ok <- decode_outside_event(neutral),
          :ok <- valid_fresh_event_ingress_size(id, neutral),
          {state, s} <- read_state(s),
          key = context[:occurrence],
@@ -2367,6 +2373,7 @@ defmodule Elzoo.RunEngine do
           {{:error, reason}, checked_s}
       end
     else
+      {:error, :pause_deadline_required} -> {{:error, :pause_deadline_required}, s}
       {:error, {:source_read, :not_found}} -> {{:error, :source_not_found}, s}
       {:error, {:source_read, :gap}} -> {{:error, :source_gap}, s}
       {:error, {:source_read, :unavailable}} -> {{:error, :source_unavailable}, s}
@@ -2407,6 +2414,8 @@ defmodule Elzoo.RunEngine do
       false -> {:error, :invalid_correlation, s}
       nil -> {:error, :invalid_correlation, s}
       {:error, :invalid_correlation} -> {:error, :invalid_correlation, s}
+      # Only the clock sample can fail its clause with an integer.
+      at when is_integer(at) and at > @max_time -> {:error, :invalid_input, s}
       _ -> {:error, :source_unavailable, s}
     end
   end
@@ -3611,15 +3620,25 @@ defmodule Elzoo.RunEngine do
     facts =
       Map.merge(facts, %{binding_id: binding.id, binding_version: binding.version, action: action})
 
-    with {:ok, _, s} <-
-           commit(s, stable_id("admit:", {s.opts.run_id, key}), %{
-             version: protocol_version(s),
-             kind: :admission,
-             occurrence: key,
-             facts: facts,
-             at_ms: s.opts.clock.()
-           }),
-         do: {:ok, s}
+    # A binding whose facts give a deadline above @max_time (its deadline_ms, or that of
+    # its effect intent) halts the engine before the admission commits, as a Run view
+    # revision above it does (ELZ-430): no larger time is recorded.
+    intent = facts[:intent]
+    deadlines = [facts[:deadline_ms], if(is_map(intent), do: Map.get(intent, :deadline_ms))]
+
+    if Enum.any?(deadlines, &(is_integer(&1) and &1 > @max_time)) do
+      halt(s, :integrity_failure)
+    else
+      with {:ok, _, s} <-
+             commit(s, stable_id("admit:", {s.opts.run_id, key}), %{
+               version: protocol_version(s),
+               kind: :admission,
+               occurrence: key,
+               facts: facts,
+               at_ms: s.opts.clock.()
+             }),
+           do: {:ok, s}
+    end
   end
 
   defp progress(s, key, %{phase: :authorizing}) do
@@ -4289,9 +4308,13 @@ defmodule Elzoo.RunEngine do
     {:ok, %{entries: entries}} = RunResource.read(resource, cursor)
 
     Enum.reduce_while(entries, {:ok, s}, fn entry, {:ok, acc} ->
-      # An entry whose cursor record would cut into the room commits nothing (cursor_room/3).
+      # The entry's cursor transition is checked for the room before the entry's first
+      # commit and again before its cursor record (cursor_room/2). A refusal at the first
+      # check commits nothing of the entry. One at the second leaves the inputs that the
+      # entry committed, and their effects, in place, and commits neither its cursor record
+      # nor its Budget command; a later pass reads the entry again.
       result =
-        Enum.reduce_while(Enum.with_index(entry.inputs), cursor_room(acc, name, entry.seq), fn
+        Enum.reduce_while(Enum.with_index(entry.inputs), entry_room(acc, name, entry), fn
           _, {:no_room, _} = no_room ->
             {:halt, no_room}
 
@@ -4340,18 +4363,7 @@ defmodule Elzoo.RunEngine do
 
       with {:ok, acc} <- result do
         {acc_state, acc} = read_state(acc)
-
-        budget_owner =
-          if entry.budget_command do
-            {_, command} = entry.budget_command
-
-            Enum.find_value(acc_state.slots, fn {_, slot} ->
-              if (slot[:resource_name] == name and slot[:reservation]) &&
-                   Map.take(slot.reservation, [:cost_ref, :generation]) ==
-                     Map.take(command, [:cost_ref, :generation]),
-                 do: slot.callable
-            end)
-          end
+        budget_owner = budget_owner(acc_state, name, entry.budget_command)
 
         with :ok <-
                if(entry.budget_command == nil or budget_owner != nil,
@@ -4359,17 +4371,10 @@ defmodule Elzoo.RunEngine do
                  else: {:error, :resource_budget, acc}
                ),
              {:ok, acc} <- resource_effects(acc, name, resource, entry.effects),
-             {:ok, acc} <- cursor_room(acc, name, entry.seq),
+             record = cursor_record(acc, name, entry, budget_owner),
+             {:ok, acc} <- cursor_room(acc, record),
              {:ok, _, acc} <-
-               commit(acc, stable_id("cursor:", {s.opts.run_id, name, entry.seq}), %{
-                 version: protocol_version(acc),
-                 kind: :resource_cursor,
-                 resource: name,
-                 sequence: entry.seq,
-                 budget_owner: budget_owner,
-                 budget_command: entry.budget_command,
-                 at_ms: s.opts.clock.()
-               }) do
+               commit(acc, stable_id("cursor:", {s.opts.run_id, name, entry.seq}), record) do
           {:cont, {:ok, acc}}
         else
           {:no_room, acc} -> {:halt, {:ok, acc}}
@@ -4382,28 +4387,61 @@ defmodule Elzoo.RunEngine do
     end)
   end
 
-  # A Resource cursor record that adds the Resource's key or lengthens the encoding of its
-  # sequence grows control with no other check, so it is admitted as other growth is
-  # (cursor_admits?/3): before the entry's first commit and again before its cursor record.
-  # When it is refused, nothing more of the entry is committed, and the Resource's
-  # consumption stops at that entry for the pass; a later pass reads it again.
-  defp cursor_room(s, name, sequence) do
+  # A Resource cursor transition grows control with no other check (the Resource's key,
+  # the encoding of its sequence and the Budget settlement of its entry) and the slot whose
+  # actual it records, so it is admitted as other growth is (cursor_admits?/2): before the
+  # entry's first commit, on the state then, and again before the cursor record, with the
+  # record that is committed. When it is refused, the Resource's consumption stops at that
+  # entry for the pass; a later pass reads it again.
+  defp entry_room(s, name, entry) do
     {state, s} = read_state(s)
-    if cursor_admits?(state, name, sequence), do: {:ok, s}, else: {:no_room, s}
+    cursor_room(s, cursor_record(s, name, entry, budget_owner(state, name, entry.budget_command)))
+  end
+
+  defp cursor_room(s, record) do
+    {state, s} = read_state(s)
+    if cursor_admits?(state, record), do: {:ok, s}, else: {:no_room, s}
+  end
+
+  # The :resource_cursor record of a Resource entry, for its check and for its commit.
+  defp cursor_record(s, name, entry, budget_owner),
+    do: %{
+      version: protocol_version(s),
+      kind: :resource_cursor,
+      resource: name,
+      sequence: entry.seq,
+      budget_owner: budget_owner,
+      budget_command: entry.budget_command,
+      at_ms: s.opts.clock.()
+    }
+
+  # The callable of the slot of Resource `name` that holds the reservation that an entry's
+  # Budget command settles or releases.
+  defp budget_owner(_state, _name, nil), do: nil
+
+  defp budget_owner(state, name, {_, command}) do
+    Enum.find_value(state.slots, fn {_, slot} ->
+      if (slot[:resource_name] == name and slot[:reservation]) &&
+           Map.take(slot.reservation, [:cost_ref, :generation]) ==
+             Map.take(command, [:cost_ref, :generation]),
+         do: slot.callable
+    end)
   end
 
   @doc false
-  # Whether a cursor record for `name` at `sequence` may be committed on `state`: one that
-  # adds the key or lengthens the sequence's encoding only when the state with it is
-  # admitted (admits?/1, so fits?/1 while a stop is pending); any other always.
-  def cursor_admits?(state, name, sequence) do
-    grows =
-      case Map.fetch(state.control.cursors, name) do
-        {:ok, cursor} -> sequence > cursor and bytes(sequence) > bytes(cursor)
-        :error -> true
-      end
+  # Whether the :resource_cursor `record` may be committed on `state` (ELZ-430): its whole
+  # step is projected, the cursor with the Budget settlement and the slot actual that its
+  # entry carries. One that grows control or the slots is admitted only when the state
+  # after it is (admits?/1, so fits?/1 while a stop is pending); one that grows neither
+  # always is. A record whose step fails is left to its commit, as before.
+  def cursor_admits?(state, record) do
+    {next, _} = transition(state, record)
+    next = mark_stop(state, finalize_step_state(next))
 
-    not grows or admits?(put_in(state.control.cursors[name], sequence))
+    admits?(next) or
+      (bytes(next.control) <= bytes(state.control) and bytes(next.slots) <= bytes(state.slots))
+  rescue
+    _ -> true
   end
 
   defp resource_effects(s, name, owner, effects) do
@@ -5148,18 +5186,45 @@ defmodule Elzoo.RunEngine do
       is_binary(s) and byte_size(s) in 1..max and String.valid?(s) and
         not String.contains?(s, <<0>>)
 
-  # A context pause deadline above @max_time is refused as one that is not in the future.
   defp pause_operand(s, context, at) do
+    with :ok <- bounded_pause(context) do
+      if s.opts.budget_rule == :finish or
+           (is_integer(context[:pause_deadline]) and context.pause_deadline > at),
+         do: :ok,
+         else: {:error, :pause_deadline_required}
+    end
+  end
+
+  # A context pause deadline above @max_time is refused as one that is not in the future.
+  defp bounded_pause(context) do
+    if is_integer(context[:pause_deadline]) and context.pause_deadline > @max_time,
+      do: {:error, :pause_deadline_required},
+      else: :ok
+  end
+
+  # External times are checked before current/1 can journal the owner's Run view
+  # (ELZ-430): a time above @max_time in a control (its clock sample, its deadlines and its
+  # context's pause deadline) or at a fresh input (its clock sample and its context's pause
+  # deadline) is refused with no write. apply_control/4, ingest_current/5 and
+  # pause_operand/3 check their own samples again after it.
+  defp control_times(s, command, context) do
+    command = if is_map(command), do: command, else: %{}
+    context = if is_map(context), do: context, else: %{}
+    times = [s.opts.clock.(), command[:pause_deadline], command[:run_deadline]]
+
+    if Enum.all?(times, &(not is_integer(&1) or &1 <= @max_time)) and
+         bounded_pause(context) == :ok,
+       do: {:ok, s},
+       else: {:error, :invalid_control, s}
+  end
+
+  defp input_times(s, context) do
+    at = s.opts.clock.()
+
     cond do
-      is_integer(context[:pause_deadline]) and context.pause_deadline > @max_time ->
-        {:error, :pause_deadline_required}
-
-      s.opts.budget_rule == :finish or
-          (is_integer(context[:pause_deadline]) and context.pause_deadline > at) ->
-        :ok
-
-      true ->
-        {:error, :pause_deadline_required}
+      not (is_integer(at) and at > 0 and at <= @max_time) -> {:error, :invalid_input, s}
+      bounded_pause(context) != :ok -> {:error, :pause_deadline_required, s}
+      true -> {:ok, s}
     end
   end
 
@@ -5193,14 +5258,57 @@ defmodule Elzoo.RunEngine do
       is_nil(node[:finish])
   end
 
+  # The wait that the continuation of `slot` lists in control while the slot runs or
+  # waits: that of a model call, a tool call or an ask; nil for any other kind.
+  defp slot_wait(slot) do
+    kind =
+      case slot.kind do
+        "model_call" -> :model
+        "tool_call" -> :tool
+        "ask_person" -> :person
+        _ -> nil
+      end
+
+    if kind, do: %{kind: kind, attempt_id: slot.attempt_id, one_shot: true}
+  end
+
+  # The control growth that admitted work adds later with no check of its own (ELZ-430):
+  # the map entry of the wait that each admitted, unsettled action of such a kind adds
+  # when its continuation lists it (slot_wait/1), while it is not listed yet. A cancel
+  # records nothing for a listed wait; its own growth is part of @stop_room.
+  defp future_waits(state) do
+    waits = state.control.lifecycle.waits
+
+    Enum.reduce(state.slots, 0, fn {_, slot}, sum ->
+      wait = slot_wait(slot)
+
+      if wait && slot.phase in [:authorizing, :approval, :ready, :opening, :running, :reconcile] &&
+           not Map.has_key?(waits, slot.action_id),
+         do: sum + bytes(slot.action_id) - 1 + bytes(wait) - 1,
+         else: sum
+    end)
+  end
+
   # Admission (ELZ-430): a state that admits work fits the bound with @stop_room bytes of
-  # control left free while no stop is pending, so a later step that sets a stop has room
-  # for its growth and its mark. The recorded-state invariant (fits?/1) keeps no such room.
-  # The fold before ELZ-430 (its projection, legacy_fold) admitted up to the bound.
+  # control left free while no stop is pending, and with the growth that admitted work
+  # adds later (future_waits/1), so a later step that sets a stop has room for its growth
+  # and its mark. The recorded-state invariant (fits?/1) keeps no such room, so a state
+  # that an earlier revision recorded still replays. The fold before ELZ-430 (its
+  # projection, legacy_fold) admitted up to the bound.
   defp admits?(state) do
     if is_nil(state.control.stop_pending) and not legacy_fold?(state),
-      do: fits?(state, @stop_room),
+      do: fits?(state, @stop_room + future_waits(state)),
       else: fits?(state)
+  end
+
+  # Whether the :configure `record` on `snapshot` (the empty state, or the terminal state
+  # of the Unit's previous Run) gives a state that admission takes (admits?/1); one whose
+  # step fails the bound is not taken either.
+  defp configure_admits?(snapshot, record) do
+    {:Transition, next, _} = step(snapshot, record)
+    admits?(next)
+  rescue
+    _ -> false
   end
 
   defp fits?(state, room \\ 0) do
@@ -6476,6 +6584,7 @@ defmodule Elzoo.RunEngine.ResultReader do
          {:ok, candidates} <- accepted_activation(before, next, candidates, version, audit),
          :ok <- validate_event_wait_transition(before, next, candidates, version),
          :ok <- validate_stop_mark(before, next),
+         :ok <- validate_new_mark(before, next, version),
          {:ok, candidates} <- accepted_failure(before, next, candidates) do
       candidates =
         case accepted_settlement(before, next, candidates, version, bindings, audit) do
@@ -6588,6 +6697,34 @@ defmodule Elzoo.RunEngine.ResultReader do
   end
 
   defp validate_stop_mark(_, _), do: {:error, :history}
+
+  # A mark that a step adds or changes is checked against the step's own record, not only
+  # against its result (ELZ-430): in v1, which replays no step that sets a stop, the close
+  # markers of the record's projection under one of @folds (the pending stop and the mark
+  # among them; valid_event_wait_close_transition?/4) must be the recorded ones. A v2 step
+  # passes the same check at every record (validate_event_wait_transition/4).
+  defp validate_new_mark(%{pending: {_input_id, record}, state: before}, %{state: after_state}, 1)
+       when is_map(record) and is_map(before) and is_map(after_state) do
+    mark = Map.fetch(after_state.control, :stop_attempt)
+    kept = if is_map(before.control), do: Map.fetch(before.control, :stop_attempt), else: :error
+
+    cond do
+      mark == :error or mark === kept ->
+        :ok
+
+      Enum.any?(
+        @folds,
+        &(Elzoo.RunEngine.valid_event_wait_close_transition?(before, record, after_state, &1) ==
+              :ok)
+      ) ->
+        :ok
+
+      true ->
+        {:error, :history}
+    end
+  end
+
+  defp validate_new_mark(_, _, _), do: :ok
 
   # The checks of one root failure against the state before and after it: a root finish
   # of the current Attempt, admitted as the pattern asked for it, naming no action, now

@@ -8808,11 +8808,20 @@ defmodule Elzoo.RunEngineTest do
       armed = start_supervised!({Agent, fn -> false end}, id: make_ref())
       parent = self()
 
+      # An input reads the clock first to check it before current/1 (ELZ-430), then for
+      # its record: armed with :skip, the trap fires at the second read.
       clock = fn ->
-        if Agent.get(armed, & &1) do
-          Agent.update(armed, fn _ -> false end)
-          :sys.suspend(c.run)
-          send(parent, {:trapped, self()})
+        case Agent.get(armed, & &1) do
+          :skip ->
+            Agent.update(armed, fn _ -> true end)
+
+          true ->
+            Agent.update(armed, fn _ -> false end)
+            :sys.suspend(c.run)
+            send(parent, {:trapped, self()})
+
+          false ->
+            :ok
         end
 
         Agent.get(c.clock, & &1)
@@ -8841,7 +8850,7 @@ defmodule Elzoo.RunEngineTest do
       # With no slot active, the next message input invokes the root; its next request
       # is over the shared cap and the generation closes. The settled parent is not
       # its parent, so it keeps its settlement.
-      Agent.update(armed, fn _ -> true end)
+      Agent.update(armed, fn _ -> :skip end)
 
       spawn(fn ->
         try do
@@ -10021,12 +10030,18 @@ defmodule Elzoo.RunEngineTest do
     kept = kept_ids(c, ids)
 
     # A kept child whose request for its tool call has no room asks nothing: it holds no
-    # call and gets no later input. The others hold one each.
-    holders =
-      Enum.filter(kept, fn id ->
-        Enum.any?(unit_state(c).slots, fn {_, slot} -> slot.action_id == "hold-#{id}" end)
+    # call and gets no later input. A kept child whose call's admission has no room (it
+    # counts the call's Budget reservation and the wait that the call lists, ELZ-430) gets
+    # the call refused and grows on that outcome. The others hold one each.
+    wait_unit(c, fn s ->
+      Enum.all?(s.slots, fn {_, slot} ->
+        not String.starts_with?(slot.action_id, "hold-") or slot.phase in [:running, :settled]
       end)
+    end)
 
+    calls = Map.new(unit_state(c).slots, fn {_, slot} -> {slot.action_id, slot} end)
+    holders = Enum.filter(kept, &match?(%{phase: :running}, calls["hold-#{&1}"]))
+    refused = Enum.filter(kept, &match?(%{outcome: "refused"}, calls["hold-#{&1}"]))
     holds_running(c, Enum.map(holders, &"hold-#{&1}"))
 
     # The growth comes first and the counts after it: with no reserve a step fails here.
@@ -10038,7 +10053,7 @@ defmodule Elzoo.RunEngineTest do
     n = length(kept)
 
     IO.puts(
-      "ELZ-232: #{n} of #{length(ids)} children that grow after the start are kept, #{length(holders)} of them hold a tool call and grew"
+      "ELZ-232: #{n} of #{length(ids)} children that grow after the start are kept, #{length(holders)} of them hold a tool call and grew, #{length(refused)} grew on its refusal"
     )
 
     assert length(holders) >= 1
@@ -10057,8 +10072,16 @@ defmodule Elzoo.RunEngineTest do
       assert byte_size(encoded(node.state)) == 65_536
     end
 
+    for id <- refused do
+      hold = "hold-#{id}"
+      assert_receive {:pattern_input, ^id, %{"action_id" => ^hold, "outcome" => "refused"}}, 5_000
+      node = state.control.callables[callable_of(c, id)]
+      assert node.state.script == []
+      assert byte_size(encoded(node.state)) == 65_536
+    end
+
     # A kept child that got no later input keeps its small state.
-    for id <- kept -- holders do
+    for id <- kept -- (holders ++ refused) do
       assert state.control.callables[callable_of(c, id)].state == %{
                name: id,
                script: [{:grow, 65_536}]

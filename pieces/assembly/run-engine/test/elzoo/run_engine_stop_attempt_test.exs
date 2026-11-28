@@ -70,6 +70,28 @@ defmodule Elzoo.RunEngineStopAttemptTest.CompleteForwarder do
     {:reply, {:ok, %{view | revision: 9_223_372_036_854_775_808}}, state}
   end
 
+  # `{:revision, real, shown, then}` answers a status read at the owner's revision `real`
+  # with `shown` and gives the owner a command that expects `shown` with `real`; with
+  # `then` `:kill` it kills the engine at its `:complete` command, then goes on as `:pass`.
+  def handle_call({:status, _} = status, _from, {run, {:revision, real, shown, _}} = state) do
+    {:ok, view} = GenServer.call(run, status, 60_000)
+    {:reply, {:ok, if(view.revision == real, do: %{view | revision: shown}, else: view)}, state}
+  end
+
+  def handle_call({:command, %{kind: :complete}}, {caller, _}, {run, {:revision, r, s, :kill}}) do
+    Process.exit(caller, :kill)
+    {:noreply, {run, {:revision, r, s, :pass}}}
+  end
+
+  def handle_call({:command, command}, _from, {run, {:revision, real, shown, _}} = state) do
+    command =
+      if command[:expected_revision] == shown,
+        do: %{command | expected_revision: real},
+        else: command
+
+    {:reply, GenServer.call(run, {:command, command}, 60_000), state}
+  end
+
   def handle_call(message, _from, {run, _} = state),
     do: {:reply, GenServer.call(run, message, 60_000), state}
 end
@@ -125,6 +147,9 @@ defmodule Elzoo.RunEngineStopAttemptTest do
 
   # The largest time and Run revision that the engine takes.
   @max_time 9_223_372_036_854_775_807
+
+  # A Resource rate per minute whose actual for one minute's use encodes in 400 bytes.
+  @rate Integer.pow(2, 8 * 396)
 
   # Each source of a pending stop. `:completed` is a root finish naming a completed
   # action; `:failed` a root finish naming no action; `:cancelled` a cancel while local
@@ -792,6 +817,32 @@ defmodule Elzoo.RunEngineStopAttemptTest do
         assert_history(RunEngine.event_waits(engine, scope(), limits()), "#{label} event_waits")
       end
     end
+
+    test "a pending cancel whose recorded stop and mark are both changed to out_of_time is damaged history, in v1 and v2" do
+      for version <- [1, 2] do
+        script = fn frame -> [frame.([action("ask", "ask_person")])] end
+        c = run_fixture(script, version, unit_store: memory_unit_store(version))
+        engine = start(c, run_owner: forwarder(c, :refuse))
+        assert {:ok, :applied} = start_run(c, engine)
+        wait_for(engine, &match?({_, %{phase: :waiting}}, slot_of(&1, "ask")))
+        cancel = input(c, "cancel", %{"attempt_id" => "attempt"})
+        RunEngine.input(engine, "cancel", cancel, verified())
+        assert %{stop_pending: :cancelled} = unit_state(c).control
+        assert {:ok, %{entries: [_ | _]}} = transcript(engine)
+
+        {row, _id, _record} =
+          input_row(c, &match?(%{kind: :protocol, input: %{"kind" => "cancel"}}, &1))
+
+        # Neither fold gives this mark to the recorded timely cancel; the mark agrees with
+        # the changed stop, so only a check against the record finds it.
+        {_before, {id, state}, paired} = step_states(c, row)
+        changed = put_in(state.control.stop_pending, :out_of_time)
+        changed = put_in(changed.control.stop_attempt, {"attempt", :out_of_time})
+        corrupt_row(c, paired, {1, {id, changed}})
+        assert_history(transcript(engine), "v#{version} transcript")
+        assert_history(RunEngine.event_waits(engine, scope(), limits()), "v#{version} event_waits")
+      end
+    end
   end
 
   describe "room_for_a_stop" do
@@ -909,63 +960,31 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       end
     end
 
-    test "a Resource cursor record that adds its key or lengthens its sequence's encoding is admitted only with the room; one that does neither always is" do
+    test "a Resource cursor record that adds its key or lengthens its sequence's encoding is admitted only with the room; one that grows nothing always is" do
       {_c, state} = in_attempt("a")
       padded = pad_invocations(put_in(state.control.classification, :late), 0)
-      refute RunEngine.cursor_admits?(padded, "document", 1)
+      refute RunEngine.cursor_admits?(padded, cursor_record(1))
       at_255 = put_in(padded.control.cursors["document"], 255)
-      refute RunEngine.cursor_admits?(at_255, "document", 256)
-      assert RunEngine.cursor_admits?(at_255, "document", 254)
+      refute RunEngine.cursor_admits?(at_255, cursor_record(256))
+      assert RunEngine.cursor_admits?(at_255, cursor_record(254))
 
       assert RunEngine.cursor_admits?(
                put_in(at_255.control.cursors["document"], 200),
-               "document",
-               255
+               cursor_record(255)
              )
 
       roomy = pad_invocations(put_in(state.control.classification, :late), 64)
-      assert RunEngine.cursor_admits?(roomy, "document", 1)
+      assert RunEngine.cursor_admits?(roomy, cursor_record(1))
     end
 
     test "at the admission limit, the entry of an opened Resource whose cursor record would add its key writes no row and leaves the cursor unchanged, and a cancel then commits marked" do
-      payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
-      c = run_fixture(fn frame -> [frame.([action("open", "resource_open", payload)])] end, 1)
-      {owner, bindings} = resource(c)
-      opts = [resources: %{"document" => owner}, bindings: bindings]
-      engine = start(c, opts)
-      assert {:ok, :applied} = start_run(c, engine)
-      assert_receive {:effect_started, _opening, _}, 5_000
-      GenServer.stop(engine)
-      # The Resource's first entries were read with room; its key is removed from the
-      # recorded state, padded to the admission limit, so that the next entry that the
-      # engine reads would add it again.
-      state = put_in(unit_state(c).control.classification, :late)
-      assert %{"document" => _} = state.control.cursors
-      padded = pad_invocations(update_in(state.control.cursors, &Map.delete(&1, "document")), 0)
-      journal_state(c, padded)
-
-      assert {:ok, _} =
-               Elzoo.RunResource.command(owner, %{
-                 id: "opened",
-                 at_ms: 2_000,
-                 body:
-                   {:observed, ["tenant", "account", "effect", "publish", "open"],
-                    {:completed, %{opened_at_ms: 2_000}}}
-               })
-
+      {c, opts} = blocked_open()
       before = rows(c)
       engine = start(c, [run_owner: forwarder(c, :kill)] ++ opts)
       monitor = Process.monitor(engine)
       # The start reconciles the open's tried intent (a :continuation record); the entry
       # itself writes no row: no input of it and no cursor record.
-      entry_rows = fn ->
-        for row <- Enum.drop(rows(c), length(before)),
-            {1, {id, record}} <- [decode(row)],
-            Map.get(record, :kind) == :resource_cursor or String.starts_with?(id, "resource:"),
-            do: id
-      end
-
-      assert entry_rows.() == []
+      assert entry_rows(c, before) == []
       refute Map.has_key?(unit_state(c).control.cursors, "document")
 
       cancel = input(c, "cancel", %{"attempt_id" => "attempt"})
@@ -974,7 +993,212 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       control = unit_state(c).control
       assert control.stop_attempt == {"attempt", :cancelled}
       refute Map.has_key?(control.cursors, "document")
-      assert entry_rows.() == []
+      assert entry_rows(c, before) == []
+    end
+
+    test "a fresh configuration whose Budget ID leaves less than the room is refused with no write; at the limit, a wake and a cancel in a 200-byte Attempt commit marked" do
+      long = String.duplicate("l", 200)
+      probe = run_fixture(fn _frame -> [] end, 1)
+      engine = start(probe)
+      configured = unit_state(probe)
+      GenServer.stop(engine)
+      refused = run_fixture(fn _frame -> [] end, 1, budget: budget_leaving(configured, -1))
+      assert {:error, :record_size} = RunEngine.start_link(refused.opts)
+      assert rows(refused) == []
+
+      for {kind, stop} <- [wake: :out_of_time, cancel: :cancelled] do
+        c = run_fixture(fn _frame -> [] end, 1, budget: budget_leaving(configured, 0))
+        engine = start(c, run_owner: forwarder(c, :kill))
+        assert control_headroom(unit_state(c)) == 0
+        monitor = Process.monitor(engine)
+        # The next request takes the Run view of the 200-byte Attempt, then sets the stop.
+        begin_attempt(c, long)
+        stop_request(c, engine, kind, long)
+        assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+        assert unit_state(c).control.stop_attempt == {long, stop}
+        assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+        engine = start(c)
+        assert %{outcome: ^stop} = wait_for(engine, &(&1.outcome != nil))
+      end
+    end
+
+    test "a rollover configuration whose Budget ID leaves less than the room is refused with no write; one at the limit is taken" do
+      probe = ended_run()
+      engine = start(probe, run_id: "period-two")
+      configured = unit_state(probe)
+      assert configured.control.run_id == "period-two"
+      GenServer.stop(engine)
+      c = ended_run()
+      before = rows(c)
+      over = [run_id: "period-two", budget: budget_leaving(configured, -1)]
+      assert {:error, :record_size} = RunEngine.start_link(Keyword.merge(c.opts, over))
+      assert rows(c) == before
+      start(c, run_id: "period-two", budget: budget_leaving(configured, 0))
+      assert control_headroom(unit_state(c)) == 0
+    end
+
+    test "with 200-byte action and Attempt IDs, an ask at the admission limit is admitted and waits, one byte under it is refused, and a cancel then commits marked" do
+      long = String.duplicate("l", 200)
+      ask = action(String.duplicate("q", 200), "ask_person", %{})
+      c = run_fixture(fn frame -> [frame.([ask])] end, 1)
+      person = c.opts[:bindings]["ask_person"]
+      crash = start_supervised!({Agent, fn -> true end}, id: make_ref())
+
+      # The engine dies at the ask's binding facts once: its slot stays :allowed.
+      facts = fn action ->
+        if Agent.get_and_update(crash, &{&1, false}), do: Process.exit(self(), :kill)
+        person.facts.(action)
+      end
+
+      begin_attempt(c, long)
+
+      engine =
+        start(c, bindings: Map.put(c.opts[:bindings], "ask_person", %{person | facts: facts}))
+
+      call(fn -> start_run(c, engine, long) end)
+      allowed = unit_state(c)
+      assert %{phase: :allowed} = allowed.slots[{1, 0}]
+
+      # The admission that the engine commits: its Budget reservation and the ask's wait,
+      # which its continuation lists later, are its growth.
+      facts = person.facts.(ask)
+
+      facts =
+        Map.merge(facts, %{binding_id: person.id, binding_version: person.version, action: ask})
+
+      at = Agent.get(c.clock, & &1)
+      admission = %{version: 1, kind: :admission, occurrence: {1, 0}, facts: facts, at_ms: at}
+      {:Transition, admitted, :none} = RunEngine.step(allowed, admission)
+      growth = control_headroom(allowed) - control_headroom(admitted)
+      under = pad_invocations(allowed, growth - 1)
+      assert {:Transition, refused, :none} = RunEngine.step(under, admission)
+      assert %{phase: :refusing, refusal: "record_size"} = refused.slots[{1, 0}]
+      at_limit = pad_invocations(allowed, growth)
+      assert {:Transition, next, :none} = RunEngine.step(at_limit, admission)
+      assert %{phase: :authorizing} = next.slots[{1, 0}]
+      assert control_headroom(next) == 0
+
+      journal_state(c, at_limit)
+      engine = start(c, run_owner: forwarder(c, :kill))
+      monitor = Process.monitor(engine)
+      assert %{phase: :waiting} = unit_state(c).slots[{1, 0}]
+      stop_request(c, engine, :cancel, long)
+      assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+      committed = unit_state(c)
+      assert committed.control.stop_attempt == {long, :cancelled}
+      assert %{phase: :waiting} = committed.slots[{1, 0}]
+      assert Map.has_key?(committed.control.lifecycle.waits, ask["id"])
+      assert control_headroom(committed) >= 0
+      assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+      engine = start(c)
+      assert %{outcome: :cancelled} = wait_for(engine, &(&1.outcome != nil))
+    end
+
+    test "at the admission limit with the Run revision and the deadlines at the largest that a wake reaches, a wake at the Run deadline and a cancel commit marked" do
+      long = String.duplicate("l", 200)
+
+      for {rule, deadline} <- [finish: @max_time, pause: @max_time - 1], kind <- [:wake, :cancel] do
+        label = "#{rule} #{kind}"
+        stop = if kind == :wake, do: :out_of_time, else: :cancelled
+        {c, state} = in_attempt("a", budget_rule: rule, run_deadline: deadline)
+        journal_state(c, pad_invocations(put_in(state.control.classification, :late), 0))
+        begin_attempt(c, long)
+        {:ok, %{revision: real}} = Run.status(c.run, "run")
+        engine = start(c, run_owner: forwarder(c, {:revision, real, @max_time, :kill}))
+        monitor = Process.monitor(engine)
+        # The start took the Run view of the 200-byte Attempt at the largest revision; the
+        # Run is paused with the largest pause deadline.
+        far = verified(%{attempt_id: long, pause_deadline: @max_time})
+        pause = %{kind: :pause, pause_deadline: @max_time}
+        assert {:ok, :applied} = RunEngine.control(engine, "pause", pause, far), label
+        if kind == :wake, do: Agent.update(c.clock, fn _ -> deadline end)
+        fields = if kind == :cancel, do: %{"attempt_id" => long}, else: %{}
+        request = input(c, Atom.to_string(kind), fields)
+        call(fn -> RunEngine.input(engine, "stop", request, far) end)
+        assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+        control = unit_state(c).control
+        assert %{stop_pending: ^stop, attempt_id: ^long, run_revision: @max_time} = control
+        assert %{run_deadline: ^deadline, pause_deadline: @max_time} = control.lifecycle
+        assert control.stop_attempt == {long, stop}, label
+        assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+        engine = start(c, run_owner: forwarder(c, {:revision, real, @max_time, :pass}))
+        assert %{outcome: ^stop} = wait_for(engine, &(&1.outcome != nil)), label
+      end
+    end
+  end
+
+  describe "cursor_transition" do
+    test "at the admission limit, a same-width cursor advance whose entry settles a held Budget with a 400-byte actual writes no row and leaves the cursor and the Budget unchanged" do
+      {c, opts, owner} = closed_resource(@rate)
+      state = unit_state(c)
+      cursor = state.control.cursors["document"]
+      {:ok, %{entries: [entry]}} = Elzoo.RunResource.read(owner, cursor)
+      assert {:settle, %{actual: @rate}} = entry.budget_command
+      assert byte_size(binary(entry.seq)) == byte_size(binary(cursor))
+      journal_state(c, pad_invocations(state, 0))
+      before = rows(c)
+      start(c, opts)
+      assert entry_rows(c, before) == []
+      control = unit_state(c).control
+      assert control.cursors == state.control.cursors
+      assert control.budgets == state.control.budgets
+    end
+
+    test "an entry refused at the check before its cursor record keeps its committed inputs, leaves the cursor and the Budget unchanged, and a later pass reads it again" do
+      {c, opts, owner} = closed_resource(@rate)
+      state = unit_state(c)
+      cursor = state.control.cursors["document"]
+      {:ok, %{entries: [entry]}} = Elzoo.RunResource.read(owner, cursor)
+
+      # Room for the entry's cursor transition alone: the check before its first commit
+      # passes, its input (the closed event, given to the root) takes the room of its
+      # invocation entry, and the check before its cursor record refuses it.
+      record = %{
+        cursor_record(entry.seq)
+        | budget_owner: "root",
+          budget_command: entry.budget_command
+      }
+
+      {:Transition, settled, :none} = RunEngine.step(state, record)
+      padded = pad_invocations(state, control_headroom(state) - control_headroom(settled))
+      journal_state(c, padded)
+      before = rows(c)
+      engine = start(c, opts)
+      assert [_ | _] = inputs = entry_rows(c, before)
+      assert Enum.all?(inputs, &String.starts_with?(&1, "resource:"))
+      control = unit_state(c).control
+      assert control.cursors["document"] == cursor
+      assert control.budgets == state.control.budgets
+
+      # A later pass reads the entry again from the unchanged cursor. With room (the
+      # padding taken out of the recorded state), its committed input is not committed
+      # again, and its cursor record and Budget settlement commit.
+      GenServer.stop(engine)
+      padding = Map.keys(padded.control.invocations) -- Map.keys(state.control.invocations)
+      relieved = update_in(unit_state(c).control.invocations, &Map.drop(&1, padding))
+      journal_state(c, relieved, "relieved")
+      before = rows(c)
+      start(c, opts)
+      assert [id] = Enum.uniq(entry_rows(c, before))
+      assert String.starts_with?(id, "cursor:")
+      assert unit_state(c).control.cursors["document"] == entry.seq
+      assert committed(c) == @rate
+    end
+
+    test "a slot that waits on a blocked Resource stays open at its own deadline, before the Run deadline, and the Run's stop settles it" do
+      {c, opts} = blocked_open()
+      engine = start(c, opts)
+      {key, %{deadline_ms: 40_000}} = slot_of(unit_state(c), "open")
+      Agent.update(c.clock, fn _ -> 40_000 end)
+      assert {:ok, _} = RunEngine.input(engine, "at-deadline", input(c, "wake"), verified())
+      state = unit_state(c)
+      refute state.slots[key].phase == :settled
+      refute Map.has_key?(state.control.cursors, "document")
+      cancel = input(c, "cancel", %{"attempt_id" => "attempt"})
+      assert {:ok, _} = RunEngine.input(engine, "cancel", cancel, verified())
+      assert %{outcome: :cancelled} = wait_for(engine, &(&1.outcome != nil))
+      assert %{phase: :settled, outcome: "unknown"} = settled = unit_state(c).slots[key]
+      assert is_nil(settled[:actual])
     end
   end
 
@@ -1022,6 +1246,147 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert {:error, :integrity_failure} = RunEngine.input(engine, "next", wake, verified())
       assert rows(c) == before
       assert %{reconciliation: :integrity_failure} = view(engine)
+    end
+
+    test "with an owner revision that the engine has not taken, a time above 2^63 - 1 in a control or at a fresh input writes nothing" do
+      c = run_fixture(fn _frame -> [] end, 1)
+      engine = start(c)
+      assert {:ok, :applied} = start_run(c, engine)
+      create_other(c)
+      before = rows(c)
+      seen = records(c)
+      over = @max_time + 1
+      far = verified(%{pause_deadline: over})
+      pause = %{kind: :pause, pause_deadline: over}
+      assert {:error, :invalid_control} = RunEngine.control(engine, "pause", pause, verified())
+      continue = %{kind: :continue, run_deadline: over, person_id: "person"}
+
+      assert {:error, :invalid_control} =
+               RunEngine.control(engine, "continue", continue, verified())
+
+      cancel = %{kind: :cancel, attempt_id: "attempt"}
+      assert {:error, :invalid_control} = RunEngine.control(engine, "cancel", cancel, far)
+
+      assert {:error, :pause_deadline_required} =
+               RunEngine.input(engine, "far", input(c, "wake"), far)
+
+      at = Agent.get(c.clock, & &1)
+      Agent.update(c.clock, fn _ -> over end)
+      pause = %{kind: :pause, pause_deadline: 50_000}
+      assert {:error, :invalid_control} = RunEngine.control(engine, "now", pause, verified())
+
+      assert {:error, :invalid_input} =
+               RunEngine.input(engine, "late", input(c, "wake"), verified())
+
+      assert rows(c) == before
+
+      # The next request with bounded times takes the owner's new revision first.
+      Agent.update(c.clock, fn _ -> at end)
+      assert {:ok, _} = RunEngine.input(engine, "next", input(c, "wake"), verified())
+      assert Enum.any?(records(c) -- seen, &match?(%{kind: :run_view}, &1))
+    end
+
+    test "a fresh v2 outside event with a clock sample above 2^63 - 1 is invalid_input with no write; a paired retry is unchanged" do
+      ticket = start_supervised!({Agent, fn -> nil end}, id: make_ref())
+
+      event = fn _scope, id ->
+        {:ok,
+         %{
+           head: %{revision: 1, low_water: 0},
+           event: %{
+             id: id,
+             source_id: "events",
+             correlation_id: Agent.get(ticket, & &1),
+             sequence: 1,
+             schema_id: "result",
+             schema_version: 1,
+             payload: %{"accepted" => true}
+           }
+         }}
+      end
+
+      head = fn _scope -> {:ok, %{revision: 0, low_water: 0}} end
+      source = %{id: "events", version: 1, head: head, read: event}
+      script = fn frame -> [frame.([action("wait", "wait_event")])] end
+      c = run_fixture(script, 2, event_source: source)
+      engine = start(c)
+      assert {:ok, :applied} = start_run(c, engine)
+      {:ok, %{waits: [waiting]}} = RunEngine.event_waits(engine, scope(), limits())
+      Agent.update(ticket, fn _ -> waiting.correlation_id end)
+
+      outside = %{
+        "type" => "input",
+        "version" => 2,
+        "kind" => "outside_event",
+        "action_id" => waiting.action_id,
+        "source_id" => waiting.source_id,
+        "correlation_id" => waiting.correlation_id,
+        "event_id" => "event",
+        "schema_id" => "result",
+        "schema_version" => 1,
+        "payload" => %{"accepted" => true}
+      }
+
+      context = verified(%{occurrence: waiting.occurrence, actual: 0, dispatch: "not_dispatched"})
+      create_other(c)
+      before = rows(c)
+      at = Agent.get(c.clock, & &1)
+      Agent.update(c.clock, fn _ -> @max_time + 1 end)
+      assert {:error, :invalid_input} = RunEngine.input(engine, "event", outside, context)
+      Agent.update(c.clock, fn _ -> at end)
+      far = Map.put(context, :pause_deadline, @max_time + 1)
+      assert {:error, :pause_deadline_required} = RunEngine.input(engine, "event", outside, far)
+      assert rows(c) == before
+      assert {:ok, :applied} = RunEngine.input(engine, "event", outside, context)
+      Agent.update(c.clock, fn _ -> @max_time + 1 end)
+      assert {:ok, :unchanged} = RunEngine.input(engine, "event", outside, context)
+    end
+
+    test "an ask_person binding whose facts give a deadline of 2^63 halts the engine integrity_failure before the admission commits, with no row" do
+      c = run_fixture(fn frame -> [frame.([action("ask", "ask_person")])] end, 1)
+      person = c.opts[:bindings]["ask_person"]
+      far = %{person | facts: &%{person.facts.(&1) | deadline_ms: @max_time + 1}}
+      bindings = Map.put(c.opts[:bindings], "ask_person", far)
+      engine = start(c, bindings: bindings)
+      assert {:error, :integrity_failure} = start_run(c, engine)
+      assert %{reconciliation: :integrity_failure} = view(engine)
+      refute Enum.any?(records(c), &match?(%{kind: :admission}, &1))
+      assert %{phase: :allowed} = slot = unit_state(c).slots[{1, 0}]
+      refute Map.has_key?(slot, :deadline_ms)
+      GenServer.stop(engine)
+      before = rows(c)
+
+      assert {:error, :integrity_failure} =
+               RunEngine.start_link(Keyword.put(c.opts, :bindings, bindings))
+
+      assert rows(c) == before
+    end
+
+    test "a journal that the earlier revision started with a run_deadline of 2^63 fails its restart with the same options, with no write" do
+      probe = run_fixture(fn _frame -> [] end, 1)
+      engine = start(probe)
+      configured = unit_state(probe)
+      GenServer.stop(engine)
+      assert fingerprint(probe.opts, 60_000) == configured.control.fingerprint
+
+      # The configuration as the earlier revision recorded it with that start option.
+      over = @max_time + 1
+      control = %{configured.control | fingerprint: fingerprint(probe.opts, over)}
+      control = put_in(control.lifecycle.run_deadline, over)
+      record = %{version: 1, kind: :configure, control: control}
+      empty = %{version: 1, control: nil, slots: %{}, requests: %{}}
+      assert {:Transition, recorded, :none} = RunEngine.step(empty, record)
+      c = run_fixture(fn _frame -> [] end, 1)
+      id = "configure:" <> Base.encode16(:crypto.hash(:sha256, binary("run")), case: :lower)
+
+      append_rows(c, [
+        {"input", 1, binary({1, {id, record}})},
+        {"result", 1, binary({1, {id, recorded}})}
+      ])
+
+      before = rows(c)
+      assert {:error, _} = RunEngine.start_link(Keyword.put(c.opts, :run_deadline, over))
+      assert rows(c) == before
     end
   end
 
@@ -1560,10 +1925,10 @@ defmodule Elzoo.RunEngineStopAttemptTest do
 
   # A Run open in Attempt `attempt` (a 200-byte ID is the longest that the engine and the
   # Run owner take): the host begins it on the owner (the Run's second Attempt) and the
-  # engine takes its Run view. Returns the fixture and the Unit state; the engine is
-  # stopped.
-  defp in_attempt(attempt) do
-    c = run_fixture(fn _frame -> [] end, 1)
+  # engine takes its Run view. `opts` go to the fixture. Returns the fixture and the Unit
+  # state; the engine is stopped.
+  defp in_attempt(attempt, opts \\ []) do
+    c = run_fixture(fn _frame -> [] end, 1, opts)
     engine = start(c)
     assert {:ok, :applied} = start_run(c, engine)
     begin_attempt(c, attempt)
@@ -1575,14 +1940,14 @@ defmodule Elzoo.RunEngineStopAttemptTest do
     {c, state}
   end
 
-  # Journals `state` as the Unit's recorded state, after an input of its own; the Unit is
-  # stopped first, and the engine's next start reads it.
-  defp journal_state(c, state) do
+  # Journals `state` as the Unit's recorded state, after an input of its own (`id`); the
+  # Unit is stopped first, and the engine's next start reads it.
+  defp journal_state(c, state, id \\ "padded") do
     assert :ok = DynamicUnits.stop(c.directory, c.prefix)
 
     append_rows(c, [
-      {"input", 1, binary({1, {"padded", %{version: state.version, kind: :pad}}})},
-      {"result", 1, binary({1, {"padded", state}})}
+      {"input", 1, binary({1, {id, %{version: state.version, kind: :pad}}})},
+      {"result", 1, binary({1, {id, state}})}
     ])
   end
 
@@ -1613,6 +1978,155 @@ defmodule Elzoo.RunEngineStopAttemptTest do
                provider_refs: %{},
                expected_revision: owner.revision
              })
+  end
+
+  # A :resource_cursor record of Resource "document" at `sequence`, with no Budget command.
+  defp cursor_record(sequence),
+    do: %{
+      version: 1,
+      kind: :resource_cursor,
+      resource: "document",
+      sequence: sequence,
+      budget_owner: nil,
+      budget_command: nil,
+      at_ms: 2_000
+    }
+
+  # An opened Resource "document" at the admission limit whose next entry would add its
+  # key: its first entries were read with room, then its key was removed from the recorded
+  # state, padded to the limit, and the host reported the open completed. The engine is
+  # stopped; the open's slot runs.
+  defp blocked_open do
+    payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+    c = run_fixture(fn frame -> [frame.([action("open", "resource_open", payload)])] end, 1)
+    {owner, bindings} = resource(c)
+    opts = [resources: %{"document" => owner}, bindings: bindings]
+    engine = start(c, opts)
+    assert {:ok, :applied} = start_run(c, engine)
+    assert_receive {:effect_started, _opening, _}, 5_000
+    GenServer.stop(engine)
+    state = put_in(unit_state(c).control.classification, :late)
+    assert %{"document" => _} = state.control.cursors
+    padded = pad_invocations(update_in(state.control.cursors, &Map.delete(&1, "document")), 0)
+    journal_state(c, padded)
+    observed(owner, "opened", "open", %{opened_at_ms: 2_000}, 2_000)
+    {c, opts}
+  end
+
+  # An opened Resource "document" at `rate` per minute, closed on a pause after one
+  # minute's use or less: the entry that the engine reads next gives the root the closed
+  # event and settles the open's held Budget at `rate`, a same-width cursor advance. The
+  # engine is stopped. Returns the fixture, the engine options and the Resource owner.
+  defp closed_resource(rate) do
+    payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+    c = run_fixture(fn frame -> [frame.([action("open", "resource_open", payload)])] end, 1)
+    {owner, bindings} = resource(c, :close, nil, %{rate_per_minute: rate})
+    opts = [resources: %{"document" => owner}, bindings: bindings]
+    engine = start(c, opts)
+    assert {:ok, :applied} = start_run(c, engine)
+    assert_receive {:effect_started, _opening, _}, 5_000
+    observed(owner, "opened", "open", %{opened_at_ms: 2_000}, 2_000)
+    assert {:ok, :applied} = RunEngine.input(engine, "consume-open", input(c, "wake"), verified())
+    Agent.update(c.clock, fn _ -> 3_000 end)
+    assert {:ok, _} = Elzoo.RunResource.command(owner, %{id: "pause", at_ms: 3_000, body: :pause})
+    assert {:ok, :applied} = RunEngine.input(engine, "consume-close", input(c, "wake"), verified())
+    assert_receive {:effect_started, _closing, _}, 5_000
+    # The engine's dispatch of the cleanup is an entry of its own, read here.
+    assert {:ok, :applied} = RunEngine.input(engine, "dispatched", input(c, "wake"), verified())
+    observed(owner, "closed", "cleanup", %{opened_at_ms: 2_000, closed_at_ms: 3_000}, 3_000)
+    GenServer.stop(engine)
+    {c, opts, owner}
+  end
+
+  # The host's report to the Resource `owner` that its effect `effect` completed.
+  defp observed(owner, id, effect, data, at) do
+    identity = ["tenant", "account", "effect", "publish", effect]
+
+    assert {:ok, _} =
+             Elzoo.RunResource.command(owner, %{
+               id: id,
+               at_ms: at,
+               body: {:observed, identity, {:completed, data}}
+             })
+  end
+
+  # The IDs of the rows after `before` that consume a Resource entry: its inputs and
+  # results, and its cursor record.
+  defp entry_rows(c, before) do
+    for row <- Enum.drop(rows(c), length(before)),
+        {1, {id, record}} <- [decode(row)],
+        Map.get(record, :kind) == :resource_cursor or String.starts_with?(id, "resource:"),
+        do: id
+  end
+
+  # A Budget option whose configuration leaves `headroom` bytes past the room, from the
+  # state `configured` that the fixture's Budget gave: its ID is longer than 65,535
+  # characters, which encode in 2 bytes each, and the incarnation sets the parity.
+  defp budget_leaving(configured, headroom) do
+    Enum.find_value(["sealed", "sealed!"], fn incarnation ->
+      left = fn n ->
+        {:ok, budget} = Elzoo.Budget.initial(String.duplicate("b", n), incarnation, 100, "credits")
+        control_headroom(put_in(configured.control.budgets["root"].state, budget))
+      end
+
+      gap = left.(65_536) - headroom
+      n = 65_536 + div(gap, 2)
+
+      if rem(gap, 2) == 0 and left.(n) == headroom,
+        do: %{cap: 100, unit: "credits", id: String.duplicate("b", n), incarnation: incarnation}
+    end)
+  end
+
+  # A Unit whose Run a cancel ended, and the owner's next Run "period-two" in its Attempt
+  # "attempt-two"; the engine is stopped.
+  defp ended_run do
+    c = run_fixture(fn _frame -> [] end, 1)
+    engine = start(c)
+    assert {:ok, :applied} = start_run(c, engine)
+    cancel = input(c, "cancel", %{"attempt_id" => "attempt"})
+    assert {:ok, _} = RunEngine.input(engine, "cancel", cancel, verified())
+    wait_for(engine, &(&1.outcome == :cancelled))
+    GenServer.stop(engine)
+    {:ok, ended} = Run.status(c.run, "run")
+
+    assert {:ok, revision, _} =
+             Run.command(c.run, %{
+               kind: :create,
+               run_id: "period-two",
+               operation_id: "operation-two",
+               provider_refs: %{},
+               expected_revision: ended.revision
+             })
+
+    assert {:ok, _, _} =
+             Run.command(c.run, %{
+               kind: :begin_attempt,
+               run_id: "period-two",
+               attempt_id: "attempt-two",
+               expected_revision: revision
+             })
+
+    c
+  end
+
+  # The fingerprint that a v1 engine records for `opts` with the Run deadline `deadline`:
+  # the digest of its identity (pattern, schemas, bindings, gate, scope, caps, unit, rule
+  # and Run deadline).
+  defp fingerprint(opts, deadline) do
+    {module, function, _initial} = opts[:pattern]
+    schemas = Map.new(opts[:schemas], fn {key, schema} -> {key, {schema.port, schema.digest}} end)
+
+    bindings =
+      Map.new(opts[:bindings], fn {key, binding} -> {key, {binding.id, binding.version}} end)
+
+    gate = Map.take(opts[:gate], [:id, :version])
+    budget = opts[:budget]
+
+    identity =
+      {{module, function}, schemas, bindings, gate, opts[:tenant], opts[:principal],
+       opts[:request_cap], budget.cap, budget.unit, opts[:budget_rule], deadline}
+
+    :crypto.hash(:sha256, binary(identity))
   end
 
   # A completed Run whose state recorded after the terminal Run view is `tamper`ed, its

@@ -868,7 +868,7 @@ defmodule Elzoo.RunEngine.TestHelper do
       expiry: 20_000
     }
 
-  def resource(c, pause_policy \\ :stay, budget \\ nil) do
+  def resource(c, pause_policy \\ :stay, budget \\ nil, fields \\ %{}) do
     fold = %{
       initial: nil,
       versions: [1],
@@ -891,18 +891,22 @@ defmodule Elzoo.RunEngine.TestHelper do
       deadline_ms: 55_000
     }
 
-    resource = %{
-      run_id: "run",
-      name: "document",
-      deadline_ms: 40_000,
-      rate_per_minute: 1,
-      max_waiting: 2,
-      pause_policy: pause_policy,
-      budget:
-        budget ||
-          %{budget_id: "budget", unit: "credits", cost_ref: "1:0", generation: {"sealed", 1}},
-      close_intent: cleanup
-    }
+    resource =
+      Map.merge(
+        %{
+          run_id: "run",
+          name: "document",
+          deadline_ms: 40_000,
+          rate_per_minute: 1,
+          max_waiting: 2,
+          pause_policy: pause_policy,
+          budget:
+            budget ||
+              %{budget_id: "budget", unit: "credits", cost_ref: "1:0", generation: {"sealed", 1}},
+          close_intent: cleanup
+        },
+        fields
+      )
 
     owner =
       ExUnit.Callbacks.start_supervised!(%{
@@ -935,8 +939,10 @@ defmodule Elzoo.RunEngine.TestHelper do
   # 4,096 for each active slot, for each callable that is not closed the room that
   # is left of its state bound (`state_bytes`, 65,536 when absent) after its stored
   # state, and, while no stop is pending, the room of 693 bytes that admission keeps for a
-  # stop and its mark (ELZ-430). A negative value is a broken bound (with no stop pending,
-  # of the bound that admission keeps).
+  # stop and its mark, with the wait that each admitted action of a waiting kind (a model
+  # call, a tool call or an ask) adds when it is listed placed in control (ELZ-430). A
+  # negative value is a broken bound (with no stop pending, of the bound that admission
+  # keeps).
   def control_headroom(state) do
     c = state.control
 
@@ -956,6 +962,22 @@ defmodule Elzoo.RunEngine.TestHelper do
           }
 
           put_in(acc.callables[slot.callable][:finish], kept)
+        else
+          acc
+        end
+      end)
+
+    waiting = %{"model_call" => :model, "tool_call" => :tool, "ask_person" => :person}
+
+    placed =
+      Enum.reduce(state.slots, placed, fn {_, slot}, acc ->
+        kind = waiting[slot.kind]
+
+        if is_nil(c.stop_pending) and kind != nil and
+             slot.phase in [:authorizing, :approval, :ready, :opening, :running, :reconcile] and
+             not Map.has_key?(acc.lifecycle.waits, slot.action_id) do
+          wait = %{kind: kind, attempt_id: slot.attempt_id, one_shot: true}
+          put_in(acc.lifecycle.waits[slot.action_id], wait)
         else
           acc
         end
