@@ -167,13 +167,28 @@ every second until confirmed, like a failed start. A Run that is not live gives
 `max_runs`.
 
 A start that the host loses (`:lease_lost`: a reading during the start showed the lease
-lost or expired, a same-holder re-claim superseded its claim before the claim was
-confirmed, or no reading confirmed the claim within its bound, Leases) is fenced, not
-failed: its start is answered `{:error, :lease_lost}` and its reservation freed once its
-teardown is confirmed, and nothing is released. A lease that its claim left in the Store
-stays there, this owner's, until it expires by its own `until` on the lease clock, and
-another owner is refused until then: the host takes no node time as proof that it expired.
-A newer record that a same-holder re-claim wrote is never released by that start.
+lost or expired, a reading of the worker or of the host showed a later record of this
+owner before the claim was confirmed, or no reading confirmed the claim within its bound,
+Leases) is fenced, not failed: its start is answered `{:error, :lease_lost}` and its
+reservation freed once its teardown is confirmed, and nothing is released, also when a
+`reap/2` joins that teardown (the reap is answered `:ok` once the reservation is freed,
+with no release and without waiting on the Store). A lease that its claim left in the
+Store stays there, this owner's, until it expires by its own `until` on the lease clock,
+and another owner is refused until then: the host takes no node time as proof that it
+expired. A newer record that a re-claim wrote and that a reading showed is not released
+by that start.
+
+Only a re-claim that a reading shows is told apart. `Lease.release/3` releases by key and
+owner, with no record to compare, so a release releases whatever record this owner holds
+under the key. A same-holder re-claim committed after the worker's last read of the
+lease and before the host handles that reading is not observed: the reading still shows
+the claim's own record and confirms it, the Run owner's own startup check
+(`Lease.hold/3` against the claim's revision) then refuses it
+(`:unreconciled_or_invalid_startup`), and that ordinary failed start releases the key, and
+so the re-claim's newer record. The same holds for a re-claim committed later, released by
+a reap or a failed start of the Run. A same-owner re-claim of a Run's key by anything but
+the host is therefore outside what this host protects; the Lease has no release by
+record that would let it.
 
 The confirmed teardown governs the reservation, not recovery: `reap/2`, the lease release
 and freeing the reservation need no attestation (no `fencing_proof` is asked), and a
@@ -492,7 +507,11 @@ moves the deadline as well, earlier or, on a lease clock slower than the node's,
 What a reading can prove, in whichever order readings and results reach the host. A
 reading is eligible while the Run's deadline is ahead, and after that deadline passed (its
 fence not yet taken) only when its `sampled_by` is before that deadline; a reading that
-is not eligible moves, grants and confirms nothing:
+is not eligible moves, grants and confirms nothing. An eligible reading is kept first (it
+may move the deadline, or confirm), and an admission or activation is decided on the
+state that results: it is granted only while the Run's deadline is then still ahead. So a
+reading that puts an already-passed deadline in place, and an older reading behind it that
+cannot move it (the newer one stays the newest), grant nothing:
 
 | Reading | Loss | Grant (activation, admission) | Confirm a replied renewal or the claim |
 | --- | --- | --- | --- |
@@ -500,9 +519,9 @@ is not eligible moves, grants and confirms nothing:
 | a status: inactive, or at or past either `until` | yes (`:expired`) | no | no |
 | this owner's live status, record not read | no | no | no |
 | this owner's live status with its record, not eligible | no | no (an admission: `{:error, :unavailable}`) | no |
-| this owner's live status with its record, eligible | no | yes, under a confirmed generation | no |
-| the same, its mark after the reply mark: a renewal's record or a later one | no | yes | the renewal |
-| the same, its mark after the claim's mark: the claim's own record | no | yes | the claim |
+| this owner's live status with its record, eligible | no | yes, under a confirmed generation, when the deadline is ahead once it is kept | no |
+| the same, its mark after the reply mark: a renewal's record or a later one | no | as above | the renewal |
+| the same, its mark after the claim's mark: the claim's own record | no | as above | the claim |
 | the same, before the claim is confirmed: a record later than the claim's | yes (`{:lease_lost, %{reason: :superseded}}`) | no | no |
 
 An admission's loss counts only while its snapshot's renewal generation is the Run's
@@ -534,9 +553,11 @@ and control reads the lease too
 reading that shows the lease expired or lost is a loss only while that snapshot is still
 the Run's own; after a renewal was confirmed it decides nothing, and the input is admitted
 again from a fresh snapshot. A live reading admits the input only once the host has
-accepted it (the admission waits for the host's answer): one for another tenure has the
-input admitted again from a fresh snapshot, and one that is not eligible (above) gives
-`{:error, :unavailable}`. An EffectIntent activation reads the lease in its callback.
+accepted it and its deadline is still ahead after keeping it (the admission waits for the
+host's answer): one for another tenure has the input admitted again from a fresh
+snapshot, and one that is not eligible, or after which the deadline has passed, gives
+`{:error, :unavailable}` and reaches no worker. An EffectIntent activation reads the lease
+in its callback and is decided the same way.
 Every reading is judged the same way, in whatever order it arrives: the lease is live only
 when it is held by this owner, active, and the sample is before both the reading's own
 `until` (a re-claim can shorten it) and the last confirmed one; another holder, none, or an
@@ -558,7 +579,8 @@ every 100 ms (configured) while its reading confirms nothing, and a reading that
 lease lost or expired fences the Run at once. A reading that shows a later record of this
 owner before the claim is confirmed (a same-holder re-claim replaced it) loses the Run
 (`{:lease_lost, %{reason: :superseded}}`): the start is answered `{:error, :lease_lost}`
-and the newer record is not released (Runs). That confirmation phase is bounded by the TTL
+and the newer record is not released (Runs; a re-claim that no reading shows is not told
+apart). That confirmation phase is bounded by the TTL
 from the moment the claim reaches the host: with no confirmation by then the Run is fenced
 (`:expired`), the start answered `{:error, :lease_lost}` and the reservation freed, and the
 claimed lease is left in the Store until it expires there (Runs). The
@@ -782,19 +804,29 @@ clock measurement.
   has no record (its record read failed by the test), its confirmation phase bounded by the
   host before that reading arrives; the worker, suspended with that reading queued at the
   suspended host, gets `:pending` for it, the start still unanswered and no Run owner or
-  engine started; then confirmed by the worker's next reading with no
-  input and renewed past that bound; a claim whose first reading hangs in the suspended
-  backend, with no input or activation, fenced (`:expired`) no earlier than 2 s (the TTL)
-  after the public start was called and no later than 2.3 s after the test received the
-  notification sent from inside the claim's write (the bound itself counts from the
-  host's receipt of the claim, which neither time observes directly), its start answered
+  engine started; then, the backend suspended, the worker's second reading waits there with
+  the start still unanswered, no owner or engine and the claim unconfirmed, and that
+  reading (of the claim's record) is queued at the suspended host before the start is
+  answered; renewed past that bound with no
+  input; a claim whose first reading hangs in the suspended
+  backend, with no input or activation, fenced (`:expired`): the `on_lost` callback runs
+  no earlier than 2 s (the TTL) after the test launched the task that calls the start and
+  no later than 2.3 s after the test received the notification sent from inside the
+  claim's write (the bound itself counts from the host's receipt of the claim, which
+  neither time observes), its start answered
   `{:error, :lease_lost}` and its reservation freed; once the backend goes on, the claimed
   lease is still this owner's and active in the Store (the lease clock stood still),
   another owner is refused, and it claims the key once the lease clock passes the
-  claim's until; a claim that a same-holder re-claim replaces between its `Lease.claim`
+  claim's until; the same hung claim with its `on_lost` callback held while a public reap
+  joins the teardown: the reap and the start are answered and the reservation freed with
+  the backend still suspended (no release), and the claimed lease is still this owner's
+  afterwards; a claim that a same-holder re-claim replaces between its `Lease.claim`
   and the worker's first reading (the host suspended meanwhile), lost
   (`{:lease_lost, %{reason: :superseded}}`), its start answered `{:error, :lease_lost}`,
-  and the newer record still this owner's and active; a pending renewal whose real
+  and the newer record still this owner's and active, and the same with its `on_lost`
+  callback held while a public reap joins the teardown: no release, the newer record still
+  this owner's (a re-claim after the worker's last reading, which no reading shows, is not
+  tested: it is released, Runs); a pending renewal whose real
   reading message (its timer fired while the host was suspended, observed queued) found
   the deadline past, a reading taken 250 to 340 ms after the claim's (bounded by the test)
   and queued behind it before the deadline moving the deadline on when the host resumes
@@ -803,26 +835,36 @@ clock measurement.
   reading task whose result reaches the host (every other reader held in the suspended
   backend is suspended), and it confirms the renewal; a renewal message that the host takes
   only after the deadline passed (the host suspended from before the real timer fired),
-  followed by an admission's reading taken a second before that deadline: the renewal
-  starts nothing, and the first renewal call reaches the owner half the TTL after that
-  reading's node time (traced, within 300 ms), and is confirmed; an admission's and an
-  activation's reading sampled after a deadline that an earlier queued reading put in
-  place (the host suspended, its fence queued behind them), answered
-  `{:error, :unavailable}` and `:denied` (the activation's reading delivered by the test
-  as its `:authorize` call), the Run fenced (`:expired`); a reading whose status read
-  starts before such a deadline and returns after it (the backend suspended across the
-  deadline), answered `{:error, :unavailable}`, the Run fenced at that deadline; an
-  activation's
+  followed by the test's reading taken a second before that deadline and delivered as an
+  admission's call: the renewal starts nothing, and the first renewal call reaches the
+  owner (its arrival time traced at the owner) between 2 s and 2.3 s after that reading's
+  node time, and is confirmed; the test's reading with 100 ms left, delivered as an
+  admission's call to the suspended host, and behind it its next reading sampled after
+  that deadline, delivered both as an admission's call and as an activation's `:authorize`
+  call: answered `{:error, :unavailable}`, `{:error, :unavailable}` and `:denied` (the first
+  reading kept, but leaving the deadline passed), the Run fenced (`:expired`); the same
+  with an older reading of the test, sampled before that deadline, behind the newer one
+  (both as admissions' calls, the older also as `:authorize`): it cannot move the deadline
+  that the newer one put in place, so all are answered `{:error, :unavailable}` or
+  `:denied` and the Run is fenced; a public `input/5` whose snapshot the running host gave
+  and whose status read starts before such a deadline (the test's reading delivered as an
+  admission's call to the suspended host) and returns after it (the backend suspended
+  across it): the input is answered `{:error, :unavailable}`, the worker receives nothing
+  from it (traced), and the Run is fenced once the host resumes, the deadline already
+  passed; an activation's
   reading judged against an older confirmed until, denied with no loss once a newer
   generation is confirmed (the reading delivered by the test); an older, longer reading
   taken after the
-  reply that reaches the host after a newer reading of a shorter same-holder re-claim (the
-  host suspended while both are delivered as admissions' calls), leaving the confirmed
+  reply that reaches the host after a newer reading of a shorter same-holder re-claim (both
+  delivered as admissions' calls to the suspended host, the short one observed queued
+  before the long one is sent), leaving the confirmed
   renewal, the re-claim's newest reading and its 1 s deadline, lost there with one renewal
   in all; a renewal still pending after the newer, shorter re-claim's reading is applied
   first (that reading's mark set by the test to one taken before the owner's reply,
   standing for a reader that took its mark then and read the Store later), then confirmed
-  only by the older, longer reading taken after the reply, the deadline the re-claim's;
+  by the older, longer reading taken after the reply, every reading task of the host held
+  suspended from before the clock could be read until after that confirmation, the
+  deadline the re-claim's;
   a reading task
   (spawn-traced from the host's task supervisor before it starts) killed at the deadline
   at its start although a later reading moved the deadline, having spawned nothing, and
@@ -841,8 +883,8 @@ clock measurement.
   renewal due at once) delivered right behind it as an admission's call, answered before
   200 ms after the error was delivered, after which the next renewal reaches the owner
   (traced with its arrival time) after that answer, no sooner than 200 ms and no later
-  than 200 ms plus 300 ms after the error was delivered; the same error with a reading
-  that leaves 100 ms delivered to the suspended host before the retry's timer fired, the
+  than 200 ms plus 300 ms after the error was delivered; the same error with the test's
+  reading that leaves 100 ms delivered as an admission's call to the suspended host, the
   host's received messages traced: the reading received before the retry's message, no
   call of `RunHost.renewal/2` by any process (local call tracing) and no renewal call at
   the owner from then until the Run is lost (`:expired`) and gone; a
@@ -895,8 +937,15 @@ Cure outcome table and the engine's results.
   A live reading is correlated with its record only while the stream's head holds still
   across its two reads (five tries), and only under the full-history assumption (Leases).
 - A start that the host loses (`:lease_lost`, also when no reading confirmed its claim in
-  time) releases nothing: the claimed lease stays this owner's in the Store until it
-  expires there, and the key cannot be claimed by another owner until then.
+  time) releases nothing, also when a reap joins it: the claimed lease stays this owner's
+  in the Store until it expires there, and the key cannot be claimed by another owner until
+  then.
+- Releases go through `Lease.release/3`, by key and owner, with no record to compare: a
+  same-owner re-claim of a Run's key that no reading of the host or the worker showed (one
+  committed after the worker's last reading, before the host handles it, or later) is
+  released by the failed start that follows (the Run owner refuses to start,
+  `:unreconciled_or_invalid_startup`) or by a reap. Re-claims of a Run's key under the
+  host's owner by anything else are outside the supported profile.
 - A provider request already on the wire is not recalled by a teardown.
 - The keep-alive touches the Unit through the directory: a directory busy for longer
   than three quarters of `idle_ms` (for example while it starts a Unit that replays a

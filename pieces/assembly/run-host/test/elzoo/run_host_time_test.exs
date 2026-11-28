@@ -2346,7 +2346,34 @@ defmodule Elzoo.RunHostTimeTest do
       assert Task.yield(start, 0) == nil
       assert %{phase: :starting, lease: %{generation: nil}, pids: pids} = run(host, :claim_only)
       refute Map.has_key?(pids, :owner) or Map.has_key?(pids, :engine)
+
+      # The worker goes on with the backend suspended: after `:pending` it reads again, and
+      # that second reading waits in the backend. Still the start is not answered, no Run
+      # owner or engine has started and the claim is unconfirmed. Then the backend goes on
+      # with the host suspended: the worker's second reading, correlated with the claim's
+      # record, reaches the host, which confirms the claim on it; the start is answered.
+      %{held: %{live: %{revision: claimed}}} = run(host, :claim_only)
+      :sys.suspend(backend)
       :erlang.resume_process(worker)
+      eventually(fn -> worker in queued_readers(backend, key) end)
+      assert Task.yield(start, 0) == nil
+      assert %{phase: :starting, lease: %{generation: nil}, pids: pids} = run(host, :claim_only)
+      refute Map.has_key?(pids, :owner) or Map.has_key?(pids, :engine)
+      :sys.suspend(host)
+      :sys.resume(backend)
+
+      second_read = fn message ->
+        match?({:runner, :claim_only, _, {:claim_read, _, {:ok, %{record: ^claimed}}}}, message)
+      end
+
+      eventually(fn ->
+        Enum.any?(queued_messages(host), fn
+          {:"$gen_call", {^worker, _}, message} -> second_read.(message)
+          _ -> false
+        end)
+      end)
+
+      :sys.resume(host)
       assert :ok = Task.await(start, 10_000)
 
       # The worker's next reading confirms the claim before the start goes on, and the idle
@@ -2506,16 +2533,17 @@ defmodule Elzoo.RunHostTimeTest do
       %{token: token, pids: %{owner: owner}, lease: %{generation: first, deadline: a, due: due}} =
         run(host, :rearmed)
 
-      # Every renewal call that reaches the owner is traced. The host is suspended before
-      # the real renewal timer fires: its message queues.
-      :erlang.trace(owner, true, [:receive, {:tracer, self()}])
+      # Every message that reaches the owner is traced with its arrival time on the node's
+      # monotonic clock. The host is suspended before the real renewal timer fires: its
+      # message queues.
+      :erlang.trace(owner, true, [:receive, :monotonic_timestamp, {:tracer, self()}])
       Process.sleep(max(due - 100 - now_ms(), 0))
       :sys.suspend(host)
       eventually(fn -> queued?(host, &(&1 == {:renew, :rearmed, token, first, due})) end)
 
-      # A second before the deadline an admission's reading of the lease (the lease clock
-      # stands still) is delivered behind it; the deadline passes (its fence queues behind
-      # both) and the host resumes 100 ms after it.
+      # A second before the deadline the test's reading of the lease (the lease clock stands
+      # still) is delivered behind it as an admission's call; the deadline passes (its fence
+      # queues behind both) and the host resumes 100 ms after it.
       Process.sleep(max(a - 1_000 - now_ms(), 0))
       {t0, read} = RunHost.lease_reading(env.lease, key, "node-a")
       admission = admit(host, {:reading, :rearmed, token, t0, read})
@@ -2530,10 +2558,11 @@ defmodule Elzoo.RunHostTimeTest do
 
       # The renewal message finds the deadline past and starts nothing; the reading moves the
       # deadline 4 s past its own node time and the renewal is scheduled again, half the TTL
-      # before it: the first renewal call reaches the owner then, and confirms.
+      # before it: the first renewal call reaches the owner then (its traced arrival time),
+      # and confirms.
       assert :ok = Task.await(admission)
-      assert_receive {:trace, ^owner, :receive, {:"$gen_call", _, {:renew, _}}}, 3_000
-      at = now_ms()
+      assert_receive {:trace_ts, ^owner, :receive, {:"$gen_call", _, {:renew, _}}, ts}, 3_000
+      at = System.convert_time_unit(ts, :nanosecond, :millisecond)
       assert at >= t0 + 2_000
       assert at <= t0 + 2_000 + @timer
       :erlang.trace(owner, false, [:receive])
@@ -2542,15 +2571,16 @@ defmodule Elzoo.RunHostTimeTest do
       assert :ok = RunHost.reap(host, :rearmed)
     end
 
-    test "an admission's or activation's reading sampled after a deadline that an earlier queued reading put in place is denied and the Run fenced (the activation's reading delivered by the test)" do
+    test "readings sampled after a deadline that an earlier queued reading put in place grant nothing, nor does that earlier one; the Run fenced (readings delivered by the test as admission and activation calls)" do
       env = memory()
       {host, _} = host(env, timed())
       key = "run/late-reading"
       assert :ok = RunHost.start_run(host, :late, spec("late-reading", stub([])))
       %{token: token} = run(host, :late)
 
-      # The lease clock moves 59.9 s of the 60 s TTL. With the host suspended, a reading with
-      # 100 ms left is delivered: it puts the deadline 100 ms after its own node time.
+      # The lease clock moves 59.9 s of the 60 s TTL. With the host suspended, the test's
+      # reading with 100 ms left is delivered as an admission's call: it puts the deadline
+      # 100 ms after its own node time.
       Lease.Clock.advance(env.clock, 59_900_000)
       :sys.suspend(host)
       {ta, short} = RunHost.lease_reading(env.lease, key, "node-a")
@@ -2560,9 +2590,9 @@ defmodule Elzoo.RunHostTimeTest do
         queued?(host, &match?({:"$gen_call", _, {:reading, :late, _, _, _}}, &1))
       end)
 
-      # After that deadline (on the still lease clock the lease is live), another reading,
-      # sampled after it, is delivered behind the first: as an admission's and as an
-      # activation's.
+      # After that deadline (on the still lease clock the lease is live), the test's next
+      # reading, sampled after it, is delivered behind the first: as an admission's call and
+      # as an activation's `:authorize` call.
       Process.sleep(max(ta + 150 - now_ms(), 0))
       {tb, late} = RunHost.lease_reading(env.lease, key, "node-a")
       assert {:ok, %{sampled_by: sampled_by}} = late
@@ -2577,61 +2607,118 @@ defmodule Elzoo.RunHostTimeTest do
           Enum.count(messages, &match?({:"$gen_call", _, {:reading, :late, _, _, _}}, &1)) == 2
       end)
 
+      # The first reading is kept and leaves the deadline passed: it admits nothing either.
       :sys.resume(host)
-
-      assert :ok = Task.await(first)
+      assert {:error, :unavailable} = Task.await(first)
       assert {:error, :unavailable} = Task.await(second)
       assert :denied = Task.await(activation)
       assert_receive {:lost, :late, :expired, _}, 1_000
     end
 
-    test "a reading whose status read starts before a deadline that an earlier queued reading put in place and returns after it is not accepted and does not move that deadline: the Run is fenced" do
+    test "a reading sampled before a deadline that an earlier queued, newer reading put in place grants nothing; the Run fenced (readings delivered by the test as admission and activation calls)" do
+      env = memory()
+      {host, _} = host(env, timed())
+      key = "run/older-behind"
+      assert :ok = RunHost.start_run(host, :older_behind, spec("older-behind", stub([])))
+      %{token: token} = run(host, :older_behind)
+
+      # An older reading (the test's, with the whole TTL left), then the lease clock moves
+      # 59.9 s and a newer reading with 100 ms left. With the host suspended, the newer one is
+      # delivered as an admission's call, then the older one behind it, as an admission's
+      # and as an activation's call.
+      {t_old, old} = RunHost.lease_reading(env.lease, key, "node-a")
+      Lease.Clock.advance(env.clock, 59_900_000)
+      {ta, short} = RunHost.lease_reading(env.lease, key, "node-a")
+      assert {:ok, %{sampled_by: sampled_by}} = old
+      assert sampled_by <= ta
+      :sys.suspend(host)
+      first = admit(host, {:reading, :older_behind, token, ta, short})
+
+      eventually(fn ->
+        queued?(host, &match?({:"$gen_call", _, {:reading, :older_behind, _, _, _}}, &1))
+      end)
+
+      second = admit(host, {:reading, :older_behind, token, t_old, old})
+      activation = admit(host, {:authorize, :older_behind, token, t_old, old})
+
+      eventually(fn ->
+        messages = queued_messages(host)
+
+        Enum.any?(messages, &match?({:"$gen_call", _, {:authorize, :older_behind, _, _, _}}, &1)) and
+          Enum.count(messages, &match?({:"$gen_call", _, {:reading, :older_behind, _, _, _}}, &1)) ==
+            2
+      end)
+
+      # The host resumes after the newer reading's deadline: that reading leaves it passed,
+      # and the older one, taken before it, is kept but moves nothing (the newer one stays
+      # the newest): neither admits, the activation is denied, and the fence loses the Run.
+      Process.sleep(max(ta + 150 - now_ms(), 0))
+      :sys.resume(host)
+      assert {:error, :unavailable} = Task.await(second)
+      assert :denied = Task.await(activation)
+      assert {:error, :unavailable} = Task.await(first)
+      assert_receive {:lost, :older_behind, :expired, _}, 1_000
+    end
+
+    test "a public input whose status read starts before a deadline that an earlier queued reading put in place and returns after it is not admitted and reaches no worker: the Run is fenced once the host resumes" do
       env = memory()
       {host, _} = host(env, timed())
       key = "run/straddling"
-      assert :ok = RunHost.start_run(host, :straddling, spec("straddling", stub([])))
-      %{token: token} = run(host, :straddling)
+      spec = spec("straddling", stub([]))
+      assert :ok = RunHost.start_run(host, :straddling, spec)
+      %{token: token, pids: %{worker: worker}} = run(host, :straddling)
       backend = Lease.Memory.owner(env.lease.backend)
 
-      # The lease clock moves 59.7 s of the 60 s TTL. With the host suspended, a reading with
-      # 300 ms left is delivered: it puts the deadline 300 ms after its own node time.
+      # The lease clock moves 59.7 s of the 60 s TTL: the test's reading has 300 ms left,
+      # so it would put the deadline 300 ms after its own node time (the cutoff).
       Lease.Clock.advance(env.clock, 59_700_000)
-      :sys.suspend(host)
       {ta, short} = RunHost.lease_reading(env.lease, key, "node-a")
       cutoff = ta + 300
+
+      # 200 ms later, before the cutoff, a public input takes its snapshot from the running
+      # host and its status read waits in the suspended backend. Then the host is suspended
+      # and the test's reading is delivered as an admission's call; the worker's received
+      # messages are traced from here on.
+      :sys.suspend(backend)
+      Process.sleep(max(ta + 200 - now_ms(), 0))
+
+      input =
+        Task.async(fn ->
+          RunHost.input(host, :straddling, "probe", message("probe"), verified(spec))
+        end)
+
+      eventually(fn -> input.pid in queued_readers(backend, key) end)
+      assert now_ms() < cutoff
+      :sys.suspend(host)
+      :erlang.trace(worker, true, [:receive, {:tracer, self()}])
       first = admit(host, {:reading, :straddling, token, ta, short})
 
       eventually(fn ->
         queued?(host, &match?({:"$gen_call", _, {:reading, :straddling, _, _, _}}, &1))
       end)
 
-      # Another reading starts before that deadline; its status read waits in the suspended
-      # backend until 50 ms after it, so it samples the lease clock after the deadline.
-      :sys.suspend(backend)
-      straddle = Task.async(fn -> RunHost.lease_reading(env.lease, key, "node-a") end)
-      queued_reader!(backend, key, [])
-      assert now_ms() < cutoff
+      # The input's status read returns 50 ms after the cutoff (it sampled the lease clock
+      # after it); its reading reaches the suspended host behind the test's.
       Process.sleep(max(cutoff + 50 - now_ms(), 0))
       :sys.resume(backend)
-      {ts, read} = Task.await(straddle)
-      assert ts < cutoff
-      assert {:ok, %{sampled_by: sampled_by}} = read
-      assert sampled_by >= cutoff
-      second = admit(host, {:reading, :straddling, token, ts, read})
 
       eventually(fn ->
-        Enum.count(
-          queued_messages(host),
-          &match?({:"$gen_call", _, {:reading, :straddling, _, _, _}}, &1)
-        ) == 2
+        Enum.any?(queued_messages(host), fn
+          {:"$gen_call", {pid, _}, {:reading, :straddling, _, _, _}} -> pid == input.pid
+          _ -> false
+        end)
       end)
 
-      # The first reading puts the passed deadline in place; the second is not accepted and
-      # moves nothing; the fence of that deadline loses the Run.
+      # The test's reading leaves the deadline passed; the input's, sampled after it, is not
+      # accepted: the input is answered {:error, :unavailable} and nothing of it reaches the
+      # worker; the fence, already due, loses the Run once the host resumes.
       :sys.resume(host)
-      assert :ok = Task.await(first)
-      assert {:error, :unavailable} = Task.await(second)
+      assert {:error, :unavailable} = Task.await(input)
+      assert {:error, :unavailable} = Task.await(first)
       assert_receive {:lost, :straddling, :expired, _}, 1_000
+      :erlang.trace(worker, false, [:receive])
+      input_pid = input.pid
+      refute_received {:trace, ^worker, :receive, {:"$gen_call", {^input_pid, _}, _}}
     end
 
     test "a renewal stays pending after a newer short re-claim reading marked before the reply; only the older, longer reading taken after the reply confirms it (the short mark set by the test)" do
@@ -2658,10 +2745,18 @@ defmodule Elzoo.RunHostTimeTest do
       %{lease: %{pending: %{record: renewed, replied: replied}}} = run(host, :pending_longer)
       assert early < replied
 
-      # With the host suspended: a reading of the renewal's record (after the reply, the
-      # longer until), then a same-holder re-claim for 1 s and a reading of it (newer in the
-      # Store), whose mark the test sets to the early one.
+      # With the host suspended, every reading task that it has dispatched is suspended too
+      # (held until the end of the test's readings, so none gives a result meanwhile; new
+      # ones read the failing clock): a reading of the renewal's record (after the reply,
+      # the longer until), then a same-holder re-claim for 1 s and a reading of it (newer in
+      # the Store), whose mark the test sets to the early one.
       :sys.suspend(host)
+
+      held =
+        for {:expiry, :pending_longer, _, %{pid: pid}} <- Map.values(state(host).jobs),
+            held?(pid),
+            do: pid
+
       Lease.Clock.fail(env.clock, false)
       {t1, long} = RunHost.lease_reading(env.lease, key, "node-a")
       assert {:ok, %{record: ^renewed, mark: long_mark}} = long
@@ -2700,6 +2795,7 @@ defmodule Elzoo.RunHostTimeTest do
       assert second != first
       assert lease.seen.record == reclaimed
       assert lease.deadline <= t2 + 1_000
+      Enum.each(held, &unhold/1)
 
       # The re-claim's until passes: the Run is lost (:expired).
       Lease.Clock.fail(env.clock, false)
@@ -2732,10 +2828,10 @@ defmodule Elzoo.RunHostTimeTest do
       notified = now_ms()
 
       # The worker's status read waits in the suspended backend for good. The bound counts
-      # from the host's receipt of the claim, which comes after the public start began and
-      # (the claim returning after its write) after the test's notification from inside that
-      # write was sent; the test measures from the start call and from that notification's
-      # receipt.
+      # from the host's receipt of the claim, which neither of the test's times observes:
+      # `started` is taken before the test launches the task that calls the start,
+      # `notified` when the test receives the notification sent from inside the claim's
+      # write, and `lost_at` inside the `on_lost` callback, after the host fenced the Run.
       queued_reader!(backend, key, [])
       assert_receive {:lost, :hung, :expired, lost_at}, 4_000
       assert lost_at >= started + 2_000
@@ -2806,6 +2902,120 @@ defmodule Elzoo.RunHostTimeTest do
                RunHost.lease_reading(env.lease, key, "node-a")
     end
 
+    test "a public reap that joins the teardown of a start lost to a same-holder re-claim (its on_lost callback held) releases nothing: the newer record stays this owner's" do
+      test = self()
+      key = "run/superseded-reap"
+      {:ok, armed} = Agent.start_link(fn -> true end)
+
+      hook = fn
+        :before_write, %{key: ^key} ->
+          if Agent.get_and_update(armed, &{&1, false}) do
+            send(test, {:claiming, self()})
+            receive do: (:go -> :ok)
+          end
+
+        _, _ ->
+          :ok
+      end
+
+      # The on_lost callback reports and then waits, holding the teardown open.
+      on_lost = fn ref, reason ->
+        send(test, {:lost, ref, reason, self()})
+        receive do: (:go -> :ok)
+      end
+
+      env = memory(lease: [test_hook: hook])
+      {host, _} = host(env, on_lost: on_lost, lease_ttl_ms: 60_000)
+
+      start =
+        Task.async(fn ->
+          RunHost.start_run(host, :superseded_reap, spec("superseded-reap", stub([])))
+        end)
+
+      # As above: the same owner re-claims the key while the worker's claim waits to reach
+      # the suspended host.
+      assert_receive {:claiming, backend}, 5_000
+      :sys.suspend(host)
+      send(backend, :go)
+
+      eventually(fn ->
+        queued?(host, &match?({:"$gen_call", _, {:runner, :superseded_reap, _, {:held, _, _}}}, &1))
+      end)
+
+      assert {:held, %{live: %{revision: reclaimed}}} =
+               Lease.claim(env.lease, key, "node-a", 60_000)
+
+      :sys.resume(host)
+
+      # The start is lost (superseded); its on_lost callback is held, so the Run is still in
+      # its teardown (reserved) when a public reap joins it; the reap stops the callback.
+      assert_receive {:lost, :superseded_reap, {:lease_lost, %{reason: :superseded}}, callback},
+                     3_000
+
+      assert %{phase: phase, admission: :lease_lost} = run(host, :superseded_reap)
+      assert phase in [:tearing_down, :awaiting]
+      gone = Process.monitor(callback)
+      reap = Task.async(fn -> RunHost.reap(host, :superseded_reap) end)
+      assert_receive {:DOWN, ^gone, :process, ^callback, _}, 5_000
+
+      # The reap and the start are answered, the slot freed, and nothing was released.
+      assert :ok = Task.await(reap, 5_000)
+      assert {:error, :lease_lost} = Task.await(start, 10_000)
+      assert state(host).runs == %{}
+
+      assert {_, {:ok, %{status: :active, holder: %{owner: "node-a"}, record: ^reclaimed}}} =
+               RunHost.lease_reading(env.lease, key, "node-a")
+    end
+
+    test "a public reap that joins the teardown of a start whose claim confirmation hung (its on_lost callback held) releases nothing and answers while the backend still hangs" do
+      test = self()
+      key = "run/hung-reap"
+      {:ok, armed} = Agent.start_link(fn -> true end)
+
+      hook = fn
+        :before_write, %{key: ^key, owner: backend} ->
+          if Agent.get_and_update(armed, &{&1, false}) do
+            suspend_after_call(backend)
+            send(test, {:claimed, backend})
+          end
+
+        _, _ ->
+          :ok
+      end
+
+      on_lost = fn ref, reason ->
+        send(test, {:lost, ref, reason, self()})
+        receive do: (:go -> :ok)
+      end
+
+      env = memory(lease: [test_hook: hook])
+      {host, _} = host(env, on_lost: on_lost, lease_ttl_ms: 2_000, max_runs: 1)
+      start = Task.async(fn -> RunHost.start_run(host, :hung_reap, spec("hung-reap", stub([]))) end)
+      assert_receive {:claimed, backend}, 5_000
+      queued_reader!(backend, key, [])
+
+      # The claim's confirmation bound passes with the worker's reading still in the
+      # suspended backend: the start is lost (:expired). Its on_lost callback is held, so the
+      # Run is still in its teardown when a public reap joins it; the reap stops the callback.
+      assert_receive {:lost, :hung_reap, :expired, callback}, 4_000
+      assert %{phase: phase, admission: :lease_lost} = run(host, :hung_reap)
+      assert phase in [:tearing_down, :awaiting]
+      gone = Process.monitor(callback)
+      reap = Task.async(fn -> RunHost.reap(host, :hung_reap) end)
+      assert_receive {:DOWN, ^gone, :process, ^callback, _}, 5_000
+
+      # With the backend still suspended, the reap and the start are answered and the slot
+      # freed (no release waits in the backend).
+      assert :ok = Task.await(reap, 5_000)
+      assert {:error, :lease_lost} = Task.await(start, 10_000)
+      assert state(host).runs == %{}
+      assert {:status, _, _, [_, :suspended | _]} = :sys.get_status(backend)
+
+      # Once the backend goes on, the claimed lease is still this owner's and active.
+      :sys.resume(backend)
+      assert {:ok, %{status: :active, holder: %{owner: "node-a"}}} = Lease.status(env.lease, key)
+    end
+
     test "an activation's loss judged against an older confirmed until is not applied once a newer generation is confirmed: the host denies it and keeps the Run (the reading delivered by the test)" do
       env = memory()
       {host, _} = host(env, timed() ++ [lease_ttl_ms: 4_000])
@@ -2864,8 +3074,16 @@ defmodule Elzoo.RunHostTimeTest do
                Lease.claim(env.lease, key, "node-a", 1_000)
 
       {t2, short} = RunHost.lease_reading(env.lease, key, "node-a")
+      # Both delivered as admissions' calls, the short one queued at the host before the
+      # long one is sent, and both queued before the host resumes.
+      reading_calls = fn ->
+        for {:"$gen_call", _, {:reading, :older_longer, _, t, _}} <- queued_messages(host), do: t
+      end
+
       short_call = admit(host, {:reading, :older_longer, token, t2, short})
+      eventually(fn -> reading_calls.() == [t2] end)
       long_call = admit(host, {:reading, :older_longer, token, t1, long})
+      eventually(fn -> reading_calls.() == [t2, t1] end)
       :sys.resume(host)
       assert :ok = Task.await(short_call)
       assert :ok = Task.await(long_call)
@@ -2901,10 +3119,11 @@ defmodule Elzoo.RunHostTimeTest do
       assert_receive {:trace, ^owner, :receive, {:"$gen_call", _, {:renew, _}}}, 5_000
 
       # The renewal's result is a definite no-write error (delivered by the test): the retry
-      # is due 200 ms later. A reading with 100 ms left on the lease clock (moved 2.3 s) is
-      # delivered as an admission's call to the suspended host before the retry's timer
-      # fires, so the retry's message queues behind it. The host's received messages and
-      # every call of RunHost.renewal/2 (by any process) are traced from here on.
+      # is due 200 ms later. The test's reading with 100 ms left on the lease clock (moved
+      # 2.3 s) is delivered as an admission's call to the suspended host; the order in which
+      # the host receives it and the retry's message is traced, not timed. The host's
+      # received messages and every call of RunHost.renewal/2 (by any process) are traced
+      # from here on.
       [job] = for {ref, {:renew, :queued_retry, _, _}} <- state(host).jobs, do: ref
       send(host, {job, {:error, :contended}})
       %{lease: %{floor: floor}} = run(host, :queued_retry)
@@ -2921,9 +3140,10 @@ defmodule Elzoo.RunHostTimeTest do
       Process.sleep(max(floor - now_ms(), 0) + 50)
       :sys.resume(host)
 
-      # The reading is applied first and leaves the deadline past; the retry's message, which
-      # the host takes after it, starts no renewal; the fence loses the Run.
-      assert :ok = Task.await(shorten)
+      # The reading is applied first and leaves the deadline past, so it admits nothing; the
+      # retry's message, which the host takes after it, starts no renewal; the fence loses
+      # the Run.
+      assert {:error, :unavailable} = Task.await(shorten)
       assert_receive {:lost, :queued_retry, :expired, _}, 1_000
       eventually(fn -> run(host, :queued_retry) == nil end)
       :erlang.trace(host, false, [:receive])

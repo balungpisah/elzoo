@@ -441,9 +441,10 @@ defmodule Elzoo.RunHost do
   # whose predecessor check passed and whose tenure has a confirmed lease record, on a
   # reading that shows its lease held by this owner and live by the last confirmed `until`
   # and that the host accepts (eligible/2); the reading is kept like any other
-  # (observed/4), so it may show a newer same-holder record than the confirmed one. A
-  # reading that shows the lease lost or expired loses the Run; one that the host does not
-  # accept grants nothing.
+  # (observed/4), so it may show a newer same-holder record than the confirmed one, and the
+  # grant is decided on the state that results: only while the Run's deadline is still
+  # ahead (ahead?/2). A reading that shows the lease lost or expired loses the Run; one
+  # that the host does not accept grants nothing.
   def handle_call({:authorize, run_ref, token, t0, read}, _, s) do
     case s.runs[run_ref] do
       %{token: ^token, granted: true, admission: admission, lease: %{until: until} = l}
@@ -454,8 +455,11 @@ defmodule Elzoo.RunHost do
               s = observed(s, run_ref, t0, read)
 
               case s.runs[run_ref] do
-                %{token: ^token, lease: %{generation: g}} when g != nil -> {:reply, :granted, s}
-                _ -> {:reply, :denied, s}
+                %{lease: %{generation: g}} = run when g != nil ->
+                  {:reply, if(ahead?(run, token), do: :granted, else: :denied), s}
+
+                _ ->
+                  {:reply, :denied, s}
               end
             else
               {:reply, :denied, s}
@@ -473,17 +477,23 @@ defmodule Elzoo.RunHost do
     end
   end
 
-  # A live reading that a caller's admission took: the input is admitted (`:ok`) only when
-  # the host accepts it for the Run's tenure that admitted it; another tenure gives
-  # `:stale` (the caller is admitted again from a fresh snapshot), and a reading that the
-  # host does not accept `{:error, :unavailable}`.
+  # A live reading that a caller's admission took: the host keeps it when it accepts it for
+  # the Run's tenure that admitted it (eligible/2), and the input is admitted (`:ok`) only
+  # when the Run's deadline is still ahead once it is kept (ahead?/2). Another tenure gives
+  # `:stale` (the caller is admitted again from a fresh snapshot); a reading that the host
+  # does not accept, or one after which the deadline has passed (its fence is due),
+  # `{:error, :unavailable}`.
   def handle_call({:reading, run_ref, token, t0, read}, _, s) do
     case s.runs[run_ref] do
       %{token: ^token, phase: phase, admission: admission, lease: %{} = l}
       when phase in [:starting, :live] and admission != :lease_lost ->
-        if eligible?(l, read),
-          do: {:reply, :ok, observed(s, run_ref, t0, read)},
-          else: {:reply, {:error, :unavailable}, s}
+        if eligible?(l, read) do
+          s = observed(s, run_ref, t0, read)
+          reply = if ahead?(s.runs[run_ref], token), do: :ok, else: {:error, :unavailable}
+          {:reply, reply, s}
+        else
+          {:reply, {:error, :unavailable}, s}
+        end
 
       _ ->
         {:reply, :stale, s}
@@ -894,6 +904,8 @@ defmodule Elzoo.RunHost do
       granted: false,
       result: nil,
       release: false,
+      # A start that the host lost keeps its lease: no release, whoever joins (finish/3).
+      keep_lease: false,
       retry: false,
       obligation: nil,
       reap: false,
@@ -1061,6 +1073,14 @@ defmodule Elzoo.RunHost do
   # the deadline moves nothing and grants nothing.
   defp eligible?(%{deadline: deadline}, {:ok, %{sampled_by: sampled_by}}),
     do: deadline == nil or deadline > now() or sampled_by < deadline
+
+  # Whether a grant may be given on the state that a kept reading left: the Run's tenure is
+  # still admitted and its deadline ahead (a passed one is due to be fenced).
+  defp ahead?(%{token: token, admission: admission, lease: %{deadline: deadline}}, token)
+       when admission != :lease_lost,
+       do: deadline != nil and deadline > now()
+
+  defp ahead?(_, _), do: false
 
   defp latest(nil, reading), do: reading
   defp latest(post, reading), do: if(reading.mark > post.mark, do: reading, else: post)
@@ -1324,6 +1344,7 @@ defmodule Elzoo.RunHost do
         s = %{receipt(s, run_ref, reason) | lost: Map.put(s.lost, run_ref, reason)}
         {s, run} = callback(s, run_ref, run, s.c.on_lost, [run_ref, reason])
         run = %{run | admission: :lease_lost, result: run.result || {:error, :lease_lost}}
+        run = %{run | keep_lease: run.keep_lease or phase == :starting}
         teardown(s, run_ref, run)
 
       _ ->
@@ -1447,7 +1468,7 @@ defmodule Elzoo.RunHost do
       alive != %{} or jobs?(s, run_ref, run.token) ->
         put_in(s.runs[run_ref], %{run | phase: :awaiting})
 
-      run.release and release_key(run) != nil ->
+      run.release and not run.keep_lease and release_key(run) != nil ->
         %{lease: lease, owner_id: owner} = s.c
         key = release_key(run)
         job = Task.Supervisor.async_nolink(s.tasks, fn -> release(lease, key, owner) end)
