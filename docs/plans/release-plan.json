@@ -10923,13 +10923,13 @@
           "role": "In-place breaking change under the same ID: one event-log stream per conversation."
         }
       ],
-      "acceptance": "state/conversation moves to one event-log stream per conversation with no message cap: three record kinds with their own retry identities, an owner process, owner-free page and tail reads, an offline v1 import, and the wave 4 channel delivering through its outbox. Affected gate, strongest other-family review.",
+      "acceptance": "state/conversation moves to one event-log stream per conversation with no message cap: three record kinds with their own retry identities, an owner process, owner-free page and tail reads, an offline v1 import, and the wave 4 channel delivering through its outbox as the only acknowledger of its items: an acknowledged item with no row fences the channel (delivery_unproven) and is never appended by it. Affected gate, strongest other-family review.",
       "product_aims": [
         "P09"
       ],
       "issue": 1020,
       "url": "https://github.com/balungpisah/elzoo/issues/1020",
-      "issue_body_sha256": "dcebebb1cde268ce7b3704e23bc23ddad36a6f047fede34a50a9de22da769cd8"
+      "issue_body_sha256": "83d7afb58b445ceaf9650b09a56465e85de6a28e539d9651bf2f0767b846a5a1"
     },
     {
       "id": "ELZ-420",
@@ -11127,14 +11127,14 @@
           "role": "In-place breaking change under the same ID: no lifetime cap, versioned rows, checkpoint and retention."
         }
       ],
-      "acceptance": "assembly/checked-command keeps one tenant stream with no lifetime cap: versioned rows with a v1 reader, one clock for admission and eviction, issuance bound to the operation, removal with a per-stream removal sequence, a bounded own checkpoint and a retention fence. Affected gate, strongest other-family review.",
+      "acceptance": "assembly/checked-command keeps one tenant stream with no lifetime cap: versioned rows with a v1 reader, one clock for admission and eviction, issuance bound to the operation, removal with a per-stream removal sequence, a bounded own checkpoint and a retention fence; retention only through an explicit maintain/3, and the wave 4 channel on the version 2 interface with its command stream never retained (a Need). Affected gate, strongest other-family review.",
       "product_aims": [
         "P09",
         "P10"
       ],
       "issue": 1025,
       "url": "https://github.com/balungpisah/elzoo/issues/1025",
-      "issue_body_sha256": "4baae2a7fe99afcbf6abc1edcf1e0942e367639431dd466d728a07fc6ac694dd"
+      "issue_body_sha256": "dbd0c0dfbdad3a262294c422461411a5286d6f1164f4a80d0d9de95bc411e222"
     },
     {
       "id": "ELZ-421",
@@ -11156,13 +11156,13 @@
       "outputs": [
         "assembly/run-host"
       ],
-      "acceptance": "New assembly/run-host: a supervised node host for engine Runs with renewal, reap, text AI bindings, a trusted outcome route, predecessor fencing, recovery and deadline wakes. Small gate including its own copied consumer, strongest other-family review.",
+      "acceptance": "New assembly/run-host: a supervised node host for engine Runs with renewal, reap, text AI bindings, a trusted outcome route, predecessor fencing by the caller's attestation, recovery and deadline wakes; an oversized completion refused too_large. Small gate including its own copied consumer, strongest other-family review.",
       "product_aims": [
         "P09"
       ],
       "issue": 1026,
       "url": "https://github.com/balungpisah/elzoo/issues/1026",
-      "issue_body_sha256": "92ed21b2818295294efe21dc55c3fe2f14a2e1db71432067076b304cc23dff32"
+      "issue_body_sha256": "3fe0a43bb8e46f61446ed69dab4ba07ff06d2e817a8fa8a8cdfea13606253820"
     },
     {
       "id": "ELZ-427",
@@ -11288,13 +11288,13 @@
           "role": "In-place fix under the same ID: every pending stop is bound to its Attempt, as ELZ-420 does for a root failure."
         }
       ],
-      "acceptance": "assembly/run-engine binds a completed stop and each lifecycle stop, its evidence row where written and the owner command to the Attempt that produced it; a stale owner answer or a restart after a new Attempt drops the stale stop without resetting Run-wide limits; during a retained-history read with a stop pending, records that end it or change the Attempt replay exactly; two crash cuts per stop, a transcript tamper case; the first pending stop wins over a later lifecycle stop (completed and cancelled cases, v1 and v2); negative controls; Piece gate, strongest other-family review.",
+      "acceptance": "assembly/run-engine binds a completed stop and each lifecycle stop, its evidence row where written and the owner command to the Attempt that produced it; a stale owner answer or a restart after a new Attempt drops the stale stop without resetting Run-wide limits; during a retained-history read with a stop pending, records that end it or change the Attempt replay exactly; two crash cuts per stop, a transcript tamper case; the first pending stop wins over a later lifecycle stop (completed and cancelled cases, v1 and v2); the stop's mark {attempt_id, stop} with room kept at admission; times and the Run revision at most 2^63 - 1; every terminal Run view replayed; negative controls; Piece gate, strongest other-family review.",
       "product_aims": [
         "P09"
       ],
       "issue": 1036,
       "url": "https://github.com/balungpisah/elzoo/issues/1036",
-      "issue_body_sha256": "569db8a02824ad511f6482fd99222983f86f51f3b3ccbb263ea3d3e8cbdb0c97"
+      "issue_body_sha256": "c178f59c2d6922e17f380de26fdf62a4a0b3eee714931f8eb70f48e9f8069244"
     },
     {
       "id": "ELZ-431",
@@ -11418,6 +11418,59 @@
       "issue": 1056,
       "url": "https://github.com/balungpisah/elzoo/issues/1056",
       "issue_body_sha256": "9069544a47e64b28aaa11ceef01470fe09c691e2bfd8d1265b7da4dec9916ea6"
+    },
+    {
+      "id": "ELZ-436",
+      "title": "ELZ-436 — state/conversation: a message text bound that holds every answer the engine can carry",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-419"
+      ],
+      "status": "published 2026-11-28",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-436-conversation-text-bound.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "state/conversation",
+          "role": "In-place breaking change under the same ID: texts of 1-65,536 bytes, so every answer that the engine can carry fits."
+        }
+      ],
+      "acceptance": "state/conversation takes texts of 1-65,536 bytes for every record kind; the worst-case payload of 396,360 bytes; owner reads of at most 169 rows per Store read; a Store below the worst case refused, also on an empty stream; the wave 4 tests unchanged; a negative control; Piece gate, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1062,
+      "url": "https://github.com/balungpisah/elzoo/issues/1062",
+      "issue_body_sha256": "665741d304dfd250bcb029a1ae1ccb2b5ffa506af15dc2b37f14ba4b37b1c6ec"
+    },
+    {
+      "id": "ELZ-437",
+      "title": "ELZ-437 — wave 4 channel: an unknown dispatch stays fenced until its own evidence, and a foreign command does not make a restored wait ambiguous",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-418",
+        "ELZ-419"
+      ],
+      "status": "published 2026-11-28",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-437-wave4-unknown-dispatch-fences.md"
+      ],
+      "outputs": [],
+      "acceptance": "The wave 4 channel keeps an unknown reply-association or ASK-release dispatch fenced until its own terminal result, dispatches a contended request again, and decides a restored wait's ambiguity by a fail-closed scan of the rows after its cursor; negative controls; affected gate, strongest other-family review.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1063,
+      "url": "https://github.com/balungpisah/elzoo/issues/1063",
+      "issue_body_sha256": "f01a77fdb4957ef0a8a81cb5aaf8ba53db48d2b1af02643dfc5c37b1e1e2c866"
     }
   ],
   "entries": [
