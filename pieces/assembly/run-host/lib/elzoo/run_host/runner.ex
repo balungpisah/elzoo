@@ -261,9 +261,9 @@ defmodule Elzoo.RunHost.Runner do
     lease = s.c.lease
 
     fn request, generation ->
-      read = Lease.status(lease, key)
+      {t0, read} = RunHost.lease_reading(lease, key)
 
-      case GenServer.call(host, {:authorize, run_ref, token, read}) do
+      case GenServer.call(host, {:authorize, run_ref, token, t0, read}) do
         :granted ->
           if request.revision == 0 and generation == 0,
             do: :fresh,

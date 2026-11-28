@@ -110,13 +110,18 @@ defmodule Elzoo.RunHost do
     :exit, _ -> :gone
   end
 
-  # The lease must be held by this host's owner and live at a sample of the lease clock
-  # taken now (Unix microseconds, compared with the last confirmed `until` of the
-  # admission's snapshot). A lease that is not is reported to the host with the
-  # snapshot's renewal generation; an unreadable lease clock admits nothing.
+  # The lease must be held by this host's owner and live at a reading of the lease taken
+  # now (lease_reading/2), against the last confirmed `until` of the admission's snapshot.
+  # A live reading goes to the host like every other reading of the Run's tenure
+  # (observed/5), so a re-claim that it shows moves the Run's deadline and stops its
+  # renewals; a lease that is not live is reported with the snapshot's renewal generation;
+  # an unreadable lease admits nothing.
   defp live(host, run_ref, %{lease: lease, key: key, owner: owner, until: until} = snapshot) do
-    case lease_state(Lease.status(lease, key), owner, until) do
+    {t0, read} = lease_reading(lease, key)
+
+    case lease_state(read, owner, until) do
       :live ->
+        GenServer.cast(host, {:reading, run_ref, snapshot.token, t0, read})
         :ok
 
       :unknown ->
@@ -150,11 +155,26 @@ defmodule Elzoo.RunHost do
   def lease_state(_, _, _), do: :unknown
 
   @doc false
-  # A reading of the lease, with this node's monotonic time taken before it: the lease
-  # clock is sampled after `t0`.
+  # A reading of the lease, with this node's monotonic time taken before it (the lease
+  # clock is sampled after `t0`) and the sequence of the latest lease record that it shows
+  # (`record`): the identity of that record, which a re-claim replaces with another one
+  # and an ordinary write of the Run's stream does not. Lease.status/2 and
+  # Lease.retention_bound/2 are taken at one head revision of the stream; while the head
+  # moves between them both are read again, at most five times in all.
   def lease_reading(lease, key) do
     t0 = now()
-    {t0, Lease.status(lease, key)}
+    {t0, correlated(lease, key, 5)}
+  end
+
+  defp correlated(lease, key, tries) do
+    with {:ok, %{as_of: as_of} = read} <- Lease.status(lease, key),
+         {:ok, %{as_of: bound, through: through}} <- Lease.retention_bound(lease, key) do
+      cond do
+        bound == as_of -> {:ok, Map.put(read, :record, through + 1)}
+        tries > 1 -> correlated(lease, key, tries - 1)
+        true -> {:error, :moving}
+      end
+    end
   end
 
   # Reads go to the live engine directly; an engine that is gone is a Run that is not
@@ -385,14 +405,14 @@ defmodule Elzoo.RunHost do
   # From the activation callback, inside an EffectIntent process, with a reading of the
   # lease taken there: an activation is granted only to the current incarnation of a Run
   # whose predecessor check passed, while that reading shows its lease held by this
-  # owner and live by the last confirmed `until`. A reading that shows the lease lost or
-  # expired loses the Run.
-  def handle_call({:authorize, run_ref, token, read}, _, s) do
+  # owner and live by the last confirmed `until`; the live reading is kept like any other
+  # (observed/5). A reading that shows the lease lost or expired loses the Run.
+  def handle_call({:authorize, run_ref, token, t0, read}, _, s) do
     case s.runs[run_ref] do
       %{token: ^token, granted: true, admission: admission, lease: %{until: until}}
       when admission != :lease_lost ->
         case lease_state(read, s.c.owner_id, until) do
-          :live -> {:reply, :granted, s}
+          :live -> {:reply, :granted, observed(s, run_ref, t0, read, false)}
           :unknown -> {:reply, :denied, s}
           reason -> {:reply, :denied, lost(s, run_ref, reason)}
         end
@@ -429,18 +449,19 @@ defmodule Elzoo.RunHost do
   end
 
   # The claim succeeded: an old lease that this tenure inherited is its own again. The
-  # claim's `until` is confirmed like a renewal's, by the reading taken after it
-  # (observed/5); with no reading the fence is due at once.
+  # claim's record and `until` are confirmed like a renewal's, by the reading taken after
+  # it (observed/5); with no reading the fence is due at once.
   defp runner({:held, held, t0, read}, run_ref, run, s) do
-    until = held.live.until
-
     lease = %{
       generation: nil,
-      until: until,
+      record: nil,
+      until: held.live.until,
       seen: nil,
       deadline: nil,
       renewing: false,
-      pending: %{until: until, after: tick()}
+      due: nil,
+      timers: %{},
+      pending: %{until: held.live.until, record: held.live.revision, after: tick()}
     }
 
     s = put_in(s.runs[run_ref], %{run | held: held, obligation: nil, lease: lease})
@@ -462,6 +483,15 @@ defmodule Elzoo.RunHost do
 
   # The predecessor check passed (or the Run is fresh): activations may be granted.
   defp runner(:grant, _run_ref, run, s), do: {:ok, %{run | granted: true}, s}
+
+  @impl true
+  # A live reading that a caller's admission took, for the Run's tenure that admitted it.
+  def handle_cast({:reading, run_ref, token, t0, read}, s) do
+    case s.runs[run_ref] do
+      %{token: ^token, lease: %{}} -> {:noreply, observed(s, run_ref, t0, read, false)}
+      _ -> {:noreply, s}
+    end
+  end
 
   @impl true
   def handle_info({:started, run_ref, token}, s) do
@@ -488,11 +518,13 @@ defmodule Elzoo.RunHost do
     end
   end
 
-  # The renewal of a confirmed `until`, once per generation, through the live owner: none
-  # while a renewal that replied is unconfirmed, and none once the newest reading shows
-  # another lease record than the one that the host confirmed (a re-claim's newer record
-  # supersedes it: the Run is then fenced at its deadline, and nothing renews that record).
-  def handle_info({:renew, run_ref, token, generation}, s) do
+  # The renewal of a confirmed lease record, once per generation, through the live owner,
+  # at the moment that schedule/3 set last (`due`): none while a renewal that replied is
+  # unconfirmed, and none once the newest reading shows another lease record than the one
+  # that the host confirmed (a re-claim's record supersedes it, also one with the same
+  # `until`: the Run is then fenced at its deadline, and the host starts no renewal of that
+  # record; a renewal already submitted can still write onto it, README Leases).
+  def handle_info({:renew, run_ref, token, generation, due}, s) do
     case s.runs[run_ref] do
       %{
         token: ^token,
@@ -500,10 +532,11 @@ defmodule Elzoo.RunHost do
         admission: admission,
         lease: %{
           generation: ^generation,
+          due: ^due,
           renewing: false,
           pending: nil,
-          until: until,
-          seen: %{until: until}
+          record: record,
+          seen: %{record: record}
         },
         pids: %{owner: owner}
       } = run
@@ -518,10 +551,10 @@ defmodule Elzoo.RunHost do
         s = put_in(s.jobs[job.ref], {:renew, run_ref, token, generation})
         {:noreply, put_in(s.runs[run_ref].lease.renewing, true)}
 
-      %{token: ^token, phase: :starting, lease: %{generation: ^generation}, pids: pids}
+      %{token: ^token, phase: :starting, lease: %{generation: ^generation, due: ^due}, pids: pids}
       when not is_map_key(pids, :owner) ->
         # The Run owner is not started yet: the renewal waits for it.
-        Process.send_after(self(), {:renew, run_ref, token, generation}, 10)
+        Process.send_after(self(), {:renew, run_ref, token, generation, due}, 10)
         {:noreply, s}
 
       _ ->
@@ -771,40 +804,50 @@ defmodule Elzoo.RunHost do
 
   ## Leases
 
-  # The lease state of a Run: the last confirmed `until` (the claim's, then each confirmed
-  # renewal's) with its generation; the newest reading that showed the lease live (`seen`:
-  # newest by the Store's head revision, then by the lease clock sample, never by the order
-  # in which readings reach the host); a renewal that replied but is not confirmed yet
-  # (`pending`); and the deadline taken from `seen`: this node's monotonic time by which the
-  # earlier of the last confirmed `until` and the one that `seen` shows passes, for a lease
-  # clock that runs no slower than this node's (deadline/1).
+  # The lease state of a Run, one correlated observation: the last confirmed lease record
+  # (`record`, its sequence in the stream: the claim's, then each confirmed renewal's) with
+  # its `until` and generation; the newest reading that showed the lease live (`seen`:
+  # newest by the Store's head revision, then by the lease clock sample, then by the node
+  # time taken before it, never by the order in which readings reach the host), with the
+  # lease record that it shows; a renewal that replied but is not confirmed yet
+  # (`pending`, with its record); the deadline taken from `seen`: this node's monotonic
+  # time by which the earlier of the last confirmed `until` and the one that `seen` shows
+  # passes, for a lease clock that runs no slower than this node's (deadline/1); the moment
+  # of the generation's renewal (`due`); and the timers of the deadline and the renewal.
 
-  # A reading of the Run's lease, taken after `t0` on this node's clock, from any job and in
-  # any order of arrival. Any reading that shows the lease lost or expired loses the Run
-  # (lease_state/3, against the last confirmed `until`). A live reading becomes `seen` when
-  # it is newer in the Store; when it was taken after a replied renewal's reply
-  # (`after_reply`) it also confirms that renewal: its `until` becomes the last confirmed
-  # one, of a new generation with a renewal of its own. An older reading never replaces a
-  # newer one, so a confirmation that arrives late keeps a shorter `until` that a newer
-  # reading showed, and a newer reading still shortens the deadline after a confirmation.
-  # No reading changes nothing: the fence needs none.
+  # A reading of the Run's lease, taken after `t0` on this node's clock, from any job, an
+  # admission or an activation, in any order of arrival. Any reading that shows the lease
+  # lost or expired loses the Run (lease_state/3, against the last confirmed `until`). A
+  # live reading becomes `seen` when it is newer; when it was taken after a replied
+  # renewal's reply (`after_reply`) it also confirms that renewal: its record and `until`
+  # become the last confirmed ones, of a new generation with a renewal of its own. An older
+  # reading never replaces a newer one, so a confirmation that arrives late keeps a shorter
+  # `until` (or another record) that a newer reading showed, and a newer reading still
+  # shortens the deadline after a confirmation. No reading changes nothing: the fence needs
+  # none.
   defp observed(s, run_ref, t0, read, after_reply) do
     case s.runs[run_ref] do
       %{phase: phase, admission: admission, lease: l} = run
       when phase in [:starting, :live] and admission != :lease_lost ->
         case lease_state(read, s.c.owner_id, l.until) do
           :live ->
-            {:ok, %{revision: revision, now: lease_now, holder: %{until: until}}} = read
-            seen = newest(l.seen, %{revision: revision, now: lease_now, until: until, t0: t0})
+            {:ok, %{revision: revision, now: lease_now, record: record, holder: holder}} = read
+            reading = %{revision: revision, now: lease_now, until: holder.until, record: record}
+            seen = newest(l.seen, Map.put(reading, :t0, t0))
             confirmed = after_reply and l.pending != nil
 
             l =
-              if confirmed,
-                do: %{l | seen: seen, until: l.pending.until, pending: nil, generation: make_ref()},
-                else: %{l | seen: seen}
+              if confirmed do
+                %{until: until, record: confirmed_record} = l.pending
 
-            run = arm(%{run | lease: l}, run_ref, deadline(l), s.c.lease_ttl_ms)
-            if confirmed, do: renew_at(run, run_ref, s.c.lease_ttl_ms)
+                %{l | seen: seen, until: until, record: confirmed_record, pending: nil, due: nil}
+                |> Map.put(:generation, make_ref())
+              else
+                %{l | seen: seen}
+              end
+
+            ttl = s.c.lease_ttl_ms
+            run = %{run | lease: l} |> arm(run_ref, deadline(l), ttl) |> schedule(run_ref, ttl)
             put_in(s.runs[run_ref], run)
 
           :unknown ->
@@ -819,10 +862,15 @@ defmodule Elzoo.RunHost do
     end
   end
 
+  # Equally ranked readings (one head revision, one lease clock sample) keep the later node
+  # time: the lease clock stood still while the node's moved on.
   defp newest(nil, reading), do: reading
 
-  defp newest(seen, reading),
-    do: if({reading.revision, reading.now} > {seen.revision, seen.now}, do: reading, else: seen)
+  defp newest(seen, reading) do
+    if {reading.revision, reading.now, reading.t0} > {seen.revision, seen.now, seen.t0},
+      do: reading,
+      else: seen
+  end
 
   # The node time by which the earlier of the last confirmed `until` and the `until` of the
   # newest reading passes, from that reading's lease clock sample, taken after its `t0`.
@@ -830,24 +878,51 @@ defmodule Elzoo.RunHost do
     do: seen.t0 + div(min(until, seen.until) - seen.now, 1_000)
 
   # A deadline that moves gets its expiry check min(200 ms, TTL / 4) before it (none when
-  # that moment has passed) and its fence; the check and the fence of a deadline that is no
-  # longer the Run's do nothing.
+  # that moment has passed) and its fence; the timers of the deadline that it replaces are
+  # cancelled, and the check and the fence of a deadline that is no longer the Run's do
+  # nothing if they still come.
   defp arm(run, run_ref, deadline, ttl) do
-    if deadline != run.lease.deadline do
+    if deadline == run.lease.deadline do
+      run
+    else
+      %{expiry: expiry, fence: fence} = Map.merge(%{expiry: nil, fence: nil}, run.lease.timers)
+      cancel(expiry)
+      cancel(fence)
       check = deadline - min(200, div(ttl, 4)) - now()
-      if check > 0, do: Process.send_after(self(), {:expiry, run_ref, run.token, deadline}, check)
-      Process.send_after(self(), {:fence, run_ref, run.token, deadline}, max(deadline - now(), 0))
+
+      expiry =
+        if check > 0,
+          do: Process.send_after(self(), {:expiry, run_ref, run.token, deadline}, check)
+
+      fence =
+        Process.send_after(self(), {:fence, run_ref, run.token, deadline}, max(deadline - now(), 0))
+
+      timers = Map.merge(run.lease.timers, %{expiry: expiry, fence: fence})
+      %{run | lease: %{run.lease | deadline: deadline, timers: timers}}
     end
-
-    put_in(run.lease.deadline, deadline)
   end
 
-  # The renewal of a new generation, half the TTL before the Run's deadline.
-  defp renew_at(run, run_ref, ttl) do
-    %{generation: generation, deadline: deadline} = run.lease
-    message = {:renew, run_ref, run.token, generation}
-    Process.send_after(self(), message, max(deadline - div(ttl, 2) - now(), 0))
+  # The renewal of a confirmed generation, half the TTL before the Run's deadline. A
+  # renewal that has not started yet moves earlier when the deadline does (a newer reading
+  # shortened it): its old timer is cancelled and, if it still comes, starts nothing.
+  defp schedule(run, run_ref, ttl) do
+    %{generation: generation, deadline: deadline, due: due} = l = run.lease
+    at = deadline - div(ttl, 2)
+
+    if generation != nil and not l.renewing and l.pending == nil and (due == nil or at < due),
+      do: renew_at(run, run_ref, at),
+      else: run
   end
+
+  defp renew_at(run, run_ref, at) do
+    cancel(run.lease.timers[:renew])
+    message = {:renew, run_ref, run.token, run.lease.generation, at}
+    timer = Process.send_after(self(), message, max(at - now(), 0))
+    %{run | lease: %{run.lease | due: at, timers: Map.put(run.lease.timers, :renew, timer)}}
+  end
+
+  defp cancel(nil), do: :ok
+  defp cancel(timer), do: Process.cancel_timer(timer, async: true, info: false)
 
   # The lease is read again in `delay` ms at most, only before the Run's deadline.
   defp read_again(s, run_ref, delay) do
@@ -867,13 +942,14 @@ defmodule Elzoo.RunHost do
   end
 
   @doc false
-  # One renewal through the live owner. A renewal that replied comes back with a reading of
-  # the lease taken after the reply, read again until one succeeds or `deadline` passes.
+  # One renewal through the live owner. A renewal that replied comes back with its record
+  # (the revision that the owner reports) and a reading of the lease taken after the reply,
+  # read again until one succeeds or `deadline` passes.
   def renewal(owner, lease, key, ttl, deadline) do
     case Owner.renew(owner, ttl) do
-      {:ok, _revision, %{until: until}} when is_integer(until) ->
+      {:ok, revision, %{until: until}} when is_integer(until) ->
         {t0, read} = reading(lease, key, deadline)
-        {:renewed, until, read, t0}
+        {:renewed, until, revision, read, t0}
 
       other ->
         other
@@ -905,24 +981,44 @@ defmodule Elzoo.RunHost do
     {:read, t0, read_lease(lease, key, deadline)}
   end
 
-  # One reading of the lease, in a reader of its own given up at `deadline` on this node's
-  # clock, so that a Lease.status/2 that blocks (a Memory read can wait 35 s) holds no
-  # renewal or expiry check past the deadline.
-  defp read_lease(lease, key, deadline),
-    do: reading_of(Task.async(Lease, :status, [lease, key]), deadline)
+  # One reading of the lease (lease_reading/2), in a reader of its own given up at
+  # `deadline` on this node's clock, so that a Lease.status/2 that blocks (a Memory read can
+  # wait 35 s) holds no renewal or expiry check past the deadline.
+  defp read_lease(lease, key, deadline) do
+    job = self()
+    reader = spawn_monitor(fn -> send(job, {self(), :lease_read, correlated(lease, key, 5)}) end)
+    reading_of(reader, deadline)
+  end
 
   @doc false
-  # The reply of a lease reader by `deadline`. The reader is then stopped and its end
-  # awaited in every case, also once it has replied (it may not have exited yet): a job
-  # that reads ends after its reader, which is stopped at the deadline at the latest.
-  def reading_of(task, deadline) do
-    reply = Task.yield(task, max(deadline - now(), 0))
-    stopped = Task.shutdown(task, :brutal_kill)
+  # The reply of a lease reader by `deadline`. The reader is then killed and its exit
+  # awaited in every case, also once it has replied (it may not have exited yet); the job
+  # spawns no other process for it, so a job that reads ends after every process of its
+  # reading, the reader ending at the deadline at the latest.
+  def reading_of({pid, monitor}, deadline) do
+    reply =
+      receive do
+        {^pid, :lease_read, read} -> read
+      after
+        max(deadline - now(), 0) -> nil
+      end
 
-    case reply || stopped do
-      {:ok, read} -> read
-      _ -> {:error, :timeout}
+    Process.exit(pid, :kill)
+
+    receive do
+      {:DOWN, ^monitor, :process, _, _} -> :ok
     end
+
+    # A reply sent before the reader's exit arrives before its :DOWN.
+    reply =
+      reply ||
+        receive do
+          {^pid, :lease_read, read} -> read
+        after
+          0 -> nil
+        end
+
+    reply || {:error, :timeout}
   end
 
   defp job(s, {:renew, run_ref, token, generation}, result) do
@@ -966,8 +1062,8 @@ defmodule Elzoo.RunHost do
     end
   end
 
-  # A release's result is kept until its task has exited (proceed/3): only then is the
-  # reservation freed or handed over, or the release tried again.
+  # A release's result is kept until its task has exited (release_exited/3): only then is
+  # the reservation freed or handed over, or the release tried again.
   defp job(s, {:release, run_ref, token}, result) do
     case s.runs[run_ref] do
       %{token: ^token, phase: :releasing} = run ->
@@ -985,9 +1081,9 @@ defmodule Elzoo.RunHost do
   # the Run's deadline is ahead. Until then the Run keeps that deadline, whose fence needs
   # no reading. A late renewal reopens nothing, and after a teardown began a result is no
   # loss of a live Run (lost/3).
-  defp renewed(s, run_ref, run, generation, {:renewed, until, read, t0}) do
+  defp renewed(s, run_ref, run, generation, {:renewed, until, record, read, t0}) do
     if current?(run, generation) do
-      pending = %{until: until, after: tick()}
+      pending = %{until: until, record: record, after: tick()}
       s = put_in(s.runs[run_ref].lease, %{run.lease | renewing: false, pending: pending})
 
       case read do
@@ -1003,9 +1099,9 @@ defmodule Elzoo.RunHost do
   # within it.
   defp renewed(s, run_ref, run, generation, {:error, _}) do
     if current?(run, generation) do
-      delay = max(div(s.c.lease_ttl_ms, 12), 1)
-      Process.send_after(self(), {:renew, run_ref, run.token, generation}, delay)
-      put_in(s.runs[run_ref].lease.renewing, false)
+      run = put_in(run.lease.renewing, false)
+      at = now() + max(div(s.c.lease_ttl_ms, 12), 1)
+      put_in(s.runs[run_ref], renew_at(run, run_ref, at))
     else
       s
     end
