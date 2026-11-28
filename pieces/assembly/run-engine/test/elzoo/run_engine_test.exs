@@ -8788,11 +8788,30 @@ defmodule Elzoo.RunEngineTest do
     end
   end
 
+  # A seam between the engine and the Run owner: it forwards every call to the Run until the
+  # test arms it; then it holds the engine's :complete command with no reply, so the engine
+  # stops at its owner command with its stop durable and the Run open.
+  defmodule CompleteHold do
+    use GenServer
+
+    def init(run), do: {:ok, {run, nil}}
+
+    def handle_call({:arm, test}, _from, {run, _}), do: {:reply, :ok, {run, test}}
+
+    def handle_call({:command, %{kind: :complete}}, _from, {run, test}) when is_pid(test) do
+      send(test, {:trapped, self()})
+      {:noreply, {run, nil}}
+    end
+
+    def handle_call(message, _from, {run, _} = state),
+      do: {:reply, GenServer.call(run, message, 60_000), state}
+  end
+
   describe "recorded_defect_is_closed_at_a_change" do
     test "after the over-cap record the settled parent stays settled; a recorded refusing parent is settled again by step/2 at a change, first outcome kept" do
       # ELZ-241: the over-cap stop now comes from the root's own request after the
       # expired parent's child callable closed; the settled parent stays settled. The
-      # engine is suspended with stop_pending durable, before the Run ends.
+      # engine is held at its owner command with stop_pending durable, before the Run ends.
       {c, bindings} =
         lost_setup(
           [request([action("slow", "tool_call")])],
@@ -8805,20 +8824,10 @@ defmodule Elzoo.RunEngineTest do
           %{binding | facts: fn a -> %{binding.facts.(a) | deadline_ms: 10_000} end}
         end)
 
-      armed = start_supervised!({Agent, fn -> false end}, id: make_ref())
-      parent = self()
+      seam =
+        start_supervised!(%{id: make_ref(), start: {GenServer, :start_link, [CompleteHold, c.run]}})
 
-      clock = fn ->
-        if Agent.get(armed, & &1) do
-          Agent.update(armed, fn _ -> false end)
-          :sys.suspend(c.run)
-          send(parent, {:trapped, self()})
-        end
-
-        Agent.get(c.clock, & &1)
-      end
-
-      engine = start(c, bindings: bindings, clock: clock)
+      engine = start(c, bindings: bindings, run_owner: seam)
       assert {:ok, :applied} = send_input(engine)
       assert_receive {:effect_started, provider, _}, 5_000
       Agent.update(c.clock, fn _ -> 10_000 end)
@@ -8841,7 +8850,7 @@ defmodule Elzoo.RunEngineTest do
       # With no slot active, the next message input invokes the root; its next request
       # is over the shared cap and the generation closes. The settled parent is not
       # its parent, so it keeps its settlement.
-      Agent.update(armed, fn _ -> true end)
+      assert :ok = GenServer.call(seam, {:arm, self()})
 
       spawn(fn ->
         try do
@@ -8902,7 +8911,6 @@ defmodule Elzoo.RunEngineTest do
       assert closed_budgets == before
 
       halt_engine(c, engine)
-      :sys.resume(c.run)
       change_attempt_down(c)
 
       engine = start(c, bindings: bindings)
@@ -10021,12 +10029,18 @@ defmodule Elzoo.RunEngineTest do
     kept = kept_ids(c, ids)
 
     # A kept child whose request for its tool call has no room asks nothing: it holds no
-    # call and gets no later input. The others hold one each.
-    holders =
-      Enum.filter(kept, fn id ->
-        Enum.any?(unit_state(c).slots, fn {_, slot} -> slot.action_id == "hold-#{id}" end)
+    # call and gets no later input. A kept child whose call's admission has no room (it
+    # counts the call's Budget reservation and the wait that the call lists, ELZ-430) gets
+    # the call refused and grows on that outcome. The others hold one each.
+    wait_unit(c, fn s ->
+      Enum.all?(s.slots, fn {_, slot} ->
+        not String.starts_with?(slot.action_id, "hold-") or slot.phase in [:running, :settled]
       end)
+    end)
 
+    calls = Map.new(unit_state(c).slots, fn {_, slot} -> {slot.action_id, slot} end)
+    holders = Enum.filter(kept, &match?(%{phase: :running}, calls["hold-#{&1}"]))
+    refused = Enum.filter(kept, &match?(%{outcome: "refused"}, calls["hold-#{&1}"]))
     holds_running(c, Enum.map(holders, &"hold-#{&1}"))
 
     # The growth comes first and the counts after it: with no reserve a step fails here.
@@ -10038,7 +10052,7 @@ defmodule Elzoo.RunEngineTest do
     n = length(kept)
 
     IO.puts(
-      "ELZ-232: #{n} of #{length(ids)} children that grow after the start are kept, #{length(holders)} of them hold a tool call and grew"
+      "ELZ-232: #{n} of #{length(ids)} children that grow after the start are kept, #{length(holders)} of them hold a tool call and grew, #{length(refused)} grew on its refusal"
     )
 
     assert length(holders) >= 1
@@ -10057,8 +10071,16 @@ defmodule Elzoo.RunEngineTest do
       assert byte_size(encoded(node.state)) == 65_536
     end
 
+    for id <- refused do
+      hold = "hold-#{id}"
+      assert_receive {:pattern_input, ^id, %{"action_id" => ^hold, "outcome" => "refused"}}, 5_000
+      node = state.control.callables[callable_of(c, id)]
+      assert node.state.script == []
+      assert byte_size(encoded(node.state)) == 65_536
+    end
+
     # A kept child that got no later input keeps its small state.
-    for id <- kept -- holders do
+    for id <- kept -- (holders ++ refused) do
       assert state.control.callables[callable_of(c, id)].state == %{
                name: id,
                script: [{:grow, 65_536}]

@@ -868,7 +868,7 @@ defmodule Elzoo.RunEngine.TestHelper do
       expiry: 20_000
     }
 
-  def resource(c, pause_policy \\ :stay, budget \\ nil) do
+  def resource(c, pause_policy \\ :stay, budget \\ nil, fields \\ %{}) do
     fold = %{
       initial: nil,
       versions: [1],
@@ -891,18 +891,22 @@ defmodule Elzoo.RunEngine.TestHelper do
       deadline_ms: 55_000
     }
 
-    resource = %{
-      run_id: "run",
-      name: "document",
-      deadline_ms: 40_000,
-      rate_per_minute: 1,
-      max_waiting: 2,
-      pause_policy: pause_policy,
-      budget:
-        budget ||
-          %{budget_id: "budget", unit: "credits", cost_ref: "1:0", generation: {"sealed", 1}},
-      close_intent: cleanup
-    }
+    resource =
+      Map.merge(
+        %{
+          run_id: "run",
+          name: "document",
+          deadline_ms: 40_000,
+          rate_per_minute: 1,
+          max_waiting: 2,
+          pause_policy: pause_policy,
+          budget:
+            budget ||
+              %{budget_id: "budget", unit: "credits", cost_ref: "1:0", generation: {"sealed", 1}},
+          close_intent: cleanup
+        },
+        fields
+      )
 
     owner =
       ExUnit.Callbacks.start_supervised!(%{
@@ -932,9 +936,15 @@ defmodule Elzoo.RunEngine.TestHelper do
   # without the engine's own functions. Returns the bytes that are left of 2,097,152
   # after the encoded control (with each admitted, not yet kept finish of a child
   # placed in it), the receipt reserve (1,024 for each receipt that can still come),
-  # 4,096 for each active slot, and for each callable that is not closed the room that
+  # 4,096 for each active slot, for each callable that is not closed the room that
   # is left of its state bound (`state_bytes`, 65,536 when absent) after its stored
-  # state. A negative value is a broken bound.
+  # state, and, while no stop is pending, the room of 695 bytes that admission keeps for a
+  # stop and its mark, with the wait that each admitted action of a waiting kind (a model
+  # call, a tool call or an ask) adds when it is listed placed in control, in place of a
+  # shorter wait listed under its action ID (ELZ-430). A negative value is a broken bound
+  # (with no stop pending, of the bound that admission keeps). It does not count the
+  # charges that a nested child's committed amount gives its parent later, which admission
+  # also keeps (ELZ-430): a test of a child near the limit measures them itself.
   def control_headroom(state) do
     c = state.control
 
@@ -959,6 +969,26 @@ defmodule Elzoo.RunEngine.TestHelper do
         end
       end)
 
+    waiting = %{"model_call" => :model, "tool_call" => :tool, "ask_person" => :person}
+    size = &byte_size(:erlang.term_to_binary(&1, [:deterministic, {:minor_version, 2}]))
+
+    placed =
+      Enum.reduce(state.slots, placed, fn {_, slot}, acc ->
+        kind = waiting[slot.kind]
+
+        if is_nil(c.stop_pending) and kind != nil and
+             slot.phase in [:authorizing, :approval, :ready, :opening, :running, :reconcile] do
+          wait = %{kind: kind, attempt_id: slot.attempt_id, one_shot: true}
+          listed = acc.lifecycle.waits[slot.action_id]
+
+          if is_nil(listed) or size.(wait) > size.(listed),
+            do: put_in(acc.lifecycle.waits[slot.action_id], wait),
+            else: acc
+        else
+          acc
+        end
+      end)
+
     active =
       Enum.count(state.slots, fn {_, s} -> s.phase != :settled or s[:pending_input] != nil end)
 
@@ -977,7 +1007,10 @@ defmodule Elzoo.RunEngine.TestHelper do
               )
       end)
 
-    reserve = (c.cap + 1 - map_size(c.receipts)) * 1_024 + active * 4_096 + open_reserve
+    stop_room = if is_nil(c.stop_pending), do: 695, else: 0
+
+    reserve =
+      (c.cap + 1 - map_size(c.receipts)) * 1_024 + active * 4_096 + open_reserve + stop_room
 
     2_097_152 -
       (byte_size(:erlang.term_to_binary(placed, [:deterministic, {:minor_version, 2}])) + reserve)

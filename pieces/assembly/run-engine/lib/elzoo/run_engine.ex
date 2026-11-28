@@ -12,6 +12,40 @@ defmodule Elzoo.RunEngine do
   @control_bytes 2_097_152
   @request_bytes 4_456_448
   @slot_bytes 131_072
+  # The room for a stop (ELZ-430): while no stop is pending, every check that admits growth
+  # (admits?/2) leaves this many bytes of the control bound free, so that the step that
+  # sets a stop marks it and never fails the state bound. It covers what can grow with no
+  # such check from an admitted state to the end of that step, each at its largest: the
+  # step's own growth together with its mark, the key `stop_attempt` with {Attempt, stop}
+  # for a 200-byte Attempt ID (the longest that the engine and the Run owner take), 468
+  # bytes, those of a cancel at the Run deadline, from the shortest classification,
+  # `:late`: its record of that Attempt ID (200), its stop `:out_of_time` (8) and its
+  # classification {:request_outcome, :out_of_time} (26), 234 bytes, and that stop's mark,
+  # 234 bytes (a cancel before the deadline grows 230 and marks `:cancelled` in 232; a
+  # wake or an outcome that asks for `:out_of_budget` grows 38 at most and marks it in 236;
+  # a step that settles a slot also frees that slot's reserve; a cancel records nothing for
+  # a listed wait); a change to a longer Attempt ID at a Run view, 1 to 200 bytes (199);
+  # the encodings of the recorded Run revision, the pause deadline and the Run deadline,
+  # each from 2 to 11 bytes (27), since the engine refuses a time or a Run revision above
+  # @max_time where it enters; and the lifecycle phase, `:active` to `:waiting` (1).
+  # Admission counts the growth that admitted work adds later besides the room (the wait
+  # that a model call, a tool call or an ask lists: future_waits/1; the charge that a
+  # nested child's committed amount gives its parent: deferred_growth/1), a Resource
+  # cursor transition is admitted whole as other growth is (cursor_admits?/2), and an
+  # input's actual is admitted with its step before the input is written
+  # (actual_admits?/2), so the room counts none of them. 468 + 199 + 27 + 1 = 695.
+  @stop_room 695
+  # The part of @stop_room that no check admits (a change to a longer Attempt ID, 199; the
+  # encodings of the Run revision and the deadlines, 27; the lifecycle phase, 1): the room
+  # without the 468 bytes of the step that sets a stop and its mark. A state keeps of it
+  # what it can still take (unchecked_growth/1): a growth of that kind that a step took
+  # (a longer Run revision or Attempt ID) leaves less to keep (admits?/2).
+  @after_stop 199 + 27 + 1
+  # The largest time and Run revision that the engine takes (2^63 - 1, the largest
+  # sequence of a journal): each encodes in at most 11 bytes.
+  @max_time 9_223_372_036_854_775_807
+  # The longest Attempt ID that the engine and the Run owner take.
+  @longest_attempt String.duplicate("a", 200)
   @empty %{version: 1, control: nil, slots: %{}, requests: %{}}
   @empty_v2 %{version: 2, control: nil, slots: %{}, requests: %{}}
   @refusal_schema "elzoo.run-engine.refusal"
@@ -63,7 +97,7 @@ defmodule Elzoo.RunEngine do
   defp step_record(state, record) do
     {next, output} = transition(state, record)
 
-    next = finalize_step_state(next)
+    next = mark_stop(state, finalize_step_state(next))
     true = fits?(next)
     {:Transition, next, output}
   end
@@ -125,10 +159,9 @@ defmodule Elzoo.RunEngine do
     lifecycle_decide(lifecycle(state, nil), input, context, state.version)
   end
 
-  defp lifecycle_decide(life, input, context, 1), do: BotRunLifecycle.step(life, input, context)
-  defp lifecycle_decide(life, input, context, 2), do: BotRunLifecycle.step(life, input, context, 2)
-
-  defp transition(state, %{kind: :protocol} = record) do
+  # The protocol step, with `call` in place of the pattern call (invoke/3): the projection
+  # of actual_admits?/2 gives one that records only the invocation entry.
+  defp protocol_step(state, record, call) do
     input = record.input
 
     case protocol_transition(state, record) do
@@ -140,10 +173,10 @@ defmodule Elzoo.RunEngine do
              is_nil(state.control.stop_pending) and state.control.lifecycle.phase != :paused and
              not state.control.callables[callable].closed do
           if input["kind"] in ["action_outcome", "person_answer"] or
-               fits?(
+               admits?(
                  put_in(state.control.invocations[record.id], digest({input, record.correlation}))
                ) do
-            invoke(state, record, callable)
+            call.(state, record, callable)
           else
             {classify(state, :record_size), :none}
           end
@@ -157,7 +190,7 @@ defmodule Elzoo.RunEngine do
             if state.version == 2 do
               case paused_pending_input(state, record) do
                 {:ok, next} ->
-                  if fits?(next),
+                  if admits?(next),
                     do: {next, :none},
                     else: {classify(state, :record_size), :none}
 
@@ -179,6 +212,12 @@ defmodule Elzoo.RunEngine do
         end
     end
   end
+
+  defp lifecycle_decide(life, input, context, 1), do: BotRunLifecycle.step(life, input, context)
+  defp lifecycle_decide(life, input, context, 2), do: BotRunLifecycle.step(life, input, context, 2)
+
+  defp transition(state, %{kind: :protocol} = record),
+    do: protocol_step(state, record, &invoke/3)
 
   defp transition(state, %{kind: :nested_actual, occurrence: key, actual: actual, at_ms: at}) do
     slot = state.slots[key]
@@ -305,13 +344,17 @@ defmodule Elzoo.RunEngine do
               slot = Map.merge(slot, %{phase: :authorizing, reservation: reservation})
               admitted = put_in(state.slots[key], slot)
 
-              # A first finish of a non-root child is kept in control until its parent
-              # settles. The admitted state counts it as pending, so it is admitted only
-              # when control with that finish in it fits; otherwise the Budget step is
-              # dropped with the refusal and the child callable stays open.
-              if keeps_first_finish?(c, slot) and not fits?(admitted),
-                do: {deny(before_budget, key, "record_size"), :none},
-                else: {admitted, :none}
+              # Admission keeps the room for a stop (admits?/1, ELZ-430): the admitted state,
+              # with its Budget reservation and the growth that the action adds later, is
+              # admitted only when it leaves the room; otherwise the Budget step is dropped
+              # with the refusal. That growth is the wait that the continuation of a model
+              # call, a tool call or an ask lists (future_waits/1) and the first finish of a
+              # non-root child, which is kept in control until its parent settles and which
+              # the admitted state counts as pending (fits?/2); refused, its child callable
+              # stays open.
+              if admits?(admitted),
+                do: {admitted, :none},
+                else: {deny(before_budget, key, "record_size"), :none}
 
             {:rejected, _} ->
               {deny(state, key, "out_of_budget"), :none}
@@ -361,23 +404,12 @@ defmodule Elzoo.RunEngine do
           do: put_in(state.control.callables[facts.finish_callable][:finish], finish),
           else: state
 
-      wait_kind =
-        case slot.kind do
-          "model_call" -> :model
-          "tool_call" -> :tool
-          "ask_person" -> :person
-          _ -> nil
-        end
+      wait = slot_wait(slot)
 
       state =
-        if wait_kind && phase in [:running, :waiting] do
-          put_in(
-            state.control.lifecycle.waits[slot.action_id],
-            %{kind: wait_kind, attempt_id: slot.attempt_id, one_shot: true}
-          )
-        else
-          state
-        end
+        if wait && phase in [:running, :waiting],
+          do: put_in(state.control.lifecycle.waits[slot.action_id], wait),
+          else: state
 
       state =
         if phase in [:running, :waiting] and state.control.lifecycle.phase == :active,
@@ -439,7 +471,11 @@ defmodule Elzoo.RunEngine do
           callable
         )
 
-      if fits?(next),
+      # The nested start is admitted from `received`, where no stop is pending (permitted?/3),
+      # so with the room for a stop also when the child's first request asks for one (a
+      # request past the cap): the room holds that stop's mark, which the step then writes,
+      # so the stop that this step sets first stays marked as this Attempt's (ELZ-430).
+      if admits?(received, next),
         do: {next, output},
         else: {release_and_deny(received, key, at, "record_size"), :none}
     else
@@ -456,7 +492,7 @@ defmodule Elzoo.RunEngine do
         state
         |> close_local(view.at_ms)
         |> close_attempt(view.current_attempt, view.at_ms)
-        |> drop_stale_failure()
+        |> drop_at_change(view.current_attempt)
       else
         state
       end
@@ -690,15 +726,15 @@ defmodule Elzoo.RunEngine do
     c = state.control
     input = record.input
 
-    cond do
-      record.run_id != c.run_id or Run.classify_attempt(c.attempt_id, record.attempt_id) == :stale ->
+    case protocol_guard(state, record) do
+      :late ->
         {:done, {classify(state, :late), :none}}
 
-      Map.has_key?(c.invocations, record.id) ->
+      :duplicate ->
         true = c.invocations[record.id] == digest({input, record.correlation})
         {:done, {classify(state, :duplicate), :none}}
 
-      true ->
+      :continue ->
         state = expire_and_report(state, input["at_ms"], record.context)
         {state, accepted, callable} = protocol(state, record)
 
@@ -708,6 +744,24 @@ defmodule Elzoo.RunEngine do
             else: state
 
         {:continue, state, accepted, callable}
+    end
+  end
+
+  # The guards of a protocol record before any rule of its own: an input of another Run or
+  # of a stale Attempt is late, and one whose ID has an invocation entry is a duplicate;
+  # neither changes a slot, a Budget or the lifecycle.
+  defp protocol_guard(state, record) do
+    c = state.control
+
+    cond do
+      record.run_id != c.run_id or Run.classify_attempt(c.attempt_id, record.attempt_id) == :stale ->
+        :late
+
+      Map.has_key?(c.invocations, record.id) ->
+        :duplicate
+
+      true ->
+        :continue
     end
   end
 
@@ -733,8 +787,13 @@ defmodule Elzoo.RunEngine do
           )
 
         next = install_lifecycle(state, life, decision)
-        next = if exhausted, do: put_in(next.control.generation_closed, true), else: next
-        next = if exhausted, do: put_in(next.control.charge_stopped, true), else: next
+        # A wake at the request cap closes the generation and stops the charge, unless a
+        # stop is pending: then its request loses and leaves no trace, and the pending
+        # stop decides the owner's reason and what the end of the Run closes. The count
+        # stays as it is. (The fold before ELZ-430 stopped the charge in both cases.)
+        charge = exhausted and (is_nil(c.stop_pending) or legacy_fold?(state))
+        next = if charge, do: put_in(next.control.generation_closed, true), else: next
+        next = if charge, do: put_in(next.control.charge_stopped, true), else: next
 
         {classify(next, decision),
          decision == :permit_new_work and not exhausted and active_count(next) == 0, "root"}
@@ -749,8 +808,19 @@ defmodule Elzoo.RunEngine do
             life_context(state, record.context, record.attempt_id, false, input["at_ms"])
           )
 
-        state = put_in(state.control.cancelled_attempt, record.attempt_id)
-        state = install_lifecycle(state, life, decision) |> close_local(input["at_ms"])
+        # A cancel while a stop is pending loses: it records no cancel and closes no local
+        # work, so the pending stop decides the owner's reason and what the end of the Run
+        # closes. (The fold before ELZ-430 recorded the cancel and closed in both cases.)
+        state =
+          if is_nil(c.stop_pending) or legacy_fold?(state) do
+            state
+            |> put_in([:control, :cancelled_attempt], record.attempt_id)
+            |> install_lifecycle(life, decision)
+            |> close_local(input["at_ms"])
+          else
+            install_lifecycle(state, life, decision)
+          end
+
         {classify(state, decision), false, "root"}
 
       kind == "run_ended" ->
@@ -1111,10 +1181,37 @@ defmodule Elzoo.RunEngine do
   defp close_attempt(state, current, at),
     do: close_open(state, &(&1.attempt_id != current), "attempt_closed", at)
 
-  # A pattern failure belongs to the Attempt of its finish. At a change of Attempt a
-  # failure that the Run owner has not recorded is stale: its pending stop, completion
-  # and closed generation are dropped (the charge stop keeps its own), so the new
-  # Attempt is not failed by an older finish and can generate.
+  # A pending stop belongs to the Attempt that produced it. A stop that the Run owner has
+  # not recorded is stale at a change of Attempt. The drop takes the pending stop, the
+  # completion and the closed generation of a finish (the charge stop keeps its own), and
+  # a recorded cancel of an Attempt other than `current`, which would keep a request-cap
+  # stop of the new Attempt from retaining its slots (retained?/1). The new Attempt is not
+  # ended by an older stop and can generate within the Run-wide deadline, Budget and
+  # request cap, none of which the drop resets; its own inputs decide them.
+  defp drop_stale_stop(%{control: %{stop_pending: stop} = c} = state, current)
+       when not is_nil(stop),
+       do:
+         put_in(state.control, %{
+           c
+           | stop_pending: nil,
+             completion: nil,
+             generation_closed: c.charge_stopped,
+             cancelled_attempt: if(c.cancelled_attempt == current, do: current)
+         })
+
+  defp drop_stale_stop(state, _current), do: state
+
+  # The reader also projects a step with the fold before ELZ-430 (:base, as the base
+  # revision recorded it), to read a history that fold recorded: `legacy_fold` is set on
+  # the projected copy only, never in a recorded state.
+  defp legacy_fold?(state), do: is_map_key(state, :legacy_fold)
+
+  # At a change of Attempt the fold drops a pending stop; the fold before ELZ-430 dropped
+  # only a root failure, and kept the cancel record.
+  defp drop_at_change(state, current) do
+    if legacy_fold?(state), do: drop_stale_failure(state), else: drop_stale_stop(state, current)
+  end
+
   defp drop_stale_failure(%{control: %{stop_pending: :failed} = c} = state),
     do:
       put_in(state.control, %{
@@ -1125,6 +1222,63 @@ defmodule Elzoo.RunEngine do
       })
 
   defp drop_stale_failure(state), do: state
+
+  # The stop's mark (ELZ-430): the control key `stop_attempt` with the value {Attempt,
+  # stop}. A step that leaves a stop other than the one pending before it (another stop or
+  # another Attempt; under the first-stop rule, a stop set where none was pending) writes
+  # the mark when the marked state passes the state bound and removes the key otherwise;
+  # admission keeps the room for it (admits?/1), so only a state recorded without that room
+  # leaves the stop unmarked. A step that keeps the pending stop keeps its mark as it is,
+  # and a step that leaves no stop removes it, so a state with no stop pending holds none.
+  # The fold before ELZ-430 never touched the key (nor does its projection, legacy_fold):
+  # a stop that it set holds none, and one that it replaced or kept at a change of Attempt
+  # holds a mark that names another stop or Attempt. A stop is marked only when the value
+  # is exactly the recorded Attempt and the pending stop (marked?/1).
+  defp mark_stop(before, next) do
+    c = next.control
+
+    cond do
+      legacy_fold?(next) ->
+        next
+
+      is_nil(c.stop_pending) ->
+        update_in(next.control, &Map.delete(&1, :stop_attempt))
+
+      {c.attempt_id, c.stop_pending} == {before.control.attempt_id, before.control.stop_pending} ->
+        next
+
+      true ->
+        marked = put_in(next.control[:stop_attempt], {c.attempt_id, c.stop_pending})
+
+        if fits?(marked),
+          do: marked,
+          else: update_in(next.control, &Map.delete(&1, :stop_attempt))
+    end
+  end
+
+  defp marked?(c),
+    do:
+      is_binary(c.attempt_id) and not is_nil(c.stop_pending) and
+        Map.fetch(c, :stop_attempt) == {:ok, {c.attempt_id, c.stop_pending}}
+
+  @doc false
+  # Whether the mark that `after_state` records (its presence and value) is one that a fold
+  # leaves after a step from `before`: the fold before ELZ-430 leaves the key as it was;
+  # this fold leaves the mark of mark_stop/2 on the rest of the recorded state.
+  def stop_mark?(before, after_state) do
+    mark = Map.fetch(after_state.control, :stop_attempt)
+    kept = if is_map(before.control), do: Map.fetch(before.control, :stop_attempt), else: :error
+
+    carried =
+      case kept do
+        {:ok, value} -> put_in(after_state.control[:stop_attempt], value)
+        :error -> update_in(after_state.control, &Map.delete(&1, :stop_attempt))
+      end
+
+    mark === kept or mark === Map.fetch(mark_stop(before, carried).control, :stop_attempt)
+  rescue
+    _ -> false
+  end
 
   # When a nested_callable slot settles, its child callable and every callable
   # below it close in the same fold step, the way close_open/4 closes callables:
@@ -1394,7 +1548,7 @@ defmodule Elzoo.RunEngine do
           put_in(acc.control.used_ids[action["id"]], true)
         end)
 
-      if fits?(candidate) do
+      if admits?(candidate) do
         candidate = put_in(candidate.control.receipts[ordinal].disposition, :within_cap_valid)
         {classify(candidate, {:request, ordinal}), {:some, {:request, ordinal}}}
       else
@@ -1595,7 +1749,7 @@ defmodule Elzoo.RunEngine do
           }
 
           candidate = put_in(acc.slots[key][:pending_input], %{order: order + 1, record: record})
-          if fits?(candidate), do: candidate, else: acc
+          if admits?(candidate), do: candidate, else: acc
         end
       end)
     else
@@ -1603,20 +1757,25 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  # Whether the own effect of protocol `record` settles slot `key` of `state`: the
-  # slot is still open after the expiry pass of the same fold step and settled after
-  # the record's own protocol rule, before the end of a Run closes what is left.
-  # The steps of protocol_transition/2, pure; the transcript reader asks it so that
-  # it reads no reason from an outcome that came too late to apply.
+  # Whether the own effect of protocol `record` settles slot `key` of `state`: the record
+  # passes the guards of protocol_transition/2 (protocol_guard/2: not another Run's, not
+  # a stale Attempt's, not a duplicate), the slot is still open after the expiry pass of
+  # the same fold step, and settled after the record's own protocol rule, before the end
+  # of a Run closes what is left. The steps of protocol_transition/2, pure; the transcript
+  # reader asks it so that it reads no reason from an outcome that came too late to apply.
   @doc false
   def own_settlement?(state, record, key) do
-    expired = expire_and_report(state, record.input["at_ms"], record.context)
+    if protocol_guard(state, record) == :continue do
+      expired = expire_and_report(state, record.input["at_ms"], record.context)
 
-    if expired.slots[key].phase == :settled do
-      false
+      if expired.slots[key].phase == :settled do
+        false
+      else
+        {next, _accepted, _callable} = protocol(expired, record)
+        next.slots[key].phase == :settled
+      end
     else
-      {next, _accepted, _callable} = protocol(expired, record)
-      next.slots[key].phase == :settled
+      false
     end
   end
 
@@ -1646,17 +1805,22 @@ defmodule Elzoo.RunEngine do
     })
   end
 
-  # A lifecycle stop asked for while a root failure is pending (the Run deadline, a
-  # cancel or a Budget stop, also in the step of a loss that recovery records past the
-  # deadline) does not replace it: the failure stays the stop that finish_run/3
-  # completes. Any other pending stop is replaced as before.
+  # The first pending stop wins: a lifecycle stop asked for while a stop is pending (the
+  # Run deadline, a cancel or a Budget stop, also in the step of a loss that recovery
+  # records past the deadline) does not replace it, as the input gate already refuses new
+  # work while one is pending. The pending stop stays the one that finish_run/3 completes.
+  # (The fold before ELZ-430 replaced any pending stop but a root failure.)
   defp install_lifecycle(state, life, decision) do
     state = put_in(state.control.lifecycle, %{life | tracker: tracker(state.version, %{})})
+    stop = state.control.stop_pending
 
     case decision do
-      {:request_outcome, _} when state.control.stop_pending == :failed -> state
-      {:request_outcome, outcome} -> put_in(state.control.stop_pending, outcome)
-      _ -> state
+      {:request_outcome, outcome}
+      when is_nil(stop) or (stop != :failed and is_map_key(state, :legacy_fold)) ->
+        put_in(state.control.stop_pending, outcome)
+
+      _ ->
+        state
     end
   end
 
@@ -1694,11 +1858,14 @@ defmodule Elzoo.RunEngine do
            is_map(opts[:schemas]) and is_map(opts[:resources]) and is_map(opts[:effect_intent]),
          true <- text?(opts[:tenant], 200) and text?(opts[:principal], 200),
          {:ok, view} <- Run.status(opts[:run_owner], opts[:run_id]),
-         true <- is_binary(view.current_attempt),
+         true <-
+           is_binary(view.current_attempt) and is_integer(view.revision) and
+             view.revision <= @max_time,
          %{cap: budget_cap, unit: unit, id: budget_id, incarnation: incarnation} <- opts[:budget],
          {:ok, budget} <- Budget.initial(budget_id, incarnation, budget_cap, unit),
          rule when rule in [:pause, :finish] <- opts[:budget_rule],
-         deadline when is_integer(deadline) and deadline > 0 <- opts[:run_deadline],
+         deadline when is_integer(deadline) and deadline > 0 and deadline <= @max_time <-
+           opts[:run_deadline],
          {:ok, pid} <- start_unit(opts[:directory], opts[:identity]) do
       identity =
         {{module, function}, schema_identities(opts[:schemas]), binding_identities(opts[:bindings]),
@@ -1791,6 +1958,8 @@ defmodule Elzoo.RunEngine do
         unit: pid,
         halted: nil,
         work: %{},
+        lost: %{},
+        lost_tried: MapSet.new(),
         intents: %{},
         state: nil,
         appended: false,
@@ -1798,18 +1967,21 @@ defmodule Elzoo.RunEngine do
       }
 
       snapshot = DurableUnit.snapshot(pid)
+      configure = %{version: protocol_version, kind: :configure, control: control}
 
+      # A fresh or rollover configuration is admitted only with the room for a stop, like
+      # any other admitted growth (ELZ-430): when its state leaves less, the start fails
+      # with record_size and writes nothing. A Unit that an earlier revision configured is
+      # taken as recorded.
       result =
         cond do
           snapshot == empty_state(protocol_version) or
               (snapshot.version == protocol_version and is_map(snapshot.control) and
                  snapshot.control.run_id != opts[:run_id] and
                  snapshot.control.lifecycle.phase == :terminal and active_count(snapshot) == 0) ->
-            commit(s, stable_id("configure:", opts[:run_id]), %{
-              version: protocol_version,
-              kind: :configure,
-              control: control
-            })
+            if configure_admits?(snapshot, configure),
+              do: commit(s, stable_id("configure:", opts[:run_id]), configure),
+              else: {:error, :record_size, s}
 
           snapshot.version == protocol_version and snapshot.control.fingerprint == fingerprint and
               snapshot.control.run_id == opts[:run_id] ->
@@ -1820,6 +1992,7 @@ defmodule Elzoo.RunEngine do
         end
 
       with {:ok, _, s} <- result,
+           {:ok, s} <- recover_stop(s),
            {:ok, s} <- sync_run(s),
            {:ok, s} <- recover_local(s),
            {:ok, s} <- recover_intents(s),
@@ -1898,8 +2071,15 @@ defmodule Elzoo.RunEngine do
       else: {:reply, reply, s}
   end
 
+  # A halted engine answers every control with its stored halt, before the control's own
+  # checks (ELZ-430): neither writes. Otherwise the control's times are checked before
+  # current/1 (control_time/3).
   def handle_call({:control, id, command, context}, _, s) do
-    result = with {:ok, s} <- current(s), do: apply_control(s, id, command, context)
+    result =
+      with :ok <- if(s.halted, do: {:error, s.halted, s}, else: :ok),
+           {:ok, at} <- control_time(s, command, context),
+           {:ok, s} <- current(s),
+           do: apply_control(s, id, command, context, at)
 
     case result do
       {:ok, s} -> {:reply, {:ok, :applied}, s}
@@ -1950,18 +2130,23 @@ defmodule Elzoo.RunEngine do
         case checked_ingress(s, record.input, Map.merge(record.context, record.correlation)) do
           {:ok, input, correlation, s} ->
             record = %{record | input: input, correlation: correlation}
+            {before, s} = read_state(s)
 
             result =
-              with {:ok, _, s} <- commit(s, id, record),
+              with :ok <- actual_room(before, record),
+                   {:ok, _, s} <- commit(s, id, record),
                    do: drain(s)
 
+            # A refused outcome writes nothing; what current/1 committed before it (a stop
+            # that a Resource outcome set, for one) is drained all the same.
             case result do
               {:ok, s} -> {:noreply, s}
               {:error, _, s} -> {:noreply, s}
+              {:error, :record_size} -> {:noreply, serve_committed(s)}
             end
 
           {:error, _} ->
-            {:noreply, s}
+            {:noreply, serve_committed(s)}
         end
 
       {:error, _, s} ->
@@ -1969,51 +2154,103 @@ defmodule Elzoo.RunEngine do
     end
   end
 
+  # An outbox offer can come after the engine's Unit stopped: the Unit check of current/1
+  # runs before the drain (with_current_unit/2).
   def handle_info(%Outbox.Item{} = item, s) do
     if s.halted do
       {:noreply, s}
     else
-      case drain(s) do
-        {:ok, s} ->
-          case ack(s, item) do
-            {:ok, s} -> {:noreply, s}
-            {reason, s} -> {:noreply, %{s | halted: reason, state: nil, decoded: %{}}}
-          end
+      with_current_unit(s, fn s ->
+        case drain(s) do
+          {:ok, s} ->
+            case ack(s, item) do
+              {:ok, s} -> {:noreply, s}
+              {reason, s} -> {:noreply, %{s | halted: reason, state: nil, decoded: %{}}}
+            end
 
-        {:error, _, s} ->
-          {:noreply, s}
-      end
+          {:error, _, s} ->
+            {:noreply, s}
+        end
+      end)
     end
   end
 
   def handle_info(_, s), do: {:noreply, s}
 
+  # The commit of a v2 input that the engine takes from its mailbox, after the Unit check
+  # (and its recovery) of current_unit/1. Everything after that check runs at the
+  # reconciled-state boundary (after_current/2): an exit there halts the engine with its
+  # cache cleared, never returns the state from before the check.
   defp commit_and_drain_input(s, id, record) do
-    case commit(s, id, record) do
-      {:ok, _, s} ->
-        case drain(s) do
-          {:ok, s} -> {:noreply, s}
+    with_current_unit(s, fn s ->
+      after_current(s, fn s ->
+        {before, s} = read_state(s)
+
+        with :ok <- actual_room(before, record),
+             {:ok, _, s} <- commit(s, id, record),
+             {:ok, s} <- drain(s) do
+          {:noreply, s}
+        else
+          {:error, :record_size} -> {:noreply, serve_committed(s)}
           {:error, _, s} -> {:noreply, s}
         end
+      end)
+    end)
+  end
 
-      {:error, _, s} ->
-        {:noreply, s}
+  # After an ingress refusal that follows current/1 (the refused record wrote nothing),
+  # the work that current/1 committed (a Resource outcome's step that set a stop, for one)
+  # is served by a drain all the same. A drain that ends in a halt keeps it (status/1 shows
+  # it: an evidence append that the Writer did not report committed, for one, halts
+  # `:delivery_unknown`); one that exits or raises halts the engine `:delivery_unknown`
+  # with its cache cleared. The caller's reply is the refusal (refused/2): the input is
+  # known not to be written.
+  defp serve_committed(s) do
+    case drain(s) do
+      {:ok, s} -> s
+      {:error, _, s} -> s
+    end
+  catch
+    _, _ -> %{s | halted: :delivery_unknown, state: nil, decoded: %{}}
+  end
+
+  defp refused(s, reason), do: {{:error, reason}, serve_committed(s)}
+
+  # The part of a mailbox delivery after current/1 or current_unit/1 reconciled the state:
+  # an exit or a raise halts the engine `:delivery_unknown` with its cache cleared (rows
+  # may have committed), so status/1 never shows the state from before the reconciliation.
+  defp after_current(s, fun) do
+    fun.(s)
+  catch
+    _, _ -> {:noreply, %{s | halted: :delivery_unknown, state: nil, decoded: %{}}}
+  end
+
+  # A drain that no public call starts runs the Unit check of current/1 first
+  # (current_unit/1). A halt of that check stays; without one the state before the check
+  # stays, so the next call runs the recovery of a replacement Unit again.
+  defp with_current_unit(s, fun) do
+    case current_unit(s) do
+      {:ok, checked} -> fun.(checked)
+      {:error, _, %{halted: reason} = halted} when not is_nil(reason) -> {:noreply, halted}
+      _ -> {:noreply, s}
     end
   end
 
   defp accept_local_work_input(s, id, record) do
     case current(s) do
       {:ok, s} ->
-        record = local_outcome_context(s, record)
+        after_current(s, fn s ->
+          record = local_outcome_context(s, record)
 
-        case checked_ingress(s, record.input, Map.merge(record.context, record.correlation)) do
-          {:ok, input, correlation, s} ->
-            record = %{record | input: input, correlation: correlation}
-            commit_and_drain_input(s, id, record)
+          case checked_ingress(s, record.input, Map.merge(record.context, record.correlation)) do
+            {:ok, input, correlation, s} ->
+              record = %{record | input: input, correlation: correlation}
+              commit_and_drain_input(s, id, record)
 
-          _ ->
-            {:noreply, s}
-        end
+            _ ->
+              {:noreply, serve_committed(s)}
+          end
+        end)
 
       # A halt of current/1 (a failed winner read included) stays: status/1 shows it.
       {:error, _, %{halted: reason} = halted} when not is_nil(reason) ->
@@ -2045,7 +2282,19 @@ defmodule Elzoo.RunEngine do
   defp local_outcome_context(s, record),
     do: %{record | context: Map.take(s.opts.context.(), [:pause_deadline])}
 
-  defp ingest(%{halted: reason, opts: %{protocol_version: 2}} = s, id, neutral, context)
+  # An input reads the clock once, before current/1 (input_time/3). The input of a cancel
+  # control takes the control's sample instead (`cancel_at`, which comes from the cancel
+  # control only, apply_control/5, never from a caller's context) and cancels the tasks of
+  # the local work that its step closed (closed_local/3).
+  defp ingest(s, id, neutral, context, cancel_at \\ nil)
+
+  defp ingest(
+         %{halted: reason, opts: %{protocol_version: 2}} = s,
+         id,
+         neutral,
+         context,
+         _cancel_at
+       )
        when not is_nil(reason) do
     with true <- text?(id, 160) and is_map(neutral) and is_map(context),
          true <- text?(context[:run_id], 200) and text?(context[:attempt_id], 200),
@@ -2064,17 +2313,20 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp ingest(%{halted: reason} = s, _, _, _) when not is_nil(reason), do: {{:error, reason}, s}
+  defp ingest(%{halted: reason} = s, _, _, _, _) when not is_nil(reason),
+    do: {{:error, reason}, s}
 
-  defp ingest(s, id, neutral, context) do
+  defp ingest(s, id, neutral, context, cancel_at) do
     with true <- text?(id, 160) and is_map(neutral) and is_map(context),
          true <- text?(context[:run_id], 200) and text?(context[:attempt_id], 200),
          false <- Map.has_key?(neutral, "at_ms") do
       if protocol_version(s) == 2 and neutral["kind"] == "outside_event" do
         ingest_outside_event(s, id, neutral, context)
       else
-        case current(s) do
-          {:ok, s} -> ingest_current(s, id, neutral, context)
+        with {:ok, at} <- input_time(s, context, cancel_at),
+             {:ok, s} <- current(s) do
+          ingest_current(s, id, neutral, context, at, cancel_at != nil)
+        else
           {:error, reason, s} -> {{:error, reason}, s}
         end
       end
@@ -2138,6 +2390,7 @@ defmodule Elzoo.RunEngine do
           state: nil,
           decoded: %{},
           work: %{},
+          lost: %{},
           intents: %{}
       }
 
@@ -2175,7 +2428,10 @@ defmodule Elzoo.RunEngine do
   end
 
   defp fresh_outside_event(s, id, neutral, context) do
-    with :ok <- decode_outside_event(neutral),
+    # A context pause deadline above @max_time is refused before the source read and
+    # current/1 (ELZ-430); recheck_fresh_event/4 refuses a clock sample above it.
+    with :ok <- bounded_pause(context),
+         :ok <- decode_outside_event(neutral),
          :ok <- valid_fresh_event_ingress_size(id, neutral),
          {state, s} <- read_state(s),
          key = context[:occurrence],
@@ -2200,11 +2456,14 @@ defmodule Elzoo.RunEngine do
              head
            ),
          :ok <- check_event_payload(s, event) do
-      case recheck_fresh_event(s, context, slot) do
-        {:ok, checked_s, _wait, _at} ->
+      # The event's one clock sample is read here, after the source read and before
+      # current/1 can journal the owner's Run view; the recheck after current/1 takes the same
+      # time (ELZ-430), so a sample that fails its bound writes nothing.
+      case recheck_fresh_event(s, context, slot, s.opts.clock) do
+        {:ok, checked_s, _wait, at} ->
           case current(checked_s) do
             {:ok, recovered_s} ->
-              deliver_fresh_outside_event(recovered_s, id, neutral, context, slot, event, head)
+              deliver_fresh_outside_event(recovered_s, id, neutral, context, slot, event, head, at)
 
             {:error, reason, recovered_s} ->
               {{:error, reason}, recovered_s}
@@ -2214,6 +2473,7 @@ defmodule Elzoo.RunEngine do
           {{:error, reason}, checked_s}
       end
     else
+      {:error, :pause_deadline_required} -> {{:error, :pause_deadline_required}, s}
       {:error, {:source_read, :not_found}} -> {{:error, :source_not_found}, s}
       {:error, {:source_read, :gap}} -> {{:error, :source_gap}, s}
       {:error, {:source_read, :unavailable}} -> {{:error, :source_unavailable}, s}
@@ -2226,7 +2486,8 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp recheck_fresh_event(s, context, original_slot) do
+  # The wait and the owner are checked as they are now; `sample` gives the event's time.
+  defp recheck_fresh_event(s, context, original_slot, sample) do
     attempt = context[:attempt_id]
     key = context[:occurrence]
     source = s.opts.event_source
@@ -2247,19 +2508,24 @@ defmodule Elzoo.RunEngine do
              Map.get(wait, :event_source_version) == original_slot.event_source_version and
              source.id == original_slot.event_source_id and
              source.version == original_slot.event_source_version,
-         at when is_integer(at) and at > 0 <- s.opts.clock.(),
+         {:ok, at} <- valid_sample(sample.()),
          true <- is_integer(Map.get(wait, :deadline_ms)) and at < Map.get(wait, :deadline_ms) do
       {:ok, s, wait, at}
     else
       false -> {:error, :invalid_correlation, s}
       nil -> {:error, :invalid_correlation, s}
       {:error, :invalid_correlation} -> {:error, :invalid_correlation, s}
+      # Any clock sample that is not a time from 1 to @max_time (nil, 0, above it).
+      {:error, :invalid_sample} -> {:error, :invalid_input, s}
       _ -> {:error, :source_unavailable, s}
     end
   end
 
-  defp deliver_fresh_outside_event(s, id, neutral, context, original_slot, event, head) do
-    case recheck_fresh_event(s, context, original_slot) do
+  defp valid_sample(at) when is_integer(at) and at > 0 and at <= @max_time, do: {:ok, at}
+  defp valid_sample(_), do: {:error, :invalid_sample}
+
+  defp deliver_fresh_outside_event(s, id, neutral, context, original_slot, event, head, at) do
+    case recheck_fresh_event(s, context, original_slot, fn -> at end) do
       {:ok, checked_s, slot, at} ->
         input = Map.put(neutral, "at_ms", at)
 
@@ -2293,11 +2559,11 @@ defmodule Elzoo.RunEngine do
             end
 
           _ ->
-            {{:error, :source_unavailable}, checked_s}
+            refused(checked_s, :source_unavailable)
         end
 
       {:error, reason, checked_s} ->
-        {{:error, reason}, checked_s}
+        refused(checked_s, reason)
     end
   catch
     :exit, _ ->
@@ -2454,24 +2720,21 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp ingest_current(s, id, neutral, context) do
-    with at when is_integer(at) and at > 0 <- s.opts.clock.(),
-         input = Map.put(neutral, "at_ms", at),
-         {:ok, _} <- decode_step(input, protocol_version(s)) do
-      case checked_ingress(s, input, context) do
-        {:ok, checked, correlation, s} ->
-          submit_ingress(s, id, input, checked, correlation, context)
+  # The input is recorded at `at`, its one clock sample, which input_time/3 (for the input
+  # of a cancel control, control_time/3) took and checked before current/1. Every refusal
+  # after current/1 serves the work that current/1 committed (refused/2).
+  defp ingest_current(s, id, neutral, context, at, cancel_work) do
+    input = Map.put(neutral, "at_ms", at)
 
-        {:error, reason} ->
-          {{:error, reason}, s}
-      end
+    with {:ok, _} <- decode_step(input, protocol_version(s)),
+         {:ok, checked, correlation, s} <- checked_ingress(s, input, context) do
+      submit_ingress(s, id, input, checked, correlation, context, cancel_work)
     else
-      {:error, reason} -> {{:error, reason}, s}
-      _ -> {{:error, :invalid_input}, s}
+      {:error, reason} -> refused(s, reason)
     end
   end
 
-  defp submit_ingress(s, id, input, checked, correlation, context) do
+  defp submit_ingress(s, id, input, checked, correlation, context, cancel_work \\ false) do
     record = %{
       version: protocol_version(s),
       kind: :protocol,
@@ -2490,14 +2753,25 @@ defmodule Elzoo.RunEngine do
            original_record(s, id, record, &recheck_settled(s, input, context, record, &1)),
          :ok <- preflight_paused_event(s, record),
          :ok <- pause_operand(s, record.context, record.input["at_ms"]),
+         {before, s} = read_state(s),
+         :ok <- actual_room(before, record),
          result = DurableUnit.step(s.unit, id, record) do
       s = %{s | state: nil}
 
       case result do
         {:ok, disposition} ->
+          {closed, s} = closed_local(s, before, cancel_work)
+
           case drain(s) do
-            {:ok, s} -> {{:ok, disposition}, s}
-            {:error, reason, s} -> {{:error, reason}, s}
+            {:ok, s} ->
+              Enum.each(closed, fn key ->
+                if ref = s.work[key], do: AsyncWork.cancel(s.opts.async_work, ref)
+              end)
+
+              {{:ok, disposition}, s}
+
+            {:error, reason, s} ->
+              {{:error, reason}, s}
           end
 
         other ->
@@ -2505,10 +2779,34 @@ defmodule Elzoo.RunEngine do
           {{:error, reason}, s}
       end
     else
-      {:error, reason} -> {{:error, reason}, s}
-      _ -> {{:error, :invalid_input}, s}
+      # A refusal before the write (its size, its ID, its time, its room): nothing of the
+      # input is written, and the reply is that refusal (refused/2).
+      {:error, reason} -> refused(s, reason)
+      _ -> refused(s, :invalid_input)
     end
   end
+
+  # The local work that the step of a cancel control closed (`cancel_work`, which only
+  # apply_control/5 gives, never a caller's context): running before the step and settled
+  # after it, when no stop was pending before it. Only that work's AsyncWork task is
+  # cancelled, after the drain; a cancel that loses to a pending stop closes none, and the
+  # stop keeps its work. No other input cancels a task here.
+  defp closed_local(s, before, true) do
+    if is_nil(before.control.stop_pending) do
+      {after_state, s} = read_state(s)
+
+      closed =
+        for {key, %{kind: "local_work", phase: :running}} <- before.slots,
+            match?(%{phase: :settled}, Map.get(after_state.slots, key)),
+            do: key
+
+      {closed, s}
+    else
+      {[], s}
+    end
+  end
+
+  defp closed_local(s, _before, false), do: {[], s}
 
   defp preflight_paused_event(s, %{version: 2, input: %{"kind" => "outside_event"}} = record) do
     {state, _s} = read_state(s)
@@ -2529,16 +2827,18 @@ defmodule Elzoo.RunEngine do
           cond do
             paused? and retain? ->
               with {:ok, pending} <- paused_pending_input(candidate, record),
-                   true <- fits?(pending),
+                   true <- admits?(pending),
                    final = finalize_step_state(pending),
-                   true <- fits?(final) do
+                   true <- admits?(final) do
                 :ok
               else
                 _ -> {:error, :invalid_payload}
               end
 
             candidate.control.lifecycle.phase == :terminal or not retain? ->
-              if fits?(finalize_step_state(candidate)), do: :ok, else: {:error, :invalid_payload}
+              if admits?(finalize_step_state(candidate)),
+                do: :ok,
+                else: {:error, :invalid_payload}
 
             true ->
               {:error, :invalid_payload}
@@ -2984,13 +3284,50 @@ defmodule Elzoo.RunEngine do
   defp current(%{halted: reason} = s) when not is_nil(reason), do: {:error, reason, s}
 
   defp current(s) do
+    case checked_unit(s) do
+      {:same, s} -> with {:ok, s} <- sync_run(s), do: consume_resources(s)
+      replaced -> replaced
+    end
+  catch
+    :exit, _ ->
+      {:error, :ownership_unknown, %{s | halted: :ownership_unknown, state: nil, decoded: %{}}}
+  end
+
+  # The Unit check of current/1 alone, for a drain that no public call starts (an outbox
+  # offer, an input that the Unit delivers).
+  defp current_unit(%{halted: reason} = s) when not is_nil(reason), do: {:error, reason, s}
+
+  defp current_unit(s) do
+    case checked_unit(s) do
+      {:same, s} -> {:ok, s}
+      replaced -> replaced
+    end
+  catch
+    :exit, _ ->
+      {:error, :ownership_unknown, %{s | halted: :ownership_unknown, state: nil, decoded: %{}}}
+  end
+
+  # Every path that can drain checks the engine's Unit first. A replacement Unit (one that
+  # started after the engine's Unit stopped) is recovered in the order of a start: the
+  # decision on a pending stop (recover_stop/1), the owner's Run view (sync_run/1), then
+  # the loss of running local work (recover_local/1), before anything is delivered.
+  defp checked_unit(s) do
     case start_unit(s.opts.directory, s.opts.identity) do
       {:ok, pid} when pid == s.unit ->
-        with {:ok, s} <- sync_run(s), do: consume_resources(s)
+        {:same, s}
 
       {:ok, pid} ->
-        with {:ok, s} <- recover_local(%{s | unit: pid, work: %{}, state: nil, decoded: %{}}),
+        with {:ok, s} <-
+               recover_stop(%{
+                 s
+                 | unit: pid,
+                   work: %{},
+                   lost: %{},
+                   state: nil,
+                   decoded: %{}
+               }),
              {:ok, s} <- sync_run(s),
+             {:ok, s} <- recover_local(s),
              {:ok, s} <- recover_intents(s),
              {:ok, s} <- release_waiting(s, "replacement", %{}),
              {:ok, s} <- consume_resources(s),
@@ -2999,9 +3336,6 @@ defmodule Elzoo.RunEngine do
       other ->
         storage_failure(s, other)
     end
-  catch
-    :exit, _ ->
-      {:error, :ownership_unknown, %{s | halted: :ownership_unknown, state: nil, decoded: %{}}}
   end
 
   # A view whose revision differs from the recorded one is a Run transition and is
@@ -3012,25 +3346,30 @@ defmodule Elzoo.RunEngine do
       {state, s} = read_state(s)
       c = state.control
 
-      if c.run_revision == view.revision or renewals_only?(c.run_revision, view) do
-        if view.outcome, do: end_resources(s, view.outcome), else: {:ok, s}
-      else
-        with {:ok, _, s} <-
-               commit(s, "run:" <> Integer.to_string(view.revision), %{
-                 version: protocol_version(s),
-                 kind: :run_view,
-                 view:
-                   Map.put(
-                     Map.take(
-                       view,
-                       [:id, :operation_id, :current_attempt, :revision, :outcome]
-                     ),
-                     :at_ms,
-                     s.opts.clock.()
-                   )
-               }) do
+      cond do
+        not (is_integer(view.revision) and view.revision <= @max_time) ->
+          halt(s, :integrity_failure)
+
+        c.run_revision == view.revision or renewals_only?(c.run_revision, view) ->
           if view.outcome, do: end_resources(s, view.outcome), else: {:ok, s}
-        end
+
+        true ->
+          with {:ok, _, s} <-
+                 commit(s, "run:" <> Integer.to_string(view.revision), %{
+                   version: protocol_version(s),
+                   kind: :run_view,
+                   view:
+                     Map.put(
+                       Map.take(
+                         view,
+                         [:id, :operation_id, :current_attempt, :revision, :outcome]
+                       ),
+                       :at_ms,
+                       s.opts.clock.()
+                     )
+                 }) do
+            if view.outcome, do: end_resources(s, view.outcome), else: {:ok, s}
+          end
       end
     else
       _ -> {:error, :run_unavailable, %{s | halted: :run_unavailable, state: nil, decoded: %{}}}
@@ -3047,12 +3386,14 @@ defmodule Elzoo.RunEngine do
 
   defp renewals_only?(_, _), do: false
 
+  # The loss of running local work whose task this engine does not hold, `local_restart`,
+  # at a start and at a replacement Unit (recover_loss/5).
   defp recover_local(s) do
     {state, s} = read_state(s)
 
     Enum.reduce_while(state.slots, {:ok, s}, fn {key, slot}, {:ok, acc} ->
       if slot.kind == "local_work" and slot.phase == :running do
-        case internal_outcome(acc, key, "failed", "local_restart", %{loss: :unavailable}) do
+        case recover_loss(acc, key, "failed", "local_restart", %{loss: :unavailable}) do
           {:ok, acc} -> {:cont, {:ok, acc}}
           other -> {:halt, other}
         end
@@ -3062,30 +3403,149 @@ defmodule Elzoo.RunEngine do
     end)
   end
 
+  # A loss that recovery finds (at a start or a replacement Unit) is recorded at once
+  # (lost_outcome/5), unless the drain gives something before it: a retained input or held
+  # report that the Run can be given now, with no stop pending (the input of a continue
+  # that committed before a crash resumed it). Then it is kept in `lost` for drain_round/1,
+  # which gives it after them.
+  defp recover_loss(s, key, class, reason, correlation) do
+    {state, s} = read_state(s)
+
+    if retained_first?(state),
+      do: {:ok, %{s | lost: Map.put(s.lost, key, {class, reason, correlation})}},
+      else: lost_outcome(s, key, class, reason, correlation)
+  end
+
+  # Whether the drain gives a retained input or held report before any other work.
+  defp retained_first?(state) do
+    c = state.control
+
+    is_nil(c.stop_pending) and c.lifecycle.phase not in [:paused, :terminal] and
+      not c.generation_closed and
+      Enum.any?(state.slots, fn {_, slot} -> slot[:pending_input] != nil end)
+  end
+
+  # An outcome that the engine gives itself for a slot that no drain selects again: the
+  # `local_restart` loss of running local work, and the `lost_outcome` of a dispatched
+  # model or tool call whose intent was tried, found active (at a start, a replacement
+  # Unit, or a dispatch that finds the intent tried). When the retained-input rule refuses
+  # it (internal_outcome/6 writes nothing: a paused Run without the room to keep it for
+  # continue), the slot stays open and the outcome is kept in `lost`, by slot, so that
+  # drain_round/1 gives it again by the same rule, one loss per round, after a pending stop
+  # and after the retained inputs that the drain gives first; the provider is not asked
+  # again and no new intent attempt is made. A slot that settles otherwise (its deadline,
+  # a change of Attempt, the end of the Run) leaves `lost`.
+  defp lost_outcome(s, key, class, reason, correlation) do
+    with {:ok, s} <- internal_outcome(s, key, class, reason, correlation) do
+      {state, s} = read_state(s)
+
+      lost =
+        if state.slots[key].phase == :settled,
+          do: Map.delete(s.lost, key),
+          else: Map.put(s.lost, key, {class, reason, correlation})
+
+      {:ok, %{s | lost: lost}}
+    end
+  end
+
+  # One kept loss per round, in key order: the first whose step appends ends the round, so
+  # drain_round/1 selects again (a stop or a report that the append set comes first, and a
+  # slot that its expiry pass settled leaves `lost`); one that is refused again is skipped
+  # for the rest of this drain (`lost_tried`), so it neither blocks the others nor loops.
+  defp retry_lost(s, []), do: drain_progress(s)
+
+  defp retry_lost(s, [key | rest]) do
+    {class, reason, correlation} = s.lost[key]
+
+    with {:ok, s} <- lost_outcome(s, key, class, reason, correlation) do
+      if s.appended,
+        do: continue_drain(s),
+        else: retry_lost(%{s | lost_tried: MapSet.put(s.lost_tried, key)}, rest)
+    end
+  end
+
+  # At a start and at a replacement Unit the engine decides a pending stop before it writes
+  # anything (before sync_run/1 and recover_local/1; the Unit has already finished an input
+  # committed before, as at every open). The owner's committed Run view comes first: one
+  # that is terminal or has begun an Attempt after the recorded one (decided?/2) is taken
+  # by sync_run/1, whose fold ends the Run or drops the stop. Else a stop whose mark is the
+  # recorded Attempt and the stop (marked?/1) is delivered as committed: no journal, clock,
+  # Budget or cap is read. A stop with no such mark was set by the fold before ELZ-430, or
+  # replaced or kept at a change of Attempt by it (a state recorded without the room for
+  # the mark also leaves this fold's stop unmarked): it is delivered as committed when the
+  # owner has only ever had the recorded Attempt (which then produced it, also when it took
+  # the place of another stop of that Attempt); otherwise its Attempt is unknown, and the
+  # engine halts with :stop_origin_unknown, with no write and no owner command, until the
+  # host ends the Run or begins a new Attempt on the owner. A stop that the drain cannot
+  # deliver (a completion or failure without its completion slot) halts with
+  # :integrity_failure, also with no write.
+  defp recover_stop(s) do
+    {state, s} = read_state(s)
+    c = state.control
+
+    if is_nil(c.stop_pending) do
+      {:ok, s}
+    else
+      case Run.status(s.opts.run_owner, s.opts.run_id) do
+        {:ok, view} ->
+          cond do
+            decided?(view, c) -> {:ok, s}
+            not deliverable?(state) -> halt(s, :integrity_failure)
+            marked?(c) or Map.get(view, :attempts) == [c.attempt_id] -> {:ok, s}
+            true -> halt(s, :stop_origin_unknown)
+          end
+
+        _ ->
+          halt(s, :run_unavailable)
+      end
+    end
+  end
+
+  defp halt(s, reason), do: {:error, reason, %{s | halted: reason, state: nil, decoded: %{}}}
+
+  # The owner's committed Run view leaves no delivery decision for a pending stop when the
+  # Run is terminal there, or when the owner has begun an Attempt after the engine's
+  # recorded one: it lists the recorded Attempt and names another as current. The owner
+  # begins an Attempt ID once only and makes the Attempt it begins current, so that one is
+  # newer than every Attempt that the stop can belong to. No other change of the owner's
+  # revision (a lease renewal, another Run's command, a fact of this Run) decides it.
+  defp decided?(view, c),
+    do:
+      not is_nil(view.outcome) or
+        (view.current_attempt != c.attempt_id and c.attempt_id in Map.get(view, :attempts, []))
+
+  # The drain delivers a completion or a failure with the evidence row of its completion
+  # slot's action; a lifecycle stop needs no slot.
+  defp deliverable?(%{control: c, slots: slots}) do
+    case c.stop_pending do
+      stop when stop in [:completed, :failed] ->
+        match?(%{action_id: _}, Map.get(slots, c.completion))
+
+      stop ->
+        stop in [:cancelled, :out_of_time, :out_of_budget]
+    end
+  end
+
   defp drain(%{halted: reason} = s) when not is_nil(reason),
     do: {:error, reason, %{s | state: nil, decoded: %{}}}
 
-  defp drain(s) do
-    s = %{s | appended: false}
+  defp drain(s), do: drain_round(%{s | appended: false, lost_tried: MapSet.new()})
+
+  # One round of the drain, in priority order: a pending stop; a retained input or held
+  # report that the Run can be given; one outcome that the engine gives itself and that the
+  # retained-input rule refused before (retry_lost/2); then the progress of a finished
+  # child or of a slot (drain_progress/1). After each append the next round selects again.
+  defp drain_round(s) do
     {state, s} = read_state(s)
+    lost = Map.filter(s.lost, fn {key, _} -> state.slots[key][:phase] not in [nil, :settled] end)
+    s = %{s | lost: lost}
 
     pending =
       state.slots
       |> Enum.filter(fn {_, slot} -> slot[:pending_input] != nil end)
       |> Enum.min_by(fn {_, slot} -> slot.pending_input.order end, fn -> nil end)
 
-    finished_child =
-      Enum.find_value(state.control.callables, fn {id, child} ->
-        due_child(s, state, id, child)
-      end)
-
-    next =
-      Enum.find(Enum.sort(state.slots), fn {_, slot} ->
-        (slot.phase in [:checking, :refusing, :allowed, :authorizing, :ready] or
-           (slot.phase == :approval and
-              (slot[:request_key] == nil or state.control.lifecycle.phase == :terminal))) and
-          (state.control.lifecycle.phase != :paused or slot.phase in [:checking, :refusing])
-      end)
+    untried = lost |> Map.keys() |> Enum.reject(&MapSet.member?(s.lost_tried, &1)) |> Enum.sort()
 
     cond do
       state.control.stop_pending != nil ->
@@ -3104,6 +3564,31 @@ defmodule Elzoo.RunEngine do
                }),
              do: continue_drain(s)
 
+      untried != [] ->
+        retry_lost(s, untried)
+
+      true ->
+        drain_progress(s)
+    end
+  end
+
+  defp drain_progress(s) do
+    {state, s} = read_state(s)
+
+    finished_child =
+      Enum.find_value(state.control.callables, fn {id, child} ->
+        due_child(s, state, id, child)
+      end)
+
+    next =
+      Enum.find(Enum.sort(state.slots), fn {_, slot} ->
+        (slot.phase in [:checking, :refusing, :allowed, :authorizing, :ready] or
+           (slot.phase == :approval and
+              (slot[:request_key] == nil or state.control.lifecycle.phase == :terminal))) and
+          (state.control.lifecycle.phase != :paused or slot.phase in [:checking, :refusing])
+      end)
+
+    cond do
       finished_child != nil ->
         {child, class, status} = finished_child
 
@@ -3142,7 +3627,7 @@ defmodule Elzoo.RunEngine do
   end
 
   # A round that appended a record goes on; otherwise the drain ends.
-  defp continue_drain(%{appended: true} = s), do: drain(s)
+  defp continue_drain(%{appended: true} = s), do: drain_round(%{s | appended: false})
   defp continue_drain(s), do: {:ok, %{s | appended: false, decoded: %{}}}
 
   # A closed child whose every slot cost is known or final unknown gives its parent
@@ -3331,15 +3816,25 @@ defmodule Elzoo.RunEngine do
     facts =
       Map.merge(facts, %{binding_id: binding.id, binding_version: binding.version, action: action})
 
-    with {:ok, _, s} <-
-           commit(s, stable_id("admit:", {s.opts.run_id, key}), %{
-             version: protocol_version(s),
-             kind: :admission,
-             occurrence: key,
-             facts: facts,
-             at_ms: s.opts.clock.()
-           }),
-         do: {:ok, s}
+    # A binding whose facts give a deadline above @max_time (its deadline_ms, or that of
+    # its effect intent) halts the engine before the admission commits, as a Run view
+    # revision above it does (ELZ-430): no larger time is recorded.
+    intent = facts[:intent]
+    deadlines = [facts[:deadline_ms], if(is_map(intent), do: Map.get(intent, :deadline_ms))]
+
+    if Enum.any?(deadlines, &(is_integer(&1) and &1 > @max_time)) do
+      halt(s, :integrity_failure)
+    else
+      with {:ok, _, s} <-
+             commit(s, stable_id("admit:", {s.opts.run_id, key}), %{
+               version: protocol_version(s),
+               kind: :admission,
+               occurrence: key,
+               facts: facts,
+               at_ms: s.opts.clock.()
+             }),
+           do: {:ok, s}
+    end
   end
 
   defp progress(s, key, %{phase: :authorizing}) do
@@ -3606,7 +4101,7 @@ defmodule Elzoo.RunEngine do
 
         view.attempts > 0 ->
           with {:ok, s} <- continuation(s, key, :running, %{}),
-               do: internal_outcome(s, key, "unknown", "lost_outcome", %{dispatch: "unknown"})
+               do: lost_outcome(s, key, "unknown", "lost_outcome", %{dispatch: "unknown"})
 
         true ->
           facts = if slot[:reconciliation] == :active, do: %{reconciliation: :active}, else: %{}
@@ -3679,7 +4174,7 @@ defmodule Elzoo.RunEngine do
 
         with {:ok, %{revision: revision} = head} <- head,
              :ok <- valid_activation_head(head),
-             at when is_integer(at) and at > 0 <- s.opts.clock.(),
+             at when is_integer(at) and at > 0 and at <= @max_time <- s.opts.clock.(),
              {:ok, owner} <- Run.status(s.opts.run_owner, s.opts.run_id),
              true <- is_nil(owner.outcome) and owner.current_attempt == state.control.attempt_id,
              {current, s} = read_state(s),
@@ -3703,7 +4198,7 @@ defmodule Elzoo.RunEngine do
 
           {candidate, _} = transition(current, record)
 
-          if fits?(candidate) do
+          if admits?(candidate) do
             case commit(s, activation_id, record) do
               {:ok, _, s} -> {:ok, s}
               {:error, reason, s} -> {:error, reason, s}
@@ -3874,7 +4369,13 @@ defmodule Elzoo.RunEngine do
         context: Map.take(s.opts.context.(), [:pause_deadline])
       }
 
-      with {:ok, _, s} <- commit(s, id, record), do: {:ok, s}
+      # The retained-input rule (settlement_admits?/3), with the actual that the engine
+      # charges here counted by admission before (deferred_growth/1): an outcome whose
+      # step must keep it for continue and cannot is not written, and the slot stays as it
+      # is for a later drain or recovery to give it again.
+      if settlement_admits?(state, record, false),
+        do: with({:ok, _, s} <- commit(s, id, record), do: {:ok, s}),
+        else: {:ok, s}
     end
   end
 
@@ -3894,21 +4395,37 @@ defmodule Elzoo.RunEngine do
     |> Map.put("schema_version", finish.schema_version)
   end
 
-  # `:failed` comes only from a root finish that names no action (its :finish record).
-  # The failure belongs to the Attempt of that finish: the evidence row and the owner
-  # command carry it, and the reason says the pattern ended the Run. An owner whose
-  # current Attempt is newer answers `stale`; the new Run view then drops the failure.
+  # A pending stop belongs to the engine's recorded Attempt: a finish or a lifecycle step
+  # asks for one only there, a change of Attempt drops it (drop_stale_stop/2), and a start
+  # decides one before any write (recover_stop/1). The evidence row of a
+  # :completed or :failed stop and the owner command carry that Attempt, so an owner whose
+  # current Attempt is newer answers `stale`, and the new Run view that the engine then
+  # takes drops the stop. The pending stop is the one that its :finish record or lifecycle
+  # step set (the kind of a source slot is never read): `:failed` comes only from a root
+  # finish that names no action, and its reason says the pattern ended the Run.
   defp finish_run(s, result, key) do
     {state, s} = read_state(s)
+    attempt = state.control.attempt_id
 
-    attempt =
-      if result == :failed, do: state.slots[key].attempt_id, else: state.control.attempt_id
-
-    {evidence, s} =
+    evidence =
       if result in [:completed, :failed],
-        do: completion_evidence(s, key, attempt),
-        else: {nil, s}
+        do: completion_evidence(s, state, key, attempt),
+        else: {:ok, nil}
 
+    case evidence do
+      {:ok, evidence} ->
+        complete_run(s, state, result, evidence, attempt)
+
+      # The evidence Writer did not report a commit (an indeterminate append, a rejection
+      # or conflict): the row may or may not exist, so the engine sends no owner command
+      # and does not append again; it halts with its cache cleared, and a restart (which
+      # decides the pending stop again, recover_stop/1) is the explicit recovery.
+      :uncommitted ->
+        {:error, :delivery_unknown, %{s | halted: :delivery_unknown, state: nil, decoded: %{}}}
+    end
+  end
+
+  defp complete_run(s, state, result, evidence, attempt) do
     reason =
       cond do
         result == :failed -> "pattern"
@@ -3916,8 +4433,7 @@ defmodule Elzoo.RunEngine do
         true -> "engine"
       end
 
-    fields = %{outcome: result, reason: reason, evidence_ref: evidence}
-    fields = if result == :failed, do: Map.put(fields, :attempt_id, attempt), else: fields
+    fields = %{outcome: result, reason: reason, evidence_ref: evidence, attempt_id: attempt}
 
     case run_command(s, :complete, fields) do
       {:ok, _, _} ->
@@ -3926,7 +4442,7 @@ defmodule Elzoo.RunEngine do
       {:unchanged, :duplicate, _} ->
         sync_run(s)
 
-      {:unchanged, :stale, _} when result == :failed ->
+      {:unchanged, :stale, _} ->
         sync_run(s)
 
       _ ->
@@ -3941,8 +4457,7 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp completion_evidence(s, key, attempt) do
-    {state, s} = read_state(s)
+  defp completion_evidence(s, state, key, attempt) do
     c = state.control
     slot = state.slots[key]
     # The caller's existing Writer/Store is the evidence authority. No invented
@@ -3956,10 +4471,10 @@ defmodule Elzoo.RunEngine do
       action_id: slot.action_id
     }
 
-    {:committed, sequence} =
-      Elzoo.DurableLog.Writer.append(writer, [{"completion", 1, binary(event)}])
-
-    {%{stream: stream, sequence: sequence}, s}
+    case Elzoo.DurableLog.Writer.append(writer, [{"completion", 1, binary(event)}]) do
+      {:committed, sequence} -> {:ok, %{stream: stream, sequence: sequence}}
+      _ -> :uncommitted
+    end
   end
 
   defp end_resources(s, outcome) do
@@ -4008,65 +4523,68 @@ defmodule Elzoo.RunEngine do
     {:ok, %{entries: entries}} = RunResource.read(resource, cursor)
 
     Enum.reduce_while(entries, {:ok, s}, fn entry, {:ok, acc} ->
+      # The entry's cursor transition is checked for the room before the entry's first
+      # commit and again before its cursor record (cursor_room/2), and each input of it by
+      # the retained-input rule before its commit (settlement_admits?/3). A refusal at the
+      # first check commits nothing of the entry. One at a later check leaves the inputs
+      # that the entry committed, and their effects, in place, and commits neither the
+      # refused input, nor its cursor record, nor its Budget command; a later pass reads
+      # the entry again.
       result =
-        Enum.reduce_while(Enum.with_index(entry.inputs), {:ok, acc}, fn {input, index},
-                                                                        {:ok, acc} ->
-          {acc_state, acc} = read_state(acc)
+        Enum.reduce_while(Enum.with_index(entry.inputs), entry_room(acc, name, entry), fn
+          _, {:no_room, _} = no_room ->
+            {:halt, no_room}
 
-          key =
-            Enum.find_value(acc_state.slots, fn {key, slot} ->
-              if slot.action_id == input["action_id"] and slot[:resource_name] == name, do: key
-            end)
+          {input, index}, {:ok, acc} ->
+            {acc_state, acc} = read_state(acc)
 
-          id = stable_id("resource:", {s.opts.run_id, name, entry.seq, index})
+            key =
+              Enum.find_value(acc_state.slots, fn {key, slot} ->
+                if slot.action_id == input["action_id"] and slot[:resource_name] == name, do: key
+              end)
 
-          correlation = %{occurrence: key, resource: name}
-          context = Map.take(acc.opts.context.(), [:pause_deadline])
+            id = stable_id("resource:", {s.opts.run_id, name, entry.seq, index})
 
-          with {:ok, _} <- PatternStep.decode(input),
-               native_input = Map.put(input, "version", protocol_version(acc)),
-               {:ok, _} <- decode_step(native_input, protocol_version(acc)),
-               {:ok, checked, correlation, acc} <-
-                 checked_ingress(acc, native_input, correlation),
-               :ok <- pause_operand(acc, context, input["at_ms"]) do
-            record = %{
-              version: protocol_version(acc),
-              kind: :protocol,
-              id: id,
-              run_id: s.opts.run_id,
-              attempt_id:
-                if(key,
-                  do: acc_state.slots[key].attempt_id,
-                  else: acc_state.control.attempt_id
-                ),
-              input: checked,
-              correlation: correlation,
-              context: context
-            }
+            correlation = %{occurrence: key, resource: name}
+            context = Map.take(acc.opts.context.(), [:pause_deadline])
 
-            case commit(acc, id, record) do
-              {:ok, _, acc} -> {:cont, {:ok, acc}}
-              error -> {:halt, error}
+            with {:ok, _} <- PatternStep.decode(input),
+                 native_input = Map.put(input, "version", protocol_version(acc)),
+                 {:ok, _} <- decode_step(native_input, protocol_version(acc)),
+                 {:ok, checked, correlation, acc} <-
+                   checked_ingress(acc, native_input, correlation),
+                 :ok <- pause_operand(acc, context, input["at_ms"]) do
+              record = %{
+                version: protocol_version(acc),
+                kind: :protocol,
+                id: id,
+                run_id: s.opts.run_id,
+                attempt_id:
+                  if(key,
+                    do: acc_state.slots[key].attempt_id,
+                    else: acc_state.control.attempt_id
+                  ),
+                input: checked,
+                correlation: correlation,
+                context: context
+              }
+
+              if settlement_admits?(acc_state, record, true) do
+                case commit(acc, id, record) do
+                  {:ok, _, acc} -> {:cont, {:ok, acc}}
+                  error -> {:halt, error}
+                end
+              else
+                {:halt, {:no_room, acc}}
+              end
+            else
+              {:error, reason} -> {:halt, {:error, reason, acc}}
             end
-          else
-            {:error, reason} -> {:halt, {:error, reason, acc}}
-          end
         end)
 
       with {:ok, acc} <- result do
         {acc_state, acc} = read_state(acc)
-
-        budget_owner =
-          if entry.budget_command do
-            {_, command} = entry.budget_command
-
-            Enum.find_value(acc_state.slots, fn {_, slot} ->
-              if (slot[:resource_name] == name and slot[:reservation]) &&
-                   Map.take(slot.reservation, [:cost_ref, :generation]) ==
-                     Map.take(command, [:cost_ref, :generation]),
-                 do: slot.callable
-            end)
-          end
+        budget_owner = budget_owner(acc_state, name, entry.budget_command)
 
         with :ok <-
                if(entry.budget_command == nil or budget_owner != nil,
@@ -4074,25 +4592,144 @@ defmodule Elzoo.RunEngine do
                  else: {:error, :resource_budget, acc}
                ),
              {:ok, acc} <- resource_effects(acc, name, resource, entry.effects),
+             record = cursor_record(acc, name, entry, budget_owner),
+             {:ok, acc} <- cursor_room(acc, record),
              {:ok, _, acc} <-
-               commit(acc, stable_id("cursor:", {s.opts.run_id, name, entry.seq}), %{
-                 version: protocol_version(acc),
-                 kind: :resource_cursor,
-                 resource: name,
-                 sequence: entry.seq,
-                 budget_owner: budget_owner,
-                 budget_command: entry.budget_command,
-                 at_ms: s.opts.clock.()
-               }) do
+               commit(acc, stable_id("cursor:", {s.opts.run_id, name, entry.seq}), record) do
           {:cont, {:ok, acc}}
         else
+          {:no_room, acc} -> {:halt, {:ok, acc}}
           error -> {:halt, error}
         end
       else
+        {:no_room, acc} -> {:halt, {:ok, acc}}
         error -> {:halt, error}
       end
     end)
   end
+
+  # A Resource cursor transition grows control with no other check (the Resource's key,
+  # the encoding of its sequence and the Budget settlement of its entry) and the slot whose
+  # actual it records, so it is admitted as other growth is (cursor_admits?/2): before the
+  # entry's first commit, on the state then, and again before the cursor record, with the
+  # record that is committed. When it is refused, the Resource's consumption stops at that
+  # entry for the pass; a later pass reads it again.
+  defp entry_room(s, name, entry) do
+    {state, s} = read_state(s)
+    cursor_room(s, cursor_record(s, name, entry, budget_owner(state, name, entry.budget_command)))
+  end
+
+  defp cursor_room(s, record) do
+    {state, s} = read_state(s)
+    if cursor_admits?(state, record), do: {:ok, s}, else: {:no_room, s}
+  end
+
+  # The :resource_cursor record of a Resource entry, for its check and for its commit.
+  defp cursor_record(s, name, entry, budget_owner),
+    do: %{
+      version: protocol_version(s),
+      kind: :resource_cursor,
+      resource: name,
+      sequence: entry.seq,
+      budget_owner: budget_owner,
+      budget_command: entry.budget_command,
+      at_ms: s.opts.clock.()
+    }
+
+  # The callable of the slot of Resource `name` that holds the reservation that an entry's
+  # Budget command settles or releases.
+  defp budget_owner(_state, _name, nil), do: nil
+
+  defp budget_owner(state, name, {_, command}) do
+    Enum.find_value(state.slots, fn {_, slot} ->
+      if (slot[:resource_name] == name and slot[:reservation]) &&
+           Map.take(slot.reservation, [:cost_ref, :generation]) ==
+             Map.take(command, [:cost_ref, :generation]),
+         do: slot.callable
+    end)
+  end
+
+  @doc false
+  # Whether the :resource_cursor `record` may be committed on `state` (ELZ-430): its whole
+  # step is projected, the cursor with the Budget settlement and the slot actual that its
+  # entry carries, and admitted as other growth is (admits?/2, with the growth of the
+  # charges that follow it, deferred_growth/1). A cursor-only advance (no Budget command)
+  # that grows neither control nor the slots is always admitted; one with a Budget command
+  # is not exempt, since its settlement can change a deferred charge though neither map
+  # grows now. One whose projected step fails is not admitted (fail-closed): the entry
+  # stays unconsumed, as one refused for room.
+  def cursor_admits?(state, record) do
+    {next, _} = transition(state, record)
+    next = finalize_step_state(next)
+
+    admits?(state, next) or
+      (is_nil(record.budget_command) and bytes(next.control) <= bytes(state.control) and
+         bytes(next.slots) <= bytes(state.slots))
+  rescue
+    _ -> false
+  end
+
+  @doc false
+  # Whether the protocol `record`, an input that settles its own open slot, may be written
+  # on `state` (ELZ-430), by the retained-input rule (settlement_admits?/3) with its actual
+  # counted: a verified answer's, a model or tool call's, a local work's estimate, known
+  # only when the input comes.
+  def actual_admits?(state, record), do: settlement_admits?(state, record, true)
+
+  # The retained-input rule (ELZ-430), for every protocol record that can settle an open
+  # slot, before it is written: an input that the engine takes (input/4, its mailbox, a
+  # Resource entry) and an outcome that it gives itself (internal_outcome/6, a recovered
+  # loss included). The step is projected without its pattern call (with its invocation
+  # entry, as the call records it, and no callback) when it can store an actual that
+  # admission has not counted (`charged`, a positive actual: stored twice in the action's
+  # Budget and once in the slot) or can leave the Run paused (paused before it, or
+  # `budget_rule: :pause`, under which the step itself can enter the pause on an exhausted
+  # Budget). When the record's own effect settles the slot (own_settlement?/3) and the
+  # projected step stores such an actual or leaves the Run paused, the record is admitted
+  # only when the step kept every pending input that it must keep for continue (a step
+  # that settles the slot but refuses that input for room, `record_size`, is not
+  # admitted, so the outcome stays unsettled rather than lost) and the state that it
+  # writes is admitted (admits?/2, with the growth of the charges that follow it). An
+  # outcome that the engine charges itself at its child's committed amount has that
+  # amount counted by admission before (deferred_growth/1), so `charged` is false for it.
+  # An input that settles no slot (late, another Run's, a duplicate, an incompatible
+  # answer) is not checked here. A projection that fails is not admitted.
+  defp settlement_admits?(state, %{kind: :protocol, correlation: correlation} = record, charged)
+       when is_map(correlation) do
+    actual = correlation[:actual]
+    key = correlation[:occurrence]
+    slot = state.slots[key]
+    c = state.control
+    spends = charged and is_integer(actual) and actual > 0
+
+    if is_map(slot) and slot.phase != :settled and
+         (spends or c.lifecycle.phase == :paused or c.budget_rule == :pause) do
+      entry = fn next, record, _callable ->
+        {put_in(next.control.invocations[record.id], digest({record.input, record.correlation})),
+         :none}
+      end
+
+      {next, _} = protocol_step(state, record, entry)
+      next = finalize_step_state(next)
+
+      if own_settlement?(state, record, key) and
+           (spends or next.control.lifecycle.phase == :paused),
+         do: next.control.classification != :record_size and admits?(state, next),
+         else: true
+    else
+      true
+    end
+  rescue
+    _ -> false
+  end
+
+  defp settlement_admits?(_state, _record, _charged), do: true
+
+  # The check of actual_admits?/2 before an input's write: input/4 replies
+  # `{:error, :record_size}`; an input that the engine takes from its mailbox (a local
+  # work's outcome) is dropped with no write, and its slot stays open.
+  defp actual_room(state, record),
+    do: if(actual_admits?(state, record), do: :ok, else: {:error, :record_size})
 
   defp resource_effects(s, name, owner, effects) do
     Enum.reduce_while(effects, {:ok, s}, fn descriptor, {:ok, acc} ->
@@ -4189,7 +4826,7 @@ defmodule Elzoo.RunEngine do
     end)
   end
 
-  defp apply_control(s, id, %{kind: kind} = command, context)
+  defp apply_control(s, id, %{kind: kind} = command, context, _at)
        when kind in [:begin_attempt, :approval_evidence] do
     case run_command(s, kind, Map.delete(command, :kind)) do
       # An accepted control ends like an input, at the end of a drain, and replies after it.
@@ -4203,14 +4840,17 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp apply_control(s, id, %{kind: kind} = command, context) when kind in [:pause, :continue] do
+  # A pause or a continue is recorded at `at`, the clock sample that control_time/3 took and
+  # checked before current/1, as it checked the command's and the context's deadlines.
+  defp apply_control(s, id, %{kind: kind} = command, context, at)
+       when kind in [:pause, :continue] do
     {state, s} = read_state(s)
 
     event =
       command
       |> Map.delete(:kind)
       |> Map.put(:control, kind)
-      |> Map.put(:at_ms, s.opts.clock.())
+      |> Map.put(:at_ms, at)
       |> Map.put(:attempt_id, state.control.attempt_id)
 
     context = Map.take(context, [:verified_person, :pause_deadline])
@@ -4254,7 +4894,7 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp apply_control(s, id, %{kind: :cancel, attempt_id: attempt}, context) do
+  defp apply_control(s, id, %{kind: :cancel, attempt_id: attempt}, context, at) do
     {state, s} = read_state(s)
     c = state.control
 
@@ -4268,9 +4908,13 @@ defmodule Elzoo.RunEngine do
         "attempt_id" => attempt
       }
 
-      case ingest(s, id, input, Map.merge(context, %{run_id: c.run_id, attempt_id: attempt})) do
+      context = Map.merge(context, %{run_id: c.run_id, attempt_id: attempt})
+
+      # The cancel's input is recorded at the control's clock sample, `at`. The AsyncWork
+      # tasks of the local work that the cancel closed are cancelled after the drain
+      # (closed_local/3); a cancel that loses to a pending stop cancels none.
+      case ingest(s, id, input, context, at) do
         {{:ok, _}, s} ->
-          Enum.each(s.work, fn {_, ref} -> AsyncWork.cancel(s.opts.async_work, ref) end)
           {:ok, s}
 
         # The lookup of the ID could not read the journal: nothing is committed and the
@@ -4284,14 +4928,17 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp apply_control(s, _, _, _), do: {:error, :invalid_control, s}
+  defp apply_control(s, _, _, _, _), do: {:error, :invalid_control, s}
 
   defp release_waiting(s, id, context) do
     {state, s} = read_state(s)
 
     Enum.reduce_while(state.slots, {:ok, s}, fn {key, slot}, {:ok, acc} ->
+      # A running slot whose loss recovery holds in `lost` (queued behind a retained input
+      # or report, or refused for room) is owned by that loss: its approval is not
+      # released again, so its work is not dispatched a second time.
       recovering =
-        slot.phase in [:running, :reconcile] and
+        slot.phase in [:running, :reconcile] and not Map.has_key?(acc.lost, key) and
           (id in ["startup", "replacement"] or
              slot.kind in ["resource_open", "resource_use", "resource_close"])
 
@@ -4470,7 +5117,7 @@ defmodule Elzoo.RunEngine do
                 end
 
               view.attempts > 0 ->
-                internal_outcome(acc, key, "unknown", "lost_outcome", %{dispatch: "unknown"})
+                recover_loss(acc, key, "unknown", "lost_outcome", %{dispatch: "unknown"})
 
               true ->
                 facts = %{reconciliation: :active}
@@ -4831,11 +5478,63 @@ defmodule Elzoo.RunEngine do
         not String.contains?(s, <<0>>)
 
   defp pause_operand(s, context, at) do
-    if s.opts.budget_rule == :finish or
-         (is_integer(context[:pause_deadline]) and context.pause_deadline > at),
-       do: :ok,
-       else: {:error, :pause_deadline_required}
+    with :ok <- bounded_pause(context) do
+      if s.opts.budget_rule == :finish or
+           (is_integer(context[:pause_deadline]) and context.pause_deadline > at),
+         do: :ok,
+         else: {:error, :pause_deadline_required}
+    end
   end
+
+  # A context pause deadline above @max_time is refused as one that is not in the future.
+  defp bounded_pause(context) do
+    if is_integer(context[:pause_deadline]) and context.pause_deadline > @max_time,
+      do: {:error, :pause_deadline_required},
+      else: :ok
+  end
+
+  # The times of a control (ELZ-430), checked before current/1 can journal the owner's Run
+  # view, so that a control with a time above @max_time writes nothing: its `pause_deadline`
+  # and `run_deadline` and its context's pause deadline. A pause, a continue and a cancel are
+  # recorded at a clock sample, which is read here, once, and must be a time from 1 to
+  # @max_time (apply_control/5 records it), so a sample that is nil or not an integer is
+  # `invalid_control` as one above that bound is; a begin_attempt and an approval_evidence
+  # record none, and no sample is read for them (their `at` is nil, which is never a sample).
+  defp control_time(s, command, context) do
+    command = if is_map(command), do: command, else: %{}
+    context = if is_map(context), do: context, else: %{}
+    deadlines = [command[:pause_deadline], command[:run_deadline]]
+
+    with true <- Enum.all?(deadlines, &(not is_integer(&1) or &1 <= @max_time)),
+         :ok <- bounded_pause(context) do
+      if command[:kind] in [:pause, :continue, :cancel] do
+        case s.opts.clock.() do
+          at when is_integer(at) and at > 0 and at <= @max_time -> {:ok, at}
+          _ -> {:error, :invalid_control, s}
+        end
+      else
+        {:ok, nil}
+      end
+    else
+      _ -> {:error, :invalid_control, s}
+    end
+  end
+
+  # The time of an input (ELZ-430): its one clock sample, read and checked with its context's
+  # pause deadline before current/1 can journal the owner's Run view, so that an input with a
+  # time above @max_time writes nothing. The input of a cancel control takes the control's
+  # sample, which control_time/3 checked with the context.
+  defp input_time(s, context, nil) do
+    at = s.opts.clock.()
+
+    cond do
+      not (is_integer(at) and at > 0 and at <= @max_time) -> {:error, :invalid_input, s}
+      bounded_pause(context) != :ok -> {:error, :pause_deadline_required, s}
+      true -> {:ok, at}
+    end
+  end
+
+  defp input_time(_s, _context, at), do: {:ok, at}
 
   defp classify(state, classification), do: put_in(state.control.classification, classification)
 
@@ -4867,7 +5566,368 @@ defmodule Elzoo.RunEngine do
       is_nil(node[:finish])
   end
 
-  defp fits?(state) do
+  # The wait that the continuation of `slot` lists in control while the slot runs or
+  # waits: that of a model call, a tool call or an ask; nil for any other kind.
+  defp slot_wait(slot) do
+    kind =
+      case slot.kind do
+        "model_call" -> :model
+        "tool_call" -> :tool
+        "ask_person" -> :person
+        _ -> nil
+      end
+
+    if kind, do: %{kind: kind, attempt_id: slot.attempt_id, one_shot: true}
+  end
+
+  # The control growth that admitted work adds later with no check of its own (ELZ-430):
+  # the wait that each admitted, unsettled action of such a kind lists when its continuation
+  # runs (slot_wait/1): the whole map entry while none is listed under its action ID, and
+  # while another wait is, what the replacement adds (none for a wait no longer than the
+  # listed one). A cancel records nothing for a listed wait; its own growth is part of
+  # @stop_room.
+  defp future_waits(state) do
+    waits = state.control.lifecycle.waits
+
+    Enum.reduce(state.slots, 0, fn {_, slot}, sum ->
+      wait = slot_wait(slot)
+
+      cond do
+        is_nil(wait) or
+            slot.phase not in [:authorizing, :approval, :ready, :opening, :running, :reconcile] ->
+          sum
+
+        Map.has_key?(waits, slot.action_id) ->
+          sum + max(0, bytes(wait) - bytes(waits[slot.action_id]))
+
+        true ->
+          sum + bytes(slot.action_id) - 1 + bytes(wait) - 1
+      end
+    end)
+  end
+
+  # Admission (ELZ-430): a state that admits work fits the bound with @stop_room bytes of
+  # control left free while no stop is pending, and with the growth that admitted work
+  # adds later (future_waits/1 and deferred_growth/1), so a later step that sets a stop
+  # has room for its growth and its mark. The recorded-state invariant (fits?/1) keeps no
+  # such room, so a state that an earlier revision recorded still replays. The fold before
+  # ELZ-430 (its projection, legacy_fold) admitted up to the bound.
+  defp admits?(state), do: admits?(state, state)
+
+  # Whether `next`, the unmarked state that a step from `before` writes, is admitted: the
+  # state written fits and so does each deferred charge after it (deferred_fits?/2), with
+  # no future release counted. While no stop is pending before the step:
+  # - a step that sets no stop keeps the room (@stop_room and future_waits/1);
+  # - a step that sets a stop (a nested start whose child's first request passes the cap,
+  #   an outcome whose actual spends the Budget) from a state that keeps the room for it
+  #   (stop_ready?/1) takes only its stop and mark from the part of the room kept for that
+  #   step: the state with the mark fits with the growth that no check admits and that it
+  #   can still take left free (unchecked_growth/1, which can still come while the stop is
+  #   pending), and the rest of its growth keeps that room as any admitted growth does, so
+  #   the state that a change of Attempt leaves when it drops the stop keeps the room again
+  #   (unstopped/1). A state without that room is one that an earlier revision recorded
+  #   near the bound: from it the stop is taken when the unmarked step fits the bound, as
+  #   the earlier fold took it, and mark_stop/2 marks it when the mark fits too.
+  # With a stop pending before, the state fits the bound with its deferred charges, and a
+  # state whose stop, once a change of Attempt drops it, keeps the room for a step that sets
+  # a stop keeps it after this step too (unstopped/1): growth admitted while a stop is
+  # pending (a settlement at an actual, a Resource cursor transition) never leaves a state
+  # of this fold looking like one that an earlier revision recorded.
+  defp admits?(before, next) do
+    cond do
+      legacy_fold?(next) ->
+        fits?(next)
+
+      not is_nil(before.control.stop_pending) ->
+        deferred_fits?(next, 0) and
+          (not stop_ready?(unstopped(before)) or stop_ready?(unstopped(next)))
+
+      is_nil(next.control.stop_pending) ->
+        deferred_fits?(next, admission_room(next))
+
+      stop_ready?(before) ->
+        marked = mark_stop(before, next)
+
+        Map.has_key?(marked.control, :stop_attempt) and
+          deferred_fits?(marked, unchecked_growth(marked)) and stop_ready?(unstopped(next))
+
+      true ->
+        fits?(next)
+    end
+  end
+
+  defp admission_room(state), do: @stop_room + future_waits(state)
+
+  # Whether `state`, with no stop pending, keeps the room for a step that sets a stop
+  # (ELZ-430), measured on its room basis (room_basis/1): the 468 bytes of that step and
+  # its mark, and the growth that no check admits that it can still take
+  # (unchecked_growth/1), after its deferred charges and the waits that its admitted work
+  # lists later. Every state that this fold writes with no stop pending keeps it: admission
+  # leaves @stop_room, at least that much; each growth that no check admits, a listed wait
+  # or a deferred charge takes from the free bytes no more than it takes from what is kept
+  # (the encodings and the Attempt ID are measured where they stand, a wait and a charge
+  # where admission counted them, and the classification, which every protocol step
+  # replaces with no check, is measured at its shortest); and a step that sets a stop
+  # leaves the room once the stop is dropped (admits?/2). So a state without it is one that
+  # an earlier revision recorded near the bound.
+  defp stop_ready?(state) do
+    state = room_basis(state)
+
+    deferred_fits?(
+      state,
+      @stop_room - @after_stop + unchecked_growth(state) + future_waits(state)
+    )
+  end
+
+  # The state from which the room for a step that sets a stop is measured: its
+  # classification at the shortest, `:late` (the 468 bytes are the largest growth from it,
+  # and every protocol step replaces the classification, a timely wake that calls no
+  # pattern included, with no check).
+  defp room_basis(state), do: put_in(state.control.classification, :late)
+
+  # The state that `next` leaves when a change of Attempt drops the stop that its step set,
+  # as the Run view's step leaves it: drop_stale_stop/2, and the mark removed (mark_stop/2
+  # removes it from a state with no stop pending).
+  defp unstopped(next),
+    do: update_in(drop_stale_stop(next, nil).control, &Map.delete(&1, :stop_attempt))
+
+  # The growth that no check admits and that `state` can still take (ELZ-430), at most
+  # @after_stop: a change to a longer Attempt ID, up to 200 bytes; the encodings of the
+  # recorded Run revision, the pause deadline and the Run deadline, each up to @max_time's;
+  # and the lifecycle phase, `:active` or `:paused` to `:waiting`. Each is measured from its
+  # encoding in `state`, so what a step took of it (a longer Run revision, a longer Attempt
+  # ID) is not kept again.
+  defp unchecked_growth(state) do
+    c = state.control
+    life = c.lifecycle
+    widen = fn largest, value -> max(0, bytes(largest) - bytes(value)) end
+
+    times =
+      Enum.reduce([c.run_revision, life.pause_deadline, life.run_deadline], 0, fn time, sum ->
+        sum + widen.(@max_time, time)
+      end)
+
+    phase = if life.phase == :terminal, do: 0, else: widen.(:waiting, life.phase)
+    min(@after_stop, widen.(@longest_attempt, c.attempt_id) + times + phase)
+  end
+
+  # `state` fits the bound with `room` bytes of control left free after the growth that the
+  # deferred charges add (deferred_growth/1), each slot within its bound and the slots map
+  # within its own after the growth of its slots.
+  defp deferred_fits?(state, room) do
+    {control, slots} = deferred_growth(state)
+
+    if slots == %{} do
+      fits?(state, room + control)
+    else
+      added = slots |> Map.values() |> Enum.sum()
+
+      fits?(state, room + control) and
+        Enum.all?(slots, fn {key, grow} -> bytes(state.slots[key]) + grow <= @slot_bytes end) and
+        bytes(state.slots) + added <= 8_388_608 and
+        bytes(state) + control + added + 171 <= @record_bytes
+    end
+  end
+
+  # The charges that the engine records later for a nested child's cost with no check of
+  # its own (ELZ-430), as an upper bound of their growth that counts no release (a freed
+  # reservation or slot reserve, a dropped kept finish): once a child's cost is known, its
+  # parent action settles with the child Budget's committed amount, by an internal outcome
+  # while the parent is open, or by a :nested_actual record once the parent settled with no
+  # actual (at a change of Attempt, an expiry, the end of the Run). The amount is stored in
+  # the parent's Budget twice and once in the parent slot. In ETF (the bound's encoding):
+  # the Budget's `committed` integer becomes old + amount, at most bytes(amount) - 1 + 1
+  # bytes more (the encoded payload of the larger addend and one carry byte); the parent's
+  # entry {:EntryRow, ref, entry} turns its held form, {:Open, estimate, expiry} or
+  # {:Expired, estimate}, into {:Settled, estimate, actual, late}: the tag `Settled` is 3
+  # bytes longer than `Open` (2 for `Expired`), the tuple gains 1 or 2 arity steps, the
+  # actual adds bytes(amount) - 1 and the late flag (`True`/`False`, 6 bytes) is added,
+  # while the dropped expiry is not counted back; so the Budget grows by at most
+  # 2 * bytes(amount) + 11, bounded here by 2 * bytes(amount) + 32. The slot gains the key
+  # `actual` (8 bytes) with the amount (bytes(amount) - 1), and an internal outcome's
+  # settlement replaces the open slot's fields by fewer of them (settled_event_slot/4) and
+  # adds `outcome` with a class of at most 9 bytes (17), not counted back: bounded by
+  # bytes(amount) + 16 + 17 with the outcome counted where the parent is open; when the
+  # parent settles by that outcome, the 4,096-byte reserve of its slot, which the settlement
+  # frees, covers the growth of its request's tracker and join, as for any settling slot. An
+  # open parent's outcome can instead be retained in its slot as its pending input (a Run
+  # paused when the drain gives it, or paused by that outcome's own charge): that record,
+  # built here at its largest form and times, is counted in the slot, and its settlement's
+  # growth in control is counted too, since a retained slot stays active and keeps its
+  # reserve (retained_outcome/6). That needs the child's cost known while its parent is
+  # open, which needs the child closed (its kept finish closes it; generation closed retains
+  # no input): so only a child with a finish kept or reachable (reachable_finishes/3) can
+  # give a retained outcome, and a child that admits a finish later is counted then, at that
+  # finish's admission. The Budget step of a charge sweeps that Budget first: each other
+  # held entry whose expiry has passed turns from its open form into its expired form,
+  # which is larger for an expiry that encodes shortest (sweep_growth/1); that growth is
+  # counted once for each Budget that a charge lands in, as no sweep turns an entry twice.
+  # Siblings and ancestors: charges are applied deepest child first and each parent's
+  # amount adds to the Budget of its own callable (`extra`), so an ancestor's charge counts
+  # every charge below it; each charge's bound is a sum over its own bytes and counts no
+  # release, so every order in which the charges land, and every state between them, stays
+  # within the sum. Returns the control growth and the growth of each slot by its key.
+  defp deferred_growth(state) do
+    state.control.callables
+    |> Enum.filter(fn {_, node} -> is_map(node) and node[:parent] != nil end)
+    |> Enum.sort_by(fn {id, node} -> {-node.depth, id} end)
+    |> Enum.reduce({%{}, 0, %{}, MapSet.new()}, fn {id, node}, {extra, control, slots, swept} ->
+      key = node.parent
+      parent = state.slots[key]
+      budget = state.control.budgets[id]
+
+      with true <- is_map(parent) and not is_integer(parent[:actual]) and is_map(budget),
+           {:Transition, _, {:some, {:status, %{committed: committed}}}} <-
+             Budget.step(budget.state, {1, :status}) do
+        amount = committed + Map.get(extra, id, 0)
+        extra = Map.update(extra, parent.callable, amount, &(&1 + amount))
+        open = parent.phase != :settled
+
+        {retained, settled} =
+          if open and reachable_finishes(state, id, node) != [],
+            do: retained_outcome(state, key, parent, id, node, amount),
+            else: {0, 0}
+
+        holder = parent.callable
+
+        sweep =
+          if MapSet.member?(swept, holder),
+            do: 0,
+            else: sweep_growth(state.control.budgets[holder])
+
+        control = control + 2 * bytes(amount) + 32 + settled + sweep
+        grow = bytes(amount) + 16 + if(open, do: 17 + retained, else: 0)
+        {extra, control, Map.update(slots, key, grow, &(&1 + grow)), MapSet.put(swept, holder)}
+      else
+        _ -> {extra, control, slots, swept}
+      end
+    end)
+    |> then(fn {_, control, slots, _} -> {control, slots} end)
+  end
+
+  # The growth of a Budget's sweep (ELZ-430): a step of the Budget at a later time turns
+  # each held entry whose expiry has passed from {:Open, estimate, expiry} into
+  # {:Expired, estimate}, which the tag makes 3 bytes longer and the dropped expiry shorter
+  # by its own encoding, so it grows only for an expiry up to 255 (1 byte); its `reserved`
+  # sum only shrinks. The sum over the Budget's held entries of what each one grows.
+  defp sweep_growth(%{state: {:BudgetState, _, _, _, _, _, _, entries}}) when is_list(entries) do
+    Enum.reduce(entries, 0, fn
+      {:EntryRow, _, {:Open, estimate, _} = open}, sum ->
+        sum + max(0, bytes({:Expired, estimate}) - bytes(open))
+
+      _, sum ->
+        sum
+    end)
+  end
+
+  defp sweep_growth(_budget), do: 0
+
+  # The outcome that an open parent's internal outcome at `amount` gives while the Run is
+  # paused, at the largest of its forms (a failed or a completed refusal, and each finish
+  # that the child can give its parent: reachable_finishes/3), with the largest time and
+  # pause deadline. Returns the bytes of the pending input that its slot keeps and the
+  # growth of control in its settlement, measured by projecting that settlement on the
+  # parent's own request (its tracker and its join: settlement_growth/4) with 32 bytes for
+  # the rest of the step (its classification, `:applied`, at most 3 bytes over the shortest,
+  # and a pause that the step enters, its pause deadline from nil to at most 11 bytes and
+  # its phase; a listed wait that it removes is not counted back).
+  defp retained_outcome(state, key, parent, child_id, child, amount) do
+    refusal = fn class, reason ->
+      outcome(
+        state.version,
+        parent.action_id,
+        class,
+        @refusal_schema,
+        refusal(state, key, reason),
+        @max_time
+      )
+    end
+
+    inputs = [
+      {refusal.("failed", "nested_result_invalid"), %{actual: amount, dispatch: "dispatched"}},
+      {refusal.("completed", "nested_completed"), %{actual: amount}}
+    ]
+
+    finishes =
+      for %{schema_id: id, schema_version: version, payload: payload} <-
+            reachable_finishes(state, child_id, child) do
+        finish =
+          outcome(state.version, parent.action_id, "completed", id, payload, @max_time)
+          |> Map.put("schema_version", version)
+
+        {finish, %{actual: amount}}
+      end
+
+    sized =
+      for {input, correlation} <- finishes ++ inputs do
+        record = %{
+          version: state.version,
+          kind: :protocol,
+          id: String.duplicate("0", 68),
+          run_id: state.control.run_id,
+          attempt_id: parent.attempt_id,
+          input: Jason.encode!(input),
+          correlation: Map.put(correlation, :occurrence, key),
+          context: %{pause_deadline: @max_time}
+        }
+
+        {bytes({:pending_input, %{order: 2_147_483_647, record: record}}),
+         settlement_growth(state, key, input, correlation) + 32}
+      end
+
+    {sized |> Enum.map(&elem(&1, 0)) |> Enum.max(), sized |> Enum.map(&elem(&1, 1)) |> Enum.max()}
+  end
+
+  # The growth of the parent's request (its tracker and its join) when the settlement of
+  # `input` is applied to it, as settle_protocol/3 applies it. One that cannot be projected
+  # (no tracker for the request) is bounded by the 4,096 bytes of a settling slot.
+  defp settlement_growth(state, {ordinal, _} = key, input, correlation) do
+    request = state.control.trackers[ordinal]
+    {:ok, checked} = decode_step(input, state.version)
+
+    tracker =
+      case PatternStep.accept(request.tracker, checked) do
+        {:applied, tracker} -> tracker
+        _ -> request.tracker
+      end
+
+    join = settle_join(state, key, input, correlation).control.trackers[ordinal].join
+    max(0, bytes(%{request | tracker: tracker, join: join}) - bytes(request))
+  rescue
+    _ -> 4_096
+  end
+
+  # The finishes that a child callable can still give its parent (ELZ-430): the one that it
+  # keeps, when it keeps one; otherwise, while it is open, the finish of each of its admitted
+  # finish actions that its continuation can still keep (authorizing, waiting for Approval
+  # or ready), any of which can be the first kept. The bound takes the largest.
+  defp reachable_finishes(state, child_id, child) do
+    cond do
+      is_map(child[:finish]) ->
+        [child.finish]
+
+      child.closed ->
+        []
+
+      true ->
+        for {_, slot} <- state.slots,
+            slot.callable == child_id and slot.kind == "finish" and
+              slot.phase in [:authorizing, :approval, :ready] and is_map(slot[:action]),
+            do: kept_finish(slot.action)
+    end
+  end
+
+  # Whether the :configure `record` on `snapshot` (the empty state, or the terminal state
+  # of the Unit's previous Run) gives a state that admission takes (admits?/1); one whose
+  # step fails the bound is not taken either.
+  defp configure_admits?(snapshot, record) do
+    {:Transition, next, _} = step(snapshot, record)
+    admits?(next)
+  rescue
+    _ -> false
+  end
+
+  defp fits?(state, room \\ 0) do
     if plain?(state) do
       c = state.control
 
@@ -4912,7 +5972,8 @@ defmodule Elzoo.RunEngine do
         (c.cap + 1 - map_size(c.receipts)) * 1_024 + active * 4_096 + pending_finish +
           open_reserve
 
-      if slots_ok? and control_bytes + reserved <= @control_bytes and slots_bytes <= 8_388_608 do
+      if slots_ok? and control_bytes + reserved + room <= @control_bytes and
+           slots_bytes <= 8_388_608 do
         requests_bytes = bytes(state.requests)
 
         if requests_bytes <= @request_bytes do
@@ -5003,13 +6064,30 @@ defmodule Elzoo.RunEngine do
   end
 
   @doc false
-  def project_event_wait_transition(state, record) do
+  # The step of `record` on `state` as the event-wait and history reader projects it:
+  # `fold` is :current, or :base, the fold before ELZ-430, for a history that fold recorded.
+  def project_event_wait_transition(state, record, fold \\ :current) do
+    with {:ok, projected} <- project_step(legacy(state, fold), record),
+         do: {:ok, Map.delete(projected, :legacy_fold)}
+  end
+
+  defp legacy(state, :current), do: state
+  defp legacy(state, :base), do: Map.put(state, :legacy_fold, :base)
+
+  defp project_step(state, record) do
     case record do
       %{kind: :protocol} ->
         project_protocol_wait_transition(state, record)
 
       %{kind: kind}
-      when kind in [:configure, :event_activation, :continuation, :lifecycle, :run_view, :finish] ->
+      when kind in [
+             :configure,
+             :event_activation,
+             :continuation,
+             :lifecycle,
+             :run_view,
+             :finish
+           ] ->
         project_pure_event_wait_transition(state, record)
 
       # The part of a :resume_input step before its pattern call; it can switch the
@@ -5037,8 +6115,10 @@ defmodule Elzoo.RunEngine do
   end
 
   @doc false
-  def valid_event_wait_close_transition?(state, record, actual_state) do
-    with {:ok, projected} <- project_event_wait_transition(state, record),
+  def valid_event_wait_close_transition?(state, record, actual_state, fold \\ :current) do
+    state = legacy(state, fold)
+
+    with {:ok, projected} <- project_step(state, record),
          {:ok, projected} <-
            project_recorded_over_cap_closure(state, record, projected, actual_state),
          true <- event_wait_close_markers(projected) == event_wait_close_markers(actual_state) do
@@ -5068,10 +6148,13 @@ defmodule Elzoo.RunEngine do
         projected = put_in(projected.control.invocations[invocation.record.id], receipt.digest)
 
         {:ok,
-         close_over_cap_generation(
-           projected,
-           invocation.record.context,
-           invocation.record.input["at_ms"]
+         mark_stop(
+           state,
+           close_over_cap_generation(
+             projected,
+             invocation.record.context,
+             invocation.record.input["at_ms"]
+           )
          )}
       else
         _ -> {:error, :history}
@@ -5090,7 +6173,7 @@ defmodule Elzoo.RunEngine do
         if not next.control.generation_closed and is_nil(next.control.stop_pending) and
              next.control.lifecycle.phase != :paused and not next.control.callables[callable].closed and
              (input["kind"] in ["action_outcome", "person_answer"] or
-                fits?(put_in(next.control.invocations[record.id], hash))) do
+                admits?(put_in(next.control.invocations[record.id], hash))) do
           {:ok, %{record: record, callable: callable}}
         else
           {:error, :history}
@@ -5157,8 +6240,8 @@ defmodule Elzoo.RunEngine do
   defp event_wait_close_markers(state) do
     control = state.control
 
-    {control.stop_pending, control.generation_closed, control.charge_stopped,
-     control.lifecycle.phase, control.lifecycle.outcome}
+    {control.stop_pending, Map.fetch(control, :stop_attempt), control.generation_closed,
+     control.charge_stopped, control.lifecycle.phase, control.lifecycle.outcome}
   end
 
   defp close_over_cap_generation(state, context, at) do
@@ -5179,8 +6262,8 @@ defmodule Elzoo.RunEngine do
 
   defp project_protocol_wait_transition(state, record) do
     case protocol_transition(state, record) do
-      {:done, {next, _}} -> {:ok, finalize_step_state(next)}
-      {:continue, next, _, _} -> {:ok, finalize_step_state(next)}
+      {:done, {next, _}} -> {:ok, mark_stop(state, finalize_step_state(next))}
+      {:continue, next, _, _} -> {:ok, mark_stop(state, finalize_step_state(next))}
     end
   end
 
@@ -5190,13 +6273,13 @@ defmodule Elzoo.RunEngine do
       {:ok, next}
     else
       {next, _} = transition(state, record)
-      {:ok, finalize_step_state(next)}
+      {:ok, mark_stop(state, finalize_step_state(next))}
     end
   end
 
   defp project_pure_event_wait_transition(state, record) do
     {next, _} = transition(state, record)
-    {:ok, finalize_step_state(next)}
+    {:ok, mark_stop(state, finalize_step_state(next))}
   end
 
   defp outcome(version, id, class, schema, payload, at),
@@ -5628,6 +6711,10 @@ defmodule Elzoo.RunEngine.ResultReader do
   @record_bytes 16_777_216
   @completion_keys [:action_id, :attempt_id, :operation_id, :run_id]
   @initial_state %{version: 1, control: nil, slots: %{}, requests: %{}}
+  # The folds that can have recorded a step (ELZ-430): this one and the fold before it.
+  # The state's shape does not show which one did, so a replayed step is accepted when it
+  # equals the projection of one of them exactly.
+  @folds [:current, :base]
   @event_wait_protected_fields [
     :action_id,
     :kind,
@@ -6112,6 +7199,8 @@ defmodule Elzoo.RunEngine.ResultReader do
     with true <- valid_model_version?(next, version),
          {:ok, candidates} <- accepted_activation(before, next, candidates, version, audit),
          :ok <- validate_event_wait_transition(before, next, candidates, version),
+         :ok <- validate_stop_mark(before, next),
+         :ok <- validate_new_mark(before, next, version),
          {:ok, candidates} <- accepted_failure(before, next, candidates) do
       candidates =
         case accepted_settlement(before, next, candidates, version, bindings, audit) do
@@ -6135,12 +7224,14 @@ defmodule Elzoo.RunEngine.ResultReader do
   defp reduce_row(_, _, _, _, _, _, _), do: {:error, :history}
 
   # A root failure: a :finish record with no source whose pure fold, replayed on the
-  # state before it, gives exactly the recorded state and settles a root finish that
-  # names no action. Such a record that changed nothing (not permitted at its time) is
-  # not one. Every other step into a pending `:failed` stop, and such a record whose
-  # replay differs, is damaged history. While a failure is pending, a record that ends
-  # it (the terminal Run view, or the Run view of a new Attempt, which drops it) or
-  # changes the Attempt must replay to exactly its recorded state, in v1 too.
+  # state before it, gives exactly the recorded state under a fold that can have recorded
+  # it (replays_exactly?/3) and settles a root finish that names no action. Such a record
+  # that changed nothing (not permitted at its time) is not one. Every other step into a
+  # pending `:failed` stop, and such a record whose replay differs, is damaged history.
+  # While a stop is pending, a record that changes the pending stop, its mark, its
+  # completion or the Attempt, and a Run view that ends the Run or changes the Attempt,
+  # are replayed the same way, in v1 too; so is every terminal Run view, with or without
+  # a pending stop.
   defp accepted_failure(
          %{pending: {_input_id, record}, state: before},
          %{state: after_state},
@@ -6149,7 +7240,7 @@ defmodule Elzoo.RunEngine.ResultReader do
        when is_map(record) do
     case record do
       %{kind: :finish, source: nil, occurrence: key} ->
-        if replays?(before, record, after_state) do
+        if replays_exactly?(before, record, after_state) do
           if after_state === before,
             do: {:ok, candidates},
             else: failure_candidate(before, after_state, key, candidates)
@@ -6162,9 +7253,11 @@ defmodule Elzoo.RunEngine.ResultReader do
           failure_pending?(after_state) and not failure_pending?(before) ->
             {:error, :history}
 
-          failure_pending?(before) and
-              (not failure_pending?(after_state) or attempt(before) != attempt(after_state)) ->
-            if replays?(before, record, after_state),
+          terminal_view?(record) or
+              (stop_pending(before) != nil and
+                 (stop_facts(before) != stop_facts(after_state) or
+                    ends_or_changes?(record, before))) ->
+            if replays_exactly?(before, record, after_state),
               do: {:ok, candidates},
               else: {:error, :history}
 
@@ -6178,16 +7271,76 @@ defmodule Elzoo.RunEngine.ResultReader do
 
   defp accepted_failure(_, _, candidates), do: {:ok, candidates}
 
-  defp failure_pending?(state), do: get_in(state, [:control, :stop_pending]) == :failed
+  defp failure_pending?(state), do: stop_pending(state) == :failed
+  defp stop_pending(state), do: get_in(state, [:control, :stop_pending])
   defp attempt(state), do: get_in(state, [:control, :attempt_id])
 
-  # The engine's own pure fold of `record` on `before` gives exactly `after_state`.
-  defp replays?(before, record, after_state) do
-    case Elzoo.RunEngine.project_event_wait_transition(before, record) do
-      {:ok, projected} -> projected === after_state
-      _ -> false
+  # A Run view that ends the Run or changes the Attempt ends or drops a pending stop.
+  defp ends_or_changes?(%{kind: :run_view, view: view}, before) when is_map(view),
+    do: not is_nil(Map.get(view, :outcome)) or Map.get(view, :current_attempt) != attempt(before)
+
+  defp ends_or_changes?(_record, _before), do: false
+
+  # A terminal Run view: each one is replayed, with or without a pending stop.
+  defp terminal_view?(%{kind: :run_view, view: view}) when is_map(view),
+    do: not is_nil(Map.get(view, :outcome))
+
+  defp terminal_view?(_record), do: false
+
+  # The stop, its mark (its presence and value), its completion and the Attempt: a step
+  # that changes them while a stop is pending is replayed.
+  defp stop_facts(state),
+    do:
+      {stop_pending(state), Map.fetch(state.control, :stop_attempt),
+       get_in(state, [:control, :completion]), attempt(state)}
+
+  # The recorded step equals (===) the projection of the step under one of @folds.
+  defp replays_exactly?(before, record, after_state) do
+    Enum.any?(@folds, fn fold ->
+      case Elzoo.RunEngine.project_event_wait_transition(before, record, fold) do
+        {:ok, projected} -> projected === after_state
+        _ -> false
+      end
+    end)
+  end
+
+  # The stop's mark of every recorded step, in v1 and v2: its presence and value are the
+  # ones that a fold leaves after that step (stop_mark?/2), so a mark that neither fold
+  # wrote is damaged history, also while its stop stays pending.
+  defp validate_stop_mark(%{state: before}, %{state: after_state})
+       when is_map(before) and is_map(after_state) do
+    if Elzoo.RunEngine.stop_mark?(before, after_state), do: :ok, else: {:error, :history}
+  end
+
+  defp validate_stop_mark(_, _), do: {:error, :history}
+
+  # A mark that a step adds or changes is checked against the step's own record, not only
+  # against its result (ELZ-430): in v1, which replays no step that sets a stop, the close
+  # markers of the record's projection under one of @folds (the pending stop and the mark
+  # among them; valid_event_wait_close_transition?/4) must be the recorded ones. A v2 step
+  # passes the same check at every record (validate_event_wait_transition/4).
+  defp validate_new_mark(%{pending: {_input_id, record}, state: before}, %{state: after_state}, 1)
+       when is_map(record) and is_map(before) and is_map(after_state) do
+    mark = Map.fetch(after_state.control, :stop_attempt)
+    kept = if is_map(before.control), do: Map.fetch(before.control, :stop_attempt), else: :error
+
+    cond do
+      mark == :error or mark === kept ->
+        :ok
+
+      Enum.any?(
+        @folds,
+        &(Elzoo.RunEngine.valid_event_wait_close_transition?(before, record, after_state, &1) ==
+              :ok)
+      ) ->
+        :ok
+
+      true ->
+        {:error, :history}
     end
   end
+
+  defp validate_new_mark(_, _, _), do: :ok
 
   # The checks of one root failure against the state before and after it: a root finish
   # of the current Attempt, admitted as the pattern asked for it, naming no action, now
@@ -6441,6 +7594,8 @@ defmodule Elzoo.RunEngine.ResultReader do
   defp transcript_actual(_record, _key, slot),
     do: if(is_integer(slot[:actual]), do: slot.actual, else: :unknown)
 
+  # A v2 step is valid when the projection of one of @folds passes every check: the exact
+  # pure result, the close markers (the stop's mark included) and the activated waits.
   defp validate_event_wait_transition(
          %{pending: {_input_id, record}, state: before_state},
          %{state: after_state},
@@ -6448,28 +7603,49 @@ defmodule Elzoo.RunEngine.ResultReader do
          2
        )
        when is_map(record) and is_map(before_state) and is_map(after_state) do
-    with {:ok, expected_state} <-
-           Elzoo.RunEngine.project_event_wait_transition(before_state, record),
-         :ok <- validate_pure_wait_transition_result(record, expected_state, after_state),
-         :ok <-
-           Elzoo.RunEngine.valid_event_wait_close_transition?(before_state, record, after_state),
-         :ok <- validate_activated_waits(expected_state, after_state, provenance) do
-      :ok
-    else
-      _ -> {:error, :history}
-    end
+    if Enum.any?(
+         @folds,
+         &valid_wait_step?(before_state, record, after_state, provenance, &1)
+       ),
+       do: :ok,
+       else: {:error, :history}
   end
 
   defp validate_event_wait_transition(_, _, _, 1), do: :ok
   defp validate_event_wait_transition(_, _, _, _), do: {:error, :history}
+
+  defp valid_wait_step?(before_state, record, after_state, provenance, fold) do
+    with {:ok, expected_state} <-
+           Elzoo.RunEngine.project_event_wait_transition(before_state, record, fold),
+         :ok <- validate_pure_wait_transition_result(record, expected_state, after_state),
+         :ok <-
+           Elzoo.RunEngine.valid_event_wait_close_transition?(
+             before_state,
+             record,
+             after_state,
+             fold
+           ),
+         :ok <- validate_activated_waits(expected_state, after_state, provenance) do
+      true
+    else
+      _ -> false
+    end
+  end
 
   defp validate_pure_wait_transition_result(
          %{kind: kind},
          expected_state,
          actual_state
        )
-       when kind in [:configure, :event_activation, :continuation, :lifecycle, :run_view, :finish],
-       do: if(expected_state == actual_state, do: :ok, else: {:error, :history})
+       when kind in [
+              :configure,
+              :event_activation,
+              :continuation,
+              :lifecycle,
+              :run_view,
+              :finish
+            ],
+       do: if(expected_state === actual_state, do: :ok, else: {:error, :history})
 
   defp validate_pure_wait_transition_result(_, _, _), do: :ok
 

@@ -178,17 +178,115 @@ engine itself.
 ## Input and controls
 
 For existing v1 inputs, `input(engine, stable_id, neutral_input_without_at_ms,
-verified_context)` reads the clock once. Context contains `run_id`, execution `attempt_id`, and where
+verified_context)` reads the clock once, before it reconciles the owner's Run view, and
+records that time. Context contains `run_id`, execution `attempt_id`, and where
 applicable `occurrence: {request_ordinal, action_index}`, authenticated
 `verified_person`, truthful actual cost/dispatch/loss or Resource correlation.
 The same admitted ID retains its original data and time on retry. Changed bytes
 are a conflict, not another invocation. Applied/duplicate means the DU result
 committed, not merely that a message was sent. Other results are bounded error
 or indeterminate classifications; never choose another ID to evade uncertainty.
+An input whose step settles its own open slot is checked before it is written (ELZ-430,
+the retained-input rule) when its step stores a positive actual (an answer, a model or
+tool call's outcome) or leaves the Run paused: an input that comes while the Run is
+paused, or, under `budget_rule: :pause`, one whose own step enters the pause on a Budget
+that an earlier step exhausted (a Resource cursor's settlement, for one). It is written
+only when the state that its step writes fits and so does each charge that the slot's
+parents take later (counted at its largest, with no release that would come after it,
+together with what the sweep of that charge's Budget step adds to its other held
+entries), and, while no stop was pending, the room for a stop that admission keeps
+(below). When the step leaves the Run paused, the input must also be kept where the fold
+keeps it for continue: as the slot's pending input, while the slot's callable and the
+generation are open, the slot is of the current Attempt and no stop is pending (in v2
+the fold keeps it only with the room). An input that the fold would settle without
+keeping it there is refused, never settled without it; one whose slot belongs to a
+closed callable is applied and not kept (a tool result of a child that already
+finished, for one: the child is closed, and what its parent keeps is the parent's own
+outcome). A step that sets a Budget stop takes its stop and mark from the room: the
+state with the mark fits with the part of the 227 bytes that no check admits which that
+state can still take left free (a longer Attempt ID, the wider encodings of the Run
+revision and the deadlines, the phase; what an earlier step took of them, such as a Run
+revision that grew from 255 to 256, is not kept twice). A state that lacks the room for
+that step (its 468 bytes and that part, after its later charges and waits) is one that
+an earlier revision recorded near the bound, since every state that this revision
+writes with no stop pending keeps it: there the stop is taken when the unmarked step
+fits the bound, as the earlier revision took it, and marked when its mark fits too.
+Otherwise `input/4` returns `{:error, :record_size}` and appends no record of the input;
+a Run view that the call journaled first (when the owner had moved, before the check)
+stays. The actual is neither capped nor dropped from an applied step, and the slot stays
+open: the same input, sent again (nothing of it is recorded), is taken once the state
+has that room, and otherwise its deadline, a change of Attempt or the end of the Run
+settles the slot with no actual. The same rule decides every other record that settles
+a slot. A local work's outcome, which the engine takes from its mailbox at the work's
+estimate, is dropped with no append of it, and its slot stays open the same way. A
+Resource entry's input is not committed, and its entry stays unconsumed for a later
+pass (see the limits of the invocation entries). An outcome that the engine gives
+itself (a refusal, a nested parent's outcome, whose actual admission counted when it
+admitted the child, the `local_restart` loss that a start or a replacement Unit records
+for running local work, and the `lost_outcome` of a model or tool call whose intent was
+already tried) is not written, and its slot stays as it is. A refusal or a nested
+outcome is given again by a later drain; a `local_restart` or `lost_outcome` loss, which
+no drain selects again, is kept by the engine and given again by the drain, one loss per
+round, after a pending stop and after the retained inputs and held reports that the
+drain gives first, once it fits, at the latest after a continue resumes the Run, with no
+second dispatch to the provider and no new intent attempt. After each append the drain
+selects again, so a stop or a report that the append set comes first and a slot that its
+expiry pass settled gets no loss record; a loss refused again is skipped for the rest of
+that drain, so it neither blocks the other losses nor loops: each kept loss is tried at
+most once per drain unless an append settles it, so a drain whose losses are all refused
+ends after one try of each. Recovery that finds a loss
+while a retained input or held report can already be given (a continue committed before a
+crash) keeps the loss for the drain instead of recording it first. An engine that stops
+forgets a kept loss; the next start or replacement Unit finds it again only by the same
+recovery: running local work (`local_restart`), and a non-Approval model or tool call in
+`:running` or `:reconcile` whose intent owner is active again with a tried attempt
+(`lost_outcome`). A read-only intent owner moves the slot to `:reconcile` with
+`reconciliation: :read_only` instead, which no drain selects; a call held for Approval
+(`request_key`) is routed by the Run's release, not by this recovery. Observed: a v2
+tool call whose active owner was recovered at an engine restart, and v2 local work at a
+restart and at a same-Attempt replacement Unit; model calls, v1 and a read-only owner at
+that point are not exercised. Every ingress refusal that `input/4` gives after it has
+reconciled the owner's Run view and the Resources (`current/1`): a record that is too
+large, an ID conflict, an invalid correlation or payload, `record_size`, writes nothing of
+the refused input, and the reply is that refusal; the drain then serves what `current/1`
+committed (a stop that a Resource outcome set in the same call, for one). When that drain
+ends in a halt (the owner refuses completion with no terminal view:
+`:terminal_commit_pending`, for one) the reply is still the refusal and `status/1` shows
+the halt; when a completion stop's evidence append is not reported committed by the
+evidence Writer (`{:indeterminate, info}`, a rejection or conflict), the engine sends no
+`:complete` command for that stop (it comes only after a committed row; owner commands
+that the same drain made before it, such as an Approval request of another slot, may
+already have been sent), the halted
+engine does not append again, and it halts `:delivery_unknown` with its cached state
+cleared (a restart decides the stop again and may append a fresh evidence row, which its
+command then names); when the drain exits or raises the engine halts
+`:delivery_unknown` with its cached state cleared, and the outcome is unknown: an owner
+command may already have been sent and committed (the forward-then-exit test below sees
+the owner's terminal row), so the halt does not imply that nothing was sent. The raise
+case is read from the source (no test makes the drain raise); the exit and the Writer's
+indeterminate reply are tested. A refused outcome from
+the engine's mailbox is drained the same way, and a v2
+mailbox delivery whose work after `current/1` exits or raises halts the engine the same way rather
+than keeping the state from before `current/1`. Approved work whose loss recovery holds
+(queued behind a held report, or refused for room) is not released again by the start's
+or a replacement Unit's release of approved work, so it is not dispatched a second time.
+The time checks stay before
+reconciliation (they write nothing). The step stores the actual twice in the Budget and
+once in the slot; a slot that the step settles frees its 4,096-byte reserve and its
+listed wait, while a slot that keeps the input as its pending input while paused frees
+its listed wait but keeps its reserve (it stays active until continue gives the input),
+so near the bound a paused Run refuses a smaller actual than a running one.
 
 `control(engine, id, command, context)` routes begin-Attempt, Approval evidence
 or revocation through Run; pause/verified-person continue through lifecycle;
-targeted cancellation closes local tracking before AsyncWork cancellation.
+targeted cancellation closes local tracking before AsyncWork cancellation. A pause, a
+continue and a cancel read the clock once, before the owner's Run view is reconciled,
+and record that time; a sample that is not a time from 1 to 2^63 - 1 (`nil` included)
+gives `{:error, :invalid_control}` with no write. A begin-Attempt and Approval
+evidence read it for no record of their own (a Run view that the engine then journals
+takes its own sample). A halted engine answers every control with its stored halt
+(`{:error, reason}`, the `reconciliation` of `status/1`) before it checks the control,
+with no write.
 Run allocation/start coordination stays with the host. No reset, rearm, retry,
 generic router or child-Run action exists. `status/1` exposes committed phase,
 charge count, occurrence classifications/joins and reconciliation, not payloads,
@@ -245,9 +343,11 @@ For native v2, an outside-event `wait_event` is activated from the configured
 source head. The activation samples trusted time after that head read, fixes
 the source cursor, ticket, source identity and deadline once committed, and is
 not exposed as waiting until its input/result pair is confirmed. A fresh event
-candidate is read and corroborated before its recorded time is sampled. Replay
-of the original paired input ID uses retained facts and does not call the source,
-clock or Operator; changed bytes conflict. Fenced restart preserves a waiting
+candidate is read and corroborated before its recorded time is sampled; that one
+sample is read before the owner's Run view is reconciled, and the event records it
+(the checks of the wait and the owner after that reconciliation take the same time).
+Replay of the original paired input ID uses retained facts and does not call the
+source, clock or Operator; changed bytes conflict. Fenced restart preserves a waiting
 cursor and deadline. There is no automatic source polling or new Run/Attempt on
 recovery.
 
@@ -268,7 +368,10 @@ truthful scope; this interface does not authenticate a production source or
 enforce callback resource bounds.
 
 Fresh-event failures are exactly `:invalid_correlation`, `:invalid_payload`,
-`:source_not_found`, `:source_unavailable` and `:source_gap`, and `:unavailable`
+`:source_not_found`, `:source_unavailable` and `:source_gap`; `:invalid_input` for a
+clock sample that is not a time from 1 to 2^63 - 1 and `:pause_deadline_required` for
+a context `pause_deadline` above 2^63 - 1, both with no write, or under
+`budget_rule: :pause` one that is not after the sample; and `:unavailable`
 when the lookup of the input ID in the engine's journal fails after the source
 read (see Failure, size and audit limits). They append no record of the
 submitted event and do not settle its wait. A failure after the source read
@@ -480,14 +583,29 @@ A `failed` Run is read in the same way; the owner's `reason` is not read, since
 it describes and proves nothing. The reader looks in the folded history for the
 root failure of the owner's current Attempt: a `:finish` record with no source
 (see "Recorded cycle and obligations") whose pure fold, replayed on the state
-before it, gives exactly the recorded state, for a root `finish` of that Attempt
+before it, gives exactly the recorded state (under a fold that can have recorded
+it, below), for a root `finish` of that Attempt
 whose admitted action is exactly the action of its request frame (as terms, so
 `1` and `1.0` differ) and names no action. Every other step of the history into
 a pending failure (a record changed to name an action, for example) is
-`{:error, :history}`. While a failure is pending, a record that ends it (the
-terminal Run view, or the Run view of a new Attempt, which drops it) or changes
-the Attempt is replayed the same way, also in v1, and must give exactly its
-recorded state, else `{:error, :history}`. With one, the Run, Attempt and
+`{:error, :history}`. While a stop is pending (any stop, ELZ-430), a record that
+changes the pending stop, its mark (below), its completion or the Attempt, and a
+Run view that ends the Run or changes the Attempt, are replayed the same way, also
+in v1: the replay must give exactly (`===`, so `1` and `1.0` differ) the recorded
+state under the current fold or under the fold before ELZ-430, else
+`{:error, :history}`. The recorded state cannot show which fold wrote a step, so a
+step is accepted only when it equals one of them exactly; a history that the fold
+before ELZ-430 recorded (a stop kept at a change of Attempt, a lifecycle stop that
+replaced a pending one, a stop without its mark) reads as recorded. The mark of each
+recorded step, in v1 and v2, must be one that either fold leaves after that step (its
+presence and its value), also while the stop stays pending, and protocol v2 checks
+each step of its event waits under the same folds, with the mark among its close
+markers. Every terminal Run view is replayed so too, with or without a pending stop, in
+v1 and v2: its close as the revisions before ELZ-215 recorded it (the running local
+work closed, a waiting ask left open) is `{:error, :history}`. This holds for every read
+of the history, the read of a `completed` Run, `event_waits/3` and `transcript/3`
+included, so a completion or a root failure that the reader selects belongs to the
+owner's current Attempt. With one, the Run, Attempt and
 operation, the finish slot (settled `completed`, the Run's completion), the
 terminal `failed` state and the canonical evidence row that the owner names (in
 the configured stream, its four keys naming the finish action) must agree, and
@@ -623,20 +741,186 @@ and completes the Run owner for that Attempt with `:failed`, reason `"pattern"` 
 that row's reference. The reason describes; `result/3` proves the failure from the
 Unit history. A crash between the evidence row and the owner command leaves the row
 unreferenced: the restart replays to the same state, appends an equal row and
-completes the owner once, naming the new row. The failure, once pending, is the
-stop that the owner gets: a lifecycle stop asked for in a later step (the Run
-deadline, a cancel or a Budget stop) does not replace it, also when a restart past
-the Run deadline records the loss of local work that was running. A change of
-Attempt that the engine takes before the owner records the failure (a host that
-begins an Attempt on the owner while the engine is down, or between the row and
-the command, which the owner then answers `stale` and the engine follows with the
-new Run view) drops it in the fold of that Run view: the pending stop, the
-completion and the closed generation of the finish go (a request-cap stop keeps
-its own), the row stays unreferenced, the new Attempt is not failed, and its
-inputs reach the root again. A nested finish never ends a Run (above). Records
-carry the decision, so a Run recorded before this rule replays as recorded: a
-root finish refused there stays refused, and one admitted but not yet dispatched
-when the engine stopped is dispatched by this rule at the restart.
+completes the owner once, naming the new row. The failure, once pending, is bound to
+its Attempt as every pending stop is (below). A nested finish never ends a Run
+(above). Records carry the decision, so a Run recorded before this rule replays as
+recorded: a root finish refused there stays refused, and one admitted but not yet
+dispatched when the engine stopped is dispatched by this rule at the restart.
+
+Every pending stop belongs to the Attempt that produced it (ELZ-430), the engine's
+recorded Attempt at the step that asked for it: `:completed` and `:failed` to the
+Attempt of their root finish, `:cancelled`, `:out_of_time` and `:out_of_budget` to
+that of their lifecycle step. The completion evidence row of `:completed` and
+`:failed` (its `attempt_id`) and the owner's `complete` command carry it. This fold
+records the stop's mark, the control key `stop_attempt` with the value
+`{attempt_id, stop}`, in the step that sets the stop, and removes it in the step that
+clears it, so a state with no stop pending holds none. The fold before ELZ-430 never
+wrote the key and kept it unchanged where it replaced a stop or kept one at a change
+of Attempt; a mark counts only when its value is exactly the recorded Attempt and the
+pending stop. The mark proves only a different final stop or Attempt: a stop that the
+earlier fold replaced with the same stop in the same Attempt still matches it, and the
+rollback Need (below), not the mark, excludes that case. Admission keeps room for a
+stop: while no stop is pending before the step, every check that admits growth (a
+configuration, fresh or at a rollover; a request; an action's admission with its
+Budget reservation; an invocation entry; a retained or held input; a nested start or
+finish; an event activation; an outside event while paused; a Resource cursor
+transition; an input that settles its slot at an actual) admits it only when 695 bytes
+of the control bound stay free, also when the admitted growth itself asks for a stop (a
+nested start whose child's first request passes the request cap: that stop's mark then
+takes its bytes from the room), counting the growth that admitted work adds later with
+no check of its own: the wait that the continuation of an admitted model call, tool
+call or ask lists in control (its action ID, its Attempt ID and 57 bytes for an ask, 56
+for a model call, 55 for a tool call: 457 bytes for an ask with two 200-byte IDs),
+counted from its admission until it is listed (while another wait is listed under the
+action ID, only what the action's wait adds in its place); and the charge that each
+nested child's committed amount gives its parent action once the child's cost is known
+(by an internal outcome while the parent is open, or by a `:nested_actual` record once
+the parent settled with no actual, as at a change of Attempt): that amount stored in
+the parent's Budget twice and in its slot, counted for every child whose parent holds
+no actual yet, at its committed amount so far, a child whose cost ends unknown
+included. Each such charge is counted at an upper bound of its growth (twice the
+amount's bytes and 32 in control; the amount's bytes and 16 in the parent slot and, for
+an open parent, 17 for its outcome); and, for an open parent whose child has a finish
+that it keeps or can still keep (each admitted finish of its own that waits for its
+authorization or Approval or is ready), the largest record that the parent keeps as its
+pending input while paused, with the largest such finish, and the growth that the
+settlement of that outcome gives its request's tracker and join (projected, with 32
+bytes for the rest of the step), since a slot that keeps its pending input stays active
+and keeps its 4,096-byte reserve. A child with no such finish cannot give its parent an
+outcome while the parent is open and the Run paused with the generation open (its cost
+is known only once it is closed), so that retained record is not counted for it until a
+finish of its own is admitted; when the parent settles by its outcome, the 4,096-byte
+reserve that the settlement frees covers the growth of its tracker and join, as for any
+settling slot. Each charge counts no release (no reservation, slot reserve or kept
+finish freed), and an ancestor's
+charge counts every charge below it; the state that the step writes fits too, and so
+does each slot and the slots map with these charges. A cancel records nothing for a
+listed wait. A fresh or rollover configuration
+whose state leaves less (with a long Budget ID, for one) fails `start_link/1` with
+`{:error, :record_size}` and writes nothing; a Unit that an earlier revision configured
+starts as recorded. A Resource cursor transition is sized whole: the cursor record with
+the Budget settlement and the slot actual that its entry commits, so a same-width
+advance is admitted only when its Budget settlement, slot actual and the parent charges
+after them also fit; a cursor-only advance (no Budget command) that grows neither
+control nor the slots is always committed, and one whose projected step
+fails is never committed (the check fails closed). Every record that settles an open slot
+at a positive actual, or whose step leaves the Run paused, is checked with that step
+before it is written (the retained-input rule, see "Input and controls"). The charge
+that a nested child gives its parent is counted with the sweep that the step of the
+parent's Budget makes first: each other held entry of that Budget whose expiry has
+passed turns into its expired form, one byte longer for an expiry up to 255 (60 such
+entries grow 60 bytes), counted once for each Budget that a charge lands in. The 695
+bytes cover what can grow with no such check from an
+admitted state to the end of the step that sets a stop, each at its largest: the growth
+of that step together with its mark (468 bytes, a cancel's at the Run deadline in a
+200-byte Attempt, the longest that the engine and the Run owner take, from the
+shortest classification: its record of the Attempt, 200 bytes, its stop
+`:out_of_time`, 8, and its classification, 26, then the mark of `:out_of_time`, 234; a
+cancel before the deadline takes 230 and 232, a wake or an outcome that asks for
+`:out_of_budget` at most 38 and 236), a change to a longer Attempt ID at a Run view
+(199 bytes), the encodings of the recorded Run revision, the pause deadline and the
+Run deadline (9 bytes each, from 2 to 11) and the lifecycle phase (1 byte). Of those
+last 227 bytes a state keeps only what it can still take: each is measured from where
+it stands (a Run revision whose encoding grew from 255 to 256 has 3 bytes fewer to
+grow, and the 3 that it took are not kept again). The room for the step that sets a
+stop is its 468 bytes and that part, after the waits and charges that admission
+counts, measured with the classification at its shortest (`:late`): every protocol step
+replaces the classification with no check (a timely wake that calls no pattern while an
+ask waits takes it from `{:gate, 1}` to `:remain_waiting`, 6 bytes more), and the 468
+bytes are counted from `:late`. Every state that this revision writes keeps it: with no
+stop pending (admission keeps at least that, and each growth that no check admits takes
+from the free bytes what it takes from the part kept); after a step that sets a stop,
+whose marked state keeps that part free and whose state with the stop dropped as a
+change of Attempt drops it (the stop and its mark removed) keeps the whole room; and
+while a stop is pending, where growth that is admitted (an answer's actual, a Resource
+cursor) keeps the room of the state with the stop and its mark dropped (an answer that
+would not is refused `record_size`, its slot open). The step that sets a stop adds the
+mark when the marked state passes the state bound
+and leaves the stop unmarked otherwise; from a state that this revision wrote it marks
+the stop and never fails the bound. A state without that room is one that an earlier
+revision recorded near the bound, and only such a state leaves a stop unmarked: its
+stop is taken when the unmarked step fits the bound, with no charge counted that its
+step does not make (a child's charge to its parent lands in a later step), and marked
+when the mark fits too; one byte past that, the step fails after its input commits and
+the Unit does not reopen, the existing limit for a state at the exact byte of the
+control bound. The
+engine takes no time or Run revision above 2^63 - 1 (the largest sequence of a
+journal) and refuses one where it enters, with no write and before any write that
+reconciles the owner's Run view: a `run_deadline` start option and a Run view at the
+start fail `start_link/1`; the clock sample, the `pause_deadline` or the `run_deadline`
+of a control, or the `pause_deadline` of its context, gives
+`{:error, :invalid_control}`, a cancel control included, as an invalid sample does; a
+`pause_deadline` in an input's context gives `{:error, :pause_deadline_required}`, as
+one that is not in the future does; a clock sample at an input gives
+`{:error, :invalid_input}`, as an
+invalid sample does, also at a fresh version 2 outside event (a paired retry stays
+`{:ok, :unchanged}`); and a later Run view, and an action binding whose facts give a
+deadline above it (its `deadline_ms` or that of its effect intent), halt the engine
+`:integrity_failure` before the commit. The clock and the context callback give the
+engine's own records times within that bound (Needs). Under `budget_rule: :pause` an
+input needs a pause deadline after its clock sample, so a wake reaches a Run deadline
+of at most 2^63 - 2; a Run deadline of 2^63 - 1 ends only by another stop, such as a
+cancel (a limit).
+The first
+pending stop wins: a lifecycle stop asked for in a later step (the Run deadline, a
+cancel, a Budget or request-cap stop) does not replace it, also when a restart past
+the Run deadline records the loss of local work that was running, as the input gate
+already refuses new work while one is pending. A change of Attempt that the engine
+takes before the owner records the stop drops it in the fold of that Run view: the
+host began an Attempt on the owner while the engine was down, or after the engine
+read the owner's revision for its command, which the owner then answers `stale` and
+the engine follows with the new Run view (at its restart, when it stopped first).
+The pending stop goes, and with it the completion and the closed generation of a
+finish (a request-cap stop keeps its own) and the record of a cancel of the Attempt
+that is left; an evidence row stays unreferenced, and the owner records no stop for
+the older Attempt. The new Attempt is not ended by the older stop: its inputs reach
+the root again after a completion, a failure, a cancel or the expiry of an older pause
+deadline, and the Run-wide deadline, Budget and request cap stay as they were, so a
+wake of the new Attempt past the Run deadline, with the Budget spent or at the
+request cap asks for that stop again, now for the new Attempt.
+
+A lifecycle stop asked for while a stop is pending loses and leaves no trace: a wake
+at the request cap closes no generation and stops no charge (the count stays as it
+is), and a cancel records no cancel and closes no local work. The pending stop alone
+decides the owner's reason and what the end of the Run closes: a completion ends with
+reason `"engine"` and its end closes every open slot, since only a request-cap stop
+that is itself the stop retains slots. A `cancel` control cancels, after its drain,
+the AsyncWork tasks of only the local work that its committed cancel closed; a
+cancel that loses to a pending stop (one that the control's own `current/1` took
+first, from a Resource outcome for one) cancels none, so the local work that the
+winning stop retains runs on. The cancel intent comes from the cancel control itself,
+never from a caller's context: an input whose context holds `cancel_work: true`
+cancels no task, also when its expiry pass settles running local work.
+
+At a start, and when the engine takes a replacement Unit, the engine decides a
+pending stop before it writes anything of its own: before it takes the owner's Run
+view, records the loss of running local work, writes an evidence row or sends an
+owner command. That covers the engine's own writes only: the Unit has already
+finished an input committed before (its `finish_pending/1`, as at every open), and
+under this fold that completion changes a pending stop only at a Run view (a change
+of Attempt or the end of the Run), which the start then takes. The engine first
+reads the owner's committed Run view: when the Run is terminal there, or the owner
+has begun an Attempt after the engine's recorded one (the owner lists the recorded
+Attempt and names another as current; it begins an Attempt ID once only), no
+delivery decision is left, and the engine takes that Run view, whose fold ends the
+Run or drops the stop, with no owner command for it. No other change of the owner's
+revision (a lease renewal, another Run's command, a fact of this Run such as an
+attached child) skips the decision. Otherwise a stop whose mark is the recorded
+Attempt and the stop is delivered exactly as committed: no journal, clock, Budget or
+request cap is read. A stop without such a mark (the fold before ELZ-430 set it, or
+replaced or kept it at a change of Attempt; or a state recorded without the room for
+the mark) is delivered as committed when the owner has only ever had the recorded
+Attempt, which then produced it (also when the earlier fold set it in place of
+another stop of that Attempt); otherwise its Attempt is unknown, `start_link/1` gives
+`{:error, :stop_origin_unknown}`, and a replacement Unit halts the engine with that
+reason, with no engine write and no owner command. The host's fix is to end the Run
+or begin a new Attempt on the owner, then start the engine again: it takes that Run
+view as above. A stop that the drain cannot deliver (a completion or failure whose
+completion slot is missing) gives `{:error, :integrity_failure}` the same way, never
+a match error. Every path that can drain (an input, a control, an outbox offer, an
+input that the Unit delivers) checks the engine's Unit first, and a replacement Unit
+is recovered in the order of a start: this decision, the owner's Run view, then the
+loss of running local work.
 
 Each callable has a state bound. A pattern state over the bound of its callable is
 not stored (`invalid_pattern_state`; for an output over the request cap the answer
@@ -1182,9 +1466,11 @@ initial state of exactly the bound is kept), `refusal_leaves_no_trace_of_the_chi
 equal counts, receipts, invocations, callables, requests and other slots, the parent
 Budget changes only by the release of its 10, and no later input reaches the dropped
 child), `state_grows_after_start` (31 children of the default bound that each ask a
-tool call: 26 are kept, 25 hold their call and grow to exactly 65,536 bytes on its
-outcome, in ascending and in descending order; the bound holds after every input, no
-step fails and the unit answers the next input), `room_comes_back_at_close` (a child
+tool call: 26 are kept, 24 hold their call and grow to exactly 65,536 bytes on its
+outcome, in ascending and in descending order, and one, whose call's admission has no
+room for the call's Budget reservation and the wait that it lists (ELZ-430), grows on
+its refusal; the bound holds after every input, no step fails and the unit answers the
+next input), `room_comes_back_at_close` (a child
 that grew to its bound finishes: its node is closed with no state, its room comes
 back, and a nested start of the bound that was refused, asked by another open child,
 is kept; after a change of Attempt and after the end of the Run no node but the root
@@ -1405,8 +1691,134 @@ released).
 Limits of the invocation entries. The entries of one Run are never removed. The
 entry of an input that settles a slot is taken to be covered by the 4,096 bytes of
 that slot. A state at the exact byte of the control bound can still fail a step by
-a change of a few bytes. A Run recorded before this repair can fold to another state
-(Elzoo is not released).
+a change of a few bytes: a state that an earlier revision recorded without the room for
+a stop (ELZ-430), one byte past the largest whose unmarked stop step fits, fails that
+step after its input commits, and its Unit does not reopen. Near the bound, a Resource
+entry whose cursor transition (its cursor record with the Budget settlement and the slot
+actual that it commits, a same-width advance included) would cut into the room, or whose
+projected transition fails (the check fails closed), stays
+unconsumed: the check runs before the entry's first commit, on the state then, and
+again before its cursor record, with the record that is committed. Refused at the first
+check, the entry commits nothing; refused at the second, the inputs that it committed
+(and their effects) stay, and neither its cursor record nor its Budget settlement is
+committed. The Resource's consumption stops at it for the pass (the call goes on as if
+the Resource had no new entry, with no failure and no halt), and a later pass reads it
+again from the unchanged cursor. Its committed inputs are found by their stable IDs
+among the input IDs that the Unit retains (`retention_count`, 1,024 as set above, in
+first-in first-out order) and are not committed again; this is bounded evidence, not a
+guarantee: after that many distinct later inputs (late inputs of an older Attempt that
+add no invocation entry, for one) the ID has left that window, and a later pass that
+then has room (after a change to a shorter Attempt ID, for one) commits the same input
+again under the same ID as a second journal pair. Its fold gives it no second pattern
+call where the first took one (its entry in `control.invocations` makes it a
+duplicate) and none in an older Attempt (it is late), but the second pair is written.
+The cursor refusal and the waiting slot's own deadline do not settle a slot that waits
+on that Resource (the expiry pass does not settle a Resource slot): while its Attempt
+and the Run stay open, and while no applied settlement of its own has committed, it
+stays open past its own deadline until its entry is consumed. What settles the slot is an
+applied settlement, not the presence of an input row or the cursor: an entry can carry
+several inputs (a Resource close settles each waiting or active action and adds its
+closed event), each commits on its own before the check before the cursor record, so a
+slot whose own outcome committed and applied is settled while the cursor has not moved
+(a crash between them leaves that state); and a committed input is not always an applied
+settlement (an outcome that comes at the Run deadline asks for `out_of_time` and is
+classified late, leaving the slot to the end of the Run). These two cases are the rule of
+the fold, not observed: the tests commit a Resource close's closed event before a refused
+cursor check, not a close action's applied settlement with the cursor unmoved, and no test
+commits a Resource input at the Run deadline. The existing close rules still apply. A
+change of Attempt settles a sent Resource slot of the older Attempt `unknown`, with no
+actual and its Budget entry held, in the fold of the new Attempt's Run view, before any
+later pass reads the Resource; the Resource's cursor does not move. A stop whose end of
+the Run settles every open slot (a cancel, the Run deadline, a Budget stop, a
+completion, a failure, an owner outcome) settles it as any open slot (`unknown` once its
+effect may have been sent, with no actual and its reservation held), and the
+request-cap stop retains it as it retains every sent Resource slot before its deadline
+(unchanged by ELZ-430), so it stays open after the Run ends until its entry is consumed
+or a later input of the Attempt at or after its deadline closes it. Closing the slot
+does not consume the entry: a later pass that has room still reads it, and its cursor
+transition settles the held Budget. The Run's stop and the Run deadline still come. An
+entry that is still refused after the Run ends stays unconsumed, with its Budget
+settlement. A Run recorded before this repair can fold to another state (Elzoo is not
+released).
+
+Limits of the stop bound to its Attempt (ELZ-430). A journal recorded before ELZ-430
+keeps its records and reads as recorded when each step equals exactly the step of
+this fold or of the fold before ELZ-430 (see "Read-only Run result"). A pending stop
+without a matching mark is delivered as committed in a Run whose owner has only ever
+had the recorded Attempt, also when the earlier fold set it in place of another stop
+of that Attempt: the replaced stop's effects stand, and the later stop is the one
+that the owner gets; in a Run with more than one Attempt the start refuses it
+(`{:error, :stop_origin_unknown}`, with no engine write). This fold leaves a stop
+unmarked only on a state without the room for a step that sets a stop (its 468 bytes
+and what of the 227 bytes that no check admits the state can still take, after the
+waits and charges that admission counts), and only when the unmarked step fits the
+bound (one byte past that, the step fails after its input commits and the Unit does
+not reopen, as before). Every state that this revision writes keeps that room, the
+state that a change of Attempt leaves after dropping a stop of this revision included,
+so only a state that an earlier revision recorded near the bound lacks it; a growth
+that no check admits (a longer Run revision, for one) spends from the free bytes what
+it spends from the part of the 227 that a state can still take, so it never makes a
+state of this revision look like one of an earlier revision. Admission keeps 695 bytes
+free while no stop is pending, and counts the wait that an admitted model call, tool
+call or ask lists later and the charge that a nested child's committed amount gives its
+parent (with the sweep of its Budget step); every record that settles a slot at an
+actual that admission has not counted, or whose step leaves the Run paused, is checked
+with that step before it is written (the retained-input rule, "Input and controls"); a
+step that sets a stop takes only its stop and mark from the room, so a new Run near the
+bound admits less than before (its configuration included); a history already recorded
+keeps its records. A new Run that stays outside
+the room records as before apart from the mark, the order of clock samples and the
+order of recovered work: an
+input, a pause, a continue and a cancel now read the clock before the owner's Run view
+is reconciled, and a fresh v2 outside event before that reconciliation too, so where
+the call journals a Run view (the owner moved) with a clock that moves, the input's
+recorded time can be earlier than that Run view's, though the input is committed after
+it, where before it was read after that Run view. With any room, a loss that a start or
+a replacement Unit finds while a held report or retained input can already be given (a
+continue that committed before a crash) is now given after it (the earlier revision
+committed the loss first, so the pattern saw the loss first), kept losses are given one
+per drain round, and a refusal after `current/1` now drains what `current/1` committed
+in the same call (before, the next call did). These change the inputs of a new
+execution, not the reading of a recorded history. The room is kept in a terminal Run
+too, so a Resource entry refused near the bound after the Run ends stays unconsumed.
+Times: under
+`budget_rule: :pause` an input needs a pause deadline after its clock sample, so a wake
+reaches a Run deadline of at most 2^63 - 2, and a Run with a Run deadline of 2^63 - 1
+ends only by another stop, such as a cancel; a Run that the earlier revision started
+with a `run_deadline` above 2^63 - 1 is not restarted (its start fails with no write),
+and the host finishes it on that revision. How to move: a
+terminal or newer
+owner view is taken at the start automatically, and a Run with one Attempt needs
+nothing; the host acts only after an actual `{:error, :stop_origin_unknown}`: it ends
+that Run or begins a new Attempt on the owner, then starts the engine again, which
+takes that Run view with no owner command for the stop. Stored format: a journal that
+this revision writes holds the mark in each recorded state while a stop is pending.
+Rollback, a Need: no earlier revision runs on a journal that this revision wrote. In
+a fresh VM of an earlier revision, where `stop_attempt` is not an existing atom, the
+safe term decoder of its Unit (`binary_to_term/2` with `[:safe]`) refuses the first
+row or snapshot that holds a mark, so its Unit does not open. In a VM where the atom
+exists it can run, and it can deliver a stale stop (the defect that ELZ-430 fixes); a
+stop that it replaces, or keeps across a change of Attempt, no longer matches its
+mark, so this revision, taken again, decides it as an unmarked stop; a replacement by
+the same stop in the same Attempt still matches (the mark proves only a different final
+stop or Attempt), and this Need excludes it. Its reader
+replays some steps exactly and gives `{:error, :history}` at each one that this
+revision records differently: a step that set or removed a mark (in v1 a root
+failure's `:finish` step and the steps out of a pending failure; in v2 also each
+`:configure`, `:event_activation`, `:continuation`, `:lifecycle`, `:run_view` or
+`:finish` step, whose whole state it compares), a Run view that dropped a stop at a
+change of Attempt, and a step that kept a pending stop against a later lifecycle
+request (in v2, a protocol wake past the Run deadline that keeps a pending cancel
+already fails its close-marker check, before any terminal view). A step that both
+folds record alike stays readable to it: an unmarked v2 cancel that an identical
+terminal view clears, and a Run that the owner failed with no root failure of the
+pattern. A completion that the earlier fold kept through a timely `:pause` wake at
+the request cap, which that fold let stop the charge, is delivered as committed: the
+owner records `:completed` with reason `"request_cap"`, and the end of the Run
+retains slots as a request-cap stop does. The wakes after a change of Attempt are
+exercised for the stops of a completion, a failure, a cancel, an older pause
+deadline, the Run deadline, the monetary Budget and the request cap (Elzoo is not
+released).
 
 The groups `resumed_input_reopens_the_root` and
 `resumed_input_with_open_work_stays_waiting` of `test/elzoo/run_engine_test.exs`, and
@@ -1689,6 +2101,496 @@ restart past the deadline ends the Run `:out_of_time`; the fold keeps
 stream check (the moved row gives `{:failed, record}`). Listed finite scenarios,
 not a proof.
 
+`test/elzoo/run_engine_stop_attempt_test.exs` exercises the binding of a pending stop
+to its Attempt (ELZ-430) on disposable PostgreSQL (history changes on the in-memory
+Store), for seven sources of a stop: a root finish naming a completed action
+(`:completed`), a root finish naming no action (`:failed`), a cancel while local work
+runs (`:cancelled`), a wake past the Run deadline and a wake at the pause deadline of a
+paused Run with the Run deadline ahead (`:out_of_time`), and a local-work outcome that
+spends a monetary Budget of 1 and a wake at request cap 1 (`:out_of_budget`,
+`budget_rule: :finish`). Each source has three cuts behind an owner seam:
+`crash_before_the_owner_command` (the engine killed at its `complete` command after
+the stop and, for a completion or failure, its evidence row; the host begins Attempt
+`second` on the owner; the restart), `stale_answer_then_crash` (the host begins
+`second` at the engine's revision read for the command, the real owner answers the
+command, which names the stop's Attempt, `{:unchanged, :stale, revision}` at its
+current revision, and the engine is killed at the status read that follows, before it
+journals the new Run view, and restarts) and `stale_answer_syncs` (the same answer
+with no kill: the engine takes the new Run view itself). In each, the Run is open in
+`second` with no stop, completion or cancel record of the older Attempt pending, the
+owner holds no terminal record, the evidence rows are the one row of a completion or
+failure (naming Attempt `attempt`) or none, `result/3` is `{:pending,
+:not_completed}`, and a wake of `second` reaches the root (completion, failure,
+cancel, older pause deadline) or asks for the stop again under the unchanged limit,
+which the owner records for `second` (`:out_of_time` and `:out_of_budget` with reason
+`"engine"`, `:out_of_budget` with reason `"request_cap"`), with no other evidence row.
+
+`earlier_fold_stop` builds journals as the fold before ELZ-430 recorded them from
+the step that set the stop on (each result row from that step on is that fold's
+projection of its input, so no stop holds a mark), in v1 and v2: a completion, a
+cancel, a Run-deadline stop, and a cancel in whose place a wake past the Run deadline
+set `out_of_time`; in v1 also a Budget, pause-deadline and request-cap stop. With one
+Attempt on the owner each is delivered as committed (the owner records it with
+reason `"engine"`; `transcript/3` and `result/3` read). With Attempt `second` begun
+on the owner and that fold's Run view of `second` journaled keeping the stop, each
+makes `start_link/1` give `{:error, :stop_origin_unknown}` with no new row, no
+evidence row and no owner command, also after a lease renewal alone, and after
+another Run's create, a lease renewal and a child attached to this Run. After the
+host cancels the Run on the owner, the next start takes the terminal view
+(`:cancelled`, the owner's own record; `result/3` and `transcript/3` read); after it
+begins `third`, the next start is open in `third`, whose wake reaches the root, with
+no evidence row.
+
+`start_decision`: a stop that this fold set for `second` after the engine took its
+Run view (a wake past the Run deadline; the engine killed at its owner command; the
+mark `{second, :out_of_time}`) is delivered as committed with the clock set back
+before the deadline (`:out_of_time` for `second`). A completion that this fold set
+and the earlier fold kept through a timely `:pause` wake at request cap 2 that
+stopped the charge is delivered as committed (`:completed`, reason
+`"request_cap"`), with the v2 transcript, `event_waits/3` and `result/3` read. A
+committed but unpaired wake after an earlier-fold stop in a two-Attempt Run is
+finished by the Unit at the start (one result row; the stop still unmarked), and the
+start is refused with no other row, evidence or owner command. A completion whose
+completion slot was removed from the recorded state gives
+`{:error, :integrity_failure}` with no write.
+
+`replacement_unit`: the engine runs in `second` (it took that Run view while an ask
+waited), its Unit stops, and the journal gains a wake of `second` past the Run
+deadline as the earlier fold recorded it (no mark). An input, and an outbox offer
+that comes before any call, each run the Unit check, and the replacement recovery
+halts the engine `:stop_origin_unknown` with no row, evidence or owner command. With
+local work running in `attempt`, the Unit stopped and `second` begun on the owner,
+the next input's replacement recovery takes the Run view of `second` before the loss
+of local work: the change of Attempt closes the work, and no `local_restart` loss is
+recorded.
+
+`pending_stop_replay`: with `second` open after a completion or a cancel, the Run
+view of `second` changed to name `attempt` is `history` for `transcript/3` in v1 and
+v2, and its recorded state changed to keep the older stop (exactly the earlier
+fold's step, and not this fold's) reads in v1 and v2; after a completed and a failed
+Run, the state recorded after the terminal Run view changed to keep the stop pending
+is `history` for `transcript/3`, `event_waits/3` and `result/3` in v1 and v2, and
+so is that state with only its lifecycle outcome changed to `:cancelled` (v1) or
+only its Run revision changed to an equal float (v2). A cancellation whose terminal
+view is projected by hand with the close before ELZ-215 (the running local work
+closed, a waiting ask left open, which each fold that the reader knows closes) is
+`history` for `transcript/3` and `event_waits/3`, in v1 and in v2, both when a cancel
+input set the stop before the view (its step as the earlier fold recorded it, no mark)
+and when the engine's start took the view from the host's own cancel on the owner, with
+no stop pending. The state after a completed Run's restart past the
+Run deadline with local work running, changed to hold `out_of_time` in place of the
+pending completion as the earlier fold recorded it, reads in v1 and v2, `result/3`
+included.
+
+`stop_mark`: rollback, then this revision again. This revision sets a completion in
+Attempt B (the mark `{B, :completed}`) while local work runs and dies at its owner
+command; the earlier fold's step of the local loss at a restart past the Run deadline
+replaces the completion with `out_of_time` and keeps the mark. With one Attempt on
+the owner the next start delivers `out_of_time` (`result/3` gives
+`{:terminal, :out_of_time}`); with two (B the second) the start is refused with no
+engine write. In v1 and v2, a protocol cancel whose recorded mark alone is changed to
+name another Attempt (row digest recomputed) is `history` for `transcript/3` and
+`event_waits/3`, after the end of the Run and while the stop stays pending (an owner
+that refuses the engine's command); so is a pending cancel whose recorded stop and mark
+are both changed to `out_of_time`, a mark that agrees with the changed stop but that
+neither fold gives that cancel.
+
+`room_for_a_stop`: a Run padded to the admission limit in a 1-byte Attempt, from the
+shortest classification, refuses the smallest pattern input for room; by the fold
+alone, the Run view of a 200-byte Attempt with the largest Run revision and then a
+cancel mark the stop and keep the bound; through the engine, the host begins a 200-byte
+Attempt, whose Run view the start takes past the admission limit, and a wake past the
+Run deadline and, separately, a cancel then each commit with the stop marked and the
+bound kept, and the reopened Unit delivers the stop. In the 200-byte Attempt, the
+largest state that an earlier revision recorded without the room from which the
+unmarked wake past the Run deadline still fits (34 bytes of the bound left, which the
+wake takes whole) takes it with the stop unmarked; the Unit reopens, and the start
+refuses the stop of this two-Attempt Run with no write. One byte past that state, the
+wake fails after its input commits (the journal ends with its unpaired input), and two
+starts each fail with the journal unchanged. A fresh configuration whose Budget ID (over
+65,535 characters) leaves one byte less than the room fails the start with
+`{:error, :record_size}` and no row; one that leaves exactly the room is configured,
+and a wake past the Run deadline and, separately, a cancel in a 200-byte Attempt that
+the host began then each commit marked, and the reopened Unit delivers the stop. A
+rollover configuration (after a cancelled Run, a Run `period-two`) with a Budget ID that
+leaves one byte less fails with no row, and one at the limit is taken. With 200-byte
+action and Attempt IDs, the admission of an ask whose admitted state (its Budget
+reservation and the 457-byte wait that its continuation lists) leaves exactly the room
+is taken, and one byte under it is refused `record_size` with the Budget step dropped;
+through the engine the ask is admitted at that limit and waits, a cancel with the ask
+still waiting commits marked, and the reopened Unit delivers `cancelled`. With a wait
+of a 1-byte Attempt ID listed under the ask's action ID (a state built for the check:
+no engine path lists one before the action's admission, since a Run takes each action
+ID once and a change of Attempt empties the waits), the admission counts the 199 bytes
+that the ask's wait adds in its place: one byte under that limit is refused
+`record_size`, and at the limit the state keeps the room once the ask's wait is listed.
+With the Run
+view of a 200-byte Attempt at revision 2^63 - 1 (an owner seam that shows that revision
+and maps the engine's command back) taken past the admission limit and the Run paused
+with a pause deadline of 2^63 - 1, under `budget_rule: :finish` with a Run deadline of
+2^63 - 1 a wake at it, under `:pause` with a Run deadline of 2^63 - 2 a wake at it, and
+in each a cancel and a cancel at the Run deadline (`out_of_time`, with the cancel's
+record of its Attempt), each commit marked with the largest revision and deadlines
+recorded, and the reopened Unit delivers the stop. By the fold alone, from `:late` in a
+200-byte Attempt, a cancel at the Run deadline takes 468 bytes of the bound with its
+mark and one before it 462; with exactly 468 bytes left the cancel at the deadline
+commits marked with none left, and with 467 it commits unmarked with 233 left. At
+request cap 1, a nested start whose child's first request passes the cap (stopping the
+charge and asking for `out_of_budget`) is admitted at the least headroom that admission
+takes (found by search) with the stop marked and, after the mark, at least what of the
+227 bytes the state can still take, and one byte under it is refused `record_size` with no child, no stop and no
+mark. An ask's verified answer with an actual of about 32 KiB, at the admission limit,
+fails the bound by the fold alone and is not admitted by `actual_admits?/2`; through the
+engine it gives `{:error, :record_size}` with no row and the ask still waiting, and with
+room the same answer settles the ask at that actual and its step marks the
+`out_of_budget` that it asks for. The test helper `control_headroom/1` counts the room
+of 695 bytes while no stop is pending, with the wait that each admitted model call, tool
+call or ask has not listed yet placed in control (in place of a shorter wait listed
+under its action ID), and not the charges of nested children (the test that needs
+them measures them); the tests that use it pass unchanged. The 32 KiB answer, refused
+at the limit, is refused again after the owner moved, appending only the Run view that
+the call journaled; the Unit reopens with the ask waiting after the refusal and, after
+the accepted settlement, delivers the marked stop. Padded states in these tests are
+synthetic boundary-sized predecessors: `pad_invocations/2` adds invocation entries whose
+keys are IDs (full chunks of 8,000 bytes and a final one of up to 8,099 bytes; a public
+input ID is at most 160 bytes) and whose
+values are the SHA-256 of that ID (the fold's own entries are keyed by the input ID with
+the digest of its input and correlation as value), and its target is the free bytes left
+after the padding, not the bytes added; `journal_state/3` installs such a
+state with a `:pad` record; they stand for a state that an earlier revision recorded near
+the bound or that admission left at its limit, not for a history that an engine recorded,
+and the engine calls that follow them are real. An answer whose actual spends the
+Budget and whose step grows control by 100 to 200 bytes past what its settlement frees
+is admitted, on a state without the room for a step that sets a stop and within the
+bound (none left, found by bisection), at the padding where its unmarked step fits with
+none of the bound left, and is taken unmarked there; one byte less it is refused and its
+step fails the bound; with the mark's bytes more (as a control map entry) it is admitted
+and marks the stop with none left. On a state with that room it is refused at the
+admission limit and admitted from the least padding at which the state, once a Run view
+of a 200-byte Attempt drops its stop, keeps the room: there a cancel at the Run deadline
+marks its stop. The same holds through the engine with an actual of 2,400 bytes: at
+that least padding the answer commits its stop marked, the engine is killed at its
+owner command, the host begins a 200-byte Attempt, the restart drops the stop, and a
+cancel at the Run deadline commits marked and is delivered (no input comes while that
+stop is pending). With an ask admitted at the
+limit and an owner update in the same Attempt that takes the Run revision from 255 to
+256 (3 bytes of the room, with no check), an answer whose step marks its stop is
+admitted, and the smallest actual whose step the fold leaves unmarked (its mark does not
+fit) is refused. With an ask admitted at the limit in a 1-byte Attempt, the Run revision
+and a Run deadline of 250 below 256 and no pause deadline (4 of the 227 bytes spare),
+a timely wake that calls no pattern takes the classification to `:remain_waiting`, and
+the smallest actual whose step the fold leaves unmarked is refused (on the engine of
+commit 9147a57c, which measured the room with the classification as it stood, it was
+admitted unmarked). Through public calls, a Resource open's outcome that the call's
+own reconciliation takes makes the root ask past request cap 1 and sets the request-cap
+stop; an ask's verified answer of actual 3 in that call is then applied while the stop is
+pending and the stop is delivered (`out_of_budget`, reason `"request_cap"`); in the same
+setup an answer that public ingress refuses before its room check (an encoded record
+above 262,144 bytes: `{:error, :input_too_large}`; the ID of the start input:
+`{:error, :input_id_conflict}`) gets that refusal as its reply, writes no answer record,
+and the stop is delivered in that call; with an owner that refuses the completion, the
+reply to an answer under the start input's ID is still `{:error, :input_id_conflict}`,
+`status/1` shows the drain's halt `:terminal_commit_pending`, the stop stays committed
+and marked, and a restart with the owner answering delivers it. In v2, when the drain of
+an injected mailbox record (as below) that is refused exits in its owner call after the owner took the completion, the
+engine halts `:delivery_unknown` with no cached state (not the state from before
+`current/1`), answers a later input with that halt, and a restart takes the owner's
+terminal view. When the evidence Writer of a completion stop that such a drain sets
+answers without a commit (the test's Store commits the row and answers unavailable, so
+the Writer gives `{:indeterminate, info}`), the reply to an answer under the start
+input's ID is still `{:error, :input_id_conflict}`, the engine halts
+`:delivery_unknown` with no cached state, and no `:complete` command reaches the owner
+(counted at a recording seam in front of the owner) while the halted engine appends no
+second row and answers a later input with that halt; a restart with a new Writer
+appends a fresh row and sends exactly one `:complete` command, which names that second
+row, not the uncertain first one; with the Writer committing, one command names the
+first row and the stop is delivered in that call, in v1 and v2. The same indeterminate append in the
+drain of a refused injected mailbox record halts the engine the same way in v1 and v2,
+with no `:complete` command before the restart and one naming the second row after it
+(before, v1 died on a match error and v2 kept the state from before `current/1`).
+Separately, a record injected into the engine's
+mailbox in the form of a local outcome (the test constructs it: the running task did not
+produce it, and the real producer uses the work's estimate, its sampled time and a derived
+stable ID), whose actual the slot bound cannot hold, is refused in v1 and v2 with no
+record of it, and the stop that the reconciliation of that delivery set is delivered, the
+local work still running. With the engine killed at its owner command after such a
+request-cap stop (the stop pending and marked, an ask waiting), a Budget-spending answer
+is admitted with fewer free bytes, by the mark's bytes, than on the same state with the
+mark removed (a constructed state of an earlier revision; removing the mark frees the
+same bytes, so both admit the same largest added padding), and refused with one free
+byte fewer: the mark of a pending stop is not counted once the stop is dropped. Approved
+local work (a real Approval, release and dispatch) running beside an ask whose expiry
+report is held while paused, at the cut after a continue's lifecycle row (built by the
+fold): the restart dispatches no second task for it (after the synchronous start the
+engine's work map has no entry for the slot; its loss, kept behind the report, owns
+the slot, so the start's release of approved work does not dispatch it again) and gives
+the report, then the loss, in v1 and v2; before, the release dispatched it again. Beside a nested child open at zero cost, a state without the room takes
+a Budget-spending answer unmarked at exact fit: no charge of the child is counted against
+that step. An answer of another Run that names the open ask's Attempt, action and
+occurrence is, by the fold and its size check, late: it is admitted, its step changes
+no slot or Budget, and `own_settlement?/3` is false for it (through `input/4` the
+public validation of its time, ID, schema and correlation comes first). A paused v2
+answer is refused with no row and the
+ask waiting at a padding where the fold would settle it and drop its pending input
+(`record_size`); with room it is applied, kept as the slot's pending input with its wait
+removed, and continue gives it to the pattern once. Under `budget_rule: :pause`, a v2
+answer with no actual whose own step pauses the Run on a Budget that an earlier Budget
+step exhausted is refused the same way, and kept with room. In a paused v2 Run, a
+Resource entry whose completed open the fold would settle without keeping it writes no
+row and leaves the slot open and the cursor unmoved at a call while paused (its
+`current/1` reads the entry and refuses it); on the same engine the continue
+control itself (its lifecycle row, then its own pass over the Resource, before it
+replies) commits the entry's input and cursor record, settles the slot without retaining
+it and gives its outcome to the pattern once; with room a call while paused consumes the
+entry and keeps the outcome as the slot's pending input, and the
+continue gives it once. A running local work lost at a restart writes no
+`local_restart` loss where its step could not keep it and stays running; the Unit is
+then replaced in the same Attempt, whose recovery refuses the loss again, and the
+continue that resumes the Run records the loss and gives it to the pattern once. A
+dispatched tool call lost at a restart writes no `lost_outcome` where its step could
+not keep it; the continue records it and gives it once, with no second dispatch. With
+`expiry_reports: :owner`, an ask's expiry report held while paused and a running local
+work whose loss could not be kept are given after continue in that order: the report,
+then the loss; the same order holds at the cut after a continue's lifecycle row and
+before its drain (that state built by the fold and installed as the recorded state),
+where the restart's recovery finds the loss and keeps it behind the report. Two running
+local works whose losses were both refused while paused, resumed by a continue at their
+deadline: the first loss record's expiry pass settles both slots, and no loss record is
+written for the second. A
+nested start with an estimate of 4 KiB, a 60,000-byte child Budget ID and an empty child
+script is stepped at the least admitted padding and the 64 above it: each admitted step
+keeps the bound, and so does the Run view of a new Attempt after it, which closes the
+open child (its cost known, zero) and settles the parent `unknown` at actual 0 in its
+own step. A child's Resource cursor is stepped the same way, and so is one whose
+parent's charge lands in a root Budget to which the test adds 60 one-credit entries
+that expire at 100 (a constructed Budget state: entries put in by the Budget's own
+reserve step, with no engine slot), whose sweep grows them 60 bytes: after each
+admitted cursor, the charge keeps the bound and leaves the room for a stop free (on the
+engine of commit 8323c705, whose bound left the sweep out, the same charge left the
+room 29 bytes short). On a state that keeps the room, a
+Budget-spending answer whose step and mark take part of the room (the smallest actual,
+by its bytes, that does) is admitted and marks its stop; and a nested start at request
+cap 1 with a fixed 300-byte child Budget ID, stepped at every padding from 64 bytes
+under its least admitted padding to 64 above (that least padding measured 65,345 bytes
+of headroom on the engines of commit 9147a57c and of this revision, 64,946 on that of
+8323c705: a value of that fixture, not a policy), is refused at each
+of the 64 paddings under it and admitted with its stop marked at it and each of the 64
+above, and no padding admits it with its stop unmarked.
+
+`bounded_times`: a `run_deadline` start option of 2^63 fails the start with no row; on
+a running engine, a pause control with that `pause_deadline` and a continue control
+with that `run_deadline` give `{:error, :invalid_control}`, an input whose context holds
+that `pause_deadline` gives `{:error, :pause_deadline_required}` and an input with the
+clock at 2^63 gives `{:error, :invalid_input}`, each with no row; a Run owner whose view
+gives revision 2^63 fails the start with no row, and on a running engine the next input
+halts it `:integrity_failure` with no row. With the owner's revision moved by another
+Run's create and not yet taken, each of those controls and inputs, a cancel control
+whose context holds that `pause_deadline` and a pause control with the clock at 2^63
+write nothing, and the next input with bounded times takes the owner's Run view. A
+fresh v2 outside event with the clock at 2^63 gives `{:error, :invalid_input}` and one
+whose context holds that `pause_deadline` `{:error, :pause_deadline_required}`, with
+the owner's revision moved and no row; delivered, its paired retry with the clock at
+2^63 gives `{:ok, :unchanged}`. With the owner's revision moved and a clock that gives
+a time, then the next, then 2^63, a fresh v2 outside event is applied: the Run view
+records the second time and the event the first, and the third is never read. A cancel
+control whose clock sample is `nil` gives `{:error, :invalid_control}` with no row and
+the local work's task alive; sent again with a time, it settles that work and its task
+is cancelled. A fresh v2 outside event whose sample is `nil` or 0 gives
+`{:error, :invalid_input}` with no row. An `ask_person` binding whose facts give a
+`deadline_ms` of 2^63 halts the engine `:integrity_failure` with no admission record
+and the slot left `:allowed`; a pause control then, with a `pause_deadline` of 2^63 or a
+bounded one, gives that halt with no row, and a restart fails the same way with no row. A journal
+holding a configuration as the earlier revision recorded it with a `run_deadline` of
+2^63 (its fingerprint computed from the start options, checked against one that the
+engine recorded) fails its restart with the same options with no write. With a clock
+that gives a later time at each read, an input, a pause and a continue each read it
+once, for their own record, also with the owner's revision moved by another Run's create
+(then the sample comes first, and the Run view that the engine journals takes the next
+one); a begin-Attempt reads it only for the Run view of the new Attempt, an Approval
+evidence that the owner refuses reads it not at all, and a cancel reads it once for its
+input, each later read being the time of a Run view journaled as the Run ends.
+`room_for_a_stop` also shows that at the admission limit a cursor record that adds the
+Resource's key or lengthens its sequence's encoding (255 to 256) is not admitted and
+one that grows nothing always is, and, for an opened Resource `document` whose key the
+recorded state at the admission limit lacks, that its next entry writes no row (no
+input and no cursor record of it) and leaves the cursor unchanged, at the start and at
+the following input, and that a cancel then commits with its stop marked.
+
+`cursor_transition`: a Resource `document` at a rate whose actual for one minute's use
+encodes in 400 bytes, closed on a pause: at the admission limit, its next entry, which
+gives the root the closed event and settles the open's held Budget with that actual in a
+same-width cursor advance, writes no row and leaves the cursor and the Budget unchanged.
+A cursor record whose projected step fails (its Budget command names a holder with no
+Budget) is not admitted, also with room.
+With room for that cursor transition alone, the check before its first commit passes,
+the closed event commits (the root's invocation entry takes room), and the check before
+its cursor record refuses it: its input and result stay, and the cursor and the Budget
+are unchanged; with the padding then taken out of the recorded state, the next start
+reads the entry again from the same cursor, commits no input of it again, and commits its
+cursor record and the Budget settlement. A slot that waits on a blocked Resource (the
+open's) stays open after a wake at its own deadline (40,000, before the Run deadline of
+60,000), and the Run's stop (a cancel) settles it `unknown` with no actual; at request
+cap 1 a wake at the cap ends the Run `out_of_budget` (reason `"request_cap"`) and the
+stop retains that slot, still running after the Run ends with the entry unconsumed. With
+that entry blocked, the host begins Attempt `second`: in the state that the start
+records with its Run view, before any later cursor, the open's slot is settled
+`unknown` with no actual, its Budget entry is still held and the Resource's cursor has
+not moved. A
+child of a nested action opens a Resource `document` with its own Budget and closes it
+on a pause; the host begins Attempt `second`, whose Run view settles the parent with no
+actual: the Resource's next entry settles the child's held Budget at the 400-byte
+actual, after which the engine charges the parent that amount (`:nested_actual`). With
+room for that cursor transition alone (the size that the check before this revision
+took) the transition is not admitted, and by the fold alone the charge after it fails
+the bound; with room for the transition and the charge's counted bound (twice the
+amount's bytes and 32) it is admitted, one byte less it is refused, and the charge
+keeps the bound; through the engine, with room for the cursor transition alone, the
+entry writes no row, no charge is written, and the Unit reopens with the cursor
+unchanged. The reported case: a child's Resource reservation of 2^40 settled at actual
+1 in a same-width advance whose step grows neither control nor the slots (the premise,
+checked) is refused at the admission limit, where a cursor-only advance with no Budget
+command is still admitted, and each admitted padding keeps the bound with the parent's
+charge after it. That charge's measured growth in this case is zero, within its counted
+bound: the test shows the refusal of a cursor with a Budget command that grows neither
+map and the cursor-only exemption, not a positive growth of that charge. The reported
+paused parent: in a v1 Run under
+`budget_rule: :pause`, a nested child that finished with a tool call still running,
+paused, gets the tool's result with a 70 KiB actual: `{:error, :record_size}` with no
+row and the tool slot open (the parent's outcome would keep the actual twice in its
+slot); an actual of 7 is applied and the parent keeps its outcome as its pending input.
+A nested child asks in one request for a tool call (dispatched with no Approval) and a
+finish of 60,000 bytes that waits for Approval, under `budget_rule: :pause` with a root
+Budget of 5; in each order (the tool's result before the Approval, and the Approval
+before the result) a result with a 40,000-byte actual gives `{:error, :record_size}`,
+appends no record of the result (the call adds only a Run view and its result row,
+journaled before its check) and leaves the tool slot open; a result with
+actual 7 is applied, and once the finish is kept the parent's outcome, which spends the
+root Budget, pauses the Run and keeps that outcome as the parent's pending input with
+actual 7 and the finish payload.
+
+`completion_by_its_finish_record`: a root finish held for Approval, settled by its
+correlated outcome and named as the source of another root finish, completes the
+Run: the owner records `:completed` (reason `"engine"`) and `result/3` gives the
+held finish's action. `losing_cancel_keeps_the_work`, through the public
+`control/4`: the outcome of a Resource open, which the control's `current/1` reads
+first, makes the root ask over request cap 1; the request-cap stop wins
+(`out_of_budget`, reason `"request_cap"`), the cancel records no cancel, and the
+retained local work `slow` keeps running, its task alive, and settles `completed`.
+An input whose context holds `cancel_work: true`, sent with the clock at a running
+local work's deadline, settles that work in its expiry pass and cancels no task.
+
+`first_stop_wins`, in v1 and v2: a completion pending after a crash at the owner
+command while local work runs is recorded by the owner (`:completed`, naming the
+retried row; `result/3` gives the completion) after a restart past the Run deadline
+whose recorded loss makes the lifecycle ask for `out_of_time`, and from the crashed
+state the fold of a wake past the deadline, a cancel and a wake at the request cap each
+keeps it with no charge stop or cancel record (the local work still runs after the
+cancel and the wake at the cap); a cancel that settled running local work in its own
+step stays pending through the fold of a wake past the deadline and a wake at the
+request cap with no charge stop, and the restart past the deadline records
+`:cancelled`. `losing_request_leaves_no_trace`: with `:completed`, `:cancelled` and
+`:failed` pending after a crash at the owner command (local work `slow` running, closed
+by a pending cancel; asks `ask` and `pay` waiting), each of a wake past the Run
+deadline, a cancel, an answer of `pay` whose actual 5 spends the Budget of 5 and a wake
+at the request cap is journaled as the engine journals an input. The restart completes
+the owner with the pending stop and its own reason (`"engine"`, `"pattern"` for a
+failure), the end of the Run settles `slow`, `ask` and `pay` with no charge stop, and
+the step kept the stop, its completion and its cancel record and closed no local work.
+
+On the revision at commit 735214f8 (the round before the bounded charges), temporary
+edits were negative controls, all 45 run in one batch against this file and
+`test/elzoo/run_engine_read_failure_test.exs` (100 tests), the engine restored byte for
+byte after each (checked with `cmp`); each made the named tests fail (that batch's
+results, not evidence for this revision):
+admission with no room for the mark (11: the wake and the cancel after the Run view of a
+200-byte Attempt, the cursor decision, the opened Resource's entry, both configuration
+tests, both ask tests, the nested start at request cap 1 and three `cursor_transition`
+tests; the groups `wake_without_room_is_not_given`, `the_switch_is_one_place` and
+`each_kind_without_a_slot` of `test/elzoo/run_engine_test.exs` fail too); a mark
+added whether or not the state passes the bound (2: the step at the bound raises after
+its input, and by the fold alone the cancel at the Run deadline with one byte less than
+its 468 fails the bound); a mark of another Attempt or another stop counted as a mark
+(1: the rollback-then-retake stop is delivered with two Attempts); a history read that
+checks only the mark's presence (1: the changed mark reads); the close before ELZ-215
+taken by the earlier fold (3: v1 and v2, and the host's own cancel); a terminal Run view
+replayed only while a stop is pending (1: the host's own cancel); a stop without a
+matching mark delivered in a Run with two Attempts (8: every two-Attempt refusal); an
+outbox offer that drains without the Unit check (1: the engine halts
+`:delivery_unknown`, not `:stop_origin_unknown`); a replacement Unit that records the
+loss of local work before it takes the owner's Run view (1); the cancel intent read
+from a caller's context (1); the drop of only a pending failure at a change of Attempt
+(24); the owner command at the owner's current Attempt (14: every stale-answer test);
+`install_lifecycle/3` replacing a pending stop other than a failure (14); a losing wake
+at the request cap that stops the charge (6); the owner's `:completed` taken from the
+source slot's kind (1); a cancel control that cancels the task of every running local
+work (1); a replay under the current fold only (4) and a v2 validation under the
+current fold only (4); the stop facts compared, with `==` in v2, in place of the whole
+state with `===` (4); a Resource cursor record committed with no check (6: the opened
+Resource's entry and five `cursor_transition` tests); each time bound removed, at an
+input's context deadline, the clock at an input and a control's times (2 each: the
+`bounded_times` refusal test and the test with the owner's revision not taken), the
+`run_deadline` start option (2: the refusal test and the restart of a journal started
+with 2^63), and at a later Run view and the Run view at the start (1 each); a
+configuration admitted without the room (2: the fresh and the rollover configuration);
+an action's admission that checks the room only for a child's first finish (2: both
+ask tests); the times checked after `current/1` (2: the test with the owner's revision
+not taken and the clock test); an outside event's clock above 2^63 - 1 taken as
+`:source_unavailable` (1); a binding deadline above 2^63 - 1 admitted (1); the cursor
+check sizing the cursor map alone (4: four `cursor_transition` tests); the v1 check of
+a new mark skipped (1: the cancel changed to `out_of_time`); a Run view at the largest
+revision refused at the start (1: the wake and the cancel at the largest revision and
+deadlines); the cursor record committed with no second check (1: the entry refused
+before its cursor record); an input that reads the clock again for its record (1: the
+clock test); a cursor check that admits a transition whose projection fails (1); a
+wait listed under the action ID taken to leave nothing to count (1: the ask with a
+shorter wait listed); a room of 693 bytes (4: both configuration tests and both ask
+tests); a nested start admitted by the state after its step alone (1: the nested start
+at request cap 1); admission that leaves out the charges that nested parents take
+after their children (1: the child's last Resource charge after a change of Attempt);
+a verified answer's actual admitted with no check (1: the answer of about 32 KiB); a
+fresh v2 outside event that reads the clock again when it is delivered (1: the
+one-sample test); a control that does not give a stored halt first (1: the binding
+deadline of 2^63); and a control's clock sample `nil` taken as a time (1: the cancel
+whose sample is `nil`). Listed finite scenarios, not a proof.
+
+On the revision before the bound counted a child's finish that waits for Approval
+(commit 7aea5934), 52 temporary edits (the 45 above, ported to its engine by applying
+their diffs, three of them rebuilt by hand where the code moved, and seven more: the
+retained parent record not counted, the no-growth exemption for a cursor with a Budget
+command, the room demanded in full of a step that sets a stop, no unmarked stop on a
+state recorded without the room, the dropped-pending-input check removed, no check of
+an answer while paused, and no per-slot bound on the deferred charges) were run in one
+batch against the same two files (107 tests), each copied over the engine and the
+engine restored and checked with `cmp` after each. 48 made named tests fail. Two (the
+retained parent record not counted, and the answer's check always passing) failed to
+compile in that batch, which shows nothing; corrected so they compile, in a second run
+(109 tests) they made named tests fail (the paused v1 parent; four answer tests). One
+(the room demanded in full of a step that sets a stop) failed no test in the batch; the
+test of a Budget-spending answer whose step and mark take part of the room was added and
+it fails in the second run. One (a nested start admitted by the state after its step
+alone) failed no test in any run: with it the byte-by-byte nested start test also
+passes, because that test finds its own least admitted padding (measured 68,772 bytes
+with the edit and 68,815 on that revision, 43 bytes apart, values of that fixture, not
+a policy) and at every padding it admits the stop is marked. The outcome differs: at a
+fixed padding in that band the edit admits the nested start and marks its stop where
+that revision refuses it `record_size`. No test asserts the outcome at a fixed padding
+there, so the tests do not detect that edit (a limit of these tests). So 51 of the 52
+edits made named tests fail across the two runs, not in one run. That inventory was not
+run on a later revision as such. At commit 815d4362 one temporary edit, the bound counting only the
+finish that a child keeps (not one that waits for Approval), was made in place and made
+the test of the 60,000-byte finish fail (its 40,000-byte actual applied, before the
+Approval); the engine was restored byte for byte and the test passed again. On the engine
+of commit 350340f7 (the engine of 8323c705) three temporary edits, each made in place and
+the engine restored byte for byte after it, made named tests fail: the retained parent
+record counted for every open parent, also one whose child has no finish (two of the
+four admission tests of `test/elzoo/run_engine_test.exs` run with it: the nested starts
+refused out of order and the root's state that can grow, a refused later start
+admitted), the retained record never counted (the paused v1 parent with a 70 KiB actual
+and the 60,000-byte finish waiting for Approval), and a stop-setting step that keeps none
+of the room after its mark (the nested start at request cap 1: 38 bytes left after the
+mark, not 227). Those are results of the revisions named, not of this one. Listed finite
+scenarios, not a proof.
+
 `test/elzoo/run_engine_deadlines_test.exs` exercises `deadlines/1` in four groups
 on disposable PostgreSQL, each read checked against the `phase` of `status/1`.
 `deadlines_follow_the_lifecycle`: a new Run reads the start option and no pause
@@ -1883,3 +2785,150 @@ fail). Listed finite scenarios, not a proof.
   host that does not renew; a host that renews takes `workflow/run-approval-release`
   with `renewed_since` (ELZ-429) and expects no `:run_view` record, and nothing that
   its fold settled, for an interval of renewals alone.
+- ELZ-430 (2026-11-27): breaking. Every pending stop is bound to the Attempt that
+  produced it, as ELZ-420 bound a root failure. The owner's `complete` command of every
+  stop now names the engine's recorded Attempt, where it named the owner's current
+  Attempt, read just before the command; the `:completed` evidence row already named
+  the engine's recorded Attempt. Before, an Attempt that a host began after that read
+  left the command naming the older one: the owner answered it `stale` (it checks the
+  Attempt before the revision), and the engine halted `terminal_commit_pending` for
+  every stop but a failure. An Attempt begun before that read, or while the engine was
+  down, was ended by the older stop with no run of it: a lifecycle stop at the next
+  command; a completion once a restart had taken the new Attempt's Run view, with the
+  older Attempt's source, which `result/3` could refuse `completion_mismatch` (before
+  such a restart the owner refused the older Attempt's evidence row and the engine
+  halted). Now the owner's answer `stale` makes the engine take the new Run view, and a
+  change of Attempt before the owner records the stop drops it, with the completion and
+  the closed generation of a finish and the cancel record of the Attempt that is left,
+  where only a failure was dropped. This fold records the stop's mark, the control key
+  `stop_attempt` with the value `{attempt_id, stop}`, set with the stop and removed
+  with it; a mark counts only when its value is the recorded Attempt and the pending
+  stop. Admission keeps room for it: while no stop is pending before the step, every
+  check that admits growth (a configuration, fresh or at a rollover, and an action's
+  admission with its Budget reservation included; a nested start whose child's first
+  request asks for a stop; a Resource cursor transition sized whole, with the Budget
+  settlement and the slot actual of its entry) admits it only when 695 bytes of the
+  control bound stay free (a cancel's growth at the Run deadline with its mark, a change
+  to a longer Attempt ID, the encodings of the Run revision, the pause deadline and the
+  Run deadline, and the lifecycle phase, each at its largest), counting the wait that an
+  admitted model call, tool call or ask lists later and the charge that a nested child's
+  committed amount gives its parent later (with the sweep of that Budget step), so the
+  step that sets a stop marks it and never fails the bound after its input commits;
+  every record that settles a slot at a positive actual, or whose step leaves the Run
+  paused (an input, a Resource entry's input, an outcome that the engine gives itself,
+  a `local_restart` loss included), is written only when the state that step writes and
+  every later parent charge fit with the room (an upper bound that counts no release; a
+  step that sets a stop takes only its stop and mark from the room, leaves free what of
+  the 227 bytes that no check admits the state can still take, and leaves the room once
+  a change of Attempt drops its stop, and a state that lacks the room for such a step,
+  which only an earlier revision records, takes it unmarked when it fits), and only when
+  a step that leaves the Run paused keeps the input for continue where the slot can
+  still give it (else `input/4` gives `{:error, :record_size}`, a local work's outcome
+  is dropped, a Resource entry stays unconsumed, and an outcome or loss of the engine
+  is left for a later drain, each with no record appended; a Run view that the call
+  journaled before the check stays); every ingress refusal of `input/4` after it has
+  reconciled (`current/1`), a size, an ID conflict or room, replies with that refusal and
+  drains what that reconciliation committed (a halt in that drain is shown by `status/1`,
+  an exit halts `:delivery_unknown`); a kept loss is given again one per drain round after
+  a pending stop and the retained inputs and held reports; in the fold, an input of
+  another Run is late before any settlement or size check (`input/4` validates its time,
+  ID, schema and correlation first);
+  the engine refuses a time or a Run revision above 2^63 - 1 where it enters (a start
+  option, a control, an input's context, a clock sample, a Run view), before any write
+  that reconciles the owner's Run view, and reads one clock sample for an input, a
+  pause, a continue, a cancel or a fresh v2 outside event, before that reconciliation
+  (a control whose sample is `nil` or not a time is `{:error, :invalid_control}`), and an
+  action binding whose facts give a deadline above it halts the engine
+  `:integrity_failure` before its admission commits; a halted engine answers a control
+  with its stored halt before it checks the control. A
+  start, and a replacement Unit, decide a pending stop before any
+  engine write from the owner's committed Run view: a view that is terminal or has
+  begun an Attempt after the engine's recorded one is taken (its fold ends the Run or
+  drops the stop); else a marked stop, and an unmarked one in a Run whose owner has
+  only ever had the recorded Attempt, is delivered as committed (no journal, clock,
+  Budget or cap is read), and any other gives `{:error, :stop_origin_unknown}` with no
+  engine write and no owner command; a stop that cannot be delivered (a completion
+  without its completion slot) gives `{:error, :integrity_failure}`. Every path that
+  can drain, an outbox offer included, checks the engine's Unit first, and a
+  replacement Unit is recovered in the order of a start. The owner's `:completed` or
+  `:failed` comes from the stop's `:finish` record. The first pending stop wins: a
+  later lifecycle stop (the Run deadline, also at a restart past it, a cancel, a
+  Budget or request-cap stop) no longer replaces a pending completion or lifecycle
+  stop, and leaves no trace (no charge stop, cancel record, closed local work or
+  cancelled task: only a `cancel` control cancels tasks, those of the local work that
+  its committed cancel closed, never from a caller's context), so the pending stop
+  decides the owner's reason and what the end of the Run closes. A read of the
+  history (the read of a `completed` or `failed` Run, `event_waits/3`,
+  `transcript/3`) now replays, also in v1, every record that changes the pending
+  stop, its mark, its completion or the Attempt and every Run view that ends the Run
+  or changes the Attempt while a stop is pending, and gives `{:error, :history}`
+  unless the replay gives exactly (`===`) the recorded state under this fold or the
+  fold before ELZ-430 (a root failure's step too); the mark of every step must be one
+  that either fold leaves, and a mark that a step adds or changes must agree with that
+  step's own record (v1 compares the close markers of its projection under either fold;
+  v2 compares them at every step). Every terminal
+  Run view is now replayed so, with or without a pending stop, in v1 and v2: its close as
+  revisions before ELZ-215 recorded it (the running local work closed, a waiting ask left
+  open) is `{:error, :history}`. A completion that the earlier fold kept
+  through a `:pause` wake at the request cap that stopped the charge is delivered as
+  committed, with reason `"request_cap"`. Stored format: a journal that this revision
+  writes holds the mark in each recorded state while a stop is pending; a state with no
+  stop pending never holds it, and the record kinds and the fingerprint are unchanged.
+  Apart from the mark, a Run with no stale pending stop and no later lifecycle request
+  against a pending one records what the earlier revision recorded as long as it stays
+  outside the room and no loss is recovered behind a held report or retained input, and
+  a history already recorded keeps its records; where a call
+  journals a Run view with a moving clock, the time of its input (or control) can now be
+  earlier than that Run view's, as it is sampled before the reconciliation; a recovered
+  loss is now given after an eligible held report or retained input, kept losses one per
+  drain round, and a refusal after `current/1` drains what it committed in that call,
+  which changes the inputs of a new execution with any room. The mark proves
+  only a different final stop or Attempt (a replacement by the same stop in the same
+  Attempt still matches it). The cold-recovery capture of a completed Run is taken again
+  for that key alone (with the key removed, its rows give the capture before). What
+  breaks: in a new Run within the room, work that the earlier revision admitted within
+  695 bytes of the control bound is now refused: a configuration whose state leaves less
+  (a long Budget ID, for one) fails the start with `{:error, :record_size}` and no
+  write, and a request, an action's admission (counting an ask's later wait and a
+  child's later charge to its parent), a nested start or finish, a pattern input, a
+  retained or held input or an event activation is refused `record_size`; an input whose
+  actual's growth would cut into the room gives `{:error, :record_size}` (a local work's
+  outcome is dropped) with no record of it appended and its slot stays open (a paused
+  slot keeps its 4,096-byte reserve, so it takes a smaller actual), and a Budget stop's
+  answer is taken only where its state, once a change of Attempt drops the stop, keeps
+  the room; a paused Run's Resource entry or recovered `local_restart` loss that the
+  step could not keep for continue waits for room or for continue; a Resource entry
+  whose cursor transition would cut into the room, or whose projected transition fails,
+  stays unconsumed, and a slot that waits on that Resource stays open past its own
+  deadline while its Attempt and the Run stay open and no applied settlement of its own
+  has committed (an entry's inputs commit one by one before its cursor record, so a slot
+  can be settled with the cursor unmoved); a change of Attempt settles a sent slot
+  `unknown` with its Budget held, which a later cursor can still settle; a stop settles
+  it unless the request-cap stop retains it, as before); a `run_deadline` start option,
+  a control or context deadline, a clock sample or a Run view revision above 2^63 - 1
+  is refused, a binding deadline above it halts the engine (keep times within
+  2^63 - 1), and a Run that the earlier revision started with a `run_deadline` above
+  2^63 - 1 fails its restart with no write; a pre-ELZ-215 terminal close no longer
+  reads; and the
+  rollback cut, a Need: no earlier revision runs on a journal that this revision
+  wrote. In a fresh VM of the earlier revision the mark's key is not an existing atom,
+  and the safe decoder of its Unit refuses the first row or snapshot that holds a mark,
+  so its Unit does not open; in a VM where the atom exists it can run and can deliver
+  a stale stop, and a stop that it replaces or keeps no longer matches its mark
+  ("Limits of the stop bound to its Attempt" lists the steps that its reader cannot
+  read). How to move: this revision reads journals in the earlier format as recorded
+  and decides an unmarked stop at the start; a terminal or newer owner view is taken
+  automatically, and the host acts only after an actual
+  `{:error, :stop_origin_unknown}` (a Run with more than one Attempt whose pending stop
+  has no matching mark): it ends the Run or begins a new Attempt on the owner, then
+  starts the engine again. A host whose Runs work near the control bound keeps 695
+  bytes less for their requests, states and inputs (and a child's committed amount
+  again for its parent), and for its configuration (a shorter Budget ID); an input
+  refused `record_size` for its actual is sent again under the same ID once the state
+  has room, or its slot settles with no actual at its deadline. Keep every time, the
+  deadlines that bindings give included,
+  within 2^63 - 1, and finish a Run that the earlier revision started with a
+  `run_deadline` above it on that revision before taking this one. Steps with the close
+  before ELZ-215 come only from revisions before ELZ-215, all before the release commit:
+  read the retained history of such a Run with the revision that wrote it before taking
+  this one.
