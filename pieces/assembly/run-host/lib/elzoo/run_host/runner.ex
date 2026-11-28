@@ -57,7 +57,7 @@ defmodule Elzoo.RunHost.Runner do
     Process.group_leader(self(), args.group_leader)
     Process.flag(:trap_exit, true)
     table = :ets.new(__MODULE__, [:set, :public, read_concurrency: true])
-    true = :ets.insert(table, [{:busy, false}, {:in_flight, false}])
+    true = :ets.insert(table, {:in_flight, false})
 
     s =
       Map.merge(args, %{
@@ -106,9 +106,12 @@ defmodule Elzoo.RunHost.Runner do
     end
   end
 
+  # The start or wake is answered once the route is verified, before any held delivery is
+  # submitted, so that a terminal outcome which such a delivery produces reaches the host
+  # after the Run is live there.
   defp started(s) do
     send(s.host, {:started, s.run_ref, s.token})
-    refresh(s)
+    s |> flush() |> refresh()
   end
 
   ## Start
@@ -131,7 +134,7 @@ defmodule Elzoo.RunHost.Runner do
          {:ok, s} <- start_child(s, :async, fn -> async(s) end),
          {:ok, s} <- start_child(s, :keep_alive, fn -> keep_alive(s) end),
          s = %{s | attempt: attempt, confirmed: true},
-         {:ok, s} <- busy(s, fn -> start_engine(s) end) do
+         {:ok, s} <- dispatching(s, fn -> start_engine(s) end) do
       verify(s)
     end
   end
@@ -411,15 +414,15 @@ defmodule Elzoo.RunHost.Runner do
 
   @doc false
   # The Run's keep-alive, a process of the Run beside its worker: every quarter of
-  # idle_ms it touches the Unit through the directory while the worker has an engine
-  # start, input or control in progress, or a model call is ready or running by the
-  # worker's last read. It never waits on the worker, so a worker held by an engine call
-  # (a long input, a transcript read) does not let the Unit sleep under a call; a Run
-  # with neither is left to sleep.
+  # idle_ms it touches the Unit through the directory while a model call can be in flight:
+  # from each engine start, input or control (any can dispatch) until an observation of
+  # the worker shows no call ready or running (dispatching/2, observe/2). It never waits
+  # on the worker, so a worker held by an engine call (a long input, a transcript read)
+  # does not let the Unit sleep under a call; a Run with none in flight is left to sleep.
   def keep_alive(table, directory, unit, interval) do
     Process.sleep(interval)
 
-    if :ets.lookup_element(table, :busy, 2) or :ets.lookup_element(table, :in_flight, 2),
+    if :ets.lookup_element(table, :in_flight, 2),
       do: catch_exit(fn -> DynamicUnits.start(directory, unit) end)
 
     keep_alive(table, directory, unit, interval)
@@ -488,7 +491,7 @@ defmodule Elzoo.RunHost.Runner do
   # verified, deliveries are held. A route that cannot be read for good fails the start.
   defp verify(s) do
     case route(s) do
-      {:ok, route} -> {:ok, flush(%{s | route: route, verified: true})}
+      {:ok, route} -> {:ok, %{s | route: route, verified: true}}
       {:error, :transient} -> {:ok, retry_route(s, :verify)}
       {:error, {:permanent, reason}} -> {:error, {:route, reason}}
     end
@@ -565,7 +568,7 @@ defmodule Elzoo.RunHost.Runner do
 
   def handle_call({:input, id, input, context}, _, s) do
     {reply, s} =
-      forward(s, fn -> pass(s, fn -> RunEngine.input(s.engine, id, input, context) end) end)
+      forward(s, fn -> pass(s, fn -> RunEngine.input(s.engine, id, input, context) end) end, true)
 
     {:reply, reply, refresh(s)}
   end
@@ -575,33 +578,42 @@ defmodule Elzoo.RunHost.Runner do
     do: {:reply, {:error, :outside_profile}, s}
 
   # A control can move the current Attempt: until a read confirms it again, no input
-  # is forwarded (forward/2).
+  # is forwarded (forward/3). A terminal observation stays confirmed.
   def handle_call({:control, id, command, context}, _, s) do
     {reply, s} =
-      forward(s, fn -> pass(s, fn -> RunEngine.control(s.engine, id, command, context) end) end)
+      forward(
+        s,
+        fn -> pass(s, fn -> RunEngine.control(s.engine, id, command, context) end) end,
+        true
+      )
 
-    {:reply, reply, refresh(%{s | confirmed: false})}
+    {:reply, reply, refresh(if s.terminal, do: s, else: %{s | confirmed: false})}
   end
 
   # Every engine input and control of the Run goes through here. The gate and facts/1
   # derive the key of each action that the engine admits from the current Attempt that
   # the worker last read; after a control that read must succeed again before anything
   # is forwarded, so no action is admitted under an Attempt that the worker has not
-  # confirmed. While it cannot be read, nothing is forwarded: {:error, :unavailable}.
-  defp forward(s, fun) do
+  # confirmed. While it cannot be read, nothing is forwarded: {:error, :unavailable}. A
+  # caller's input or control (`public?`) that the read finds terminal gets
+  # {:error, :terminal} and calls nothing in the engine; the host's own inputs (a late
+  # sink outcome) still go through.
+  defp forward(s, fun, public?) do
     s = if s.confirmed, do: s, else: refresh(s)
-    if s.confirmed, do: {busy(s, fun), s}, else: {{:error, :unavailable}, s}
+
+    cond do
+      public? and s.terminal -> {{:error, :terminal}, s}
+      s.confirmed -> {dispatching(s, fun), s}
+      true -> {{:error, :unavailable}, s}
+    end
   end
 
-  # An engine start, input or control in progress, for the keep-alive.
-  defp busy(s, fun) do
-    true = :ets.insert(s.table, {:busy, true})
-
-    try do
-      fun.()
-    after
-      :ets.insert(s.table, {:busy, false})
-    end
+  # An engine start, input or control can dispatch a model call before it returns: from
+  # it until an observation shows no call ready or running (observe/2), the keep-alive
+  # touches the Unit. A terminal Run dispatches nothing.
+  defp dispatching(s, fun) do
+    unless s.terminal, do: :ets.insert(s.table, {:in_flight, true})
+    fun.()
   end
 
   # The engine's own result; an exit (its call limit) is given back to the caller as
@@ -624,8 +636,8 @@ defmodule Elzoo.RunHost.Runner do
 
     case route(s) do
       {:ok, route} ->
-        s = flush(%{s | route: route, verified: true})
-        {:noreply, if(message == :verify, do: started(s), else: s)}
+        s = %{s | route: route, verified: true}
+        {:noreply, if(message == :verify, do: started(s), else: flush(s))}
 
       {:error, :transient} ->
         {:noreply, retry_route(s, message)}
@@ -811,7 +823,11 @@ defmodule Elzoo.RunHost.Runner do
     s = put_in(s.inputs[id], entry)
 
     {reply, s} =
-      forward(s, fn -> call(fn -> RunEngine.input(s.engine, id, entry.frame, entry.context) end) end)
+      forward(
+        s,
+        fn -> call(fn -> RunEngine.input(s.engine, id, entry.frame, entry.context) end) end,
+        false
+      )
 
     case reply do
       {:ok, _} ->

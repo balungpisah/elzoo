@@ -192,9 +192,9 @@ defmodule Elzoo.RunHost.TestHelper do
   (Unit, Run with the lease kinds, evidence, EffectIntent, activation) and folds the
   Unit's own records with the Unit's fold, so that a read of a sleeping Unit restores
   its state; its limits are the largest that any owner needs. One manual clock and one
-  Lease backend.
+  Lease backend; `lease:` gives more Lease options (a `test_hook`).
   """
-  def memory do
+  def memory(opts \\ []) do
     unit = DurableUnit.fold(@unit_options)
 
     kinds =
@@ -221,7 +221,8 @@ defmodule Elzoo.RunHost.TestHelper do
 
     store = Memory.store(memory)
     {:ok, clock} = Lease.Clock.manual(1_800_000_000_000_000)
-    {:ok, lease} = Lease.new(store: store, clock: {:manual, clock})
+    {:ok, lease} =
+      Lease.new([store: store, clock: {:manual, clock}] ++ Keyword.get(opts, :lease, []))
 
     %{
       kind: :memory,
@@ -710,22 +711,33 @@ defmodule Elzoo.RunHost.TestHelper do
   def alive_pids(pids), do: Enum.filter(pids, &Process.alive?/1)
 
   @doc """
-  A fencing_proof and its cell. The proof answers what the cell holds: `:unproven`
-  (no proof, the start), `:fenced`, or a list of processes, which proves fencing only
-  once each of them has ended (the test sets the predecessor's processes found by
-  attribute/2, so the proof is demonstrated, not assumed).
+  A fencing_proof and its cell. The proof answers what the cell holds: `:unproven` (no
+  proof, the start), `:fenced`, or a non-empty list of processes, which proves fencing
+  only once each of them has ended. The test sets the predecessor's processes with
+  prove/3, collected in the test process itself, so the proof is demonstrated, not
+  assumed; an empty list proves nothing.
   """
   def proof_cell do
     {:ok, cell} = Agent.start_link(fn -> :unproven end)
 
     proof = fn _run_ref ->
       case Agent.get(cell, & &1) do
-        pids when is_list(pids) -> if alive_pids(pids) == [], do: :fenced, else: :unproven
+        [_ | _] = pids -> if alive_pids(pids) == [], do: :fenced, else: :unproven
+        [] -> :unproven
         answer -> answer
       end
     end
 
     {cell, proof}
+  end
+
+  @doc """
+  Sets a proof cell to `pids`, a list collected in the calling test process (spawned/0,
+  unit_pids/2), which holds `known`: a predecessor process that the test saw itself.
+  """
+  def prove(cell, pids, known) do
+    assert known in pids
+    Agent.update(cell, fn _ -> pids end)
   end
 
   ## Processes of one Run, without the host's tracking
@@ -734,10 +746,11 @@ defmodule Elzoo.RunHost.TestHelper do
   Runs `start` (a start or wake of one Run) with spawn tracing on the host, set on every
   process that the host spawns meanwhile and on everything that those spawn later, at
   any depth: the Run's group leader, its worker and all that the worker starts. The
-  processes are then known to the test independently of the host (spawned/0).
+  processes are then known to the test independently of the host (spawned/0), which
+  reads them in this test process.
   """
   def attribute(host, start) do
-    :erlang.trace(host, true, [:procs, :set_on_spawn, {:tracer, self()}])
+    trace_spawns(host)
 
     try do
       start.()
@@ -745,6 +758,13 @@ defmodule Elzoo.RunHost.TestHelper do
       :erlang.trace(host, false, [:procs, :set_on_spawn])
     end
   end
+
+  @doc """
+  Spawn tracing (set on spawn) on `pid` from now on, to this test process (spawned/0):
+  on the host's shared task supervisor, every renewal, expiry, teardown, release and
+  callback task that it starts.
+  """
+  def trace_spawns(pid), do: :erlang.trace(pid, true, [:procs, :set_on_spawn, {:tracer, self()}])
 
   @doc "Every process whose spawn was traced in this test so far (attribute/2)."
   def spawned do

@@ -108,7 +108,21 @@ defmodule Elzoo.RunHostTest do
     test "max_runs holds a terminal Run that is not reaped and a Run whose Unit sleeps; reap leaves no process of the Run" do
       env = postgres()
       stub = stub([{:block, answer("one")}])
-      {host, _} = host(env, notify() ++ [max_runs: 2, idle_ms: 100])
+      test = self()
+
+      # The terminal callback of :done is held: a task of the host's shared supervisor
+      # that only the reap of :done stops.
+      on_terminal = fn
+        :done, outcome ->
+          send(test, {:terminal, :done, outcome})
+          send(test, {:callback, self()})
+          receive do: (:never -> :ok)
+
+        ref, outcome ->
+          send(test, {:terminal, ref, outcome})
+      end
+
+      {host, _} = host(env, on_terminal: on_terminal, max_runs: 2, idle_ms: 100)
       sleepy = spec("sleepy", stub)
       done = spec("done", stub)
 
@@ -118,21 +132,26 @@ defmodule Elzoo.RunHostTest do
       assert {:ok, %{phase: :active}} = RunHost.status(host, :sleepy)
 
       # The processes of :done, found without the host's tracking: everything spawned
-      # under its start (traced), and its directory-owned Unit with the Writer, taken
-      # while its model call keeps the Unit awake.
+      # under its start (traced: its group leader, worker and all that the worker starts);
+      # every task of the host's shared supervisor from now on (its callbacks, renewal,
+      # expiry, teardown and release tasks; :sleepy starts none in this window, its lease
+      # renews after 30 s); and its directory-owned Unit with the Writer, taken while its
+      # model call keeps the Unit awake.
+      trace_spawns(state(host).tasks)
       assert :ok = attribute(host, fn -> RunHost.start_run(host, :done, done) end)
       assert {:ok, :applied} = RunHost.input(host, :done, "start", start_input(), verified(done))
       assert_receive {:stub_entered, blocked}, 10_000
       assert [_unit, _writer | _] = unit = unit_pids(units, "unit/" <> done.unit)
       send(blocked, :release)
       assert_receive {:terminal, :done, :completed}, 5_000
+      assert_receive {:callback, callback}, 5_000
       assert {:error, :capacity} = RunHost.start_run(host, :third, spec("third", stub))
 
       %{worker: worker, pids: %{engine: engine}} = run(host, :done)
       assert :ok = RunHost.reap(host, :done)
       pids = Enum.uniq(spawned() ++ unit)
-      assert worker in pids and engine in pids
-      assert length(pids) >= 12
+      assert worker in pids and engine in pids and callback in pids
+      assert length(pids) >= 13
       assert alive_pids(pids) == []
       assert {:ok, %{status: :free}} = Lease.status(env.lease, "run/" <> done.unit)
 
@@ -184,6 +203,7 @@ defmodule Elzoo.RunHostTest do
       remember(specs, :handover, spec)
 
       assert :ok = attribute(host, fn -> RunHost.start_run(host, :handover, spec) end)
+      worker = run(host, :handover).worker
       Agent.update(hold, fn _ -> true end)
       reap = Task.async(fn -> RunHost.reap(host, :handover) end)
       assert_receive {:releasing, releaser}, 5_000
@@ -193,7 +213,7 @@ defmodule Elzoo.RunHostTest do
       wake = Task.async(fn -> RunHost.wake(host, [:handover]) end)
       eventually(fn -> length(run(host, :handover).deferred) == 2 end)
       # Every process of the torn-down tenure is gone: the start may open its journal.
-      Agent.update(cell, fn _ -> spawned() end)
+      prove(cell, spawned(), worker)
       send(releaser, :fail)
 
       assert {:error, :release_unconfirmed} = Task.await(reap)
@@ -235,6 +255,84 @@ defmodule Elzoo.RunHostTest do
       assert {:ok, %{status: :free}} = Lease.status(env.lease, "run/failing")
       assert Agent.get(calls, & &1) == 4
       assert :ok = RunHost.start_run(host, :other, spec("other", stub([])))
+    end
+
+    test "a reap that joins a failed start's unconfirmed release: the release is still tried until confirmed, and a start then succeeds with no other call" do
+      test = self()
+      {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+      # The claim passes; the first release waits for the test and fails; the next passes.
+      hook = fn
+        :before_lock, %{key: "run/joined"} ->
+          if Agent.get_and_update(calls, &{&1, &1 + 1}) == 1 do
+            send(test, {:releasing, self()})
+            receive do: (:fail -> raise("the release fails"))
+          end
+
+        _, _ ->
+          :ok
+      end
+
+      env = postgres(lease: [test_hook: hook])
+      {host, _} = host(env, max_runs: 1)
+      spec = spec("joined", stub([]))
+      start = Task.async(fn -> RunHost.start_run(host, :joined, %{spec | request_cap: 0}) end)
+      assert_receive {:releasing, releaser}, 5_000
+
+      reap = Task.async(fn -> RunHost.reap(host, :joined) end)
+      eventually(fn -> match?(%{reap: true}, run(host, :joined)) end)
+      send(releaser, :fail)
+
+      assert {:error, {:start_failed, {:engine, :invalid_options_or_recovery}}} =
+               Task.await(start)
+
+      assert {:error, :release_unconfirmed} = Task.await(reap)
+
+      # The failed start keeps its release obligation, tried again with no other call.
+      eventually(fn -> run(host, :joined) == nil end)
+      assert {:ok, %{status: :free}} = Lease.status(env.lease, "run/joined")
+      assert Agent.get(calls, & &1) == 3
+      assert :ok = RunHost.start_run(host, :other, spec("other", stub([])))
+    end
+
+    test "a wake that waits on an unconfirmed release and ends before its claim: the old lease is still released, so another owner can claim it" do
+      test = self()
+      {:ok, hold} = Agent.start_link(fn -> false end)
+
+      hook = fn
+        :before_lock, %{key: "run/orphaned"} ->
+          if Agent.get_and_update(hold, &{&1, false}) do
+            send(test, {:releasing, self()})
+            receive do: (:fail -> raise("the release fails"))
+          end
+
+        _, _ ->
+          :ok
+      end
+
+      env = postgres(lease: [test_hook: hook])
+      {host, _} = host(env, max_runs: 1)
+      spec = spec("orphaned", stub([]))
+
+      assert :ok = RunHost.start_run(host, :orphaned, spec)
+      Agent.update(hold, fn _ -> true end)
+      reap = Task.async(fn -> RunHost.reap(host, :orphaned) end)
+      assert_receive {:releasing, releaser}, 5_000
+
+      # No spec is remembered for the Run: the wake's spec callback answers
+      # {:error, :unknown_run}, so its tenure ends before it claims the key.
+      wake = Task.async(fn -> RunHost.wake(host, [:orphaned]) end)
+      eventually(fn -> length(run(host, :orphaned).deferred) == 1 end)
+      send(releaser, :fail)
+
+      assert {:error, :release_unconfirmed} = Task.await(reap)
+      assert [orphaned: {:error, {:spec, :unknown_run}}] = Task.await(wake)
+
+      # The release that the wake inherited is tried until confirmed: the key is free long
+      # before the lease's 60 s expiry, and another owner claims it.
+      eventually(fn -> run(host, :orphaned) == nil end)
+      assert {:ok, %{status: :free}} = Lease.status(env.lease, "run/orphaned")
+      assert {:held, _} = Lease.claim(env.lease, "run/orphaned", "other-node", 60_000)
     end
   end
 

@@ -263,9 +263,12 @@ defmodule Elzoo.RunHostAiTest do
                dispatch: "dispatched"
              }
 
-      # No actual: the call's reservation stays reserved.
+      # No actual: the call's estimate of 1,000 stays reserved, and nothing is committed
+      # for it.
       assert [%{outcome: "refused", actual: :unknown}] =
                settlements(transcript(host, :large, spec), "bot:m:1")
+
+      assert %{reserved: 1_000, committed: 0} = budget(host, spec)
 
       assert {:failed, %{payload: %{"reason" => "model_call_not_completed"}}} =
                RunHost.result(host, :large, scope(spec), limits())
@@ -643,10 +646,11 @@ defmodule Elzoo.RunHostAiTest do
     remember(specs, ref, spec)
 
     assert :ok = attribute(host, fn -> RunHost.start_run(host, ref, spec) end)
+    worker = run(host, ref).worker
     assert {:ok, :applied} = RunHost.input(host, ref, "start", start_input(), verified(spec))
     assert_receive {:terminal, ^ref, :completed}, 5_000
     assert :ok = RunHost.reap(host, ref)
-    Agent.update(cell, fn _ -> spawned() end)
+    prove(cell, spawned(), worker)
     {host, env, spec}
   end
 
