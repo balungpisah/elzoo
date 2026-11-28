@@ -164,27 +164,26 @@ defmodule Elzoo.Wave4ChannelExample do
   defp admit_reply_event(%{poison: poison} = state, _, _) when not is_nil(poison),
     do: {{:error, :unavailable}, state}
 
+  # Admission reads the outbox window (`primary_reply_pending?/1`,
+  # `admission_intent/3`), and each read holds the input items that it shows
+  # (`pending_window/1`): the state that holds them is the one returned,
+  # whatever admission decides.
   defp admit_reply_event(state, event, trusted_scope) do
     with true <- reply_profile?(state.profile),
          :ok <- valid_event(event),
-         :ok <- valid_admission_scope(state.profile, event, trusted_scope),
-         operation_id <- input_operation(state.profile.reply_source_id, event.event_id),
-         identity <- {state.profile.tenant, state.profile.actor, operation_id},
-         result <-
-           CheckedCommand.result(state.handles.reply_input, result_scope(state.profile), identity),
-         {:ok, decision} <- existing_reply_or_capacity(state, event, operation_id, result) do
-      execute_reply_input(state, event, operation_id, decision)
+         :ok <- valid_admission_scope(state.profile, event, trusted_scope) do
+      operation_id = input_operation(state.profile.reply_source_id, event.event_id)
+      identity = {state.profile.tenant, state.profile.actor, operation_id}
+
+      result =
+        CheckedCommand.result(state.handles.reply_input, result_scope(state.profile), identity)
+
+      case existing_reply_or_capacity(state, event, operation_id, result) do
+        {{:ok, decision}, state} -> execute_reply_input(state, event, operation_id, decision)
+        {refusal, state} -> {reply_admission_reply(refusal), state}
+      end
     else
-      {:error, :expired} -> {{:rejected, :conflict}, state}
-      {:error, {:conflict, _code}} -> {{:rejected, :conflict}, state}
-      {:error, :busy} -> {{:error, :unavailable}, state}
-      {:error, :scope} -> {{:rejected, :forbidden}, state}
-      {:error, :ticket} -> {{:rejected, :conflict}, state}
-      {:error, :capacity} -> {{:rejected, :conflict}, state}
-      {:error, :ambiguous} -> {{:rejected, :conflict}, state}
-      {:error, :unknown} -> {{:error, :unavailable}, state}
-      false -> {{:rejected, :invalid}, state}
-      _ -> {{:rejected, :invalid}, state}
+      refusal -> {reply_admission_reply(refusal), state}
     end
   rescue
     _ -> {{:error, :unavailable}, state}
@@ -193,54 +192,100 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> {{:error, :unavailable}, state}
   end
 
-  defp existing_reply_or_capacity(%{ambiguous_reply: ambiguous}, _event, _operation_id, {
+  defp reply_admission_reply(refusal) do
+    case refusal do
+      {:error, :expired} -> {:rejected, :conflict}
+      {:error, {:conflict, _code}} -> {:rejected, :conflict}
+      {:error, :busy} -> {:error, :unavailable}
+      {:error, :scope} -> {:rejected, :forbidden}
+      {:error, :ticket} -> {:rejected, :conflict}
+      {:error, :capacity} -> {:rejected, :conflict}
+      {:error, :ambiguous} -> {:rejected, :conflict}
+      {:error, :unknown} -> {:error, :unavailable}
+      _ -> {:rejected, :invalid}
+    end
+  end
+
+  defp existing_reply_or_capacity(%{ambiguous_reply: ambiguous} = state, _event, _operation_id, {
          :unknown,
          :not_observed
        })
        when ambiguous in [:check, true],
-       do: {:error, :ambiguous}
+       do: {{:error, :ambiguous}, state}
 
   # A fresh reply executes against the event's resource, so the event must
   # name this host's conversation before any check runs on that conversation:
   # the same fixed-target rule as primary admission and reply release.
+  # `{result, state}`.
   defp existing_reply_or_capacity(state, event, operation_id, {:unknown, :not_observed}) do
     with :ok <- fixed_release_scope(state.profile, event),
          nil <- state.reply,
          %{run_id: run_id} = current when not is_nil(current) <- state.current,
          :result <- state.phase,
          true <- is_nil(state.approval) and is_nil(state.poison),
-         {:ok, wait} <- live_reply_wait(state, event, run_id),
-         :ok <- primary_reply_pending?(state),
-         true <- before_reply_deadlines?(state, wait),
-         :ok <- admission_intent(state, input_request(event, operation_id), input_facts()),
-         :ok <- reply_capacity_preflight(state, event),
+         {:ok, wait} <- live_reply_wait(state, event, run_id) do
+      case primary_reply_pending?(state) do
+        {:ok, state} -> fresh_reply_admission(state, event, operation_id, run_id, wait)
+        {refusal, state} -> {reply_refusal(refusal), state}
+      end
+    else
+      refusal -> {reply_refusal(refusal), state}
+    end
+  rescue
+    _ -> {{:error, :unknown}, state}
+  catch
+    :exit, _ -> {{:error, :unknown}, state}
+    _, _ -> {{:error, :unknown}, state}
+  end
+
+  defp existing_reply_or_capacity(state, _event, _operation_id, {:unknown, _}),
+    do: {{:error, :unknown}, state}
+
+  defp existing_reply_or_capacity(state, _event, _operation_id, result)
+       when is_tuple(result) and elem(result, 0) in [:error, :unavailable],
+       do: {{:error, :unknown}, state}
+
+  defp existing_reply_or_capacity(state, _event, _operation_id, _retained),
+    do: {{:ok, :replay}, state}
+
+  # The rest of a fresh reply's admission, after its first window read:
+  # `{result, state}` with the state that holds what each window showed.
+  defp fresh_reply_admission(state, event, operation_id, run_id, wait) do
+    if before_reply_deadlines?(state, wait) do
+      case admission_intent(state, input_request(event, operation_id), input_facts()) do
+        {:ok, state} -> {reply_admission_tail(state, event, run_id, wait), state}
+        {refusal, state} -> {reply_refusal(refusal), state}
+      end
+    else
+      {{:error, :ticket}, state}
+    end
+  rescue
+    _ -> {{:error, :unknown}, state}
+  catch
+    :exit, _ -> {{:error, :unknown}, state}
+    _, _ -> {{:error, :unknown}, state}
+  end
+
+  defp reply_admission_tail(state, event, run_id, wait) do
+    with :ok <- reply_capacity_preflight(state, event),
          {:ok, current_wait} <- live_reply_wait(state, event, run_id),
          true <- current_wait.occurrence == wait.occurrence,
          true <- before_reply_deadlines?(state, current_wait) do
       {:ok, {:fresh, wait}}
     else
+      refusal -> reply_refusal(refusal)
+    end
+  end
+
+  defp reply_refusal(refusal) do
+    case refusal do
       false -> {:error, :ticket}
       nil -> {:error, :busy}
       :busy -> {:error, :busy}
       {:error, _} = error -> error
       _ -> {:error, :ticket}
     end
-  rescue
-    _ -> {:error, :unknown}
-  catch
-    :exit, _ -> {:error, :unknown}
-    _, _ -> {:error, :unknown}
   end
-
-  defp existing_reply_or_capacity(_state, _event, _operation_id, {:unknown, _}),
-    do: {:error, :unknown}
-
-  defp existing_reply_or_capacity(_state, _event, _operation_id, result)
-       when is_tuple(result) and elem(result, 0) in [:error, :unavailable],
-       do: {:error, :unknown}
-
-  defp existing_reply_or_capacity(_state, _event, _operation_id, _retained),
-    do: {:ok, :replay}
 
   defp live_reply_wait(
          %{engine: engine, native: native, current: current, profile: profile},
@@ -275,31 +320,32 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp live_reply_wait(_, _, _), do: {:error, :ticket}
 
+  # The reply admission's window: this round's primary item pending and no
+  # reply item. The window read holds the input items that it shows
+  # (`pending_window/1`): `{result, state}`.
   defp primary_reply_pending?(state) do
-    case Outbox.pending(state.command_store, checked_stream(state.profile.tenant), @outbox_limit) do
-      {:ok, items} ->
-        primary? =
-          Enum.any?(items, fn item ->
-            item.idempotency_key == state.current.item.key and item.destination == @destination
-          end)
+    case pending_window(state) do
+      {:ok, items, state} -> {reply_window_ready(state, items), state}
+      {:error, _cause} -> {{:error, :unknown}, state}
+    end
+  end
 
-        reply? = Enum.any?(items, &(&1.destination == @reply_destination))
+  defp reply_window_ready(state, items) do
+    primary? =
+      Enum.any?(items, fn item ->
+        item.idempotency_key == state.current.item.key and item.destination == @destination
+      end)
 
-        cond do
-          reply? -> {:error, :busy}
-          pending_window_full?(items) -> {:error, :unknown}
-          not primary? -> {:error, :busy}
-          true -> :ok
-        end
+    reply? = Enum.any?(items, &(&1.destination == @reply_destination))
 
-      _ ->
-        {:error, :unknown}
+    cond do
+      reply? -> {:error, :busy}
+      pending_window_full?(items) -> {:error, :unknown}
+      not primary? -> {:error, :busy}
+      true -> :ok
     end
   rescue
     _ -> {:error, :unknown}
-  catch
-    :exit, _ -> {:error, :unknown}
-    _, _ -> {:error, :unknown}
   end
 
   defp before_reply_deadlines?(state, wait) do
@@ -347,7 +393,7 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp execute_reply_input(state, event, operation_id, decision) do
     request = input_request(event, operation_id)
-    result = execute_checked(state, :reply_input, event, request, input_facts())
+    {result, state} = execute_checked(state, :reply_input, event, request, input_facts())
 
     case {decision, result} do
       {:replay, {:completed, %{revision: revision}}} ->
@@ -537,21 +583,23 @@ defmodule Elzoo.Wave4ChannelExample do
   defp admit_event(%{poison: poison} = state, _, _) when not is_nil(poison),
     do: {{:error, :unavailable}, state}
 
+  # Admission reads the outbox window (`admission_intent/3`,
+  # `pending_input?/1`), and each read holds the input items that it shows
+  # (`pending_window/1`): the state that holds them is the one returned,
+  # whatever admission decides.
   defp admit_event(state, event, trusted_scope) do
     with :ok <- valid_event(event),
-         :ok <- valid_admission_scope(state.profile, event, trusted_scope),
-         operation_id <- input_operation(state.profile.source_id, event.event_id),
-         identity <- {state.profile.tenant, state.profile.actor, operation_id},
-         result <- CheckedCommand.result(state.handles.input, result_scope(state.profile), identity),
-         {:ok, decision} <- existing_or_capacity(state, event, operation_id, result) do
-      execute_input(state, event, operation_id, decision)
+         :ok <- valid_admission_scope(state.profile, event, trusted_scope) do
+      operation_id = input_operation(state.profile.source_id, event.event_id)
+      identity = {state.profile.tenant, state.profile.actor, operation_id}
+      result = CheckedCommand.result(state.handles.input, result_scope(state.profile), identity)
+
+      case existing_or_capacity(state, event, operation_id, result) do
+        {{:ok, decision}, state} -> execute_input(state, event, operation_id, decision)
+        {refusal, state} -> {admission_reply(refusal), state}
+      end
     else
-      {:error, :expired} -> {{:rejected, :conflict}, state}
-      {:error, {:conflict, _code}} -> {{:rejected, :conflict}, state}
-      {:error, :busy} -> {{:error, :unavailable}, state}
-      {:error, :scope} -> {{:rejected, :forbidden}, state}
-      {:error, :unknown} -> {{:error, :unavailable}, state}
-      _ -> {{:rejected, :invalid}, state}
+      refusal -> {admission_reply(refusal), state}
     end
   rescue
     _ -> {{:error, :unavailable}, state}
@@ -560,38 +608,62 @@ defmodule Elzoo.Wave4ChannelExample do
     :throw, _ -> {{:error, :unavailable}, state}
   end
 
+  defp admission_reply(refusal) do
+    case refusal do
+      {:error, :expired} -> {:rejected, :conflict}
+      {:error, {:conflict, _code}} -> {:rejected, :conflict}
+      {:error, :busy} -> {:error, :unavailable}
+      {:error, :scope} -> {:rejected, :forbidden}
+      {:error, :unknown} -> {:error, :unavailable}
+      _ -> {:rejected, :invalid}
+    end
+  end
+
+  # `{result, state}`.
   defp existing_or_capacity(state, event, operation_id, {:unknown, :not_observed}) do
     cond do
       not before_deadline?(state) ->
-        {:error, :expired}
+        {{:error, :expired}, state}
 
       event.conversation_id != state.profile.conversation_id ->
-        {:error, :scope}
+        {{:error, :scope}, state}
 
       true ->
         # The conflict check comes before the busy checks: a command that
         # conflicts with the admitted state is refused even while an earlier
         # delivery is pending.
-        with :ok <- admission_intent(state, input_request(event, operation_id), input_facts()) do
-          case fresh_primary_ready?(state) do
-            :ok ->
-              case pending_input?(state) do
-                {:ok, true} -> {:error, :busy}
-                {:ok, false} -> capacity?(state)
-                _ -> {:error, :unknown}
-              end
-
-            {:error, _} = error ->
-              error
-          end
+        case admission_intent(state, input_request(event, operation_id), input_facts()) do
+          {:ok, state} -> fresh_primary_admission(state)
+          {refusal, state} -> {refusal, state}
         end
     end
   end
 
-  defp existing_or_capacity(_state, _event, _operation_id, {:unknown, _}),
-    do: {:error, :unknown}
+  defp existing_or_capacity(state, _event, _operation_id, {:unknown, _}),
+    do: {{:error, :unknown}, state}
 
-  defp existing_or_capacity(_state, _event, _operation_id, _retained), do: {:ok, :replay}
+  defp existing_or_capacity(state, _event, _operation_id, _retained),
+    do: {{:ok, :replay}, state}
+
+  # The busy checks of a fresh primary after its admitted-state check:
+  # `{result, state}` with the state that holds what each window showed.
+  defp fresh_primary_admission(state) do
+    case fresh_primary_ready?(state) do
+      :ok ->
+        case pending_input?(state) do
+          {{:ok, true}, state} -> {{:error, :busy}, state}
+          {{:ok, false}, state} -> {capacity?(state), state}
+          {_unavailable, state} -> {{:error, :unknown}, state}
+        end
+
+      {:error, _} = error ->
+        {error, state}
+    end
+  rescue
+    _ -> {{:error, :unknown}, state}
+  catch
+    _, _ -> {{:error, :unknown}, state}
+  end
 
   # The command stream's operation bound (CheckedCommand's 1,024 operations)
   # must leave room for the whole round before a fresh primary is admitted:
@@ -674,19 +746,36 @@ defmodule Elzoo.Wave4ChannelExample do
   # a conflict: delivery of an earlier command is not admission for this one.
   # A command whose identity holds a retained outcome is its own re-execution
   # and is exempt; an unreadable identity is `{:error, :unknown}`.
+  # `{result, state}`: the window read holds what it shows.
   defp admission_intent(state, request, facts) do
     case admission_freshness(state, request.operation_id) do
       :fresh -> admission_check(state, request, facts)
-      :retained -> :ok
-      :unknown -> {:error, :unknown}
+      :retained -> {:ok, state}
+      :unknown -> {{:error, :unknown}, state}
     end
   end
 
   defp admission_check(state, request, facts) do
-    with {:ok, mode, dto} <- Intents.candidate(request, prepare_facts(state.profile, facts)),
-         {:ok, earlier} <- undelivered_intents(state),
-         {:ok, decisions} <-
-           Conversation.check(state.conversation.owner, earlier ++ [{mode, dto}]) do
+    case Intents.candidate(request, prepare_facts(state.profile, facts)) do
+      {:ok, mode, dto} ->
+        case undelivered_intents(state) do
+          {{:ok, earlier}, state} -> {admission_decision(state, earlier ++ [{mode, dto}]), state}
+          {_unavailable, state} -> {{:error, :unknown}, state}
+        end
+
+      :error ->
+        {{:error, :invalid}, state}
+    end
+  rescue
+    _ -> {{:error, :unknown}, state}
+  catch
+    _, _ -> {{:error, :unknown}, state}
+  end
+
+  # The owner's decision on the earlier undelivered intents and the
+  # candidate, in order.
+  defp admission_decision(state, intents) do
+    with {:ok, decisions} <- Conversation.check(state.conversation.owner, intents) do
       {prior, [candidate]} = Enum.split(decisions, -1)
 
       if Enum.all?(prior, &(&1 in [:ok, {:ok, :already_present}])) do
@@ -711,12 +800,20 @@ defmodule Elzoo.Wave4ChannelExample do
 
   # The intents of this conversation's pending outbox items whose delivery is
   # not yet proven, in command sequence order. Items of another conversation
-  # are not part of it; a full window cannot show every earlier intent.
+  # are not part of it; a full window cannot show every earlier intent. The
+  # window read holds the input items that it shows (`pending_window/1`):
+  # `{result, state}`.
   defp undelivered_intents(state) do
-    stream = checked_stream(state.profile.tenant)
+    case pending_window(state) do
+      {:ok, items, state} -> {window_intents(state, items), state}
+      {:error, _cause} -> {{:error, :unavailable}, state}
+    end
+  end
 
-    with {:ok, items} <- Outbox.pending(state.command_store, stream, @outbox_limit),
-         false <- pending_window_full?(items) do
+  defp window_intents(state, items) do
+    if pending_window_full?(items) do
+      {:error, :unavailable}
+    else
       items
       |> Enum.reject(&Map.has_key?(state.delivered, &1.idempotency_key))
       |> Enum.reduce_while({:ok, []}, fn item, {:ok, acc} ->
@@ -730,14 +827,14 @@ defmodule Elzoo.Wave4ChannelExample do
         {:ok, intents} -> {:ok, Enum.reverse(intents)}
         error -> error
       end
-    else
-      _ -> {:error, :unavailable}
     end
   end
 
   defp execute_input(state, _event, _operation_id, :capacity),
     do: {{:error, :unavailable}, state}
 
+  # Called with the state that admission's window reads held: a failure here
+  # keeps it.
   defp execute_input(state, event, operation_id, decision) do
     request = input_request(event, operation_id)
 
@@ -748,6 +845,10 @@ defmodule Elzoo.Wave4ChannelExample do
       _ ->
         {{:error, :unavailable}, state}
     end
+  rescue
+    _ -> {{:error, :unavailable}, state}
+  catch
+    _, _ -> {{:error, :unavailable}, state}
   end
 
   defp execute_input_command(state, event, operation_id, context, request, _decision) do
@@ -839,15 +940,17 @@ defmodule Elzoo.Wave4ChannelExample do
       release_v2(state, :primary, event, trusted_scope, evidence)
     else
       case release_plan(state, event, trusted_scope, evidence) do
-        {:ready, operation_id, facts, request, context} ->
+        {{:ready, operation_id, facts, request, context}, state} ->
           execute_release(state, event, operation_id, facts, request, context, evidence)
 
-        {:reply, reply} ->
+        {{:reply, reply}, state} ->
           {reply, state}
       end
     end
   end
 
+  # `{plan, state}`: the release's admission reads the window, which holds
+  # what it shows.
   defp release_plan(state, event, trusted_scope, evidence) do
     if is_map(evidence) and Map.get(evidence, :purpose) == :command do
       with %{event: pending, operation_id: operation_id} <- state.approval,
@@ -859,27 +962,44 @@ defmodule Elzoo.Wave4ChannelExample do
                else: {:error, :profile_scope}
              ),
            :ok <- valid_admission_scope(state.profile, event, trusted_scope),
-           true <- before_deadline?(state),
-           :ok <- release_admission(state, event, operation_id),
-           {:ok, facts, request, context} <-
-             release_context(state, event, operation_id, evidence) do
-        {:ready, operation_id, facts, request, context}
+           true <- before_deadline?(state) do
+        case release_admission(state, event, operation_id) do
+          {:ok, state} -> {release_ready(state, event, operation_id, evidence), state}
+          {refusal, state} -> {release_refusal(refusal), state}
+        end
       else
-        false -> {:reply, {:rejected, :conflict}}
-        nil -> {:reply, {:rejected, :conflict}}
-        {:error, :profile_scope} -> {:reply, {:rejected, :forbidden}}
-        {:error, :intent} -> {:reply, {:rejected, :conflict}}
-        {:error, :evidence} -> {:reply, {:error, :unavailable}}
-        {:error, :intent_unavailable} -> {:reply, {:error, :unavailable}}
-        _ -> {:reply, {:rejected, :invalid}}
+        refusal -> {release_refusal(refusal), state}
       end
     else
-      {:reply, {:rejected, :invalid}}
+      {{:reply, {:rejected, :invalid}}, state}
+    end
+  rescue
+    _ -> {{:reply, {:error, :unavailable}}, state}
+  catch
+    _, _ -> {{:reply, {:error, :unavailable}}, state}
+  end
+
+  defp release_ready(state, event, operation_id, evidence) do
+    case release_context(state, event, operation_id, evidence) do
+      {:ok, facts, request, context} -> {:ready, operation_id, facts, request, context}
+      refusal -> release_refusal(refusal)
     end
   rescue
     _ -> {:reply, {:error, :unavailable}}
   catch
     _, _ -> {:reply, {:error, :unavailable}}
+  end
+
+  defp release_refusal(refusal) do
+    case refusal do
+      false -> {:reply, {:rejected, :conflict}}
+      nil -> {:reply, {:rejected, :conflict}}
+      {:error, :profile_scope} -> {:reply, {:rejected, :forbidden}}
+      {:error, :intent} -> {:reply, {:rejected, :conflict}}
+      {:error, :evidence} -> {:reply, {:error, :unavailable}}
+      {:error, :intent_unavailable} -> {:reply, {:error, :unavailable}}
+      _ -> {:reply, {:rejected, :invalid}}
+    end
   end
 
   defp execute_release(state, event, operation_id, facts, request, context, evidence) do
@@ -936,9 +1056,9 @@ defmodule Elzoo.Wave4ChannelExample do
   # state again: the check at admission is not proof at release time.
   defp release_admission(state, event, operation_id) do
     case admission_intent(state, input_request(event, operation_id), input_facts()) do
-      :ok -> :ok
-      {:error, {:conflict, _}} -> {:error, :intent}
-      _ -> {:error, :intent_unavailable}
+      {:ok, state} -> {:ok, state}
+      {{:error, {:conflict, _}}, state} -> {{:error, :intent}, state}
+      {_unavailable, state} -> {{:error, :intent_unavailable}, state}
     end
   end
 
@@ -1056,7 +1176,7 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp release_v2_pending(state, kind, event, operation_id, record, evidence) do
     case v2_release_preflight(state, kind, event, operation_id, record) do
-      :ok ->
+      {:ok, state} ->
         mode = release_mode(kind)
 
         with {:ok, context} <- release_context_v2(state, mode, event, record.request, record.facts) do
@@ -1065,10 +1185,10 @@ defmodule Elzoo.Wave4ChannelExample do
           _ -> {{:error, :unavailable}, state}
         end
 
-      {:error, :unknown} ->
+      {{:error, :unknown}, state} ->
         {{:error, :unavailable}, state}
 
-      _ ->
+      {_refusal, state} ->
         {{:rejected, :conflict}, state}
     end
   end
@@ -1128,52 +1248,85 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> v2_release_unknown(state, kind, operation_id, record, :exception)
   end
 
+  # `{result, state}`: the preflight's window reads hold what they show.
   defp v2_release_preflight(state, :primary, _event, _operation_id, record) do
     cond do
       not is_nil(state.current) or state.phase != :idle or not is_nil(state.poison) ->
-        {:error, :busy}
+        {{:error, :busy}, state}
 
       not before_deadline?(state) ->
-        {:error, :expired}
+        {{:error, :expired}, state}
 
       true ->
-        with :ok <- prior_v2_pair_proven(state),
-             :ok <- admission_intent(state, record.request, record.facts) do
-          case reply_capacity?(state, 1018) do
-            {:ok, :new} -> :ok
-            {:ok, :capacity} -> {:error, :capacity}
-            _ -> {:error, :unknown}
+        with :ok <- prior_v2_pair_proven(state) do
+          case admission_intent(state, record.request, record.facts) do
+            {:ok, state} -> {primary_release_capacity(state), state}
+            {refusal, state} -> {refusal, state}
           end
+        else
+          refusal -> {refusal, state}
         end
     end
   rescue
-    _ -> {:error, :unknown}
+    _ -> {{:error, :unknown}, state}
   catch
-    _, _ -> {:error, :unknown}
+    _, _ -> {{:error, :unknown}, state}
   end
 
   defp v2_release_preflight(state, :reply, event, _operation_id, record) do
     with %{run_id: run_id} when state.phase == :result <- state.current,
          true <- is_nil(state.poison),
          {:ok, wait} <- live_reply_wait(state, event, run_id),
-         true <- same_release_wait?(record.wait, wait),
-         :ok <- primary_reply_pending?(state),
-         true <- before_reply_deadlines?(state, wait),
-         :ok <- admission_intent(state, record.request, record.facts),
-         :ok <- reply_capacity_preflight(state, event, 1021),
+         true <- same_release_wait?(record.wait, wait) do
+      case primary_reply_pending?(state) do
+        {:ok, state} -> reply_release_admission(state, event, record, run_id, wait)
+        {refusal, state} -> {reply_release_refusal(refusal), state}
+      end
+    else
+      refusal -> {reply_release_refusal(refusal), state}
+    end
+  rescue
+    _ -> {{:error, :unknown}, state}
+  catch
+    _, _ -> {{:error, :unknown}, state}
+  end
+
+  defp primary_release_capacity(state) do
+    case reply_capacity?(state, 1018) do
+      {:ok, :new} -> :ok
+      {:ok, :capacity} -> {:error, :capacity}
+      _ -> {:error, :unknown}
+    end
+  end
+
+  defp reply_release_admission(state, event, record, run_id, wait) do
+    if before_reply_deadlines?(state, wait) do
+      case admission_intent(state, record.request, record.facts) do
+        {:ok, state} -> {reply_release_tail(state, event, run_id, wait), state}
+        {refusal, state} -> {reply_release_refusal(refusal), state}
+      end
+    else
+      {{:error, :ticket}, state}
+    end
+  rescue
+    _ -> {{:error, :unknown}, state}
+  catch
+    _, _ -> {{:error, :unknown}, state}
+  end
+
+  defp reply_release_tail(state, event, run_id, wait) do
+    with :ok <- reply_capacity_preflight(state, event, 1021),
          {:ok, current_wait} <- live_reply_wait(state, event, run_id),
          true <- same_release_wait?(wait, current_wait),
          true <- before_reply_deadlines?(state, current_wait) do
       :ok
     else
-      {:error, :unknown} -> {:error, :unknown}
-      _ -> {:error, :ticket}
+      refusal -> reply_release_refusal(refusal)
     end
-  rescue
-    _ -> {:error, :unknown}
-  catch
-    _, _ -> {:error, :unknown}
   end
+
+  defp reply_release_refusal({:error, :unknown}), do: {:error, :unknown}
+  defp reply_release_refusal(_refusal), do: {:error, :ticket}
 
   defp release_context_v2(state, mode, event, request, facts) do
     with true <- Map.has_key?(request, :operation_id),
@@ -3355,7 +3508,7 @@ defmodule Elzoo.Wave4ChannelExample do
 
     case facts_result do
       {:ok, facts} ->
-        result = execute_checked(state, :association, c.event, request, facts)
+        {result, state} = execute_checked(state, :association, c.event, request, facts)
         classify_association(state, c, result)
 
       _ ->
@@ -4120,7 +4273,16 @@ defmodule Elzoo.Wave4ChannelExample do
   defp associate_reply(state), do: {{:blocked, :reply_state}, state}
 
   defp classify_reply_association(state, reply, current, request, facts) do
-    case execute_checked(state, :reply_association, reply.event, request, facts) do
+    {result, state} = execute_checked(state, :reply_association, reply.event, request, facts)
+    reply_association_result(state, reply, current, result)
+  rescue
+    _ -> {{:unknown, :reply_association}, %{state | poison: {:reply_association, :exception}}}
+  catch
+    _, _ -> {{:unknown, :reply_association}, %{state | poison: {:reply_association, :exception}}}
+  end
+
+  defp reply_association_result(state, reply, current, result) do
+    case result do
       {:completed, %{revision: revision, response: response}}
       when revision == reply.resource_revision + 1 ->
         if association_receipt?(response, reply.ticket, current.run_id) and
@@ -4814,7 +4976,7 @@ defmodule Elzoo.Wave4ChannelExample do
 
     facts = answer_facts(c.run_id, c.input_id, true)
 
-    result = execute_checked(state, :answer, c.event, request, facts)
+    {result, state} = execute_checked(state, :answer, c.event, request, facts)
     classify_answer(state, c, result)
   rescue
     _ -> {{:error, :unavailable}, state}
@@ -5778,7 +5940,9 @@ defmodule Elzoo.Wave4ChannelExample do
         sequence
       )
 
-    case execute_checked(state, :reply_custody, reply.event, request, facts) do
+    {result, state} = execute_checked(state, :reply_custody, reply.event, request, facts)
+
+    case result do
       {:completed, %{revision: revision}} when revision == snapshot.revision + 1 ->
         {{:reply_custody, revision}, state}
 
@@ -6564,38 +6728,40 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
+  # `{result, state}`: a Conversation-writing command's admission reads the
+  # window, which holds what it shows (`admission_intent/3`).
   defp execute_checked(state, mode, event, request, facts) do
-    handle = state.handles[mode]
-
     # Host-generated Conversation-writing commands are checked against the
     # ordered admitted state like signed commands: a conflict is a definite
     # host-level contradiction, never committed.
-    admission =
-      if mode in [:association, :reply_association, :answer],
-        do: admission_intent(state, request, facts),
-        else: :ok
+    if mode in [:association, :reply_association, :answer] do
+      case admission_intent(state, request, facts) do
+        {:ok, state} -> {checked_execute(state, mode, event, request, facts), state}
+        {{:error, {:conflict, code}}, state} -> {{:intent_conflict, code}, state}
+        {{:error, _reason}, state} -> {{:unavailable, :admission}, state}
+      end
+    else
+      {checked_execute(state, mode, event, request, facts), state}
+    end
+  rescue
+    _ -> {{:unavailable, :context}, state}
+  catch
+    _, _ -> {{:unavailable, :context}, state}
+  end
 
-    case admission do
-      :ok ->
-        case command_context(state, mode, event, request, facts) do
-          {:ok, context} ->
-            try do
-              CheckedCommand.execute(handle, context, request)
-            rescue
-              _ -> {:unknown, :exception}
-            catch
-              _, _ -> {:unknown, :exception}
-            end
-
-          {:error, reason} ->
-            {:unavailable, reason}
+  defp checked_execute(state, mode, event, request, facts) do
+    case command_context(state, mode, event, request, facts) do
+      {:ok, context} ->
+        try do
+          CheckedCommand.execute(state.handles[mode], context, request)
+        rescue
+          _ -> {:unknown, :exception}
+        catch
+          _, _ -> {:unknown, :exception}
         end
 
-      {:error, {:conflict, code}} ->
-        {:intent_conflict, code}
-
-      {:error, _reason} ->
-        {:unavailable, :admission}
+      {:error, reason} ->
+        {:unavailable, reason}
     end
   rescue
     _ -> {:unavailable, :context}
@@ -7385,22 +7551,24 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> false
   end
 
+  # Admission's busy check: whether the window shows a primary input item.
+  # The window read holds the input items that it shows
+  # (`pending_window/1`): `{result, state}`.
   defp pending_input?(state) do
-    case Outbox.pending(state.command_store, checked_stream(state.profile.tenant), @outbox_limit) do
-      {:ok, items} ->
-        cond do
-          Enum.any?(items, &(&1.destination == @destination)) -> {:ok, true}
-          pending_window_full?(items) -> {:error, :unavailable}
-          true -> {:ok, false}
-        end
+    case pending_window(state) do
+      {:ok, items, state} ->
+        result =
+          cond do
+            Enum.any?(items, &(&1.destination == @destination)) -> {:ok, true}
+            pending_window_full?(items) -> {:error, :unavailable}
+            true -> {:ok, false}
+          end
 
-      _ ->
-        {:error, :unavailable}
+        {result, state}
+
+      {:error, _cause} ->
+        {{:error, :unavailable}, state}
     end
-  rescue
-    _ -> {:error, :unavailable}
-  catch
-    :exit, _ -> {:error, :unavailable}
   end
 
   defp pending_window_full?(items), do: length(items) >= @outbox_limit

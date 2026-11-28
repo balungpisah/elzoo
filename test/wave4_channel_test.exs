@@ -8179,6 +8179,180 @@ defmodule Elzoo.Wave4ChannelTest do
   end
 
   @tag timeout: 300_000
+  test "an input that a signed admission's window read shows stays held: an outside acknowledgement without its row before the next advance is fenced with no append, and the input admitted after it is not delivered",
+       %{fixture: fixture} do
+    {item, _later} = admission_window_case!(fixture, :busy)
+    key = item.idempotency_key
+    trace_conversation_appends(fixture.host)
+    assert {:blocked, :delivery_unproven} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_unproven, :input, ^key} = :sys.get_state(fixture.host).poison
+    assert take_conversation_appends() == []
+  end
+
+  @tag timeout: 300_000
+  test "an input that a refused signed admission's window read shows stays held: an outside acknowledgement without its row is fenced before the input admitted after it is delivered",
+       %{fixture: fixture} do
+    {item, _later} = admission_window_case!(fixture, :conflict)
+    key = item.idempotency_key
+    trace_conversation_appends(fixture.host)
+    assert {:blocked, :delivery_unproven} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_unproven, :input, ^key} = :sys.get_state(fixture.host).poison
+    assert take_conversation_appends() == []
+  end
+
+  @tag timeout: 300_000
+  test "an input acknowledged from outside before any read of the host shows it is never appended, and the input admitted after it is delivered",
+       %{fixture: fixture} do
+    {_item, later} = admission_window_case!(fixture, :unread)
+    later_id = later["input_id"]
+    trace_conversation_appends(fixture.host)
+    assert {:observed, ^later_id} = Wave4ChannelExample.advance(fixture.host)
+    assert [{:append_input, %{message_id: ^later_id}}] = take_conversation_appends()
+  end
+
+  @tag timeout: 300_000
+  test "an input that a reply admission's window read shows stays held: an outside acknowledgement without its row is fenced before the admitted reply is delivered" do
+    {fixture, item, reply_id} = reply_admission_window_case!(:shown)
+    key = item.idempotency_key
+    trace_conversation_appends(fixture.host)
+    assert {:blocked, :delivery_unproven} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_unproven, :input, ^key} = :sys.get_state(fixture.host).poison
+    refute Enum.any?(take_conversation_appends(), &match?({:append_input, _dto}, &1))
+    assert {:ok, %{state: :pending}} = reply_item_state(fixture, reply_id)
+  end
+
+  @tag timeout: 300_000
+  test "an input acknowledged from outside before a reply admission's window read shows it is never appended, and the admitted reply is delivered" do
+    {fixture, _item, reply_id} = reply_admission_window_case!(:unread)
+    trace_conversation_appends(fixture.host)
+    assert {:reply_observed, _key} = advance_until_reply_observed!(fixture.host)
+
+    assert [{:append_input, %{message_id: ^reply_id}}] =
+             appends_of(take_conversation_appends(), :append_input)
+  end
+
+  # Another caller commits an input of the conversation. A signed input
+  # then reaches admission, whose window read shows that input: the signed
+  # input waits behind it (`:busy`), or, naming the input's message ID with
+  # other text, is refused (`:conflict`). A competing caller then
+  # acknowledges the first input with its original nonce and no row; with
+  # `:unread` it does so before any read of this host. Another signed input
+  # is then admitted. Returns the first input's item and the admitted event.
+  defp admission_window_case!(fixture, read) do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+
+    first =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "admission-first",
+        "input_id" => "admission-first-input"
+      })
+
+    assert {{:completed, %{revision: 1}}, _writes} = seed_input_command!(fixture, first, :allow)
+    assert {:ok, [item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    later =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "admission-later",
+        "input_id" => "admission-later-input",
+        "expected_revision" => 1
+      })
+
+    case read do
+      :busy ->
+        assert {:ok, {{_, 503, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, later)
+
+      :conflict ->
+        duplicate =
+          Elzoo.Wave4ChannelTestHelper.event(%{
+            "event_id" => "admission-duplicate",
+            "input_id" => "admission-first-input",
+            "expected_revision" => 1,
+            "text" => "another text"
+          })
+
+        assert {:ok, {{_, 409, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, duplicate)
+
+      :unread ->
+        :ok
+    end
+
+    assert {:committed, _} = Outbox.ack(fixture.command_store, item.idempotency_key, item.nonce)
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, later)
+    {item, later}
+  end
+
+  # A v2 round at its reply wait. Another caller commits an input of the
+  # conversation; a competing caller acknowledges it with its original nonce
+  # and no row, before the reply's admission reads the window (`:unread`) or
+  # after that read showed it (`:shown`). The reply is admitted either way.
+  # Returns the fixture, the other input's item and the reply's ticket.
+  defp reply_admission_window_case!(read) do
+    fixture = Elzoo.Wave4ChannelTestHelper.reply_fixture()
+    {primary_listener, reply_listener} = Elzoo.Wave4ChannelTestHelper.reply_listeners!(fixture)
+    {event, wait} = await_reply_wait!(fixture, primary_listener, "reply-admission-#{read}")
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+
+    assert {:ok, resource} =
+             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
+
+    other =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "reply-admission-other-#{read}",
+        "input_id" => "reply-admission-other-input",
+        "expected_revision" => resource.revision
+      })
+
+    assert {{:completed, _}, _writes} = seed_input_command!(fixture, other, :allow)
+    {:ok, pending} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    [item] =
+      Enum.filter(
+        pending,
+        &(&1.destination == "wave4-channel-input" and
+            Jason.decode!(&1.payload)["operation_id"] ==
+              Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, other["event_id"]))
+      )
+
+    refute Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"]) ==
+             Jason.decode!(item.payload)["operation_id"]
+
+    if read == :unread,
+      do:
+        assert(
+          {:committed, _} = Outbox.ack(fixture.command_store, item.idempotency_key, item.nonce)
+        )
+
+    reply_event = post_reply!(fixture, reply_listener, wait, "reply-admission-reply-#{read}")
+
+    if read == :shown,
+      do:
+        assert(
+          {:committed, _} = Outbox.ack(fixture.command_store, item.idempotency_key, item.nonce)
+        )
+
+    {fixture, item, reply_event["input_id"]}
+  end
+
+  # The reply item of the reply input with this ticket, as read now.
+  defp reply_item_state(fixture, ticket) do
+    stream = Elzoo.Wave4ChannelTestHelper.command_stream(fixture.profile.tenant)
+    {:ok, pending} = Outbox.pending(fixture.command_store, stream, 4_096)
+
+    case Enum.filter(pending, &(&1.destination == "wave4-channel-reply")) do
+      [reply] -> {:ok, reply}
+      other -> {:error, {ticket, other}}
+    end
+  end
+
+  defp advance_until_reply_observed!(host, steps \\ 0) do
+    case Wave4ChannelExample.advance(host) do
+      {:reply_observed, _key} = observed -> observed
+      _other when steps < 5 -> advance_until_reply_observed!(host, steps + 1)
+      other -> other
+    end
+  end
+
+  @tag timeout: 300_000
   test "an association item read that fails in the answer preflight is retried without poison or native dispatch" do
     {fixture, primary_id, reply_key, revision, _association_key} =
       observed_reply_round!("preflight-item-read")
