@@ -156,7 +156,12 @@ offline step: quiesce all old writers, resolve or explicitly abandon pending
 old ASK operations (a pending old ASK cannot be released under a replacement
 preparer with different canonical or prepared bytes), drain the old outbox
 custody, and keep the target stream exclusive to the importer until
-verification passes; only then route writes to the new owner.
+verification passes; only then route writes to the new owner. The README
+`## Changes` entry adds, for the Wave 4 Need (below): before traffic resumes
+on this revision, stop every other party that acknowledges the channel's
+outbox items, let their in-flight acknowledgements finish, and give the
+channel sole authority to acknowledge them; a reopen is never permission to
+append an acknowledged item whose Conversation row is missing.
 
 **Wave 4.** The signed channel keeps its atomic boundary on
 `assembly/checked-command`: the gated write, the durable approval, the receipt
@@ -179,12 +184,53 @@ append becomes a delivery after the commit:
   binding. Idempotent delivery of the same command is not permission for a new
   command to claim an existing message ID.
 - Wave 4 Need (document in `pieces/state/conversation/README.md`): the
-  channel is the sole writer of the conversation streams it delivers to.
+  channel is the sole writer of the conversation streams it delivers to, and
+  the only party that acknowledges its own outbox items: each with that
+  item's own nonce, and only after that item's Conversation append is proven
+  (a primary or reply item also only after its native-work custody, below).
   `check/2` does not reserve a message ID. If an outside writer commits the
   same ID with different content before delivery, delivery is refused and
   blocks later deliveries to that conversation. An identical outside write is
   indistinguishable from redelivery, so the exclusivity requirement is not
-  enforced by `check/2`.
+  enforced by `check/2`. An acknowledged item whose Conversation row is
+  missing breaks the Need. Once the channel confirms that acknowledgement
+  (the item's original key and nonce) and reads the row as absent, it
+  dispatches no new append for that item, live or after a reopen, and fences
+  with `{:delivery_unproven, kind, key}`. Before it dispatches a later
+  append or native action of a conversation (a Run, an Attempt, an engine
+  start or a native input), it checks each earlier held item of that
+  conversation for this case, in command order. Live, the fence holds
+  until a fenced reopen. After a fenced reopen, recovery reads the row
+  read-only: the exact row of the item's kind proves the delivery and
+  clears the fence, compared field by field with the intent rebuilt from
+  the retained command (an input by its message ID, role, actor and text;
+  an association by its input message ID and Run ID; an answer by its
+  message ID, actor, text, Run ID and input message ID); no row keeps the
+  fence. A row that rules the intent out gives the Conversation's own
+  refusal, decided with the owner's precedence (for an answer, a message ID
+  that another record holds is `duplicate_message_id` before
+  `already_answered`), and never clears the fence. An unreadable row is
+  read again, and an acknowledgement under another nonce keeps the
+  superseded fence, also when the exact row exists.
+- The channel detects that breach for each item that it holds. Live, it
+  holds an input item once it observes the item in the outbox window, and
+  the item of an association, reply association or answer command that it
+  issued, which it finds by that command's operation and revision. After a
+  fenced reopen, it holds the items that it can name from the custody that
+  it persisted (the README lists those kinds, and what recovery needs to
+  find them). An input item acknowledged before the channel observed it
+  (live, between the input command's commit and the observation; after a
+  reopen, an input whose custody the channel did not persist) is not held:
+  it leaves no pending item and no custody, and nothing that the channel
+  reads shows the breach (a README limit, as for an identical outside
+  write). Such a primary input is never delivered, and later inputs of the
+  conversation are. Such a reply input keeps the reply observation fenced
+  live (`{:reply_observation, :unproven}`); after a fenced reopen the round
+  is restored without it, its wait keeps waiting with an ambiguous reply
+  cursor, and the Run's expiry ends in the reply-ambiguity fence, so the
+  conversation's next round does not start (ELZ-437 changes how that
+  ambiguity is decided). The README states the outcome for each kind that
+  recovery cannot name.
 - Every Conversation-writing command, including associations and answers, is
   configured with a delivery notification (today the association and answer
   descriptors have no outbox destination). The channel processes each
@@ -222,9 +268,11 @@ state alone (its 64-message capacity, or the `"stale_revision"` refusal of
 `prepare/3`) is replaced, by its version 2 counterpart. The pull request lists
 each moved or replaced test.
 When this task merges, the coordinator lists in ELZ-418 the exact remaining
-wave 4 files that call `assembly/checked-command`, and the durable
-source/custody proof that replaces their reads of original command rows and
-ack rows (the custody facts persisted above).
+wave 4 files that call `assembly/checked-command` and their calls, the
+custody facts that this task persists, and the original command rows,
+receipts and acknowledgement rows that the channel still reads. ELZ-418's
+no-retention Need on the channel's tenant stream keeps those rows; neither
+task delivers recovery after retention.
 
 Paths: `pieces/state/conversation/**`, the six wave 4 files above, and in the
 last commit this Piece's `entries` row in `docs/plans/release-plan.json`
@@ -281,7 +329,21 @@ regenerated from current `main` and never hand-merged.
   the conflict does not block the next valid command; a cut after the
   Conversation commit but before the ack commits (redelivery adds no row); a
   committed ack whose reply is lost (confirm the original key and nonce; no
-  redelivery is required).
+  redelivery is required). An outside acknowledgement of a held input, an
+  association and an answer whose Conversation row is missing, each live and
+  after a fenced reopen: the channel fences with
+  `{:delivery_unproven, kind, key}`, with no later append attempt and no
+  Run, Attempt, engine start or native input after it. Count the append
+  attempts: zero when the acknowledgement is seen before the channel's first
+  dispatch; the one in flight and no other when it lands during that
+  dispatch, also when it lands between two reads of the same retry. After a
+  fenced reopen, the exact row of the item's kind that landed later clears
+  the fence read-only; a row of another Run or another answer keeps the
+  refusal. An acknowledgement before the channel observes a primary input,
+  live and in a cold cut: no append is attempted for that input, and the
+  next input of the conversation is delivered. The same for a reply input:
+  the reply observation is fenced live, and after a fenced reopen the Run's
+  expiry ends in the reply-ambiguity fence (the stated limits).
 - `mix check --affected origin/main` exits 0, or the pull request records the
   exact reason a command cannot run on the host. `git diff --check` exits 0.
   The full hosted check is green on the exact head.
