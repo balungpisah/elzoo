@@ -1804,9 +1804,10 @@ defmodule Elzoo.Wave4ChannelExample do
         state = %{state | delivered: Map.put(state.delivered, key, nil)}
         if prefix == :complete, do: deliver_retry(state), else: {{:unknown, :delivery}, state}
 
-      # Not this conversation's item: nothing of it is decided here.
+      # Not this conversation's item: the retry keyed on it ends, and the
+      # delivery pass decides every later item with its own ordered checks.
       :foreign ->
-        if prefix == :complete, do: deliver_retry(state), else: {{:unknown, :delivery}, state}
+        deliver_retry(state)
 
       {:error, _reason} ->
         {{:unknown, :delivery}, state}
@@ -2001,7 +2002,8 @@ defmodule Elzoo.Wave4ChannelExample do
   # is `{:error, :delivery_ack}`.
   defp delivery_receipt(state, kind, operation, revision) do
     case delivery_item(state, operation, revision) do
-      {:ok, item, _observed} -> item_receipt(item, kind)
+      {:ok, item, _observed} -> item_receipt(item)
+      {:error, {:receipt, key}, _observed} -> {:error, {:held, {kind, @delivery_destination, key}}}
       _ -> {:error, :delivery_ack}
     end
   end
@@ -2024,30 +2026,13 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   # The receipt of a found item, decided from the read that found it, the
-  # same row that a confirmation would read again: pending, or acknowledged
-  # with its own nonce and the digest that its original receipt binds.
-  defp item_receipt(item, kind) do
-    key = item.idempotency_key
-    nonce = item.nonce
-
-    cond do
-      item.state == :pending ->
-        {:ok, key, nonce}
-
-      not Elzoo.DurableLog.Codec.item_valid?(item) ->
-        {:error, {:held, {kind, @delivery_destination, key}}}
-
-      item.ack_nonce != nonce ->
-        {:superseded, key, nonce}
-
-      item.ack_digest == Elzoo.DurableLog.Codec.ack_receipt(key, nonce).digest ->
-        {:ok, key, nonce}
-
-      true ->
-        {:error, {:held, {kind, @delivery_destination, key}}}
-    end
-  rescue
-    _ -> {:error, {:held, {kind, @delivery_destination, item.idempotency_key}}}
+  # same row that a confirmation would read again, whose acknowledgement
+  # receipt the scan validated (`original_item/4`): pending, or acknowledged
+  # with its own nonce, or under another.
+  defp item_receipt(%{idempotency_key: key, nonce: nonce} = item) do
+    if item.state == :acked and item.ack_nonce != nonce,
+      do: {:superseded, key, nonce},
+      else: {:ok, key, nonce}
   end
 
   # From the stream head down to the command's resource revision: the
@@ -2070,9 +2055,20 @@ defmodule Elzoo.Wave4ChannelExample do
 
     case DurableLog.Store.read(state.command_store, :read_ack, [key]) do
       {:ok, item} when is_map(item) ->
+        # The matching row itself is validated as read: an envelope that is
+        # not the original item is no evidence, and one whose acknowledgement
+        # receipt does not verify only names its key. The reads made before
+        # it are returned either way.
         if delivery_item_for?(item, state.profile, operation, revision) do
-          with {:ok, item} <- original_item(state, key, @delivery_destination, item),
-               do: {:ok, item, observed}
+          case original_envelope(state, key, @delivery_destination, item) do
+            {:ok, item} ->
+              if Elzoo.DurableLog.Codec.item_valid?(item),
+                do: {:ok, item, observed},
+                else: {:error, {:receipt, key}, observed}
+
+            _ ->
+              {:error, :envelope, observed}
+          end
         else
           observed = observe_crossed(state, key, item, observed)
           find_delivery_item(state, stream, command, from - 1, through, observed)
@@ -2255,11 +2251,8 @@ defmodule Elzoo.Wave4ChannelExample do
           {:ok, _observed} ->
             held_unreadable(%{state | delivered: Map.put(state.delivered, key, nil)}, item)
 
-          :foreign when prefix == :complete ->
-            {:ok, state, pass}
-
           :foreign ->
-            held_unreadable(state, item)
+            {:ok, state, pass}
 
           {:error, _reason} ->
             fail_delivery(state, {:delivery, key, :acked}, {:unknown, :delivery})
@@ -2285,24 +2278,23 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
-  # An item observed acknowledged is never appended. Its validated notice
-  # decides first whose it is: an item of another conversation or principal
-  # is `:foreign`, and one whose notice cannot be classified is unreadable.
-  # For this conversation's item its own receipt decides next: another
-  # nonce's acknowledgement is the superseded fence, whatever its kind, row
-  # or retained intent. With its own nonce, its intent (`intent` as already
-  # read, else read now) and the kind that the pass's custody discovery
-  # named it (`pass_kind/5`, after a primary that deriving the kind had to
-  # read) decide its row, read-only. `{:ok, observed}` with that primary's
-  # read, `:foreign`, a fence, or `{:error, reason}`.
+  # An item observed acknowledged is never appended. Whose it is decides
+  # first (`item_owner/3`). For this conversation's item its own receipt
+  # decides next: another nonce's acknowledgement is the superseded fence,
+  # whatever its kind, row or retained intent. With its own nonce, its
+  # intent (`intent` as already read, else read now) and the kind that the
+  # pass's custody discovery named it (`pass_kind/5`, after a primary that
+  # deriving the kind had to read) decide its row, read-only. `{:ok,
+  # observed}` with that primary's read, `:foreign`, a fence, or `{:error,
+  # reason}`.
   defp acked_decision(state, pass, item, intent) do
     key = item.idempotency_key
 
-    case delivery_notice(item, state.profile) do
-      {:ok, _notice} when item.ack_nonce != item.nonce ->
+    case item_owner(state, pass, item) do
+      :local when item.ack_nonce != item.nonce ->
         {:superseded, key, item.nonce}
 
-      {:ok, _notice} ->
+      :local ->
         with {:ok, mode, dto} <- intent || delivery_intent(state, item),
              {:ok, kind, observed} <- pass_kind(state, pass, key, mode, dto),
              :ok <- observed_settled(state, observed),
@@ -2313,12 +2305,41 @@ defmodule Elzoo.Wave4ChannelExample do
           failure -> failure
         end
 
-      {:error, :foreign} ->
-        :foreign
-
-      {:error, reason} ->
-        {:error, reason}
+      other ->
+        other
     end
+  end
+
+  # Whose an observed item is. A key that this host holds, that the round
+  # carries or that the pass's custody names is this conversation's: an
+  # earlier validated notice or retained command established it, so its
+  # receipt decides it whatever a later read's notice says, exactly as a
+  # held item is decided (`item_decision/3`); with its own nonce its intent
+  # must still be read from a notice of this conversation. Any other key is
+  # decided by its own notice: this conversation's (`:local`), another's
+  # (`:foreign`), or unclassifiable. `:local`, `:foreign` or `{:error,
+  # reason}`.
+  defp item_owner(state, pass, item) do
+    if known_local?(state, pass, item.idempotency_key) do
+      :local
+    else
+      case delivery_notice(item, state.profile) do
+        {:ok, _notice} -> :local
+        {:error, :foreign} -> :foreign
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp known_local?(state, pass, key) do
+    named =
+      case pass.custody do
+        {_root, items} when is_list(items) -> items
+        _ -> []
+      end
+
+    Map.has_key?(state.held, key) or
+      Enum.any?(round_items(state) ++ named, &match?({_kind, _destination, ^key}, &1))
   end
 
   # The kind of an item that this pass observed acknowledged: as its custody
@@ -2583,12 +2604,11 @@ defmodule Elzoo.Wave4ChannelExample do
              "type",
              "version"
            ],
-         true <- notice["type"] == "checked_command" and notice["version"] === 1,
+         true <- notice_header?(notice),
          true <- notice["tenant"] == profile.tenant,
          true <-
            bounded_text?(notice["actor"]) and bounded_text?(notice["resource"]) and
-             bounded_text?(notice["operation_id"]),
-         true <- is_integer(notice["revision"]) and notice["revision"] > 0 do
+             bounded_text?(notice["operation_id"]) do
       if notice["actor"] == profile.actor and notice["resource"] == profile.conversation_id,
         do: {:ok, notice},
         else: {:error, :foreign}
@@ -2597,6 +2617,16 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   rescue
     _ -> {:error, :notice}
+  end
+
+  # The fields that every checked-command notice of this channel carries,
+  # decided by one rule wherever a notice is read (the reply source uses it
+  # too): the type, the integer version 1, and a resource revision that a
+  # CheckedCommand write can produce (1 through the signed 64-bit bound).
+  @doc false
+  def notice_header?(notice) do
+    notice["type"] == "checked_command" and notice["version"] === 1 and
+      is_integer(notice["revision"]) and notice["revision"] in 1..9_223_372_036_854_775_807
   end
 
   # The conversation sequence of a delivered input record: remembered when
@@ -3445,12 +3475,10 @@ defmodule Elzoo.Wave4ChannelExample do
              "type",
              "version"
            ],
-         true <- notice["type"] == "checked_command" and notice["version"] === 1,
+         true <- notice_header?(notice),
          true <- notice["tenant"] == state.profile.tenant and notice["actor"] == state.profile.actor,
          true <- is_binary(notice["operation_id"]) and is_binary(notice["resource"]),
          true <- notice["resource"] == state.profile.conversation_id,
-         true <-
-           is_integer(notice["revision"]) and notice["revision"] in 1..9_223_372_036_854_775_807,
          revision <- notice["revision"],
          {:completed, %{revision: ^revision, response: response}} <-
            CheckedCommand.result(
@@ -4307,11 +4335,27 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> {:error, :read}
   end
 
-  # An item as read, when it is the original item at its key: this stream's
-  # sequence and first position, the destination, and the nonce and digest
-  # that its payload binds, pending or acknowledged. `{:ok, item}`, else
+  # An item as read, when it is the original item at its key
+  # (`original_envelope/4`) with a valid receipt (`Codec.item_valid?/1`:
+  # pending without acknowledgement fields, or acknowledged with a nonce and
+  # the digest that its acknowledgement receipt binds). Only such a read is
+  # an observation that a decision may rest on. `{:ok, item}`, else
   # `{:error, :unavailable}`.
   defp original_item(state, key, destination, item) do
+    case original_envelope(state, key, destination, item) do
+      {:ok, item} ->
+        if Elzoo.DurableLog.Codec.item_valid?(item), do: {:ok, item}, else: {:error, :unavailable}
+
+      error ->
+        error
+    end
+  end
+
+  # The original item at its key: this stream's sequence and first
+  # position, the destination, and the nonce and digest that its payload
+  # binds, pending or acknowledged. `{:ok, item}`, else `{:error,
+  # :unavailable}`.
+  defp original_envelope(state, key, destination, item) do
     with {:ok, {stream, sequence, 1}} <- Outbox.parse_id(key),
          true <- stream == checked_stream(state.profile.tenant),
          canonical <- Outbox.new(stream, sequence, 1, destination, item.payload, item.nonce),
@@ -4342,13 +4386,10 @@ defmodule Elzoo.Wave4ChannelExample do
              "type",
              "version"
            ],
-         true <-
-           notice["type"] == "checked_command" and is_integer(notice["version"]) and
-             notice["version"] == 1,
+         true <- notice_header?(notice),
          true <- notice["tenant"] == profile.tenant and notice["actor"] == profile.actor,
          true <- notice["resource"] == profile.conversation_id,
-         true <- is_binary(notice["operation_id"]) and byte_size(notice["operation_id"]) in 1..128,
-         true <- is_integer(notice["revision"]) and notice["revision"] > 0 do
+         true <- is_binary(notice["operation_id"]) and byte_size(notice["operation_id"]) in 1..128 do
       {:ok, notice}
     else
       _ -> {:error, :notice}
@@ -8995,13 +9036,10 @@ defmodule Elzoo.Wave4ChannelExample.ReplySource do
              "type",
              "version"
            ],
-         true <-
-           notice["type"] == "checked_command" and is_integer(notice["version"]) and
-             notice["version"] == 1,
+         true <- Elzoo.Wave4ChannelExample.notice_header?(notice),
          true <- notice["tenant"] == profile.tenant and notice["actor"] == profile.actor,
          true <- notice["resource"] == profile.conversation_id,
-         true <- bounded_id?(notice["operation_id"]),
-         true <- is_integer(notice["revision"]) and notice["revision"] > 0 do
+         true <- bounded_id?(notice["operation_id"]) do
       {:ok, notice}
     else
       _ -> {:error, :notice}
