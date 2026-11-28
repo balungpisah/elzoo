@@ -182,19 +182,20 @@ claim was pending showed is not released by that start.
 
 Only such a processed reading tells a re-claim apart. `Lease.release/3` releases by key
 and owner, with no record to compare, so a release releases whatever record this owner
-holds under the key; no release is conditional on a record. A same-holder re-claim
-committed after the worker's last read of the lease and before the host handles that
-reading has two possible outcomes, by the order in which the host processes readings
-while the claim is pending: when a reading of the host's own (the expiry check that the
-claim's bound arms) shows the newer record first, the start is lost as superseded and
-nothing is released, also by a joining reap; when the worker's reading of the claim's
-record is processed first, it confirms the claim, the Run owner's own startup check
-(`Lease.hold/3` against the claim's revision) then refuses it
+holds under the key; no release is conditional on a record. What the host protects is a
+newer record that it recognizes while the claim is pending (the start is lost as
+superseded, nothing is released, also by a joining reap), and any start that it has lost
+first. What it cannot guarantee is a same-holder re-claim that it does not recognize, for
+example one committed after the worker's last read of the lease and before the host
+handles that reading, when that reading of the claim's own record confirms the claim: if
+the start then reaches the Run owner before the host fences it, the owner's own startup
+check (`Lease.hold/3` against the claim's revision) refuses it
 (`:unreconciled_or_invalid_startup`), and that ordinary failed start can release the key,
-and so the re-claim's newer record. Neither ordering is tested. A re-claim committed after
-the confirmation can likewise be released by a reap or a failed start of the Run. A
-same-owner re-claim of a Run's key by anything but the host is therefore outside what
-this host protects; the Lease has no release by record that would let it.
+and so the re-claim's newer record. Whether that happens depends on the schedule; it is
+not tested. A re-claim committed after the confirmation can likewise
+be released by a reap or a failed start of the Run. A same-owner re-claim of a Run's key
+by anything but the host is therefore outside what this host protects; the Lease has no
+release by record that would let it.
 
 The confirmed teardown governs the reservation, not recovery: `reap/2`, the lease release
 and freeing the reservation need no attestation (no `fencing_proof` is asked), and a
@@ -839,8 +840,8 @@ clock measurement.
   (`{:lease_lost, %{reason: :superseded}}`), its start answered `{:error, :lease_lost}`,
   and the newer record still this owner's and active, and the same with its `on_lost`
   callback held while a public reap joins the teardown: no release, the newer record still
-  this owner's (a re-claim committed after the worker's last reading, before the host
-  handles it, is not tested; Runs gives its two orderings); a pending renewal whose real
+  this owner's (a re-claim that the host does not recognize while the claim is pending is
+  not tested; Runs says what is not guaranteed for it); a pending renewal whose real
   reading message (its timer fired while the host was suspended, observed queued) found
   the deadline past, a reading taken 250 to 340 ms after the claim's (bounded by the test)
   and queued behind it before the deadline moving the deadline on when the host resumes
@@ -879,10 +880,9 @@ clock measurement.
   in all; a renewal still pending after the newer, shorter re-claim's reading is applied
   first (that reading's mark set by the test to one taken before the owner's reply,
   standing for a reader that took its mark then and read the Store later), then confirmed
-  by the older, longer reading taken after the reply: the reading tasks of the host that
-  existed when it was suspended are held suspended across the window in which the lease
-  clock could be read and until after that confirmation, and any reading task started
-  later reads a failing clock, so none of them can confirm it; the deadline the
+  by the older, longer reading taken after the reply: the reading tasks successfully
+  suspended by the fixture remained suspended through confirmation; no other reader
+  supplied a successful reading before the asserted confirmation; the deadline the
   re-claim's;
   a reading task
   (spawn-traced from the host's task supervisor before it starts) killed at the deadline
@@ -963,15 +963,15 @@ Cure outcome table and the engine's results.
   then. The joining reap does not wait for the lease backend to release the key, but it
   still waits for the confirmed teardown, which can wait on the shared Unit directory.
 - Releases go through `Lease.release/3`, by key and owner, with no record to compare, and
-  no release is conditional on a record: a same-owner re-claim of a Run's key committed
-  after the worker's last reading, before the host handles it, is released or kept by the
-  order in which the host processes readings while the claim is pending (a host reading
-  that shows it first loses the start with no release; the worker's reading of the claim
-  first confirms it, and the failed start that follows, the Run owner refusing to start
-  with `:unreconciled_or_invalid_startup`, can release it); neither ordering is tested. A
-  re-claim after the confirmation can be released by a reap or a failed start. Re-claims
-  of a Run's key under the host's owner by anything else are outside the supported
-  profile.
+  no release is conditional on a record. The host keeps a newer same-owner record that it
+  recognizes while the claim is pending (the start lost as superseded, no release), and
+  a start that it lost releases nothing; it cannot guarantee a same-owner re-claim that it
+  does not recognize (for example one committed after the worker's last reading, before
+  the host handles it, when that reading confirms the claim): a failed start that follows
+  (the Run owner refusing with `:unreconciled_or_invalid_startup`, if the start reaches it
+  before the host fences it), a reap, or a failed start after the confirmation can release
+  it by key. Untested. Re-claims of a Run's key under the host's owner by anything else
+  are outside the supported profile.
 - An admission waits for the host's answer in a `GenServer.call/2` with its default 5 s
   limit: a host that takes longer makes `input/5` or `control/5` exit with that timeout
   instead of returning `{:error, :unavailable}`.

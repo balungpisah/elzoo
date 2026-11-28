@@ -2279,7 +2279,7 @@ defmodule Elzoo.RunHostTimeTest do
       assert Enum.all?(readers, &(&1 not in correlated))
     end
 
-    test "a claim whose first reading has no record has its confirmation phase bounded at once and is confirmed by the worker's next reading, with no input, so the idle Run is renewed and not lost" do
+    test "a claim whose first reading has no record has its confirmation phase bounded at once, the worker's second reading queued before the start is answered, with no input, and the idle Run renewed and not lost" do
       test = self()
       key = "run/uncorrelated-claim"
       {:ok, cell} = Agent.start_link(fn -> %{store: nil, armed: true} end)
@@ -2378,8 +2378,8 @@ defmodule Elzoo.RunHostTimeTest do
       :sys.resume(host)
       assert :ok = Task.await(start, 10_000)
 
-      # The worker's next reading confirms the claim before the start goes on, and the idle
-      # Run is renewed past the confirmation bound, never lost.
+      # The claim is confirmed (by a reading not identified here) before the start goes on,
+      # and the idle Run is renewed past the confirmation bound, never lost.
       eventually(fn -> run(host, :claim_only).lease.generation != nil end)
       refute_receive {:lost, :claim_only, _, _}, max(deadline - now_ms(), 0) + 500
       assert renewals(env, spec("uncorrelated-claim", stub([]))) >= 1
@@ -2757,13 +2757,12 @@ defmodule Elzoo.RunHostTimeTest do
       %{lease: %{pending: %{record: renewed, replied: replied}}} = run(host, :pending_longer)
       assert early < replied
 
-      # With the host suspended, every reading task that it has dispatched so far is
-      # suspended too, held across the window in which the lease clock can be read and until
-      # after the confirmation below, so none of them gives a result meanwhile; a reading
-      # task started later (after the host resumes) reads the failing clock. Then: a reading
-      # of the renewal's record (after the reply, the longer until), a same-holder re-claim
-      # for 1 s and a reading of it (newer in the Store), whose mark the test sets to the
-      # early one.
+      # With the host suspended, the test suspends the host's reading tasks that it can;
+      # those it successfully suspended stay suspended through the confirmation below, and
+      # no other reader supplies a successful reading before that confirmation. Then: a
+      # reading of the renewal's record (after the reply, the longer until), a same-holder
+      # re-claim for 1 s and a reading of it (newer in the Store), whose mark the test sets
+      # to the early one.
       :sys.suspend(host)
 
       held =
