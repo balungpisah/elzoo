@@ -253,8 +253,10 @@ committed (a stop that a Resource outcome set in the same call, for one). When t
 ends in a halt (the owner refuses completion with no terminal view:
 `:terminal_commit_pending`, for one) the reply is still the refusal and `status/1` shows
 the halt; when a completion stop's evidence append is not reported committed by the
-evidence Writer (`{:indeterminate, info}`, a rejection or conflict), the engine has sent
-no owner command (the `:complete` command comes only after a committed row), the halted
+evidence Writer (`{:indeterminate, info}`, a rejection or conflict), the engine sends no
+`:complete` command for that stop (it comes only after a committed row; owner commands
+that the same drain made before it, such as an Approval request of another slot, may
+already have been sent), the halted
 engine does not append again, and it halts `:delivery_unknown` with its cached state
 cleared (a restart decides the stop again and may append a fresh evidence row, which its
 command then names); when the drain exits or raises the engine halts
