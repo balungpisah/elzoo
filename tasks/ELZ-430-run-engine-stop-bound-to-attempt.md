@@ -58,9 +58,13 @@ ELZ-415).
   never fails the state bound at the step that sets a stop, and the stop is
   marked. A Resource cursor transition (the cursor record with the Budget
   and the slot that its entry settles) that would cut into the room is not
-  committed: that Resource's entries stay unconsumed, in order, and a slot
-  waiting on that Resource stays open until its entry is consumed or the
-  Run stops (a README limit). Work that the earlier revision admitted near
+  committed: that Resource's entries stay unconsumed, in order. The cursor
+  refusal and the waiting slot's own deadline do not settle the slot. The
+  existing close rules still apply: a change of Attempt settles a sent
+  Resource slot of the older Attempt as `unknown`, with no actual; a Run
+  stop closes it unless the request-cap rule retains it. Closing the slot
+  does not consume the Resource entry: a later cursor can still settle the
+  held Budget (a README limit). Work that the earlier revision admitted near
   the bound can now be refused; the README `## Changes` entry states this
   and how to move.
 - Every time and Run revision that the engine records is at most
@@ -221,8 +225,13 @@ Paths: `pieces/assembly/run-engine/**`, its `entries` row in
   commits marked. At the admission limit, a Resource entry whose cursor
   transition would cut into the room (also a same-width advance that
   settles a held Budget) writes no row and leaves the cursor unchanged, and
-  a slot waiting on that Resource is still open at its own deadline and
-  settles when the Run stops. An entry refused at the check before its
+  a slot waiting on that Resource is still open at its own deadline while
+  the Attempt and Run stay open. A cancel closes it; a request-cap stop
+  before the slot's deadline retains it under the existing rule. Separately,
+  begin a new Attempt while the entry is blocked. In the paired state of
+  that Run view, before any later cursor, the former Attempt's sent slot
+  is settled `unknown` with no actual, its Budget entry is still held and
+  the Resource cursor has not advanced. An entry refused at the check before its
   cursor record, after its inputs committed, keeps those inputs committed,
   leaves the cursor and the Budget unchanged, and a later pass reads the
   entry again. A time of 2^63 in a start option, a control, an input
