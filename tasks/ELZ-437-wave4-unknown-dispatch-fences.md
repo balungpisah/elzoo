@@ -91,7 +91,12 @@ its whole history stays readable.
        checked-command surface lists no ASKs, so such a row can be a pending
        reply ASK of this wait (or a command of another conversation that
        wrote no item). An exact signed replay of such an ASK restores its
-       custody while the Run waits, as on `main`;
+       custody while the Run waits and the host is not fenced, as on
+       `main`. Once the expiry has met the ambiguity and fenced the host
+       (`{:reply_ambiguity, :expiry}`), every intake gives
+       `{:error, :unavailable}`, the replay included, until a fenced
+       reopen, as on `main`; the reopened host restores the wait as above,
+       and these rules apply again;
      - an item that does not validate, or that the channel's Store view
        cannot read (`{:error, :malformed}`, which both a damaged item and an
        item of a destination outside the view's fold give). Need (module
@@ -161,8 +166,10 @@ On PostgreSQL:
     ambiguous and fenced.
   - A pending reply ASK of this wait lies in the range: the wait stays
     ambiguous and fenced, and a fresh reply, also one that needs approval,
-    is refused; the ASK's exact signed replay then restores its custody. A
-    pending ASK of another conversation lies in the range: the wait stays
+    is refused; the ASK's exact signed replay then restores its custody.
+    With the expiry attempted first, the host fences: the replay and a
+    fresh reply each give `{:error, :unavailable}`, and no release passes.
+    A pending ASK of another conversation lies in the range: the wait stays
     fenced (the stated limit).
   - An item written through a second Store view, with a destination outside
     the channel's view, lies in the range: the wait stays fenced.

@@ -196,21 +196,41 @@ append becomes a delivery after the commit:
   missing breaks the Need. Once the channel confirms that acknowledgement
   (the item's original key and nonce) and reads the row as absent, it
   dispatches no new append for that item, live or after a reopen, and fences
-  with `{:delivery_unproven, kind, key}`. Live, the fence holds until a
-  fenced reopen. After a fenced reopen, recovery reads the row read-only:
-  the exact row (compared with the input rebuilt from the retained command:
-  kind, message ID, role, actor and text) proves the delivery and clears the
-  fence; no row keeps it. An unreadable row, a row with conflicting content
-  and an acknowledgement under another nonce are not this case and keep
-  their own dispositions. The channel detects this breach for each item that
-  it holds: live, an item that it observed or whose command it issued; after
-  a fenced reopen, an item whose custody it persisted (the README lists
-  those kinds). An item that it does not hold (acknowledged before the
-  channel first observes it, or, after a reopen, an item whose custody it
-  did not persist) leaves no pending item and no custody, and nothing that
-  the channel reads shows the breach (a README limit, as for an identical
-  outside write). Such an input is never delivered, and later inputs of the
-  conversation are; the README states the outcome for each other kind.
+  with `{:delivery_unproven, kind, key}`. Before it dispatches a later
+  append or native action of a conversation (a Run, an Attempt, an engine
+  start or a native input), it checks each earlier held item of that
+  conversation for this case, in command order. Live, the fence holds
+  until a fenced reopen. After a fenced reopen, recovery reads the row
+  read-only: the exact row of the item's kind proves the delivery and
+  clears the fence, compared field by field with the intent rebuilt from
+  the retained command (an input by its message ID, role, actor and text;
+  an association by its input message ID and Run ID; an answer by its
+  message ID, actor, text, Run ID and input message ID); no row keeps the
+  fence. A row that rules the intent out gives the Conversation's own
+  refusal, decided with the owner's precedence (for an answer, a message ID
+  that another record holds is `duplicate_message_id` before
+  `already_answered`), and never clears the fence. An unreadable row is
+  read again, and an acknowledgement under another nonce keeps the
+  superseded fence, also when the exact row exists.
+- The channel detects that breach for each item that it holds. Live, it
+  holds an input item once it observes the item in the outbox window, and
+  the item of an association, reply association or answer command that it
+  issued, which it finds by that command's operation and revision. After a
+  fenced reopen, it holds the items that it can name from the custody that
+  it persisted (the README lists those kinds, and what recovery needs to
+  find them). An input item acknowledged before the channel observed it
+  (live, between the input command's commit and the observation; after a
+  reopen, an input whose custody the channel did not persist) is not held:
+  it leaves no pending item and no custody, and nothing that the channel
+  reads shows the breach (a README limit, as for an identical outside
+  write). Such a primary input is never delivered, and later inputs of the
+  conversation are. Such a reply input keeps the reply observation fenced
+  live (`{:reply_observation, :unproven}`); after a fenced reopen the round
+  is restored without it, its wait keeps waiting with an ambiguous reply
+  cursor, and the Run's expiry ends in the reply-ambiguity fence, so the
+  conversation's next round does not start (ELZ-437 changes how that
+  ambiguity is decided). The README states the outcome for each kind that
+  recovery cannot name.
 - Every Conversation-writing command, including associations and answers, is
   configured with a delivery notification (today the association and answer
   descriptors have no outbox destination). The channel processes each
@@ -309,17 +329,21 @@ regenerated from current `main` and never hand-merged.
   the conflict does not block the next valid command; a cut after the
   Conversation commit but before the ack commits (redelivery adds no row); a
   committed ack whose reply is lost (confirm the original key and nonce; no
-  redelivery is required). An outside acknowledgement of an input, an
+  redelivery is required). An outside acknowledgement of a held input, an
   association and an answer whose Conversation row is missing, each live and
   after a fenced reopen: the channel fences with
-  `{:delivery_unproven, kind, key}`, and no later delivery or native action
-  of that conversation passes the fence. Count the append attempts: zero
-  when the acknowledgement is seen before the channel's first dispatch; the
-  one in flight and no other when it lands during that dispatch. After a
-  fenced reopen, the exact row that landed later clears the fence
-  read-only. An acknowledgement before the channel first observes a primary
-  input, in a cold cut: no append is attempted for that input, and the next
-  input of the conversation is delivered (the stated limit).
+  `{:delivery_unproven, kind, key}`, with no later append attempt and no
+  Run, Attempt, engine start or native input after it. Count the append
+  attempts: zero when the acknowledgement is seen before the channel's first
+  dispatch; the one in flight and no other when it lands during that
+  dispatch, also when it lands between two reads of the same retry. After a
+  fenced reopen, the exact row of the item's kind that landed later clears
+  the fence read-only; a row of another Run or another answer keeps the
+  refusal. An acknowledgement before the channel observes a primary input,
+  live and in a cold cut: no append is attempted for that input, and the
+  next input of the conversation is delivered. The same for a reply input:
+  the reply observation is fenced live, and after a fenced reopen the Run's
+  expiry ends in the reply-ambiguity fence (the stated limits).
 - `mix check --affected origin/main` exits 0, or the pull request records the
   exact reason a command cannot run on the host. `git diff --check` exits 0.
   The full hosted check is green on the exact head.
