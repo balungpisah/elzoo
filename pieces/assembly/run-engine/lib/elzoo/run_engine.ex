@@ -2027,9 +2027,9 @@ defmodule Elzoo.RunEngine do
 
   def handle_call({:control, id, command, context}, _, s) do
     result =
-      with {:ok, s} <- control_times(s, command, context),
+      with {:ok, at} <- control_time(s, command, context),
            {:ok, s} <- current(s),
-           do: apply_control(s, id, command, context)
+           do: apply_control(s, id, command, context, at)
 
     case result do
       {:ok, s} -> {:reply, {:ok, :applied}, s}
@@ -2188,16 +2188,18 @@ defmodule Elzoo.RunEngine do
   defp local_outcome_context(s, record),
     do: %{record | context: Map.take(s.opts.context.(), [:pause_deadline])}
 
-  # `cancel_work` comes from the cancel control only (apply_control/4), never from a
-  # caller's context (closed_local/3).
-  defp ingest(s, id, neutral, context, cancel_work \\ false)
+  # An input reads the clock once, before current/1 (input_time/3). The input of a cancel
+  # control takes the control's sample instead (`cancel_at`, which comes from the cancel
+  # control only, apply_control/5, never from a caller's context) and cancels the tasks of
+  # the local work that its step closed (closed_local/3).
+  defp ingest(s, id, neutral, context, cancel_at \\ nil)
 
   defp ingest(
          %{halted: reason, opts: %{protocol_version: 2}} = s,
          id,
          neutral,
          context,
-         _cancel_work
+         _cancel_at
        )
        when not is_nil(reason) do
     with true <- text?(id, 160) and is_map(neutral) and is_map(context),
@@ -2220,16 +2222,16 @@ defmodule Elzoo.RunEngine do
   defp ingest(%{halted: reason} = s, _, _, _, _) when not is_nil(reason),
     do: {{:error, reason}, s}
 
-  defp ingest(s, id, neutral, context, cancel_work) do
+  defp ingest(s, id, neutral, context, cancel_at) do
     with true <- text?(id, 160) and is_map(neutral) and is_map(context),
          true <- text?(context[:run_id], 200) and text?(context[:attempt_id], 200),
          false <- Map.has_key?(neutral, "at_ms") do
       if protocol_version(s) == 2 and neutral["kind"] == "outside_event" do
         ingest_outside_event(s, id, neutral, context)
       else
-        with {:ok, s} <- input_times(s, context),
+        with {:ok, at} <- input_time(s, context, cancel_at),
              {:ok, s} <- current(s) do
-          ingest_current(s, id, neutral, context, cancel_work)
+          ingest_current(s, id, neutral, context, at, cancel_at != nil)
         else
           {:error, reason, s} -> {{:error, reason}, s}
         end
@@ -2616,20 +2618,16 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp ingest_current(s, id, neutral, context, cancel_work) do
-    with at when is_integer(at) and at > 0 and at <= @max_time <- s.opts.clock.(),
-         input = Map.put(neutral, "at_ms", at),
-         {:ok, _} <- decode_step(input, protocol_version(s)) do
-      case checked_ingress(s, input, context) do
-        {:ok, checked, correlation, s} ->
-          submit_ingress(s, id, input, checked, correlation, context, cancel_work)
+  # The input is recorded at `at`, its one clock sample, which input_time/3 (for the input
+  # of a cancel control, control_time/3) took and checked before current/1.
+  defp ingest_current(s, id, neutral, context, at, cancel_work) do
+    input = Map.put(neutral, "at_ms", at)
 
-        {:error, reason} ->
-          {{:error, reason}, s}
-      end
+    with {:ok, _} <- decode_step(input, protocol_version(s)),
+         {:ok, checked, correlation, s} <- checked_ingress(s, input, context) do
+      submit_ingress(s, id, input, checked, correlation, context, cancel_work)
     else
       {:error, reason} -> {{:error, reason}, s}
-      _ -> {{:error, :invalid_input}, s}
     end
   end
 
@@ -2683,7 +2681,7 @@ defmodule Elzoo.RunEngine do
   end
 
   # The local work that the step of a cancel control closed (`cancel_work`, which only
-  # apply_control/4 gives, never a caller's context): running before the step and settled
+  # apply_control/5 gives, never a caller's context): running before the step and settled
   # after it, when no stop was pending before it. Only that work's AsyncWork task is
   # cancelled, after the drain; a cancel that loses to a pending stop closes none, and the
   # stop keeps its work. No other input cancels a task here.
@@ -4433,7 +4431,8 @@ defmodule Elzoo.RunEngine do
   # step is projected, the cursor with the Budget settlement and the slot actual that its
   # entry carries. One that grows control or the slots is admitted only when the state
   # after it is (admits?/1, so fits?/1 while a stop is pending); one that grows neither
-  # always is. A record whose step fails is left to its commit, as before.
+  # always is. One whose projected step fails is not admitted (fail-closed): the entry stays
+  # unconsumed, as one refused for room.
   def cursor_admits?(state, record) do
     {next, _} = transition(state, record)
     next = mark_stop(state, finalize_step_state(next))
@@ -4441,7 +4440,7 @@ defmodule Elzoo.RunEngine do
     admits?(next) or
       (bytes(next.control) <= bytes(state.control) and bytes(next.slots) <= bytes(state.slots))
   rescue
-    _ -> true
+    _ -> false
   end
 
   defp resource_effects(s, name, owner, effects) do
@@ -4539,7 +4538,7 @@ defmodule Elzoo.RunEngine do
     end)
   end
 
-  defp apply_control(s, id, %{kind: kind} = command, context)
+  defp apply_control(s, id, %{kind: kind} = command, context, _at)
        when kind in [:begin_attempt, :approval_evidence] do
     case run_command(s, kind, Map.delete(command, :kind)) do
       # An accepted control ends like an input, at the end of a drain, and replies after it.
@@ -4553,22 +4552,22 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp apply_control(s, id, %{kind: kind} = command, context) when kind in [:pause, :continue] do
+  # A pause or a continue is recorded at `at`, the clock sample that control_time/3 took and
+  # checked before current/1, as it checked the command's and the context's deadlines.
+  defp apply_control(s, id, %{kind: kind} = command, context, at)
+       when kind in [:pause, :continue] do
     {state, s} = read_state(s)
 
     event =
       command
       |> Map.delete(:kind)
       |> Map.put(:control, kind)
-      |> Map.put(:at_ms, s.opts.clock.())
+      |> Map.put(:at_ms, at)
       |> Map.put(:attempt_id, state.control.attempt_id)
 
     context = Map.take(context, [:verified_person, :pause_deadline])
-    times = [event.at_ms, event[:pause_deadline], event[:run_deadline], context[:pause_deadline]]
 
-    # A time above @max_time is refused with no write (ELZ-430).
-    with true <- Enum.all?(times, &(not is_integer(&1) or &1 <= @max_time)),
-         {:ok, record} <-
+    with {:ok, record} <-
            original_record(s, id, %{
              version: protocol_version(s),
              kind: :lifecycle,
@@ -4607,7 +4606,7 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp apply_control(s, id, %{kind: :cancel, attempt_id: attempt}, context) do
+  defp apply_control(s, id, %{kind: :cancel, attempt_id: attempt}, context, at) do
     {state, s} = read_state(s)
     c = state.control
 
@@ -4623,9 +4622,10 @@ defmodule Elzoo.RunEngine do
 
       context = Map.merge(context, %{run_id: c.run_id, attempt_id: attempt})
 
-      # The AsyncWork tasks of the local work that the cancel closed are cancelled after the
-      # drain (closed_local/3); a cancel that loses to a pending stop cancels none.
-      case ingest(s, id, input, context, true) do
+      # The cancel's input is recorded at the control's clock sample, `at`. The AsyncWork
+      # tasks of the local work that the cancel closed are cancelled after the drain
+      # (closed_local/3); a cancel that loses to a pending stop cancels none.
+      case ingest(s, id, input, context, at) do
         {{:ok, _}, s} ->
           {:ok, s}
 
@@ -4640,7 +4640,7 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp apply_control(s, _, _, _), do: {:error, :invalid_control, s}
+  defp apply_control(s, _, _, _, _), do: {:error, :invalid_control, s}
 
   defp release_waiting(s, id, context) do
     {state, s} = read_state(s)
@@ -5202,31 +5202,42 @@ defmodule Elzoo.RunEngine do
       else: :ok
   end
 
-  # External times are checked before current/1 can journal the owner's Run view
-  # (ELZ-430): a time above @max_time in a control (its clock sample, its deadlines and its
-  # context's pause deadline) or at a fresh input (its clock sample and its context's pause
-  # deadline) is refused with no write. apply_control/4, ingest_current/5 and
-  # pause_operand/3 check their own samples again after it.
-  defp control_times(s, command, context) do
+  # The times of a control (ELZ-430), checked before current/1 can journal the owner's Run
+  # view, so that a control with a time above @max_time writes nothing: its `pause_deadline`
+  # and `run_deadline` and its context's pause deadline. A pause, a continue and a cancel are
+  # recorded at a clock sample, which is read here, once, and must be a time from 1 to
+  # @max_time (apply_control/5 records it); a begin_attempt and an approval_evidence record
+  # none, and no sample is read for them.
+  defp control_time(s, command, context) do
     command = if is_map(command), do: command, else: %{}
     context = if is_map(context), do: context, else: %{}
-    times = [s.opts.clock.(), command[:pause_deadline], command[:run_deadline]]
+    deadlines = [command[:pause_deadline], command[:run_deadline]]
 
-    if Enum.all?(times, &(not is_integer(&1) or &1 <= @max_time)) and
-         bounded_pause(context) == :ok,
-       do: {:ok, s},
-       else: {:error, :invalid_control, s}
+    with true <- Enum.all?(deadlines, &(not is_integer(&1) or &1 <= @max_time)),
+         :ok <- bounded_pause(context),
+         at = if(command[:kind] in [:pause, :continue, :cancel], do: s.opts.clock.()),
+         true <- is_nil(at) or (is_integer(at) and at > 0 and at <= @max_time) do
+      {:ok, at}
+    else
+      _ -> {:error, :invalid_control, s}
+    end
   end
 
-  defp input_times(s, context) do
+  # The time of an input (ELZ-430): its one clock sample, read and checked with its context's
+  # pause deadline before current/1 can journal the owner's Run view, so that an input with a
+  # time above @max_time writes nothing. The input of a cancel control takes the control's
+  # sample, which control_time/3 checked with the context.
+  defp input_time(s, context, nil) do
     at = s.opts.clock.()
 
     cond do
       not (is_integer(at) and at > 0 and at <= @max_time) -> {:error, :invalid_input, s}
       bounded_pause(context) != :ok -> {:error, :pause_deadline_required, s}
-      true -> {:ok, s}
+      true -> {:ok, at}
     end
   end
+
+  defp input_time(_s, _context, at), do: {:ok, at}
 
   defp classify(state, classification), do: put_in(state.control.classification, classification)
 
@@ -5273,19 +5284,28 @@ defmodule Elzoo.RunEngine do
   end
 
   # The control growth that admitted work adds later with no check of its own (ELZ-430):
-  # the map entry of the wait that each admitted, unsettled action of such a kind adds
-  # when its continuation lists it (slot_wait/1), while it is not listed yet. A cancel
-  # records nothing for a listed wait; its own growth is part of @stop_room.
+  # the wait that each admitted, unsettled action of such a kind lists when its continuation
+  # runs (slot_wait/1): the whole map entry while none is listed under its action ID, and
+  # while another wait is, what the replacement adds (none for a wait no longer than the
+  # listed one). A cancel records nothing for a listed wait; its own growth is part of
+  # @stop_room.
   defp future_waits(state) do
     waits = state.control.lifecycle.waits
 
     Enum.reduce(state.slots, 0, fn {_, slot}, sum ->
       wait = slot_wait(slot)
 
-      if wait && slot.phase in [:authorizing, :approval, :ready, :opening, :running, :reconcile] &&
-           not Map.has_key?(waits, slot.action_id),
-         do: sum + bytes(slot.action_id) - 1 + bytes(wait) - 1,
-         else: sum
+      cond do
+        is_nil(wait) or
+            slot.phase not in [:authorizing, :approval, :ready, :opening, :running, :reconcile] ->
+          sum
+
+        Map.has_key?(waits, slot.action_id) ->
+          sum + max(0, bytes(wait) - bytes(waits[slot.action_id]))
+
+        true ->
+          sum + bytes(slot.action_id) - 1 + bytes(wait) - 1
+      end
     end)
   end
 

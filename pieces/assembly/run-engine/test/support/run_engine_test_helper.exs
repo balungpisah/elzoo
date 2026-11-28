@@ -940,9 +940,9 @@ defmodule Elzoo.RunEngine.TestHelper do
   # is left of its state bound (`state_bytes`, 65,536 when absent) after its stored
   # state, and, while no stop is pending, the room of 693 bytes that admission keeps for a
   # stop and its mark, with the wait that each admitted action of a waiting kind (a model
-  # call, a tool call or an ask) adds when it is listed placed in control (ELZ-430). A
-  # negative value is a broken bound (with no stop pending, of the bound that admission
-  # keeps).
+  # call, a tool call or an ask) adds when it is listed placed in control, in place of a
+  # shorter wait listed under its action ID (ELZ-430). A negative value is a broken bound
+  # (with no stop pending, of the bound that admission keeps).
   def control_headroom(state) do
     c = state.control
 
@@ -968,16 +968,20 @@ defmodule Elzoo.RunEngine.TestHelper do
       end)
 
     waiting = %{"model_call" => :model, "tool_call" => :tool, "ask_person" => :person}
+    size = &byte_size(:erlang.term_to_binary(&1, [:deterministic, {:minor_version, 2}]))
 
     placed =
       Enum.reduce(state.slots, placed, fn {_, slot}, acc ->
         kind = waiting[slot.kind]
 
         if is_nil(c.stop_pending) and kind != nil and
-             slot.phase in [:authorizing, :approval, :ready, :opening, :running, :reconcile] and
-             not Map.has_key?(acc.lifecycle.waits, slot.action_id) do
+             slot.phase in [:authorizing, :approval, :ready, :opening, :running, :reconcile] do
           wait = %{kind: kind, attempt_id: slot.attempt_id, one_shot: true}
-          put_in(acc.lifecycle.waits[slot.action_id], wait)
+          listed = acc.lifecycle.waits[slot.action_id]
+
+          if is_nil(listed) or size.(wait) > size.(listed),
+            do: put_in(acc.lifecycle.waits[slot.action_id], wait),
+            else: acc
         else
           acc
         end

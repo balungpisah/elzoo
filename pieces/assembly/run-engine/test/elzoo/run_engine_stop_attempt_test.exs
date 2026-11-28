@@ -1038,36 +1038,7 @@ defmodule Elzoo.RunEngineStopAttemptTest do
     end
 
     test "with 200-byte action and Attempt IDs, an ask at the admission limit is admitted and waits, one byte under it is refused, and a cancel then commits marked" do
-      long = String.duplicate("l", 200)
-      ask = action(String.duplicate("q", 200), "ask_person", %{})
-      c = run_fixture(fn frame -> [frame.([ask])] end, 1)
-      person = c.opts[:bindings]["ask_person"]
-      crash = start_supervised!({Agent, fn -> true end}, id: make_ref())
-
-      # The engine dies at the ask's binding facts once: its slot stays :allowed.
-      facts = fn action ->
-        if Agent.get_and_update(crash, &{&1, false}), do: Process.exit(self(), :kill)
-        person.facts.(action)
-      end
-
-      begin_attempt(c, long)
-
-      engine =
-        start(c, bindings: Map.put(c.opts[:bindings], "ask_person", %{person | facts: facts}))
-
-      call(fn -> start_run(c, engine, long) end)
-      allowed = unit_state(c)
-      assert %{phase: :allowed} = allowed.slots[{1, 0}]
-
-      # The admission that the engine commits: its Budget reservation and the ask's wait,
-      # which its continuation lists later, are its growth.
-      facts = person.facts.(ask)
-
-      facts =
-        Map.merge(facts, %{binding_id: person.id, binding_version: person.version, action: ask})
-
-      at = Agent.get(c.clock, & &1)
-      admission = %{version: 1, kind: :admission, occurrence: {1, 0}, facts: facts, at_ms: at}
+      {c, long, ask, allowed, admission} = allowed_ask()
       {:Transition, admitted, :none} = RunEngine.step(allowed, admission)
       growth = control_headroom(allowed) - control_headroom(admitted)
       under = pad_invocations(allowed, growth - 1)
@@ -1092,6 +1063,27 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert :ok = DynamicUnits.stop(c.directory, c.prefix)
       engine = start(c)
       assert %{outcome: :cancelled} = wait_for(engine, &(&1.outcome != nil))
+    end
+
+    test "an ask whose action ID has a shorter wait listed counts the growth of its own wait in that wait's place: one byte under the limit is refused, and at the limit the room stays once the wait is listed" do
+      {_c, long, ask, allowed, admission} = allowed_ask()
+
+      # No engine path lists a wait under an action ID before the action's admission (a Run
+      # takes each action ID once, and a change of Attempt empties the waits), so the state
+      # is built: a wait of a 1-byte Attempt ID, which the ask's wait of a 200-byte Attempt
+      # ID replaces when its continuation lists it, growing control by 199 bytes.
+      short = %{kind: :person, attempt_id: "a", one_shot: true}
+      listed = put_in(allowed.control.lifecycle.waits[ask["id"]], short)
+      {:Transition, admitted, :none} = RunEngine.step(listed, admission)
+      growth = control_headroom(listed) - control_headroom(admitted)
+      under = pad_invocations(listed, growth - 1)
+      assert {:Transition, refused, :none} = RunEngine.step(under, admission)
+      assert %{phase: :refusing, refusal: "record_size"} = refused.slots[{1, 0}]
+      at_limit = pad_invocations(listed, growth)
+      assert {:Transition, next, :none} = RunEngine.step(at_limit, admission)
+      assert %{phase: :authorizing} = next.slots[{1, 0}]
+      wait = %{kind: :person, attempt_id: long, one_shot: true}
+      assert control_headroom(put_in(next.control.lifecycle.waits[ask["id"]], wait)) == 0
     end
 
     test "at the admission limit with the Run revision and the deadlines at the largest that a wake reaches, a wake at the Run deadline and a cancel commit marked" do
@@ -1142,6 +1134,15 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       control = unit_state(c).control
       assert control.cursors == state.control.cursors
       assert control.budgets == state.control.budgets
+    end
+
+    test "a cursor record whose projected step fails (its Budget command names a holder with no Budget) is not admitted, also with room" do
+      {_c, state} = in_attempt("a")
+      roomy = pad_invocations(put_in(state.control.classification, :late), 64)
+      assert RunEngine.cursor_admits?(roomy, cursor_record(1))
+      settle = {:settle, %{cost_ref: "1:0", generation: {"sealed", 1}, actual: 1}}
+      broken = %{cursor_record(1) | budget_owner: "missing", budget_command: settle}
+      refute RunEngine.cursor_admits?(roomy, broken)
     end
 
     test "an entry refused at the check before its cursor record keeps its committed inputs, leaves the cursor and the Budget unchanged, and a later pass reads it again" do
@@ -1284,6 +1285,80 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       Agent.update(c.clock, fn _ -> at end)
       assert {:ok, _} = RunEngine.input(engine, "next", input(c, "wake"), verified())
       assert Enum.any?(records(c) -- seen, &match?(%{kind: :run_view}, &1))
+    end
+
+    test "an input, a pause, a continue and a cancel each read the clock once, before the owner's Run view is taken; a begin_attempt and approval evidence read it for no record of their own" do
+      c = run_fixture(fn _frame -> [] end, 1)
+      reads = start_supervised!({Agent, fn -> [] end}, id: make_ref())
+
+      # Each read gives the next millisecond and is kept.
+      clock = fn ->
+        at = Agent.get_and_update(c.clock, &{&1, &1 + 1})
+        Agent.update(reads, &[at | &1])
+        at
+      end
+
+      engine = start(c, clock: clock)
+      assert {:ok, :applied} = start_run(c, engine)
+
+      # The times that the clock gave during `call`, in order, and the records that the call
+      # committed, in commit order.
+      sampled = fn call ->
+        seen = records(c)
+        Agent.update(reads, fn _ -> [] end)
+        assert {:ok, :applied} = call.()
+        {Enum.reverse(Agent.get(reads, & &1)), records(c) -- seen}
+      end
+
+      wake = fn id -> fn -> RunEngine.input(engine, id, input(c, "wake"), verified()) end end
+
+      control = fn id, command, context ->
+        fn -> RunEngine.control(engine, id, command, context) end
+      end
+
+      # With the owner's Run view taken, an input reads the clock once, for its record.
+      assert {[at], [%{kind: :protocol, input: %{"at_ms" => at}}]} = sampled.(wake.("one"))
+
+      # With the owner's revision moved by another Run's create, the input's one sample
+      # comes first; the Run view that current/1 then journals takes a sample of its own.
+      create_other(c)
+      assert {[at, viewed], [synced, record]} = sampled.(wake.("two"))
+      assert %{kind: :run_view, view: %{at_ms: ^viewed}} = synced
+      assert %{kind: :protocol, input: %{"at_ms" => ^at}} = record
+
+      # So do a pause and a continue, for their record.
+      pause = control.("pause", %{kind: :pause, pause_deadline: 50_000}, verified())
+      assert {[at], [%{kind: :lifecycle, command: %{at_ms: at}}]} = sampled.(pause)
+      create_other(c, "another")
+      continue = %{kind: :continue, person_id: "person", run_deadline: 60_000}
+      continue = control.("continue", continue, verified(%{verified_person: "person"}))
+      assert {[at, viewed], [synced, record]} = sampled.(continue)
+      assert %{kind: :run_view, view: %{at_ms: ^viewed}} = synced
+      assert %{kind: :lifecycle, command: %{at_ms: ^at}} = record
+
+      # A begin_attempt reads the clock only for the Run view of the new Attempt.
+      begin = control.("begin", %{kind: :begin_attempt, attempt_id: "second"}, verified())
+
+      assert {[viewed], [%{kind: :run_view, view: %{at_ms: viewed, current_attempt: "second"}}]} =
+               sampled.(begin)
+
+      # Approval evidence (one that the owner refuses here) reads it for nothing.
+      Agent.update(reads, fn _ -> [] end)
+      evidence = %{kind: :approval_evidence, request_key: "none", evidence: %{}}
+
+      assert {:error, {:run_control, _}} =
+               RunEngine.control(engine, "evidence", evidence, verified())
+
+      assert Agent.get(reads, & &1) == []
+
+      # A cancel reads it once, for its input; each later read is the sample of a Run view
+      # that the engine journals as the Run ends.
+      cancel = control.("cancel", %{kind: :cancel, attempt_id: "second"}, verified())
+      assert {[at | later], [cancelled | ended]} = sampled.(cancel)
+      assert %{kind: :protocol, input: %{"kind" => "cancel", "at_ms" => ^at}} = cancelled
+      assert [_ | _] = ended
+      assert later == for(%{kind: :run_view, view: %{at_ms: viewed}} <- ended, do: viewed)
+      assert length(later) == length(ended)
     end
 
     test "a fresh v2 outside event with a clock sample above 2^63 - 1 is invalid_input with no write; a paired retry is unchanged" do
@@ -1940,6 +2015,35 @@ defmodule Elzoo.RunEngineStopAttemptTest do
     {c, state}
   end
 
+  # An ask with a 200-byte action ID in a 200-byte Attempt that the host began: the engine
+  # dies at the ask's binding facts once, so its slot stays :allowed. Returns the fixture,
+  # the Attempt ID, the action, the Unit state and the :admission record that the engine
+  # commits for the ask, whose growth is its Budget reservation and the ask's wait, which
+  # its continuation lists later.
+  defp allowed_ask do
+    long = String.duplicate("l", 200)
+    ask = action(String.duplicate("q", 200), "ask_person", %{})
+    c = run_fixture(fn frame -> [frame.([ask])] end, 1)
+    person = c.opts[:bindings]["ask_person"]
+    crash = start_supervised!({Agent, fn -> true end}, id: make_ref())
+
+    facts = fn action ->
+      if Agent.get_and_update(crash, &{&1, false}), do: Process.exit(self(), :kill)
+      person.facts.(action)
+    end
+
+    begin_attempt(c, long)
+    engine = start(c, bindings: Map.put(c.opts[:bindings], "ask_person", %{person | facts: facts}))
+    call(fn -> start_run(c, engine, long) end)
+    allowed = unit_state(c)
+    assert %{phase: :allowed} = allowed.slots[{1, 0}]
+    facts = person.facts.(ask)
+    facts = Map.merge(facts, %{binding_id: person.id, binding_version: person.version, action: ask})
+    at = Agent.get(c.clock, & &1)
+    admission = %{version: 1, kind: :admission, occurrence: {1, 0}, facts: facts, at_ms: at}
+    {c, long, ask, allowed, admission}
+  end
+
   # Journals `state` as the Unit's recorded state, after an input of its own (`id`); the
   # Unit is stopped first, and the engine's next start reads it.
   defp journal_state(c, state, id \\ "padded") do
@@ -1965,16 +2069,16 @@ defmodule Elzoo.RunEngineStopAttemptTest do
     call(fn -> RunEngine.input(engine, "cancel", cancel, verified(%{attempt_id: attempt})) end)
   end
 
-  # Another Run's create on the shared owner moves the owner's revision, and not this Run's
-  # Attempt or outcome.
-  defp create_other(c) do
+  # Another Run's create (Run `other`) on the shared owner moves the owner's revision, and
+  # not this Run's Attempt or outcome.
+  defp create_other(c, other \\ "other") do
     {:ok, owner} = Run.status(c.run, "run")
 
     assert {:ok, _, _} =
              Run.command(c.run, %{
                kind: :create,
-               run_id: "other",
-               operation_id: "operation-other",
+               run_id: other,
+               operation_id: "operation-" <> other,
                provider_refs: %{},
                expected_revision: owner.revision
              })

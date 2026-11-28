@@ -178,7 +178,8 @@ engine itself.
 ## Input and controls
 
 For existing v1 inputs, `input(engine, stable_id, neutral_input_without_at_ms,
-verified_context)` reads the clock once. Context contains `run_id`, execution `attempt_id`, and where
+verified_context)` reads the clock once, before it reconciles the owner's Run view, and
+records that time. Context contains `run_id`, execution `attempt_id`, and where
 applicable `occurrence: {request_ordinal, action_index}`, authenticated
 `verified_person`, truthful actual cost/dispatch/loss or Resource correlation.
 The same admitted ID retains its original data and time on retry. Changed bytes
@@ -188,7 +189,10 @@ or indeterminate classifications; never choose another ID to evade uncertainty.
 
 `control(engine, id, command, context)` routes begin-Attempt, Approval evidence
 or revocation through Run; pause/verified-person continue through lifecycle;
-targeted cancellation closes local tracking before AsyncWork cancellation.
+targeted cancellation closes local tracking before AsyncWork cancellation. A pause, a
+continue and a cancel read the clock once, before the owner's Run view is reconciled,
+and record that time; a begin-Attempt and Approval evidence read it for no record of
+their own (a Run view that the engine then journals takes its own sample).
 Run allocation/start coordination stays with the host. No reset, rearm, retry,
 generic router or child-Run action exists. `status/1` exposes committed phase,
 charge count, occurrence classifications/joins and reconciliation, not payloads,
@@ -665,14 +669,16 @@ when 693 bytes of the control bound stay free, counting the growth that admitted
 adds later with no check of its own: the wait that the continuation of an admitted
 model call, tool call or ask lists in control (its action ID, its Attempt ID and 57
 bytes for an ask, 56 for a model call, 55 for a tool call: 457 bytes for an ask with two
-200-byte IDs), counted from its admission until it is listed.
+200-byte IDs), counted from its admission until it is listed; while another wait is
+listed under the action ID, only what the action's wait adds in its place is counted.
 A cancel records nothing for a listed wait. A fresh or rollover configuration whose
 state leaves less (with a long Budget ID, for one) fails `start_link/1` with
 `{:error, :record_size}` and writes nothing; a Unit that an earlier revision configured
 starts as recorded. A Resource cursor transition is sized whole: the cursor record with
 the Budget settlement and the slot actual that its entry commits, a same-width advance
-included; one that grows neither control nor the slots is always committed. The 693
-bytes cover what can grow with no such check from an admitted state to the end of the
+included; one that grows neither control nor the slots is always committed, and one whose
+projected step fails is never committed (the check fails closed). The 693 bytes cover
+what can grow with no such check from an admitted state to the end of the
 step that sets a stop, each at its largest: the mark (236 bytes, for a 200-byte Attempt
 ID, the longest that the engine and the Run owner take, and `:out_of_budget`), the
 growth of that step (230 bytes, a cancel's: its record of the Attempt, its stop and its
@@ -690,9 +696,10 @@ journal) and refuses one where it enters, with no write and before any write tha
 reconciles the owner's Run view: a `run_deadline` start option and a Run view at the
 start fail `start_link/1`; the clock sample, the `pause_deadline` or the `run_deadline`
 of a control, or the `pause_deadline` of its context, gives
-`{:error, :invalid_control}`, a cancel control included; a `pause_deadline` in an
-input's context gives `{:error, :pause_deadline_required}`, as one that is not in the
-future does; a clock sample at an input gives `{:error, :invalid_input}`, as an
+`{:error, :invalid_control}`, a cancel control included, as an invalid sample does; a
+`pause_deadline` in an input's context gives `{:error, :pause_deadline_required}`, as
+one that is not in the future does; a clock sample at an input gives
+`{:error, :invalid_input}`, as an
 invalid sample does, also at a fresh version 2 outside event (a paired retry stays
 `{:ok, :unchanged}`); and a later Run view, and an action binding whose facts give a
 deadline above it (its `deadline_ms` or that of its effect intent), halt the engine
@@ -1535,7 +1542,8 @@ a change of a few bytes: a state that an earlier revision recorded without the r
 a stop (ELZ-430), one byte past the largest whose unmarked stop step fits, fails that
 step after its input commits, and its Unit does not reopen. Near the bound, a Resource
 entry whose cursor transition (its cursor record with the Budget settlement and the slot
-actual that it commits, a same-width advance included) would cut into the room stays
+actual that it commits, a same-width advance included) would cut into the room, or whose
+projected transition fails (the check fails closed), stays
 unconsumed: the check runs before the entry's first commit, on the state then, and
 again before its cursor record, with the record that is committed. Refused at the first
 check, the entry commits nothing; refused at the second, the inputs that it committed
@@ -2004,7 +2012,13 @@ action and Attempt IDs, the admission of an ask whose admitted state (its Budget
 reservation and the 457-byte wait that its continuation lists) leaves exactly the room
 is taken, and one byte under it is refused `record_size` with the Budget step dropped;
 through the engine the ask is admitted at that limit and waits, a cancel with the ask
-still waiting commits marked, and the reopened Unit delivers `cancelled`. With the Run
+still waiting commits marked, and the reopened Unit delivers `cancelled`. With a wait
+of a 1-byte Attempt ID listed under the ask's action ID (a state built for the check:
+no engine path lists one before the action's admission, since a Run takes each action
+ID once and a change of Attempt empties the waits), the admission counts the 199 bytes
+that the ask's wait adds in its place: one byte under that limit is refused
+`record_size`, and at the limit the state keeps the room once the ask's wait is listed.
+With the Run
 view of a 200-byte Attempt at revision 2^63 - 1 (an owner seam that shows that revision
 and maps the engine's command back) taken past the admission limit and the Run paused
 with a pause deadline of 2^63 - 1, under `budget_rule: :finish` with a Run deadline of
@@ -2012,8 +2026,8 @@ with a pause deadline of 2^63 - 1, under `budget_rule: :finish` with a Run deadl
 in each a cancel, each commit marked with the largest revision and deadlines recorded,
 and the reopened Unit delivers the stop. The test helper `control_headroom/1` counts
 the room of 693 bytes while no stop is pending, with the wait that each admitted model
-call, tool call or ask has not listed yet placed in control, and the tests that use it
-pass unchanged.
+call, tool call or ask has not listed yet placed in control (in place of a shorter wait
+listed under its action ID), and the tests that use it pass unchanged.
 
 `bounded_times`: a `run_deadline` start option of 2^63 fails the start with no row; on
 a running engine, a pause control with that `pause_deadline` and a continue control
@@ -2033,7 +2047,13 @@ the owner's revision moved and no row; delivered, its paired retry with the cloc
 and the slot left `:allowed`, and a restart fails the same way with no row. A journal
 holding a configuration as the earlier revision recorded it with a `run_deadline` of
 2^63 (its fingerprint computed from the start options, checked against one that the
-engine recorded) fails its restart with the same options with no write.
+engine recorded) fails its restart with the same options with no write. With a clock
+that gives a later time at each read, an input, a pause and a continue each read it
+once, for their own record, also with the owner's revision moved by another Run's create
+(then the sample comes first, and the Run view that the engine journals takes the next
+one); a begin-Attempt reads it only for the Run view of the new Attempt, an Approval
+evidence that the owner refuses reads it not at all, and a cancel reads it once for its
+input, each later read being the time of a Run view journaled as the Run ends.
 `room_for_a_stop` also shows that at the admission limit a cursor record that adds the
 Resource's key or lengthens its sequence's encoding (255 to 256) is not admitted and
 one that grows nothing always is, and, for an opened Resource `document` whose key the
@@ -2045,6 +2065,8 @@ the following input, and that a cancel then commits with its stop marked.
 encodes in 400 bytes, closed on a pause: at the admission limit, its next entry, which
 gives the root the closed event and settles the open's held Budget with that actual in a
 same-width cursor advance, writes no row and leaves the cursor and the Budget unchanged.
+A cursor record whose projected step fails (its Budget command names a holder with no
+Budget) is not admitted, also with room.
 With room for that cursor transition alone, the check before its first commit passes,
 the closed event commits (the root's invocation entry takes room), and the check before
 its cursor record refuses it: its input and result stay, and the cursor and the Budget
@@ -2083,11 +2105,14 @@ the owner with the pending stop and its own reason (`"engine"`, `"pattern"` for 
 failure), the end of the Run settles `slow`, `ask` and `pay` with no charge stop, and
 the step kept the stop, its completion and its cancel record and closed no local work.
 
-Temporary edits were negative controls, all run in one batch on this revision against
-this file and `test/elzoo/run_engine_read_failure_test.exs` (78 tests) and reverted:
-admission with no room for the mark (3: both room tests at the admission limit and the
-cursor decision; the groups `wake_without_room_is_not_given`, `the_switch_is_one_place`
-and `each_kind_without_a_slot` of `test/elzoo/run_engine_test.exs` fail too); a mark
+Temporary edits were negative controls, all 38 run in one batch on this revision against
+this file and `test/elzoo/run_engine_read_failure_test.exs` (93 tests), the engine
+restored byte for byte after each (checked with `cmp`); each made the named tests fail:
+admission with no room for the mark (9: the wake and the cancel after the Run view of a
+200-byte Attempt, the cursor decision, the opened Resource's entry, both configuration
+tests, both ask tests and two `cursor_transition` tests; the groups
+`wake_without_room_is_not_given`, `the_switch_is_one_place` and
+`each_kind_without_a_slot` of `test/elzoo/run_engine_test.exs` fail too); a mark
 added whether or not the state passes the bound (1: the step at the bound raises after
 its input); a mark of another Attempt or another stop counted as a mark (1: the
 rollback-then-retake stop is delivered with two Attempts); a history read that checks
@@ -2105,11 +2130,25 @@ at the request cap that stops the charge (6); the owner's `:completed` taken fro
 source slot's kind (1); a cancel control that cancels the task of every running local
 work (1); a replay under the current fold only (4) and a v2 validation under the
 current fold only (4); the stop facts compared, with `==` in v2, in place of the whole
-state with `===` (4); a Resource cursor record committed with no check (1: the opened
-Resource's entry); and each time bound removed, at an input's context deadline, the
-clock at an input, a control's times and the `run_deadline` start option (1 each: the
-`bounded_times` refusal test), and at a later Run view and the Run view at the start (1
-each). Listed finite scenarios, not a proof.
+state with `===` (4); a Resource cursor record committed with no check (4: the opened
+Resource's entry and three `cursor_transition` tests); each time bound removed, at an
+input's context deadline, the clock at an input and a control's times (2 each: the
+`bounded_times` refusal test and the test with the owner's revision not taken), the
+`run_deadline` start option (2: the refusal test and the restart of a journal started
+with 2^63), and at a later Run view and the Run view at the start (1 each); a
+configuration admitted without the room (2: the fresh and the rollover configuration);
+an action's admission that checks the room only for a child's first finish (2: both
+ask tests); the times checked after `current/1` (2: the test with the owner's revision
+not taken and the clock test); an outside event's clock above 2^63 - 1 taken as
+`:source_unavailable` (1); a binding deadline above 2^63 - 1 admitted (1); the cursor
+check sizing the cursor map alone (3: three `cursor_transition` tests); the v1 check of
+a new mark skipped (1: the cancel changed to `out_of_time`); a Run view at the largest
+revision refused at the start (1: the wake and the cancel at the largest revision and
+deadlines); the cursor record committed with no second check (1: the entry refused
+before its cursor record); an input that reads the clock again for its record (1: the
+clock test); a cursor check that admits a transition whose projection fails (1); and a
+wait listed under the action ID taken to leave nothing to count (1: the ask with a
+shorter wait listed). Listed finite scenarios, not a proof.
 
 `test/elzoo/run_engine_deadlines_test.exs` exercises `deadlines/1` in four groups
 on disposable PostgreSQL, each read checked against the `phase` of `status/1`.
@@ -2381,7 +2420,8 @@ fail). Listed finite scenarios, not a proof.
   write, and a request, an action's admission (counting an ask's later wait), a nested
   start or finish, a pattern input, a retained or held input or an event activation is
   refused `record_size`; a Resource entry whose cursor transition would cut into the
-  room stays unconsumed, and a slot that waits on that Resource stays open past its own
+  room, or whose projected transition fails, stays unconsumed, and a slot that waits on
+  that Resource stays open past its own
   deadline until the entry is consumed or the Run stops; a `run_deadline` start option,
   a control or context deadline, a clock sample or a Run view revision above 2^63 - 1
   is refused, a binding deadline above it halts the engine (keep times within

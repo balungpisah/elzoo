@@ -8788,11 +8788,30 @@ defmodule Elzoo.RunEngineTest do
     end
   end
 
+  # A seam between the engine and the Run owner: it forwards every call to the Run until the
+  # test arms it; then it holds the engine's :complete command with no reply, so the engine
+  # stops at its owner command with its stop durable and the Run open.
+  defmodule CompleteHold do
+    use GenServer
+
+    def init(run), do: {:ok, {run, nil}}
+
+    def handle_call({:arm, test}, _from, {run, _}), do: {:reply, :ok, {run, test}}
+
+    def handle_call({:command, %{kind: :complete}}, _from, {run, test}) when is_pid(test) do
+      send(test, {:trapped, self()})
+      {:noreply, {run, nil}}
+    end
+
+    def handle_call(message, _from, {run, _} = state),
+      do: {:reply, GenServer.call(run, message, 60_000), state}
+  end
+
   describe "recorded_defect_is_closed_at_a_change" do
     test "after the over-cap record the settled parent stays settled; a recorded refusing parent is settled again by step/2 at a change, first outcome kept" do
       # ELZ-241: the over-cap stop now comes from the root's own request after the
       # expired parent's child callable closed; the settled parent stays settled. The
-      # engine is suspended with stop_pending durable, before the Run ends.
+      # engine is held at its owner command with stop_pending durable, before the Run ends.
       {c, bindings} =
         lost_setup(
           [request([action("slow", "tool_call")])],
@@ -8805,29 +8824,10 @@ defmodule Elzoo.RunEngineTest do
           %{binding | facts: fn a -> %{binding.facts.(a) | deadline_ms: 10_000} end}
         end)
 
-      armed = start_supervised!({Agent, fn -> false end}, id: make_ref())
-      parent = self()
+      seam =
+        start_supervised!(%{id: make_ref(), start: {GenServer, :start_link, [CompleteHold, c.run]}})
 
-      # An input reads the clock first to check it before current/1 (ELZ-430), then for
-      # its record: armed with :skip, the trap fires at the second read.
-      clock = fn ->
-        case Agent.get(armed, & &1) do
-          :skip ->
-            Agent.update(armed, fn _ -> true end)
-
-          true ->
-            Agent.update(armed, fn _ -> false end)
-            :sys.suspend(c.run)
-            send(parent, {:trapped, self()})
-
-          false ->
-            :ok
-        end
-
-        Agent.get(c.clock, & &1)
-      end
-
-      engine = start(c, bindings: bindings, clock: clock)
+      engine = start(c, bindings: bindings, run_owner: seam)
       assert {:ok, :applied} = send_input(engine)
       assert_receive {:effect_started, provider, _}, 5_000
       Agent.update(c.clock, fn _ -> 10_000 end)
@@ -8850,7 +8850,7 @@ defmodule Elzoo.RunEngineTest do
       # With no slot active, the next message input invokes the root; its next request
       # is over the shared cap and the generation closes. The settled parent is not
       # its parent, so it keeps its settlement.
-      Agent.update(armed, fn _ -> :skip end)
+      assert :ok = GenServer.call(seam, {:arm, self()})
 
       spawn(fn ->
         try do
@@ -8911,7 +8911,6 @@ defmodule Elzoo.RunEngineTest do
       assert closed_budgets == before
 
       halt_engine(c, engine)
-      :sys.resume(c.run)
       change_attempt_down(c)
 
       engine = start(c, bindings: bindings)
