@@ -31,6 +31,17 @@ defmodule Elzoo.RunEngineStopAttemptTest.CompleteForwarder do
     {:stop, :normal, {run, :spent}}
   end
 
+  # `{:record, test}` sends every `:complete` command to `test` as it comes, then gives it to
+  # the owner: the count of the engine's completion commands, and the evidence each names.
+  def handle_call(
+        {:command, %{kind: :complete} = command} = message,
+        _from,
+        {run, {:record, test}} = state
+      ) do
+    send(test, {:complete_command, command})
+    {:reply, GenServer.call(run, message, 60_000), state}
+  end
+
   def handle_call(
         {:status, _} = status,
         _from,
@@ -2567,6 +2578,9 @@ defmodule Elzoo.RunEngineStopAttemptTest do
         journal_state(c, continued, "continue")
         flush_pattern_inputs()
         engine = start(c, opts)
+        # The start is synchronous: after it, no task was dispatched for the slot (a dispatch
+        # puts its reference in the engine's work map before it returns).
+        refute Map.has_key?(:sys.get_state(engine).work, key), "v#{version}: dispatched again"
         assert_receive {:pattern_input, "root", first}, 5_000
         assert_receive {:pattern_input, "root", second}, 5_000
         assert %{"action_id" => "ask", "outcome" => "expired"} = first, "v#{version}"
@@ -2583,7 +2597,8 @@ defmodule Elzoo.RunEngineStopAttemptTest do
         {store, writer} = evidence_writer(c)
         {owner, bindings} = resource(c)
         opts = [resources: %{"document" => owner}, bindings: bindings]
-        engine = start(c, opts ++ [evidence: %{writer: writer, stream: "evidence"}])
+        recorder = [run_owner: forwarder(c, {:record, self()})]
+        engine = start(c, opts ++ recorder ++ [evidence: %{writer: writer, stream: "evidence"}])
         assert {:ok, :applied} = start_run(c, engine)
         assert_receive {:effect_started, _opening, _}, 5_000
         wait_for(engine, &match?({_, %{phase: :waiting}}, slot_of(&1, "ask")))
@@ -2603,23 +2618,37 @@ defmodule Elzoo.RunEngineStopAttemptTest do
           :committed ->
             assert %{outcome: :completed} = view(engine), label
             assert [{:terminal, "run", :completed, _, _, _}] = terminal_rows(c), label
+            assert_received {:complete_command, %{evidence_ref: %{sequence: 1}}}, label
+            refute_received {:complete_command, _}, label
             GenServer.stop(engine)
 
           :indeterminate ->
             assert %{halted: :delivery_unknown, state: nil, decoded: %{}} = :sys.get_state(engine)
             assert {:ok, %{reconciliation: :delivery_unknown}} = RunEngine.status(engine)
             assert unit_state(c).control.stop_pending == :completed
+            # No :complete command reached the owner seam (the Writer did not report a commit).
+            refute_received {:complete_command, _}, label
             assert terminal_rows(c) == [], label
             wake = input(c, "wake")
             assert {:error, :delivery_unknown} = RunEngine.input(engine, "wake", wake, verified())
-            # No resend while halted: still the one row of the uncertain append.
+            # No resend by the halted engine: still the one row of the uncertain append.
             assert [_] = evidence_rows(c), label
+            refute_received {:complete_command, _}, label
             GenServer.stop(engine)
             # A restart is the explicit recovery: it decides the pending stop again, with a
-            # new evidence Writer, and appends its own evidence row for the owner command.
+            # new evidence Writer, appends a fresh evidence row and names it in its one owner
+            # command (not the uncertain first row).
             {_, fresh} = evidence_writer(c)
-            restarted = start(c, opts ++ [evidence: %{writer: fresh, stream: "evidence"}])
+            recorder = [run_owner: forwarder(c, {:record, self()})]
+
+            restarted =
+              start(c, opts ++ recorder ++ [evidence: %{writer: fresh, stream: "evidence"}])
+
             assert %{outcome: :completed} = wait_for(restarted, &(&1.outcome != nil)), label
+            assert [_, _] = evidence_rows(c), label
+            assert_received {:complete_command, %{evidence_ref: ref}}, label
+            assert ref == %{stream: "evidence", sequence: 2}, label
+            refute_received {:complete_command, _}, label
             assert [{:terminal, "run", :completed, _, _, _}] = terminal_rows(c), label
             GenServer.stop(restarted)
         end
@@ -2632,7 +2661,8 @@ defmodule Elzoo.RunEngineStopAttemptTest do
         {store, writer} = evidence_writer(c)
         {owner, bindings} = resource(c)
         opts = [resources: %{"document" => owner}, bindings: bindings]
-        engine = start(c, opts ++ [evidence: %{writer: writer, stream: "evidence"}])
+        recorder = [run_owner: forwarder(c, {:record, self()})]
+        engine = start(c, opts ++ recorder ++ [evidence: %{writer: writer, stream: "evidence"}])
         assert {:ok, :applied} = start_run(c, engine)
         assert_receive {:effect_started, _opening, _}, 5_000
         assert_receive {:local_started, task}, 5_000
@@ -2668,13 +2698,20 @@ defmodule Elzoo.RunEngineStopAttemptTest do
 
         assert unit_state(c).control.stop_pending == :completed, label
         assert [_] = evidence_rows(c), label
+        refute_received {:complete_command, _}, label
         assert terminal_rows(c) == [], label
         refute Enum.any?(records(c), &(Map.get(&1, :id) == id))
         send(task, :finish)
         GenServer.stop(engine)
         {_, fresh} = evidence_writer(c)
-        engine = start(c, opts ++ [evidence: %{writer: fresh, stream: "evidence"}])
+        recorder = [run_owner: forwarder(c, {:record, self()})]
+        engine = start(c, opts ++ recorder ++ [evidence: %{writer: fresh, stream: "evidence"}])
         assert %{outcome: :completed} = wait_for(engine, &(&1.outcome != nil)), label
+
+        assert_received {:complete_command, %{evidence_ref: %{stream: "evidence", sequence: 2}}},
+                        label
+
+        refute_received {:complete_command, _}, label
         GenServer.stop(engine)
       end
     end

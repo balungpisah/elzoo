@@ -253,10 +253,16 @@ committed (a stop that a Resource outcome set in the same call, for one). When t
 ends in a halt (the owner refuses completion with no terminal view:
 `:terminal_commit_pending`, for one) the reply is still the refusal and `status/1` shows
 the halt; when a completion stop's evidence append is not reported committed by the
-evidence Writer (`{:indeterminate, info}`, a rejection or conflict), the engine sends no
-owner command, does not append again and halts `:delivery_unknown` with its cached
-state cleared (a restart decides the stop again); when the drain exits or raises the
-engine halts `:delivery_unknown` with its cached state cleared. A refused outcome from
+evidence Writer (`{:indeterminate, info}`, a rejection or conflict), the engine has sent
+no owner command (the `:complete` command comes only after a committed row), the halted
+engine does not append again, and it halts `:delivery_unknown` with its cached state
+cleared (a restart decides the stop again and may append a fresh evidence row, which its
+command then names); when the drain exits or raises the engine halts
+`:delivery_unknown` with its cached state cleared, and the outcome is unknown: an owner
+command may already have been sent and committed (the forward-then-exit test below sees
+the owner's terminal row), so the halt does not imply that nothing was sent. The raise
+case is read from the source (no test makes the drain raise); the exit and the Writer's
+indeterminate reply are tested. A refused outcome from
 the engine's mailbox is drained the same way, and a v2
 mailbox delivery whose work after `current/1` exits or raises halts the engine the same way rather
 than keeping the state from before `current/1`. Approved work whose loss recovery holds
@@ -2291,11 +2297,14 @@ terminal view. When the evidence Writer of a completion stop that such a drain s
 answers without a commit (the test's Store commits the row and answers unavailable, so
 the Writer gives `{:indeterminate, info}`), the reply to an answer under the start
 input's ID is still `{:error, :input_id_conflict}`, the engine halts
-`:delivery_unknown` with no cached state, sends no owner command, appends no second
-row while halted and answers a later input with that halt, and a restart with a new
-Writer delivers the stop (appending its own evidence row); with the Writer committing,
-the stop is delivered in that call, in v1 and v2. The same indeterminate append in the
-drain of a refused injected mailbox record halts the engine the same way in v1 and v2
+`:delivery_unknown` with no cached state, and no `:complete` command reaches the owner
+(counted at a recording seam in front of the owner) while the halted engine appends no
+second row and answers a later input with that halt; a restart with a new Writer
+appends a fresh row and sends exactly one `:complete` command, which names that second
+row, not the uncertain first one; with the Writer committing, one command names the
+first row and the stop is delivered in that call, in v1 and v2. The same indeterminate append in the
+drain of a refused injected mailbox record halts the engine the same way in v1 and v2,
+with no `:complete` command before the restart and one naming the second row after it
 (before, v1 died on a match error and v2 kept the state from before `current/1`).
 Separately, a record injected into the engine's
 mailbox in the form of a local outcome (the test constructs it: the running task did not
@@ -2310,7 +2319,8 @@ same bytes, so both admit the same largest added padding), and refused with one 
 byte fewer: the mark of a pending stop is not counted once the stop is dropped. Approved
 local work (a real Approval, release and dispatch) running beside an ask whose expiry
 report is held while paused, at the cut after a continue's lifecycle row (built by the
-fold): the restart starts no second task for it (its loss, kept behind the report, owns
+fold): the restart dispatches no second task for it (after the synchronous start the
+engine's work map has no entry for the slot; its loss, kept behind the report, owns
 the slot, so the start's release of approved work does not dispatch it again) and gives
 the report, then the loss, in v1 and v2; before, the release dispatched it again. Beside a nested child open at zero cost, a state without the room takes
 a Budget-spending answer unmarked at exact fit: no charge of the child is counted against
