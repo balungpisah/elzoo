@@ -203,6 +203,7 @@ defmodule Elzoo.RunHostTest do
       remember(specs, :handover, spec)
 
       assert :ok = attribute(host, fn -> RunHost.start_run(host, :handover, spec) end)
+      assert [_unit, _writer | _] = unit = unit_pids(state(host).units, "unit/" <> spec.unit)
       worker = run(host, :handover).worker
       Agent.update(hold, fn _ -> true end)
       reap = Task.async(fn -> RunHost.reap(host, :handover) end)
@@ -212,8 +213,9 @@ defmodule Elzoo.RunHostTest do
       eventually(fn -> length(run(host, :handover).deferred) == 1 end)
       wake = Task.async(fn -> RunHost.wake(host, [:handover]) end)
       eventually(fn -> length(run(host, :handover).deferred) == 2 end)
-      # Every process of the torn-down tenure is gone: the start may open its journal.
-      prove(cell, spawned(), worker)
+      # Every process of the torn-down tenure is gone, its Unit and Writer included: the
+      # start may open its journal.
+      prove(cell, spawned() ++ unit, worker)
       send(releaser, :fail)
 
       assert {:error, :release_unconfirmed} = Task.await(reap)
@@ -333,6 +335,62 @@ defmodule Elzoo.RunHostTest do
       eventually(fn -> run(host, :orphaned) == nil end)
       assert {:ok, %{status: :free}} = Lease.status(env.lease, "run/orphaned")
       assert {:held, _} = Lease.claim(env.lease, "run/orphaned", "other-node", 60_000)
+    end
+
+    test "a tenure that took an old lease over reserves its key while its spec callback runs: another Run of that Unit is refused, and the failed tenure releases only its own old lease" do
+      test = self()
+      {:ok, hold} = Agent.start_link(fn -> false end)
+
+      hook = fn
+        :before_lock, %{key: "run/inherited"} ->
+          if Agent.get_and_update(hold, &{&1, false}) do
+            send(test, {:releasing, self()})
+            receive do: (:fail -> raise("the release fails"))
+          end
+
+        _, _ ->
+          :ok
+      end
+
+      env = postgres(lease: [test_hook: hook])
+
+      # The wake's spec callback, in the new tenure's worker, waits for the test's answer.
+      held_spec = fn :inherited ->
+        send(test, {:spec_held, self()})
+        receive do: ({:answer, answer} -> answer)
+      end
+
+      {host, _} = host(env, max_runs: 2, spec: held_spec)
+      spec = spec("inherited", stub([]))
+      assert :ok = RunHost.start_run(host, :inherited, spec)
+      Agent.update(hold, fn _ -> true end)
+      reap = Task.async(fn -> RunHost.reap(host, :inherited) end)
+      assert_receive {:releasing, releaser}, 5_000
+
+      wake = Task.async(fn -> RunHost.wake(host, [:inherited]) end)
+      eventually(fn -> length(run(host, :inherited).deferred) == 1 end)
+      send(releaser, :fail)
+      assert {:error, :release_unconfirmed} = Task.await(reap)
+
+      # The wake's tenure owes the release of the old lease, and has no Unit yet.
+      assert_receive {:spec_held, callback}, 5_000
+      assert %{phase: :starting, unit: nil, obligation: "run/inherited"} = run(host, :inherited)
+
+      # Another Run that asks for the same Unit, and so the same lease key, is refused
+      # before it claims anything.
+      other = %{spec("other", stub([])) | unit: "inherited"}
+      assert {:error, :identity_in_use} = RunHost.start_run(host, :other, other)
+      assert run(host, :other) == nil
+
+      # The callback fails: the tenure ends before its claim, and its cleanup releases the
+      # old lease, which no other Run holds: the host keeps no Run, and another owner can
+      # claim the key.
+      send(callback, {:answer, {:error, :gone}})
+      assert [inherited: {:error, {:spec, :gone}}] = Task.await(wake)
+      eventually(fn -> run(host, :inherited) == nil end)
+      assert state(host).runs == %{}
+      assert {:ok, %{status: :free}} = Lease.status(env.lease, "run/inherited")
+      assert {:held, _} = Lease.claim(env.lease, "run/inherited", "other-node", 60_000)
     end
   end
 

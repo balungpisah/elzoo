@@ -419,8 +419,13 @@ defmodule Elzoo.RunHost do
     end
   end
 
+  # A Unit identity is in use while another Run of this host has it, or owes or holds the
+  # lease key of its stream: a tenure that took an old lease over at a handover owes its
+  # release before its own Unit is known (its spec callback can still run).
   defp runner({:unit, unit, stream, retention}, run_ref, run, s) do
-    if Enum.any?(s.runs, fn {ref, r} -> ref != run_ref and r.unit == unit end) do
+    if Enum.any?(s.runs, fn {ref, r} ->
+         ref != run_ref and (r.unit == unit or release_key(r) == stream)
+       end) do
       {{:error, :identity_in_use}, run, s}
     else
       :ets.insert(s.table, {unit, retention})
@@ -499,16 +504,41 @@ defmodule Elzoo.RunHost do
     end
   end
 
+  # The expiry check, a margin before the Run's deadline (watch/3): its reading of the
+  # lease clock is given up at that deadline.
   def handle_info({:expiry, run_ref, token, generation}, s) do
     case s.runs[run_ref] do
       %{token: ^token, phase: phase, admission: admission, lease: %{generation: ^generation} = l} =
           run
       when phase in [:starting, :live] and admission != :lease_lost ->
         %{lease: lease, owner_id: owner} = s.c
+        %{until: until, deadline: deadline} = l
         key = run.stream
-        until = l.until
-        job = Task.Supervisor.async_nolink(s.tasks, fn -> expiry(lease, key, owner, until) end)
+
+        job =
+          Task.Supervisor.async_nolink(s.tasks, fn -> expiry(lease, key, owner, until, deadline) end)
+
         {:noreply, put_in(s.jobs[job.ref], {:expiry, run_ref, token, generation})}
+
+      _ ->
+        {:noreply, s}
+    end
+  end
+
+  # The Run's deadline, which no confirmed renewal and no reading of the lease clock has
+  # moved: by it the last confirmed `until` has passed for a lease clock that runs no
+  # slower than this node's. The Run is lost (:expired) with no reading, so a reading that
+  # blocks or fails never holds the fence.
+  def handle_info({:fence, run_ref, token, generation, deadline}, s) do
+    case s.runs[run_ref] do
+      %{
+        token: ^token,
+        phase: phase,
+        admission: admission,
+        lease: %{generation: ^generation, deadline: ^deadline}
+      }
+      when phase in [:starting, :live] and admission != :lease_lost ->
+        {:noreply, lost(s, run_ref, :expired)}
 
       _ ->
         {:noreply, s}
@@ -529,28 +559,26 @@ defmodule Elzoo.RunHost do
     end
   end
 
-  # A job's result is kept until its process is gone (its :DOWN), so that a teardown that
-  # waits for the Run's jobs waits for their exit, not only for their results.
+  # A job's result is acted on when it arrives, so that a lost lease stops admission and
+  # calls on_lost before a reap that comes after the result can begin a teardown. The job
+  # stays listed, as applied, until its process is gone (its :DOWN): a teardown waits for
+  # the exit of every job of the Run, not only for its result (finish/3).
   def handle_info({ref, result}, s) when is_reference(ref) and is_map_key(s.jobs, ref) do
-    entry =
-      case s.jobs[ref] do
-        {:done, _, _} = done -> done
-        job -> {:done, job, result}
-      end
+    case s.jobs[ref] do
+      {:applied, _, _} ->
+        {:noreply, s}
 
-    {:noreply, put_in(s.jobs[ref], entry)}
+      job ->
+        s = put_in(s.jobs[ref], {:applied, elem(job, 1), elem(job, 2)})
+        {:noreply, job(s, job, result)}
+    end
   end
 
   def handle_info({:DOWN, ref, :process, _, reason}, s) when is_map_key(s.jobs, ref) do
-    {entry, jobs} = Map.pop(s.jobs, ref)
-
-    {job, result} =
-      case entry do
-        {:done, job, result} -> {job, result}
-        job -> {job, {:crashed, reason}}
-      end
-
-    {:noreply, job(%{s | jobs: jobs}, job, result)}
+    case Map.pop(s.jobs, ref) do
+      {{:applied, run_ref, token}, jobs} -> {:noreply, proceed(%{s | jobs: jobs}, run_ref, token)}
+      {job, jobs} -> {:noreply, job(%{s | jobs: jobs}, job, {:crashed, reason})}
+    end
   end
 
   def handle_info({:DOWN, ref, :process, _, reason}, s) do
@@ -717,14 +745,26 @@ defmodule Elzoo.RunHost do
 
   # Renewal and expiry are timed on this node's monotonic clock from a deadline that
   # each claim and renewal takes from a sample of the lease clock (lease_deadline/3).
-  # The renewal starts half the TTL before it; at the deadline the lease clock is read
-  # again, and only that reading declares the lease expired.
+  # The renewal starts half the TTL before it; a margin before it the expiry check reads
+  # the lease clock again, and at the deadline itself the fence loses the Run (watch/3).
   defp schedule_lease(run, run_ref, until, deadline, ttl) do
     generation = make_ref()
     renew_in = max(deadline - div(ttl, 2) - now(), 0)
     Process.send_after(self(), {:renew, run_ref, run.token, generation}, renew_in)
-    Process.send_after(self(), {:expiry, run_ref, run.token, generation}, max(deadline - now(), 0))
-    %{run | lease: %{generation: generation, until: until, deadline: deadline, renewing: false}}
+    lease = %{generation: generation, until: until, deadline: deadline, renewing: false}
+    watch(%{run | lease: lease}, run_ref, ttl)
+  end
+
+  # The expiry check, min(200 ms, TTL / 4) before the Run's deadline (none when that
+  # moment has passed: the reading that set the deadline is as recent), and the fence at
+  # the deadline. A check whose reading shows the lease live moves both (expiry/5).
+  defp watch(run, run_ref, ttl) do
+    %{generation: generation, deadline: deadline} = run.lease
+    check = deadline - min(200, div(ttl, 4)) - now()
+    if check > 0, do: Process.send_after(self(), {:expiry, run_ref, run.token, generation}, check)
+    fence = {:fence, run_ref, run.token, generation, deadline}
+    Process.send_after(self(), fence, max(deadline - now(), 0))
+    run
   end
 
   @doc false
@@ -746,32 +786,58 @@ defmodule Elzoo.RunHost do
     :exit, _ -> {:unknown, :no_receipt}
   end
 
+  # Never past `deadline`: each reading is given up there (read_lease/3), and a failed one
+  # is read again at most 100 ms later while the deadline is ahead.
   defp reading(lease, key, deadline) do
     t0 = now()
 
-    case Lease.status(lease, key) do
+    case read_lease(lease, key, deadline) do
       {:ok, _} = read ->
         {t0, read}
 
-      error when t0 < deadline ->
-        Process.sleep(min(100, deadline - t0))
-        if now() < deadline, do: reading(lease, key, deadline), else: {t0, error}
-
       error ->
-        {t0, error}
+        Process.sleep(min(100, max(deadline - now(), 0)))
+        if now() < deadline, do: reading(lease, key, deadline), else: {t0, error}
     end
   end
 
   @doc false
-  def expiry(lease, key, owner, until) do
+  # The expiry check: a reading that shows the lease live gives the moment by which the
+  # shorter of the last confirmed `until` and the reading's own passes; no reading by
+  # `deadline` is none.
+  def expiry(lease, key, owner, until, deadline) do
     t0 = now()
-    read = Lease.status(lease, key)
+    read = read_lease(lease, key, deadline)
 
     case lease_state(read, owner, until) do
-      :live -> {:later, t0 + div(until - elem(read, 1).now, 1_000)}
+      :live -> {:later, deadline(t0, read, cutoff(read, until))}
       other -> other
     end
   end
+
+  # One reading of the lease in a task of its own, given up and killed at `deadline` on
+  # this node's clock, so that a Lease.status/2 that blocks (a Memory read can wait 35 s)
+  # holds no renewal or expiry job past the expiry moment. The job ends after that task.
+  defp read_lease(lease, key, deadline) do
+    task = Task.async(Lease, :status, [lease, key])
+    gone = Process.monitor(task.pid)
+
+    case Task.yield(task, max(deadline - now(), 0)) || Task.shutdown(task, :brutal_kill) do
+      {:ok, read} ->
+        receive do: ({:DOWN, ^gone, _, _, _} -> read)
+
+      _ ->
+        Process.demonitor(gone, [:flush])
+        {:error, :timeout}
+    end
+  end
+
+  # The `until` of a reading that shows this owner's lease: the earlier of the last
+  # confirmed one and the reading's own, which a same-holder re-claim can have shortened.
+  defp cutoff({:ok, %{holder: %{until: observed}}}, until) when is_integer(observed),
+    do: min(until, observed)
+
+  defp cutoff(_, until), do: until
 
   defp job(s, {:renew, run_ref, token, generation}, result) do
     case s.runs[run_ref] do
@@ -785,20 +851,27 @@ defmodule Elzoo.RunHost do
 
   defp job(s, {:expiry, run_ref, token, generation}, result) do
     case s.runs[run_ref] do
-      %{token: ^token, phase: phase, lease: %{generation: ^generation}}
+      %{token: ^token, phase: phase, lease: %{generation: ^generation} = l} = run
       when phase in [:starting, :live] ->
         case result do
-          {:later, deadline} ->
-            message = {:expiry, run_ref, token, generation}
-            Process.send_after(self(), message, max(deadline - now(), 0))
+          # A reading that moves the deadline (a lease clock slower than this node's, or
+          # an `until` that a re-claim shortened): the check and the fence follow it.
+          {:later, deadline} when deadline != l.deadline ->
+            run = watch(put_in(run.lease.deadline, deadline), run_ref, s.c.lease_ttl_ms)
+            put_in(s.runs[run_ref], run)
+
+          {:later, _} ->
             s
 
           reason when reason == :expired or elem(reason, 0) == :lease_lost ->
             lost(s, run_ref, reason)
 
-          # No reading of the lease clock: read again soon; admission reads it too.
+          # No reading of the lease clock: read again before the deadline, whose fence
+          # needs none; admission reads it too.
           _ ->
-            Process.send_after(self(), {:expiry, run_ref, token, generation}, 500)
+            wait = l.deadline - now()
+            message = {:expiry, run_ref, token, generation}
+            if wait > 0, do: Process.send_after(self(), message, min(100, wait))
             s
         end
 
@@ -824,11 +897,16 @@ defmodule Elzoo.RunHost do
     end
   end
 
+  # A confirmed release leaves the Run owing no key; its reservation is freed once the
+  # release task has exited, like after every job of the Run (finish/3).
   defp job(s, {:release, run_ref, token}, result) do
     case s.runs[run_ref] do
       %{token: ^token, phase: :releasing} = run ->
         run = %{run | busy: false}
-        if result == :released, do: free(s, run_ref, run), else: unreleased(s, run_ref, run)
+
+        if result == :released,
+          do: finish(s, run_ref, %{run | release: false, held: nil, obligation: nil}),
+          else: unreleased(s, run_ref, run)
 
       _ ->
         s
@@ -837,10 +915,12 @@ defmodule Elzoo.RunHost do
 
   # A renewal is confirmed only by a reading of the lease taken after its reply that shows
   # it held by this owner, active and before the last confirmed `until`: then the expiry
-  # moves. A reading that shows the lease lost (another holder, or none) is that loss; a
-  # reading at or after the last confirmed `until`, or no reading before it, is :expired.
-  # This node's clock never stands in for a reading. A late renewal reopens nothing, and
-  # after a teardown began a result is no loss of a live Run (lost/3).
+  # moves, scheduled from the earlier of the returned `until` and the reading's own (a
+  # same-holder re-claim between the commit and the reading can have shortened it). A
+  # reading that shows the lease lost (another holder, or none) is that loss; a reading at
+  # or after the last confirmed `until`, or no reading before it, is :expired. This
+  # node's clock never stands in for a reading. A late renewal reopens nothing, and after
+  # a teardown began a result is no loss of a live Run (lost/3).
   defp renewed(s, run_ref, run, generation, {:renewed, until, read, t0}) do
     cond do
       run.lease.generation != generation or run.phase not in [:starting, :live] or
@@ -850,6 +930,7 @@ defmodule Elzoo.RunHost do
       true ->
         case lease_state(read, s.c.owner_id, run.lease.until) do
           :live ->
+            until = cutoff(read, until)
             run = schedule_lease(run, run_ref, until, deadline(t0, read, until), s.c.lease_ttl_ms)
             put_in(s.runs[run_ref], run)
 
@@ -981,9 +1062,10 @@ defmodule Elzoo.RunHost do
   end
 
   # Every process of the Run is gone. A callback that still runs is stopped by a reap
-  # and waited for otherwise, and a renewal or expiry job of the Run is waited for until
-  # its process is gone (a teardown starts no new one); then a reap or a failed start
-  # releases the lease that the Run owes (release_key/1).
+  # and waited for otherwise, and every job of the Run (a renewal, an expiry check, the
+  # teardown itself) is waited for until its process is gone (a teardown starts no new
+  # lease job); then a reap or a failed start releases the lease that the Run owes
+  # (release_key/1).
   defp finish(s, run_ref, run) do
     alive = for {ref, pid} <- run.callbacks, Process.alive?(pid), into: %{}, do: {ref, pid}
     run = %{run | callbacks: alive}
@@ -1024,14 +1106,7 @@ defmodule Elzoo.RunHost do
   end
 
   defp jobs?(s, run_ref, token),
-    do: Enum.any?(s.jobs, fn {_, job} -> lease_job?(job, run_ref, token) end)
-
-  defp lease_job?({:done, job, _}, run_ref, token), do: lease_job?(job, run_ref, token)
-
-  defp lease_job?({kind, run_ref, token, _}, run_ref, token) when kind in [:renew, :expiry],
-    do: true
-
-  defp lease_job?(_, _, _), do: false
+    do: Enum.any?(s.jobs, fn {_, job} -> elem(job, 1) == run_ref and elem(job, 2) == token end)
 
   # A release that is not confirmed keeps the reservation, and with it the
   # responsibility for the lease: each waiting reap gets {:error, :release_unconfirmed}

@@ -75,6 +75,7 @@ defmodule Elzoo.RunHost.Runner do
         table: table,
         attempt: nil,
         confirmed: false,
+        observed: false,
         route: %{},
         verified: false,
         pending: [],
@@ -106,9 +107,11 @@ defmodule Elzoo.RunHost.Runner do
     end
   end
 
-  # The start or wake is answered once the route is verified, before any held delivery is
-  # submitted, so that a terminal outcome which such a delivery produces reaches the host
-  # after the Run is live there.
+  # Once the route is verified the worker announces the Run started to the host, and only
+  # then submits a held delivery: a terminal outcome which such a delivery produces reaches
+  # the host after the Run is live there. The host answers the start or wake when it takes
+  # that announcement (a batch, once every Run of it has its disposition), so the held
+  # deliveries can be submitted before the caller has its answer.
   defp started(s) do
     send(s.host, {:started, s.run_ref, s.token})
     s |> flush() |> refresh()
@@ -594,19 +597,28 @@ defmodule Elzoo.RunHost.Runner do
   # derive the key of each action that the engine admits from the current Attempt that
   # the worker last read; after a control that read must succeed again before anything
   # is forwarded, so no action is admitted under an Attempt that the worker has not
-  # confirmed. While it cannot be read, nothing is forwarded: {:error, :unavailable}. A
-  # caller's input or control (`public?`) that the read finds terminal gets
-  # {:error, :terminal} and calls nothing in the engine; the host's own inputs (a late
-  # sink outcome) still go through.
+  # confirmed (`confirmed`). Any engine start, input or control can end the Run (a sink
+  # outcome that completes it, for example): after one, a caller's input or control
+  # (`public?`) is forwarded only once a read after it found the Run not terminal
+  # (`observed`); one that the read finds terminal gets {:error, :terminal} and calls
+  # nothing in the engine. While a read that is needed fails, nothing is forwarded:
+  # {:error, :unavailable}. The host's own inputs (a late sink outcome, a wake) need only
+  # the confirmed Attempt, so a failed read after an input does not hold them.
   defp forward(s, fun, public?) do
-    s = if s.confirmed, do: s, else: refresh(s)
+    s = if ready?(s, public?), do: s, else: refresh(s)
 
     cond do
       public? and s.terminal -> {{:error, :terminal}, s}
-      s.confirmed -> {dispatching(s, fun), s}
+      ready?(s, public?) -> {dispatching(s, fun), unobserved(s)}
       true -> {{:error, :unavailable}, s}
     end
   end
+
+  defp ready?(s, public?), do: s.confirmed and (s.observed or not public?)
+
+  # A terminal observation stays: the host's own inputs still reach a terminal Run.
+  defp unobserved(%{terminal: true} = s), do: s
+  defp unobserved(s), do: %{s | observed: false}
 
   # An engine start, input or control can dispatch a model call before it returns: from
   # it until an observation shows no call ready or running (observe/2), the keep-alive
@@ -907,8 +919,9 @@ defmodule Elzoo.RunHost.Runner do
     end
   end
 
-  # The current Attempt (the key of each later admission, confirmed by this read) and
-  # whether a model call is in flight, for the keep-alive.
+  # The current Attempt (the key of each later admission, confirmed by this read), the
+  # phase read after the last engine input (observed) and whether a model call is in
+  # flight, for the keep-alive.
   defp observe(s, view) do
     in_flight =
       Enum.any?(view.slots, fn {_, slot} ->
@@ -916,7 +929,7 @@ defmodule Elzoo.RunHost.Runner do
       end)
 
     true = :ets.insert(s.table, [{:attempt, view.attempt_id}, {:in_flight, in_flight}])
-    %{s | attempt: view.attempt_id, confirmed: true}
+    %{s | attempt: view.attempt_id, confirmed: true, observed: true}
   end
 
   defp terminal(s, outcome) do

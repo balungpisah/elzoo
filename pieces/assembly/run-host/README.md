@@ -131,13 +131,16 @@ a Run that is not live on this host gives `{:error, :not_running}`. Inputs and c
 are admitted by a sample of the lease clock taken for each of them (Leases: an expired
 or lost lease gives `{:error, :lease_lost}`, a lease clock that cannot be read
 `{:error, :unavailable}`), then go through the Run's worker, which serializes them with
-the host's own inputs. After a control the worker reads the Run's current Attempt again
-before it forwards any other input or control (AI model calls, Key); while that read
-fails, they give `{:error, :unavailable}`, and when it finds the Run terminal (a cancel,
-for example), a caller's input or control waiting behind it gets `{:error, :terminal}`
-with no engine call, while that terminal reading stays confirmed for the host's own
-inputs (a late sink outcome). An engine call that ends by the engine's call limit gives
-the caller the same exit. Reads go to the engine directly.
+the host's own inputs. Any engine start, input or control can end the Run (a cancel, or a
+sink outcome that completes it, for example), and a control can move its current Attempt
+(AI model calls, Key). So after any of them the worker forwards a caller's input or
+control only once a read of the Run after it has succeeded, and after a control any input
+or control: while that read fails, they give `{:error, :unavailable}`, and when it finds
+the Run terminal, a caller's input or control waiting behind it gets `{:error, :terminal}`
+with no engine call. The host's own inputs (a late sink outcome, a wake) wait only for the
+read after a control, and a terminal reading stays confirmed for them. An engine call
+that ends by the engine's call limit gives the caller the same exit. Reads go to the
+engine directly.
 
 On a terminal outcome the host stops business input (`input/5` and `control/5` give
 `{:error, :terminal}`) and calls `on_terminal.(run_ref, outcome)`, once per incarnation
@@ -153,10 +156,12 @@ confirmed, the start's caller gets its start error (and a reap that joined the w
 responsibility for the lease: the host tries the release again every second until it is
 confirmed, whoever joined the wait. A `start_run/3` or `wake/2` of the Run, also one
 that was waiting on the release, takes the key over instead: the request goes on at
-once, and its new tenure owes the old lease's release until its own claim succeeds. A
-tenure that ends before its claim (a `spec` callback that fails, for example) releases
-that lease, tried every second until confirmed, like a failed start. A Run that is not
-live gives `{:error, :not_running}`. A terminal Run that is not reaped counts against
+once, and its new tenure owes the old lease's release until its own claim succeeds. Until
+then the key stays reserved by that tenure, also while its `spec` callback runs: another
+Run that asks for the same Unit gets `{:error, :identity_in_use}`. A tenure that ends
+before its claim (a `spec` callback that fails, for example) releases that lease, tried
+every second until confirmed, like a failed start. A Run that is not live gives
+`{:error, :not_running}`. A terminal Run that is not reaped counts against
 `max_runs`.
 
 The confirmed teardown governs the reservation, not recovery: `reap/2`, the lease release
@@ -186,11 +191,14 @@ the Run keeps its reservation; an unconfirmed teardown runs again every second. 
 `start_run/3` or `wake/2` of a Run that is being torn down waits for the end of the
 teardown.
 
-The Run's renewals and expiry checks (Leases) run in host tasks. A teardown waits for
-one that is still running before it frees the reservation (a renewal's call ends once
-the owner is stopped), until its process has exited: a task sends its result before it
-exits, and the host applies a job's result only at its exit. So no task of the Run
-outlives it, and an indeterminate receipt that such a task brings back is still kept.
+The Run's renewals and expiry checks (Leases), its teardown, its release and the stop of
+its callbacks run in host tasks. The host acts on a task's result when it arrives (a lost
+lease stops admission and calls `on_lost` at once, also when a reap reaches the host before
+the task has exited) and keeps the task listed until its process has exited: a task sends
+its result before it exits, and the reservation is freed only once every task of the Run
+has exited (a renewal's call ends once the owner is stopped, and each lease reading of a
+renewal or an expiry check is given up at the Run's deadline, Leases). So no task of the
+Run outlives it, and an indeterminate receipt that such a task brings back is still kept.
 
 `on_terminal` and `on_lost` run as tasks of the Run, tracked by the host, and start only
 for a Run that is live (or starting): once a teardown began, no callback starts. A reap
@@ -230,10 +238,14 @@ model call); the binding's result is `elzoo.ai-text.result` version 1.
   committed `model_call` actions that `transcript/3` gives (each action's own Attempt,
   action ID, occurrence and schema ID) and the stable binding configuration, never from
   `status/1` alone, and then calls `RunEngine.input/4`. At a start or a wake the
-  deliveries are held until that route is verified (read once the engine has started),
-  and the start or wake is answered only then, before any held delivery is submitted, so
-  that a terminal outcome that such a delivery gives reaches the host after the Run is
-  live there and calls `on_terminal`. A key that is not in the route makes the
+  deliveries of a Run are held until that Run's route is verified (read once its engine
+  has started). The worker then announces the Run as started to the host before it
+  submits any held delivery, so a terminal outcome that such a delivery gives reaches the
+  host after the Run is live there and calls `on_terminal`. `start_run/3` and `wake/2`
+  answer once every Run of the call has finished its route verification (verified, or
+  failed for good), not before its held deliveries are submitted: in a batch of
+  `wake/2`, a Run that is already verified can submit its held deliveries, and even end,
+  while another Run of the batch still verifies. A key that is not in the route makes the
   worker read the transcript again. A read that fails for a moment
   (`{:error, :unavailable}` or an exit) keeps the deliveries, in order, and is read again
   200 ms later; a read that cannot succeed (`:read_limit`, `:history` or another error of
@@ -339,7 +351,7 @@ The other Runs of a batch go on whatever one of them gives.
 | `:running` | the `run_ref` is already reserved on this host |
 | `{:spec, reason}` | the `spec` callback gave `{:error, reason}` (`{:spec, :invalid}` for any other answer or a raise) |
 | `:invalid_spec`, `:outside_profile` | the spec's shape or an AI descriptor is wrong; a binding of another kind |
-| `:identity_in_use` | another Run of this host has the same `unit` |
+| `:identity_in_use` | another Run of this host has the same `unit`, or owes or holds the lease key of its stream (a tenure that took the key over at a handover and has not claimed or released it yet) |
 | `{:lease_refused, refusal}` | another live owner holds the Run's lease key |
 | `{:lease, result}` | any other result of the lease claim |
 | `:no_current_attempt` | the Run owner has no current Attempt for the Run (or no Run) |
@@ -410,36 +422,43 @@ from a successful read of the outcome.
 
 Lease `until` is in the lease clock's Unix microseconds; the engine clock is never
 compared with it. After a claim and after each confirmed renewal, the host samples the
-lease clock (`Elzoo.Lease.status/2`) and sets an expiry check on the node's monotonic
-clock at the moment by which `until` passes at the latest, for a lease clock that runs no
-slower than the node's clock. **The renewal starts half the TTL before that moment**
+lease clock (`Elzoo.Lease.status/2`) and takes the Run's deadline on the node's monotonic
+clock: the moment by which `until` passes at the latest, for a lease clock that runs no
+slower than the node's clock. **The renewal starts half the TTL before that deadline**
 through the live owner with `Elzoo.RunApprovalRelease.renew/2`, in a host task, so that a
 renewal that waits the whole 5,000 ms caller limit of `renew/2` still ends before it for a
-TTL of 10 s or more. The expiry check reads the lease clock again and declares the lease
-expired only when that reading is at or past the last confirmed `until`; otherwise it waits
-for the remaining time. Each input and control reads the lease clock too (Runs), against
-the last confirmed `until` of the snapshot that its admission took: a reading that shows
-the lease expired or lost is a loss only while that snapshot is still the Run's own;
-after a renewal was confirmed it decides nothing, and the input is admitted again from a
-fresh snapshot. An EffectIntent activation reads the lease in its callback. Every reading
-is judged the same way: the lease is live only when it is held by this owner, active, and
-the sample is before both the reading's own `until` (a re-claim can shorten it) and the
-last confirmed one; another holder, none, or an ambiguous lease is a loss
-(`{:lease_lost, %{reason, holder}}`), and any other reading `:expired`. So a lease clock
-that moves faster than the node's (a Memory manual clock, for example) stops admission
-and activation at once, and so does a lease that another owner seized. A definite
-no-write error (`{:error, _}`) of a renewal keeps the token: the renewal is tried again at
-a twelfth of the TTL. A renewal counts only when a reading of the lease taken after its
-reply shows it live by the last confirmed `until`: its task reads the lease after the
-reply, again every 100 ms while that read fails, until the node's clock reaches the
-expiry moment. The node's clock never stands in for a reading: a reading at or after
-that `until`, or none by the expiry moment, stops the Run with `:expired` (also when the
-result reaches the host before the expiry check's own reading), and a reading that shows
-another holder or none is that loss, at once.
+TTL of 10 s or more. An expiry check reads the lease clock again `min(200 ms, TTL / 4)`
+before the deadline: a reading that shows the lease live moves the deadline to the moment
+that it gives (a lease clock slower than the node's, or an `until` that a re-claim
+shortened), and one that shows it expired or lost loses the Run. At the deadline itself,
+unless a confirmed renewal or such a reading moved it, the host fences the Run with
+`:expired` and reads nothing: a reading that blocks or fails never delays that fence.
+Each lease reading of a renewal or an expiry check runs in a task of its own that is
+given up, and killed, at the deadline, so a `Lease.status/2` that blocks (a Memory read
+can wait 35 s) holds neither the fence nor the teardown. Each input and control reads the
+lease clock too (Runs), against the last confirmed `until` of the snapshot that its
+admission took: a reading that shows the lease expired or lost is a loss only while that
+snapshot is still the Run's own; after a renewal was confirmed it decides nothing, and the
+input is admitted again from a fresh snapshot. An EffectIntent activation reads the lease
+in its callback. Every reading is judged the same way: the lease is live only when it is
+held by this owner, active, and the sample is before both the reading's own `until` (a
+re-claim can shorten it) and the last confirmed one; another holder, none, or an
+ambiguous lease is a loss (`{:lease_lost, %{reason, holder}}`), and any other reading
+`:expired`. So a lease clock that moves faster than the node's (a Memory manual clock, for
+example) stops admission and activation at once, and so does a lease that another owner
+seized. A definite no-write error (`{:error, _}`) of a renewal keeps the token: the
+renewal is tried again at a twelfth of the TTL. A renewal counts only when a reading of
+the lease taken after its reply shows it live by the last confirmed `until`: its task
+reads the lease after the reply, again every 100 ms while that read fails, until the
+node's clock reaches the deadline. The node's clock never stands in for a reading: a
+reading at or after that `until`, or none by the deadline, stops the Run with `:expired`,
+and a reading that shows another holder or none is that loss, at once. A confirmed
+renewal is scheduled from the earlier of the `until` that it returned and the reading's
+own (a same-holder re-claim between its commit and the reading can have shortened it).
 
 On `{:refused, {:lease_lost, refusal}}`, `{:refused, {:fenced, facts}}`,
 `{:indeterminate, receipt}` or `{:unknown, :no_receipt}` (each stops the owner), on no
-confirmed renewal by the last confirmed `until` (`:expired`), and on a reading of the lease
+confirmed renewal by the Run's deadline (`:expired`), and on a reading of the lease
 that shows another holder or none (`{:lease_lost, %{reason, holder}}`), the host stops
 admission for that Run (`input/5` and `control/5` give `{:error, :lease_lost}`, also after
 the teardown), fences its processes and calls `on_lost.(run_ref, reason)` with that reason,
@@ -466,10 +485,12 @@ the capacity test also spawn tracing on the host's shared Task.Supervisor (the R
 renewal, expiry, teardown, release and callback tasks); the Run's Unit and its Writer
 from the directory's Registry; and, for another node, the processes of its group-leader
 chain. Every predecessor check that a test passes is given a proof that the test
-demonstrates: the list of such processes holds one that the test saw itself, and every
-process in it has ended (and, where a write is held, the write has landed); an empty
-list proves nothing. Only the test of the proof asked at each check scripts its
-answers.
+demonstrates: the list of such processes holds one that the test saw itself and, where the
+predecessor started an engine, its Unit and that Unit's Writer, taken from the directory's
+Registry before the teardown (a predecessor that started no engine is shown, by tracing,
+to have started no Unit), and every process in it has ended (and, where a write is held,
+the write has landed); an empty list proves nothing. Only the test of the proof asked at
+each check scripts its answers.
 
 - `test/elzoo/run_host_test.exs`: an AgentLoop Run answered end to end, on PostgreSQL and
   on one Memory namespace with a manual-clock Lease (the full Memory scenario, with
@@ -481,8 +502,11 @@ answers.
   third request; a failed start whose release fails twice, holding its reservation
   until the third; a reap that joins a failed start's unconfirmed release, the release
   still tried until confirmed; a wake that waits on an unconfirmed release and fails
-  before its claim, the old lease still released and claimed by another owner; callbacks
-  stopped at reap and a callback that reaps its own Run; options and profile refusals;
+  before its claim, the old lease still released and claimed by another owner; a wake
+  whose tenure took an old lease over and whose `spec` callback is held, another Run of
+  that Unit refused `:identity_in_use` meanwhile and the old lease released once the
+  callback fails; callbacks stopped at reap and a callback that reaps its own Run; options
+  and profile refusals;
   Unit identities that would name another Run's streams; a Registry exit stopping the
   host; the Registry names of a host without `name`; a Run's group leader gone after its
   reap and after a normal stop of its host; a killed host whose link ends the Run's worker
@@ -504,8 +528,9 @@ answers.
   a sink failure held during a wake's route verification; the translation table.
 - `test/elzoo/run_host_recovery_test.exs`: a same-node restart refused without a proof
   after the host's own teardown and woken with one, and a takeover by another host after
-  lease expiry whose proof stops every process of the first (found through their
-  group-leader chain): one stub call, one `lost_outcome`, the Run failed with
+  lease expiry, whose proof observes that every process of the first host has ended (the
+  test stops them itself, found through their group-leader chain, outside the proof):
+  one stub call, one `lost_outcome`, the Run failed with
   `model_call_not_completed`; lease expiry alone with no `fencing_proof` (no engine, no
   activation record, no new send, at a second wake too); on Memory, an EffectIntent
   settlement write held after its submission across the host's own confirmed teardown
@@ -524,16 +549,22 @@ answers.
   orderings, a continue that moves the timer, a wake refused for its passed pause
   operand, a refused wake sent again only by its timer for the current Attempt); engine
   reads that end by the engine's 60 s call limit (no wake until the deadline is read, no
-  input after a `:begin_attempt` until its Attempt is read, and a control and an input
-  queued behind a cancel refused `:terminal` with no engine call); the lease clock (a
-  Memory clock moved past `until`, a claim that waits a TTL before its sample, a caller
-  whose reading is older than a confirmed renewal) and lease renewal (several TTLs, a
-  seized lease, a renewal confirmed after the last confirmed `until`, a renewal whose
-  first reading after its reply fails, read again, one whose lease is seized before its
-  reading, a renewal reply delayed past the caller timeout, an indeterminate renewal
-  result that comes first and one that comes last, a worker's report of an
-  indeterminate owner exit that comes first, a reap during a renewal, and a reap that
-  waits for the renewal job's exit, also after its result).
+  input after a `:begin_attempt` until its Attempt is read, a control and an input queued
+  behind a cancel refused `:terminal` with no engine call, and an input, and separately a
+  control, queued behind a sink completion that ends the Run, each refused `:terminal`
+  with no engine call); the lease clock (a Memory clock moved past `until`, a claim that
+  waits a TTL before its sample, a caller whose reading is older than a confirmed
+  renewal) and lease renewal (several TTLs, a seized lease, a renewal that commits but
+  whose reply would come after the deadline, lost there, a renewal whose first reading
+  after its reply fails, read again, one whose lease is seized before its reading, a
+  renewal reply delayed past the caller timeout, an indeterminate renewal result that
+  comes first and one that comes last, a worker's report of an indeterminate owner exit
+  that comes first, a reap during a renewal, a reap that waits for the renewal job's
+  exit, also after its result, a loss result acted on before a reap that comes right
+  after it, Memory lease readings blocked at the deadline, behind a renewal's reply and
+  behind a held renewal, each Run lost there with no blocked reading holding its
+  teardown, and a renewal whose lease a same-holder re-claim shortened before its
+  reading, lost at the shorter cutoff with no input).
 
 Negative controls (temporary edits, each failing its named test, then reverted) are
 listed in the task's pull request. These are finite scenarios, not proofs. No Cure
@@ -552,15 +583,18 @@ Cure outcome table and the engine's results.
   reconciliation of intents is supplied.
 - `{:error, :lease_lost}` is admission, not a physical fence: an input already with the
   worker can reach the engine until the teardown stops it. A renewal that commits but
-  whose reply comes after the last confirmed `until`, or whose lease cannot be read after
-  its reply before the expiry moment, loses the Run (safe, not live).
+  whose reply comes after the Run's deadline, or whose lease cannot be read after its
+  reply before that deadline, loses the Run (safe, not live). At the deadline the Run is
+  fenced with no reading: a lease clock slower than the node's gets more time only from
+  the expiry check's reading a margin before it.
 - A provider request already on the wire is not recalled by a teardown.
 - The keep-alive touches the Unit through the directory: a directory busy for longer
   than three quarters of `idle_ms` (for example while it starts a Unit that replays a
   long journal) can still let a Unit sleep under a call in flight, and its reopening
   settles that call `lost_outcome`.
 - An engine call that ends only by the engine's 60 s call limit holds the worker that
-  long: a due wake, and an input after a control, wait for it.
+  long: a due wake, an input after a control, and a caller's input or control after any
+  engine input whose read failed, wait for it.
 - A Run waits until a deadline on the node's timers; the engine clock must run in real
   time for the wake to come on time.
 - Telemetry is OTP diagnostics and the Logger warnings above; no event, no payload.

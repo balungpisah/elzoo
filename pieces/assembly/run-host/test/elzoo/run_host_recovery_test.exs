@@ -156,6 +156,8 @@ defmodule Elzoo.RunHostRecoveryTest do
       assert {:ok, :applied} = RunHost.input(host, :held, "start", start_input(), verified(spec))
       assert_receive {:stub_entered, blocked}, 10_000
       [{intent, armed}] = Map.to_list(heads(env, "intent/"))
+      # The directory-owned Unit and its Writer, taken while the call keeps the Unit awake.
+      assert [_unit, _writer | _] = unit = unit_pids(state(host).units, "unit/" <> spec.unit)
 
       # The worker is held, so the call's delivery is never taken. The next append of the
       # namespace, the intent owner's settlement at the intent head, is held after its
@@ -167,7 +169,7 @@ defmodule Elzoo.RunHostRecoveryTest do
       eventually(fn -> held?(env, :held) end)
 
       assert :ok = RunHost.reap(host, :held)
-      pids = spawned()
+      pids = spawned() ++ unit
       assert worker in pids
       Agent.update(prior, fn _ -> pids end)
       assert alive_pids(pids) == []
@@ -188,7 +190,7 @@ defmodule Elzoo.RunHostRecoveryTest do
       # The held write lands, on the intent head that nothing moved.
       assert {:committed, landed} = Memory.release(env.store, :held)
       assert landed == armed + 1
-      pids = spawned()
+      pids = spawned() ++ unit
       assert worker in pids
       Agent.update(prior, fn _ -> pids end)
 
@@ -207,12 +209,16 @@ defmodule Elzoo.RunHostRecoveryTest do
       {host, _} = host(env)
       spec = spec("retry", stub)
 
-      trace([{Elzoo.RunHost.Runner, :init, 1}])
+      trace([{Elzoo.RunHost.Runner, :init, 1}, {DynamicUnits, :start, 2}])
 
       assert {:error, {:start_failed, {:engine, :invalid_options_or_recovery}}} =
                attribute(host, fn -> RunHost.start_run(host, :retry, %{spec | request_cap: 0}) end)
 
       assert_receive {:trace, failed, :call, {Elzoo.RunHost.Runner, :init, _}}
+      # The engine refused its options before it started a Unit: the failed start's
+      # processes are those that it spawned.
+      _ = spawned()
+      refute_received {:trace, _, :call, {DynamicUnits, :start, _}}
 
       trace([{RunEngine, :start_link, 1}])
 
@@ -245,7 +251,7 @@ defmodule Elzoo.RunHostRecoveryTest do
       {cell, proof} = proof_cell()
       {host, _} = host(env, fencing_proof: proof)
       spec = spec("first", stub([]))
-      trace([{Owner, :command, 2}])
+      trace([{Owner, :command, 2}, {DynamicUnits, :start, 2}])
 
       start =
         attribute(host, fn ->
@@ -266,6 +272,10 @@ defmodule Elzoo.RunHostRecoveryTest do
 
       assert {:error, _} = Task.await(start)
       eventually(fn -> run(host, :first) == nil end)
+      # No engine started, so no Unit: the interrupted start's processes are those that
+      # it spawned.
+      _ = spawned()
+      refute_received {:trace, _, :call, {DynamicUnits, :start, _}}
 
       assert {:error, :fencing_unproven} =
                attribute(host, fn -> RunHost.start_run(host, :first, spec) end)
@@ -400,13 +410,14 @@ defmodule Elzoo.RunHostRecoveryTest do
         Task.async(fn -> RunHost.input(host, :route, "start", start_input(), verified(spec)) end)
 
       assert_receive {:arm_blocked, _}, 10_000
+      assert [_unit, _writer | _] = unit = unit_pids(state(host).units, "unit/" <> spec.unit)
       old_engine = run(host, :route).pids.engine
       Process.exit(old_engine, :kill)
       Task.await(start)
       eventually(fn -> run(host, :route) == nil end)
       assert requests(stub) == []
       assert count_rows(env, "intent/%") >= 1
-      prove(cell, spawned(), old_engine)
+      prove(cell, spawned() ++ unit, old_engine)
 
       Agent.update(flags, &Map.put(&1, :b, true))
       wake = Task.async(fn -> RunHost.wake(host, [:route]) end)
@@ -486,7 +497,8 @@ defmodule Elzoo.RunHostRecoveryTest do
 
   # A Run whose first model call's intent is admitted and never armed: its arm waits in
   # the EffectIntent owner's clock, and the engine is then killed. The next wake dispatches
-  # that untried intent at its start. The proof cell holds the first tenure's processes.
+  # that untried intent at its start. The proof cell holds the first tenure's processes,
+  # its directory-owned Unit and Writer included, and the proof holds once they all ended.
   defp untried!(env, name, stub, opts) do
     test = self()
     {:ok, arm} = Agent.start_link(fn -> true end)
@@ -513,12 +525,14 @@ defmodule Elzoo.RunHostRecoveryTest do
     assert :ok = attribute(host, fn -> RunHost.start_run(host, ref, spec) end)
     start = Task.async(fn -> RunHost.input(host, ref, "start", start_input(), verified(spec)) end)
     assert_receive {:arm_blocked, _}, 10_000
+    assert [_unit, _writer | _] = unit = unit_pids(state(host).units, "unit/" <> spec.unit)
     engine = run(host, ref).pids.engine
     Process.exit(engine, :kill)
     Task.await(start)
     eventually(fn -> run(host, ref) == nil end)
     assert requests(stub) == []
-    prove(cell, spawned(), engine)
+    prove(cell, spawned() ++ unit, engine)
+    assert proof.(ref) == :fenced
     {host, ref, spec}
   end
 
@@ -566,12 +580,13 @@ defmodule Elzoo.RunHostRecoveryTest do
       {host, specs} = host(env, fencing_proof: proof)
       runs = for name <- ~w(gate cap same), do: {String.to_atom(name), spec(name, stub)}
 
-      workers =
+      prior =
         for {ref, spec} <- runs do
           assert :ok = attribute(host, fn -> RunHost.start_run(host, ref, spec) end)
           worker = run(host, ref).worker
+          assert [_unit, _writer | _] = unit = unit_pids(state(host).units, "unit/" <> spec.unit)
           assert :ok = RunHost.reap(host, ref)
-          worker
+          {worker, unit}
         end
 
       remember(specs, :gate, %{runs[:gate] | gate: %{runs[:gate].gate | version: 2}})
@@ -587,8 +602,8 @@ defmodule Elzoo.RunHostRecoveryTest do
              ] = attribute(host, fn -> RunHost.wake(host, [:gate, :cap, :same]) end)
 
       refute_received {:trace, _, :call, {RunEngine, :start_link, _}}
-      pids = spawned()
-      for worker <- workers, do: prove(cell, pids, worker)
+      pids = spawned() ++ Enum.flat_map(prior, &elem(&1, 1))
+      for {worker, _} <- prior, do: prove(cell, pids, worker)
 
       assert [
                gate: {:error, :incompatible_recovery},
