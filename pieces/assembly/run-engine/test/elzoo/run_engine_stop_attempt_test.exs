@@ -143,7 +143,7 @@ defmodule Elzoo.RunEngineStopAttemptTest do
   @earlier [completed: false, cancelled: false, run_deadline: false, cancelled: true]
 
   # The bytes of the control bound that admission keeps free while no stop is pending.
-  @room 693
+  @room 695
 
   # The largest time and Run revision that the engine takes.
   @max_time 9_223_372_036_854_775_807
@@ -1086,12 +1086,13 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert control_headroom(put_in(next.control.lifecycle.waits[ask["id"]], wait)) == 0
     end
 
-    test "at the admission limit with the Run revision and the deadlines at the largest that a wake reaches, a wake at the Run deadline and a cancel commit marked" do
+    test "at the admission limit with the Run revision and the deadlines at the largest that a wake reaches, a wake at the Run deadline, a cancel and a cancel at the Run deadline commit marked" do
       long = String.duplicate("l", 200)
 
-      for {rule, deadline} <- [finish: @max_time, pause: @max_time - 1], kind <- [:wake, :cancel] do
+      for {rule, deadline} <- [finish: @max_time, pause: @max_time - 1],
+          kind <- [:wake, :cancel, :deadline_cancel] do
         label = "#{rule} #{kind}"
-        stop = if kind == :wake, do: :out_of_time, else: :cancelled
+        stop = if kind == :cancel, do: :cancelled, else: :out_of_time
         {c, state} = in_attempt("a", budget_rule: rule, run_deadline: deadline)
         journal_state(c, pad_invocations(put_in(state.control.classification, :late), 0))
         begin_attempt(c, long)
@@ -1103,9 +1104,9 @@ defmodule Elzoo.RunEngineStopAttemptTest do
         far = verified(%{attempt_id: long, pause_deadline: @max_time})
         pause = %{kind: :pause, pause_deadline: @max_time}
         assert {:ok, :applied} = RunEngine.control(engine, "pause", pause, far), label
-        if kind == :wake, do: Agent.update(c.clock, fn _ -> deadline end)
-        fields = if kind == :cancel, do: %{"attempt_id" => long}, else: %{}
-        request = input(c, Atom.to_string(kind), fields)
+        if kind != :cancel, do: Agent.update(c.clock, fn _ -> deadline end)
+        fields = if kind == :wake, do: %{}, else: %{"attempt_id" => long}
+        request = input(c, if(kind == :wake, do: "wake", else: "cancel"), fields)
         call(fn -> RunEngine.input(engine, "stop", request, far) end)
         assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
         control = unit_state(c).control
@@ -1116,6 +1117,130 @@ defmodule Elzoo.RunEngineStopAttemptTest do
         engine = start(c, run_owner: forwarder(c, {:revision, real, @max_time, :pass}))
         assert %{outcome: ^stop} = wait_for(engine, &(&1.outcome != nil)), label
       end
+    end
+
+    test "a cancel at the Run deadline grows its step most with its mark: from `:late` in a 200-byte Attempt they take 468 bytes, which commit marked with none of the bound left, and one byte less leaves the stop unmarked" do
+      long = String.duplicate("l", 200)
+      {c, state} = in_attempt(long)
+      late = put_in(state.control.classification, :late)
+      cancel = fn at -> input(c, "cancel", %{"attempt_id" => long, "at_ms" => at}) end
+      at_deadline = record(c, "cancel", cancel.(60_000), attempt_id: long)
+      before_deadline = record(c, "cancel", cancel.(3_000), attempt_id: long)
+
+      # The bytes of the bound that are left, with the room counted back while no stop is
+      # pending, and what a step that sets a stop takes of them, its mark included.
+      left = &(control_headroom(&1) + if(is_nil(&1.control.stop_pending), do: @room, else: 0))
+
+      taken = fn record ->
+        assert {:Transition, next, :none} = RunEngine.step(late, record)
+        assert Map.has_key?(next.control, :stop_attempt)
+        left.(late) - left.(next)
+      end
+
+      # At the Run deadline the cancel records its Attempt and asks for out_of_time: 234
+      # bytes and a mark of 234; before it, `:cancelled`, 230 and 232.
+      assert taken.(at_deadline) == 468
+      assert taken.(before_deadline) == 462
+
+      exact = pad_invocations(late, 468 - @room)
+      assert {:Transition, next, :none} = RunEngine.step(exact, at_deadline)
+      assert %{stop_pending: :out_of_time, cancelled_attempt: ^long} = next.control
+      assert next.control.stop_attempt == {long, :out_of_time}
+      assert control_headroom(next) == 0
+
+      short = pad_invocations(late, 467 - @room)
+      assert {:Transition, unmarked, :none} = RunEngine.step(short, at_deadline)
+      assert %{stop_pending: :out_of_time, cancelled_attempt: ^long} = unmarked.control
+      refute Map.has_key?(unmarked.control, :stop_attempt)
+      assert control_headroom(unmarked) == 233
+    end
+
+    test "at request cap 1, a nested start whose child's first request passes the cap and asks for out_of_budget is admitted only with the room for a stop, and marks that stop" do
+      {ready, nested} = ready_nested_at_cap()
+      key = nested.occurrence
+
+      start_at = fn target ->
+        assert {:Transition, next, _} = RunEngine.step(pad_invocations(ready, target), nested)
+        next
+      end
+
+      # The least headroom (the room counted) at which the start is admitted.
+      {_, limit} =
+        {-@room, control_headroom(ready) - 43}
+        |> Stream.iterate(fn {lo, hi} ->
+          mid = div(lo + hi, 2)
+          if start_at.(mid).control.stop_pending, do: {lo, mid}, else: {mid, hi}
+        end)
+        |> Enum.find(fn {lo, hi} -> hi - lo <= 1 end)
+
+      # Admitted, the child's request over the cap stops the charge and asks for
+      # out_of_budget, which the step marks, with room left for the growth that no check
+      # admits (a longer Attempt ID, the encodings of the revision and deadlines, the phase).
+      admitted = start_at.(limit)
+      assert %{stop_pending: :out_of_budget, charge_stopped: true} = admitted.control
+      assert admitted.control.stop_attempt == {"attempt", :out_of_budget}
+      assert %{phase: :refusing, refusal: "out_of_budget"} = admitted.slots[key]
+      assert control_headroom(admitted) >= 199 + 27 + 1
+
+      # One byte under it the start is refused for room: no child, no request, no stop.
+      refused = start_at.(limit - 1)
+      assert %{stop_pending: nil, count: 1} = refused.control
+      refute Map.has_key?(refused.control, :stop_attempt)
+      refute Map.has_key?(refused.control.callables, "1:0")
+      assert %{phase: :refusing, refusal: "record_size"} = refused.slots[key]
+    end
+
+    test "a verified answer whose actual would cut into the room is refused record_size with no write; with room it commits and marks the Budget stop that it asks for" do
+      {c, waiting} = waiting_ask()
+      key = {1, 0}
+      # A truthful actual of about 32 KiB, within the ingress and slot bounds; its step
+      # stores it twice in the Budget (the committed amount and the settled entry).
+      big = Integer.pow(2, 8 * 32_760)
+
+      answer =
+        input(c, "person_answer", %{
+          "action_id" => "ask",
+          "person_id" => "person",
+          "schema_id" => "result",
+          "schema_version" => 1,
+          "payload" => %{}
+        })
+
+      context = verified(%{occurrence: key, actual: big, verified_person: "person"})
+
+      # By the fold alone, at the admission limit the step fails the bound, which the
+      # slot's reserve and wait do not cover; the check before the write refuses it.
+      padded = pad_invocations(waiting, 0)
+
+      folded =
+        record(c, "answer", answer,
+          correlation: %{occurrence: key, actual: big},
+          context: %{verified_person: "person", pause_deadline: 50_000}
+        )
+
+      assert_raise MatchError, fn -> RunEngine.step(padded, folded) end
+      refute RunEngine.actual_admits?(padded, folded)
+      assert RunEngine.actual_admits?(waiting, folded)
+
+      journal_state(c, padded)
+      engine = start(c)
+      before = rows(c)
+      assert {:error, :record_size} = RunEngine.input(engine, "answer", answer, context)
+      assert rows(c) == before
+      assert %{phase: :waiting} = unit_state(c).slots[key]
+      GenServer.stop(engine)
+
+      # With room, the answer settles the ask and spends the Budget: the step asks for
+      # out_of_budget and marks it.
+      journal_state(c, waiting, "relieved")
+      engine = start(c, run_owner: forwarder(c, :kill))
+      monitor = Process.monitor(engine)
+      call(fn -> RunEngine.input(engine, "answer", answer, context) end)
+      assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+      committed = unit_state(c)
+      assert committed.control.stop_pending == :out_of_budget
+      assert committed.control.stop_attempt == {"attempt", :out_of_budget}
+      assert %{phase: :settled, actual: ^big} = committed.slots[key]
     end
   end
 
@@ -1200,6 +1325,68 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert %{outcome: :cancelled} = wait_for(engine, &(&1.outcome != nil))
       assert %{phase: :settled, outcome: "unknown"} = settled = unit_state(c).slots[key]
       assert is_nil(settled[:actual])
+    end
+
+    test "a request-cap stop retains a sent Resource slot that waits on a blocked Resource: the slot stays open after the Run ends, as the stop retains any sent Resource slot" do
+      {c, opts} = blocked_open(request_cap: 1)
+      engine = start(c, opts)
+      {key, _} = slot_of(unit_state(c), "open")
+      assert {:ok, _} = RunEngine.input(engine, "cap", input(c, "wake"), verified())
+      assert %{outcome: :out_of_budget} = wait_for(engine, &(&1.outcome != nil))
+      assert [{:terminal, "run", :out_of_budget, "request_cap", nil, _}] = terminal_rows(c)
+      state = unit_state(c)
+      # Open (the start reconciled its sent intent read-only), not settled by the end.
+      assert state.slots[key].phase in [:running, :reconcile]
+      refute Map.has_key?(state.control.cursors, "document")
+    end
+
+    test "after a change of Attempt settled a nested parent with no actual, its child's last Resource charge is admitted only with room for the charge that the parent takes after it; refused, it writes no row and strands no input" do
+      {c, opts, changed, record} = settled_parent_with_resource(@rate)
+      parent = {1, 0}
+      assert %{phase: :settled} = changed.slots[parent]
+      refute is_integer(changed.slots[parent][:actual])
+
+      # The cursor transition settles the child's held Budget at the 400-byte actual, so
+      # the child's cost is known, and the engine then charges the parent that amount,
+      # stored twice in the root Budget, by a :nested_actual record of its own.
+      assert {:Transition, charged, :none} = RunEngine.step(changed, record)
+      child = charged.control.budgets["1:0"].state
+      status = Elzoo.Budget.step(child, {3_000, :status})
+      {:Transition, _, {:some, {:status, %{committed: amount}}}} = status
+      assert amount == @rate
+      charge = %{version: 1, kind: :nested_actual, occurrence: parent, actual: amount, at_ms: 3_000}
+      assert {:Transition, settled, :none} = RunEngine.step(charged, charge)
+      assert settled.slots[parent].actual == @rate
+      cursor_growth = control_headroom(changed) - control_headroom(charged)
+      charge_growth = control_headroom(charged) - control_headroom(settled)
+      assert charge_growth > @room
+
+      # With room for the cursor transition alone, the transition is refused: its charge
+      # would fail the bound after the :nested_actual input commits.
+      alone = pad_invocations(changed, cursor_growth)
+      refute RunEngine.cursor_admits?(alone, record)
+      assert {:Transition, alone_charged, :none} = RunEngine.step(alone, record)
+      assert_raise MatchError, fn -> RunEngine.step(alone_charged, charge) end
+
+      # With room for both, it is admitted, and the charge keeps the bound.
+      both = pad_invocations(changed, cursor_growth + charge_growth)
+      assert RunEngine.cursor_admits?(both, record)
+      assert {:Transition, both_charged, :none} = RunEngine.step(both, record)
+      assert {:Transition, both_settled, :none} = RunEngine.step(both_charged, charge)
+      assert control_headroom(both_settled) == 0
+
+      # Through the engine, with room for the cursor transition alone: the entry writes no
+      # row, no charge is written, and the Unit reopens.
+      journal_state(c, alone)
+      before = rows(c)
+      engine = start(c, opts)
+      assert entry_rows(c, before) == []
+      refute Enum.any?(records(c), &match?(%{kind: :nested_actual}, &1))
+      assert unit_state(c).control.cursors == changed.control.cursors
+      GenServer.stop(engine)
+      assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+      start(c, opts)
+      assert unit_state(c).control.cursors == changed.control.cursors
     end
   end
 
@@ -1362,47 +1549,7 @@ defmodule Elzoo.RunEngineStopAttemptTest do
     end
 
     test "a fresh v2 outside event with a clock sample above 2^63 - 1 is invalid_input with no write; a paired retry is unchanged" do
-      ticket = start_supervised!({Agent, fn -> nil end}, id: make_ref())
-
-      event = fn _scope, id ->
-        {:ok,
-         %{
-           head: %{revision: 1, low_water: 0},
-           event: %{
-             id: id,
-             source_id: "events",
-             correlation_id: Agent.get(ticket, & &1),
-             sequence: 1,
-             schema_id: "result",
-             schema_version: 1,
-             payload: %{"accepted" => true}
-           }
-         }}
-      end
-
-      head = fn _scope -> {:ok, %{revision: 0, low_water: 0}} end
-      source = %{id: "events", version: 1, head: head, read: event}
-      script = fn frame -> [frame.([action("wait", "wait_event")])] end
-      c = run_fixture(script, 2, event_source: source)
-      engine = start(c)
-      assert {:ok, :applied} = start_run(c, engine)
-      {:ok, %{waits: [waiting]}} = RunEngine.event_waits(engine, scope(), limits())
-      Agent.update(ticket, fn _ -> waiting.correlation_id end)
-
-      outside = %{
-        "type" => "input",
-        "version" => 2,
-        "kind" => "outside_event",
-        "action_id" => waiting.action_id,
-        "source_id" => waiting.source_id,
-        "correlation_id" => waiting.correlation_id,
-        "event_id" => "event",
-        "schema_id" => "result",
-        "schema_version" => 1,
-        "payload" => %{"accepted" => true}
-      }
-
-      context = verified(%{occurrence: waiting.occurrence, actual: 0, dispatch: "not_dispatched"})
+      %{c: c, engine: engine, outside: outside, context: context} = waiting_event()
       create_other(c)
       before = rows(c)
       at = Agent.get(c.clock, & &1)
@@ -1417,7 +1564,42 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert {:ok, :unchanged} = RunEngine.input(engine, "event", outside, context)
     end
 
-    test "an ask_person binding whose facts give a deadline of 2^63 halts the engine integrity_failure before the admission commits, with no row" do
+    test "a fresh v2 outside event reads the clock once, before the owner's Run view is taken, and records that sample: a later sample above 2^63 - 1 is not read" do
+      %{c: c, engine: engine, outside: outside, context: context, queue: queue} = waiting_event()
+      create_other(c)
+      seen = records(c)
+      at = Agent.get(c.clock, & &1)
+      # The event's sample, the sample of the Run view that current/1 journals, then one
+      # above the bound, which a second sample of the event would read.
+      Agent.update(queue, fn _ -> [at, at + 1, @max_time + 1] end)
+      assert {:ok, :applied} = RunEngine.input(engine, "event", outside, context)
+      assert [synced, event] = records(c) -- seen
+      assert %{kind: :run_view, view: %{at_ms: viewed}} = synced
+      assert viewed == at + 1
+      assert %{kind: :protocol, input: %{"kind" => "outside_event", "at_ms" => ^at}} = event
+      assert Agent.get(queue, & &1) == [@max_time + 1]
+    end
+
+    test "a cancel control whose clock sample is nil is invalid_control with no write and cancels no task; with a sample, it cancels the task of the local work that its step closed" do
+      c = fixture_for(:cancelled, 1)
+      {clock, queue} = queued_clock(c)
+      engine = start(c, clock: clock)
+      assert {:ok, :applied} = start_run(c, engine)
+      assert_receive {:local_started, task}, 5_000
+      monitor = Process.monitor(task)
+      before = rows(c)
+      Agent.update(queue, fn _ -> [nil] end)
+      cancel = %{kind: :cancel, attempt_id: "attempt"}
+      assert {:error, :invalid_control} = RunEngine.control(engine, "cancel", cancel, verified())
+      assert rows(c) == before
+      assert {_, %{phase: :running}} = slot_of(unit_state(c), "slow")
+      refute_receive {:DOWN, ^monitor, :process, ^task, _}, 200
+      assert {:ok, :applied} = RunEngine.control(engine, "cancel", cancel, verified())
+      assert {_, %{phase: :settled}} = slot_of(unit_state(c), "slow")
+      assert_receive {:DOWN, ^monitor, :process, ^task, _}, 5_000
+    end
+
+    test "an ask_person binding whose facts give a deadline of 2^63 halts the engine integrity_failure before the admission commits, with no row; a later control, also one with a time above 2^63 - 1, gives that halt" do
       c = run_fixture(fn frame -> [frame.([action("ask", "ask_person")])] end, 1)
       person = c.opts[:bindings]["ask_person"]
       far = %{person | facts: &%{person.facts.(&1) | deadline_ms: @max_time + 1}}
@@ -1428,6 +1610,14 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       refute Enum.any?(records(c), &match?(%{kind: :admission}, &1))
       assert %{phase: :allowed} = slot = unit_state(c).slots[{1, 0}]
       refute Map.has_key?(slot, :deadline_ms)
+      halted = rows(c)
+
+      # The stored halt comes before a control's own checks, with no write.
+      over = %{kind: :pause, pause_deadline: @max_time + 1}
+      assert {:error, :integrity_failure} = RunEngine.control(engine, "over", over, verified())
+      pause = %{kind: :pause, pause_deadline: 50_000}
+      assert {:error, :integrity_failure} = RunEngine.control(engine, "pause", pause, verified())
+      assert rows(c) == halted
       GenServer.stop(engine)
       before = rows(c)
 
@@ -2044,6 +2234,189 @@ defmodule Elzoo.RunEngineStopAttemptTest do
     {c, long, ask, allowed, admission}
   end
 
+  # An ask `ask` (to "person") waiting in Attempt "attempt", its wait listed. Returns the
+  # fixture and the Unit state; the engine is stopped.
+  defp waiting_ask do
+    c = run_fixture(fn frame -> [frame.([action("ask", "ask_person", %{})])] end, 1)
+    engine = start(c)
+    assert {:ok, :applied} = start_run(c, engine)
+    wait_for(engine, &match?({_, %{phase: :waiting}}, slot_of(&1, "ask")))
+    state = unit_state(c)
+    GenServer.stop(engine)
+    assert Map.has_key?(state.control.lifecycle.waits, "ask")
+    {c, state}
+  end
+
+  # A root request at request cap 1 with a nested_callable `nested` whose child asks for an
+  # action in its first request, past the cap: the engine dies at the nested binding once,
+  # so the slot stays :ready. Returns the Unit state and the :nested record that the engine
+  # commits for the slot.
+  defp ready_nested_at_cap do
+    script = fn frame -> [frame.([action("nested", "nested_callable")])] end
+    c = run_fixture(script, 1, request_cap: 1)
+    base = c.opts[:bindings]["nested_callable"]
+    child = %{name: "nested", script: [request([action("deep")])]}
+    facts = fn a -> %{base.nested.(a) | mfa: {TestPattern, :scripted}, initial_state: child} end
+    crash = start_supervised!({Agent, fn -> true end}, id: make_ref())
+
+    nested = fn a ->
+      if Agent.get_and_update(crash, &{&1, false}), do: Process.exit(self(), :kill)
+      facts.(a)
+    end
+
+    bindings = Map.put(c.opts[:bindings], "nested_callable", %{base | nested: nested})
+    engine = start(c, bindings: bindings)
+    call(fn -> start_run(c, engine) end)
+    ready = unit_state(c)
+    assert %{phase: :ready} = ready.slots[{1, 0}]
+
+    record = %{
+      version: 1,
+      id: "nested",
+      kind: :nested,
+      occurrence: {1, 0},
+      facts: facts.(action("nested", "nested_callable")),
+      at_ms: Agent.get(c.clock, & &1),
+      context: %{pause_deadline: 50_000}
+    }
+
+    {ready, record}
+  end
+
+  # A nested_callable `nested` whose child opened a Resource "document" (at `rate` per
+  # minute, its reservation in the child's Budget) that closed on a pause; the host then
+  # began Attempt "second", and the fold of its Run view settled the parent with no actual.
+  # The Resource's next entry settles the child's held Budget at the rate. Returns the
+  # fixture, the engine options, the state after that Run view (by the fold alone; the
+  # engine is stopped and the owner is in "second") and the entry's cursor record.
+  defp settled_parent_with_resource(rate) do
+    payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+    child = %{name: "nested", script: [request([action("open", "resource_open", payload)])]}
+    c = run_fixture(fn frame -> [frame.([action("nested", "nested_callable")])] end, 1)
+
+    budget = %{
+      budget_id: "nested-nested",
+      unit: "credits",
+      cost_ref: "2:0",
+      generation: {"sealed", 1}
+    }
+
+    {owner, bindings} = resource(c, :close, budget, %{rate_per_minute: rate})
+    base = bindings["nested_callable"]
+    nested = fn a -> %{base.nested.(a) | mfa: {TestPattern, :scripted}, initial_state: child} end
+    bindings = Map.put(bindings, "nested_callable", %{base | nested: nested})
+    opts = [resources: %{"document" => owner}, bindings: bindings]
+    engine = start(c, opts)
+    assert {:ok, :applied} = start_run(c, engine)
+    assert_receive {:effect_started, _opening, _}, 5_000
+    observed(owner, "opened", "open", %{opened_at_ms: 2_000}, 2_000)
+    assert {:ok, :applied} = RunEngine.input(engine, "consume-open", input(c, "wake"), verified())
+    Agent.update(c.clock, fn _ -> 3_000 end)
+    assert {:ok, _} = Elzoo.RunResource.command(owner, %{id: "pause", at_ms: 3_000, body: :pause})
+    assert {:ok, :applied} = RunEngine.input(engine, "consume-close", input(c, "wake"), verified())
+    assert_receive {:effect_started, _closing, _}, 5_000
+    assert {:ok, :applied} = RunEngine.input(engine, "dispatched", input(c, "wake"), verified())
+    observed(owner, "closed", "cleanup", %{opened_at_ms: 2_000, closed_at_ms: 3_000}, 3_000)
+    GenServer.stop(engine)
+    state = unit_state(c)
+    begin_attempt(c, "second")
+    {:ok, %{revision: revision}} = Run.status(c.run, "run")
+
+    view = %{
+      version: 1,
+      kind: :run_view,
+      view: %{
+        id: "run",
+        operation_id: "operation",
+        current_attempt: "second",
+        revision: revision,
+        outcome: nil,
+        at_ms: 3_000
+      }
+    }
+
+    assert {:Transition, changed, :none} = RunEngine.step(state, view)
+    cursor = changed.control.cursors["document"]
+    {:ok, %{entries: [entry]}} = Elzoo.RunResource.read(owner, cursor)
+    assert {:settle, %{actual: ^rate}} = entry.budget_command
+
+    record = %{
+      cursor_record(entry.seq)
+      | budget_owner: "1:0",
+        budget_command: entry.budget_command,
+        at_ms: 3_000
+    }
+
+    {c, opts, changed, record}
+  end
+
+  # A clock that gives the times queued in the returned Agent first, one per read, and the
+  # fixture's clock once the queue is empty.
+  defp queued_clock(c) do
+    queue = start_supervised!({Agent, fn -> [] end}, id: make_ref())
+
+    clock = fn ->
+      case Agent.get_and_update(queue, fn
+             [] -> {:empty, []}
+             [at | rest] -> {{:queued, at}, rest}
+           end) do
+        {:queued, at} -> at
+        :empty -> Agent.get(c.clock, & &1)
+      end
+    end
+
+    {clock, queue}
+  end
+
+  # A v2 Run whose `wait_event` waits on a source that gives the requested event at
+  # sequence 1, with the engine on a queued clock (queued_clock/1). Returns the fixture,
+  # the engine, the outside event for the wait, its context and the clock's queue.
+  defp waiting_event do
+    ticket = start_supervised!({Agent, fn -> nil end}, id: make_ref())
+
+    event = fn _scope, id ->
+      {:ok,
+       %{
+         head: %{revision: 1, low_water: 0},
+         event: %{
+           id: id,
+           source_id: "events",
+           correlation_id: Agent.get(ticket, & &1),
+           sequence: 1,
+           schema_id: "result",
+           schema_version: 1,
+           payload: %{"accepted" => true}
+         }
+       }}
+    end
+
+    head = fn _scope -> {:ok, %{revision: 0, low_water: 0}} end
+    source = %{id: "events", version: 1, head: head, read: event}
+    script = fn frame -> [frame.([action("wait", "wait_event")])] end
+    c = run_fixture(script, 2, event_source: source)
+    {clock, queue} = queued_clock(c)
+    engine = start(c, clock: clock)
+    assert {:ok, :applied} = start_run(c, engine)
+    {:ok, %{waits: [waiting]}} = RunEngine.event_waits(engine, scope(), limits())
+    Agent.update(ticket, fn _ -> waiting.correlation_id end)
+
+    outside = %{
+      "type" => "input",
+      "version" => 2,
+      "kind" => "outside_event",
+      "action_id" => waiting.action_id,
+      "source_id" => waiting.source_id,
+      "correlation_id" => waiting.correlation_id,
+      "event_id" => "event",
+      "schema_id" => "result",
+      "schema_version" => 1,
+      "payload" => %{"accepted" => true}
+    }
+
+    context = verified(%{occurrence: waiting.occurrence, actual: 0, dispatch: "not_dispatched"})
+    %{c: c, engine: engine, outside: outside, context: context, queue: queue}
+  end
+
   # Journals `state` as the Unit's recorded state, after an input of its own (`id`); the
   # Unit is stopped first, and the engine's next start reads it.
   defp journal_state(c, state, id \\ "padded") do
@@ -2099,10 +2472,11 @@ defmodule Elzoo.RunEngineStopAttemptTest do
   # An opened Resource "document" at the admission limit whose next entry would add its
   # key: its first entries were read with room, then its key was removed from the recorded
   # state, padded to the limit, and the host reported the open completed. The engine is
-  # stopped; the open's slot runs.
-  defp blocked_open do
+  # stopped; the open's slot runs. `fixture_opts` go to the fixture.
+  defp blocked_open(fixture_opts \\ []) do
     payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
-    c = run_fixture(fn frame -> [frame.([action("open", "resource_open", payload)])] end, 1)
+    script = fn frame -> [frame.([action("open", "resource_open", payload)])] end
+    c = run_fixture(script, 1, fixture_opts)
     {owner, bindings} = resource(c)
     opts = [resources: %{"document" => owner}, bindings: bindings]
     engine = start(c, opts)
