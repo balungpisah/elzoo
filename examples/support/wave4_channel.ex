@@ -1777,7 +1777,19 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> {{:unknown, :delivery}, state}
   end
 
+  # An acknowledged retry item is decided only after each earlier held item
+  # of its conversation, in command order (`held_items_proven/4`): an
+  # earlier breach fences first, and an earlier item that cannot be read
+  # keeps the retry.
   defp acked_delivery(state, key, item) do
+    case held_items_proven(state, item_sequence(key), [], %{}) do
+      {:ok, state} -> acked_item(state, key, item)
+      {{:error, _reason}, state} -> {{:unknown, :delivery}, state}
+      {failure, state} -> unconfirmed_delivery(state, failure)
+    end
+  end
+
+  defp acked_item(state, key, item) do
     with {:ok, mode, intent} <- delivery_intent(state, item),
          {:ok, kind, observed} <- custody_kind(state, key, mode, intent, %{}) do
       decision =
@@ -5397,48 +5409,64 @@ defmodule Elzoo.Wave4ChannelExample do
   # window no longer shows was acknowledged meanwhile, and its own receipt
   # and its row decide, read by its key: an append that this host proved
   # does not settle an acknowledgement under another nonce. In version 1,
-  # before a round is restored, the held primaries that the window no longer
-  # shows still name their rounds' delivery items (`unseen_roots/2`): each
-  # is read once and its custody discovered (`roots_discovered/5`) before
-  # anything is decided. Those reads are later observations than the
-  # window: a window item that one of them saw acknowledged is no longer
-  # shown. The unseen held items and the items that the roots name are then
-  # decided together in command order (`held_proven/3`), so the earliest
-  # breach fences. A settled root is released; each item that an unsettled
-  # root names and that is not settled is held by its key, so that a round
-  # adopted later still checks it. `{:ok, state, window}` with the window
-  # as last observed, or `{failure, state}`.
+  # before a round is restored, the held primaries still name their rounds'
+  # delivery items: their custody is discovered in command order
+  # (`discover_roots/6`) before anything is decided. Discovery's reads are
+  # later observations than the window: a window item that one of them saw
+  # acknowledged is no longer shown, and a held primary that is no longer
+  # shown is discovered in its turn. The unseen held items and the items
+  # that the roots name are then decided together in command order
+  # (`held_proven/3`), so the earliest breach fences. When a read of
+  # discovery fails, only the items before what it could still name are
+  # decided: a proven earlier failure fences, else the step is retried with
+  # everything held. A settled root is released; each item that an
+  # unsettled root names and that is not settled is held by its key, so
+  # that a round adopted later still checks it. `{:ok, state, window}` with
+  # the window as last observed, or `{failure, state}`.
   defp unseen_held_proven(state, window) do
-    roots = unseen_roots(state, MapSet.new(window, & &1.idempotency_key))
+    shown = Map.new(window, &{&1.idempotency_key, &1})
 
-    with {:ok, seen} <- root_reads(state, roots),
-         {:ok, settled, named, seen} <- roots_discovered(state, roots, seen, [], []) do
-      window = Enum.map(window, &Map.get(seen, &1.idempotency_key, &1))
-      shown = for %{state: :pending} = item <- window, into: MapSet.new(), do: item.idempotency_key
+    {seen, frontier, settled, named} =
+      discover_roots(state, unseen_roots(state), shown, %{}, [], [])
 
+    window = Enum.map(window, &Map.get(seen, &1.idempotency_key, &1))
+
+    decided =
       state
       |> held_list()
-      |> Enum.reject(fn {_kind, _destination, key} -> MapSet.member?(shown, key) end)
+      |> Enum.reject(fn {_kind, _destination, key} -> shown?(shown, seen, key) end)
       |> Kernel.++(named)
       |> Enum.uniq_by(fn {_kind, _destination, key} -> key end)
+      |> Enum.filter(fn {_kind, _destination, key} -> before_frontier?(frontier, key) end)
       |> held_proven(state, seen)
-      |> case do
-        {:ok, state} ->
-          state = release_held(state, settled)
-          {:ok, Enum.reduce(named, state, &hold_unsettled(&2, &1, seen)), window}
 
-        failure ->
-          failure
-      end
-    else
-      error -> {error, state}
+    case {decided, frontier} do
+      {{:ok, state}, :complete} ->
+        state = release_held(state, settled)
+        {:ok, Enum.reduce(named, state, &hold_unsettled(&2, &1, seen)), window}
+
+      {{:ok, state}, {_limit, error}} ->
+        {error, state}
+
+      {failure, _frontier} ->
+        failure
     end
   end
 
+  # Whether the window shows `key` pending, as last observed.
+  defp shown?(shown, seen, key) do
+    case Map.fetch(shown, key) do
+      {:ok, item} -> Map.get(seen, key, item).state == :pending
+      :error -> false
+    end
+  end
+
+  defp before_frontier?(:complete, _key), do: true
+  defp before_frontier?({limit, _error}, key), do: item_sequence(key) < limit
+
   # Version 1, before a round is restored: the held primaries in command
-  # order, up to the first that the window still shows. The first is the
-  # custody root (`held_primary/1`).
-  defp unseen_roots(%{current: nil} = state, shown) do
+  # order. The first is the custody root (`held_primary/1`).
+  defp unseen_roots(%{current: nil} = state) do
     if reply_profile?(state.profile) do
       []
     else
@@ -5446,43 +5474,59 @@ defmodule Elzoo.Wave4ChannelExample do
       |> Enum.filter(fn {_key, held} -> held == {:input, @destination} end)
       |> Enum.map(fn {key, _held} -> key end)
       |> Enum.sort_by(&item_sequence/1)
-      |> Enum.take_while(&(not MapSet.member?(shown, &1)))
     end
   end
 
-  defp unseen_roots(_state, _shown), do: []
+  defp unseen_roots(_state), do: []
 
-  defp root_reads(state, roots) do
-    Enum.reduce_while(roots, {:ok, %{}}, fn key, {:ok, seen} ->
-      case observe_item(state, @destination, key) do
-        {:ok, item} -> {:cont, {:ok, Map.put(seen, key, item)}}
-        error -> {:halt, error}
+  # The held primaries in command order, up to the first that the window
+  # shows pending as last observed: each is taken from its latest
+  # observation in `seen`, else read by its key, and the items that its
+  # custody names are discovered (`custody_items/2`), whose reads replace
+  # older ones in `seen`. A root whose round these reads show settled (the
+  # root and each item that it names acknowledged with its own nonce) lets
+  # the next held primary be discovered; the first that is not ends
+  # discovery and stays the custody root. `{seen, frontier, settled,
+  # named}`: the frontier is `:complete`, or `{limit, error}` when a read
+  # failed, and only items before the sequence `limit` are known: a root
+  # whose read failed is not, and a root whose custody could not be read is
+  # (its items lie after it).
+  defp discover_roots(_state, [], _shown, seen, settled, named),
+    do: {seen, :complete, settled, named}
+
+  defp discover_roots(state, [key | roots], shown, seen, settled, named) do
+    if shown?(shown, seen, key) do
+      {seen, :complete, settled, named}
+    else
+      case seen_root(state, seen, key) do
+        {:ok, root} ->
+          seen = Map.put(seen, key, root)
+
+          case custody_items(state, {root.sequence, {:primary, root}}) do
+            {:ok, items, found} ->
+              seen = Map.merge(seen, found)
+              named = items ++ named
+
+              if Enum.all?([{:input, @destination, key} | items], fn {_kind, _destination, key} ->
+                   settled?(Map.get(seen, key))
+                 end),
+                 do: discover_roots(state, roots, shown, seen, [key | settled], named),
+                 else: {seen, :complete, settled, named}
+
+            error ->
+              {seen, {root.sequence + 1, error}, settled, named}
+          end
+
+        error ->
+          {seen, {item_sequence(key), error}, settled, named}
       end
-    end)
+    end
   end
 
-  # Each root in command order with the items that its custody names
-  # (`custody_items/2`), whose reads replace older ones in `seen`. A root
-  # whose round these reads show settled (the root and each item that it
-  # names acknowledged with its own nonce) lets the next root be
-  # discovered; the first that is not ends discovery and stays the custody
-  # root. `{:ok, settled, named, seen}`, or `{:error, reason}` when a read
-  # fails: nothing is decided, everything stays held, and the step is
-  # retried.
-  defp roots_discovered(_state, [], seen, settled, named), do: {:ok, settled, named, seen}
-
-  defp roots_discovered(state, [key | roots], seen, settled, named) do
-    root = Map.fetch!(seen, key)
-
-    with {:ok, items, found} <- custody_items(state, {root.sequence, {:primary, root}}) do
-      seen = Map.merge(seen, found)
-      named = named ++ items
-
-      if Enum.all?([{:input, @destination, key} | items], fn {_kind, _destination, key} ->
-           settled?(Map.get(seen, key))
-         end),
-         do: roots_discovered(state, roots, seen, [key | settled], named),
-         else: {:ok, settled, named, seen}
+  defp seen_root(state, seen, key) do
+    case Map.fetch(seen, key) do
+      {:ok, item} -> {:ok, item}
+      :error -> observe_item(state, @destination, key)
     end
   end
 

@@ -8179,6 +8179,68 @@ defmodule Elzoo.Wave4ChannelTest do
   end
 
   @tag timeout: 300_000
+  test "a held v1 primary acknowledged under another nonce between the windows is fenced while its round's receipt scan cannot be read",
+       %{fixture: fixture} do
+    other_nonce = :crypto.strong_rand_bytes(16)
+    {fixture, probe, primary} = reopened_settled_round!(fixture, fn _primary -> other_nonce end)
+    refute other_nonce == primary.nonce
+    key = primary.idempotency_key
+    nonce = primary.nonce
+    fail_reads_within!(probe, :read_ack, :find_delivery_item, :always)
+    trace_conversation_appends(fixture.host)
+
+    # The earliest primary's own read already decides it: no later read of
+    # its round can change that, so the scan that keeps failing does not
+    # hide the fence.
+    assert {:blocked, :delivery_ack_superseded} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_ack, ^key, ^nonce, :superseded} = :sys.get_state(fixture.host).poison
+    assert {:blocked, :delivery_ack_superseded} = Wave4ChannelExample.advance(fixture.host)
+    assert appends_of(take_conversation_appends(), :associate_run) == []
+  end
+
+  @tag timeout: 300_000
+  test "a held v1 primary acknowledged with its own nonce between the windows waits while its round's receipt scan cannot be read, then is released",
+       %{fixture: fixture} do
+    {fixture, probe, _primary} = reopened_settled_round!(fixture, & &1.nonce)
+    fail_reads_within!(probe, :read_ack, :find_delivery_item, :once)
+    assert {:unknown, :input_observation} = Wave4ChannelExample.advance(fixture.host)
+    assert {:idle, :no_input} = Wave4ChannelExample.advance(fixture.host)
+    assert :sys.get_state(fixture.host).held == %{}
+  end
+
+  # The settled v1 round of the test above, reopened: a competing caller
+  # acknowledges its primary with the nonce that `nonce_of` returns before
+  # the observation's window read. Returns the fixture, the host's command
+  # store probe and the primary's item.
+  defp reopened_settled_round!(fixture, nonce_of) do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+    run_id = run_id_of(fixture, event)
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+    assert {:ok, [primary]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert {:ok, fixture} = Elzoo.Wave4ChannelTestHelper.fence_and_reopen!(fixture, listener)
+    stream = Elzoo.Wave4ChannelTestHelper.command_stream(fixture.profile.tenant)
+    probe = probe_host_command_store!(fixture)
+
+    Elzoo.Wave4ChannelTest.ReadProbe.transform(probe, :pending, fn
+      _result, 2 ->
+        {:committed, _} =
+          Outbox.ack(fixture.command_store, primary.idempotency_key, nonce_of.(primary))
+
+        Elzoo.DurableLog.Store.read(fixture.command_store, :pending, [stream, 64])
+
+      result, _count ->
+        result
+    end)
+
+    {fixture, probe, primary}
+  end
+
+  @tag timeout: 300_000
   test "a queued v1 primary that a settled root's receipt scan reads acknowledged under another nonce is fenced, never adopted from the window that showed it pending",
        %{fixture: fixture} do
     other_nonce = :crypto.strong_rand_bytes(16)
@@ -8231,6 +8293,53 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert {:error, :not_found} =
              RunApprovalRelease.status(fixture.owner, run_id_of(fixture, later_event))
+  end
+
+  @tag timeout: 300_000
+  test "a held v1 primary that a settled root's receipt scan reads acknowledged with its own nonce has its own round discovered before the host idles, also once that discovery cannot be read",
+       %{fixture: fixture} do
+    {:ok, armed} = Agent.start_link(fn -> false end)
+    on_exit(fn -> if Process.alive?(armed), do: Agent.stop(armed) end)
+
+    {fixture, input_id, _later, later_event} =
+      settled_root_with_queued_input!(fixture, fn fixture, later ->
+        {:committed, _} = Outbox.ack(fixture.command_store, later.idempotency_key, later.nonce)
+        Agent.update(armed, fn _ -> true end)
+      end)
+
+    # The later input's retained command cannot be read once, when its own
+    # round is looked up right after the scan saw it acknowledged: that
+    # round cannot be named, so nothing after it is decided and the host
+    # neither idles nor adopts.
+    {store, probe} = Elzoo.Wave4ChannelTest.ReadProbe.attach(fixture.command_store)
+    depth = :erlang.system_flag(:backtrace_depth, 64)
+
+    on_exit(fn ->
+      :erlang.system_flag(:backtrace_depth, depth)
+      if Process.alive?(probe), do: Agent.stop(probe)
+    end)
+
+    Elzoo.Wave4ChannelTest.ReadProbe.transform(probe, :read, fn result, _count ->
+      if within_host_call?(:recover_input) and Agent.get_and_update(armed, &{&1, false}),
+        do: {:error, :unavailable},
+        else: result
+    end)
+
+    :sys.replace_state(fixture.host, fn state ->
+      put_in(state, [:handles, :input], %{state.handles.input | store: store})
+    end)
+
+    later_id = later_event["input_id"]
+    assert {:unknown, :input_observation} = Wave4ChannelExample.advance(fixture.host)
+
+    # The retry discovers its round, settled: both primaries are released
+    # and the host idles.
+    assert {:idle, :no_input} = Wave4ChannelExample.advance(fixture.host)
+    assert %{poison: nil, current: nil, held: held} = :sys.get_state(fixture.host)
+    assert held == %{}
+
+    assert [{:append_input, %{message_id: ^input_id}}, {:append_input, %{message_id: ^later_id}}] =
+             take_conversation_appends()
   end
 
   # A reopened v1 host whose round is settled: its primary's association
@@ -8410,15 +8519,49 @@ defmodule Elzoo.Wave4ChannelTest do
     assert Map.has_key?(:sys.get_state(fixture.host).held, key)
     trace_conversation_appends(fixture.host)
     assert {:associated, ^later_run} = Wave4ChannelExample.advance(fixture.host)
-    appends = take_conversation_appends()
-    assert [{:associate_run, %{input_message_id: "input-1"}}] = appends_of(appends, :associate_run)
-    assert [{:append_input, %{message_id: ^later_id}}] = appends_of(appends, :append_input)
+
+    assert [
+             {:associate_run, %{input_message_id: "input-1"}},
+             {:append_input, %{message_id: ^later_id}}
+           ] = take_conversation_appends()
 
     assert {:ok, %{state: :acked, ack_nonce: ^nonce}} =
              Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [key])
 
     assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
     refute Map.has_key?(:sys.get_state(fixture.host).held, key)
+  end
+
+  @tag timeout: 300_000
+  test "a held v1 association acknowledged without its row is the fence when the retry of a later input finds that input acknowledged under another nonce",
+       %{fixture: fixture} do
+    {fixture, association, later} = backlog_hidden_association!(fixture)
+    key = association.idempotency_key
+    %{current: %{item: %{key: later_key, nonce: later_nonce}}} = :sys.get_state(fixture.host)
+
+    # The held association is acknowledged with its own nonce and no row.
+    # The delivery pass cannot read its row once, before the adopted input
+    # is appended: the retry is keyed on that input.
+    assert {:committed, _} = Outbox.ack(fixture.command_store, key, association.nonce)
+    conversation_probe = probe_host_conversation_store!(fixture)
+    fail_reads_within!(conversation_probe, :read, :deliver_item, :once)
+    trace_conversation_appends(fixture.host)
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery, ^later_key, :held} = :sys.get_state(fixture.host).poison
+
+    # Another nonce then acknowledges the adopted input. The keyed retry
+    # checks the earlier held association first: its fence, never the later
+    # input's, and no append.
+    other_nonce = :crypto.strong_rand_bytes(16)
+    refute other_nonce == later_nonce
+    assert {:committed, _} = Outbox.ack(fixture.command_store, later_key, other_nonce)
+    assert {:blocked, :delivery_unproven} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_unproven, :association, ^key} = :sys.get_state(fixture.host).poison
+    assert {:blocked, :delivery_unproven} = Wave4ChannelExample.advance(fixture.host)
+    assert take_conversation_appends() == []
+
+    assert {:error, :not_found} =
+             RunApprovalRelease.status(fixture.owner, run_id_of(fixture, later))
   end
 
   # A v1 round whose association commits behind a backlog: between the
