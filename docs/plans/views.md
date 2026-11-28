@@ -486,6 +486,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-435](https://github.com/balungpisah/elzoo/issues/1056) | V2 / later | none | published 2026-11-27 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-436](https://github.com/balungpisah/elzoo/issues/1062) | V2 / later | ELZ-419 | published 2026-11-28 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-437](https://github.com/balungpisah/elzoo/issues/1063) | V2 / later | ELZ-418, ELZ-419 | published 2026-11-28 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-438](https://github.com/balungpisah/elzoo/issues/1066) | V2 / later | ELZ-421 | published 2026-11-28 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -5868,3 +5869,15 @@ Publication copy: [tasks/ELZ-437-wave4-unknown-dispatch-fences.md](../../tasks/E
 **Product aims:** P09.
 
 **Acceptance:** The wave 4 channel keeps an unknown reply-association or ASK-release dispatch fenced until its own terminal result, dispatches a contended request again, and decides a restored wait's ambiguity by a fail-closed scan of the rows after its cursor; negative controls; affected gate, strongest other-family review.
+
+### ELZ-438
+
+ELZ-438 — assembly/run-host: reap only the incarnation that an observer saw
+
+Publication copy: [tasks/ELZ-438-run-host-observed-reap.md](../../tasks/ELZ-438-run-host-observed-reap.md).
+
+**Product aims:** P09.
+
+**Acceptance:** Tagged status and terminal callback identify the same reservation with an observation reference separate from the private control token. Compare-and-reap at admission; a stale reference neither joins teardown nor reaps a replacement. Fenced replacement on Memory and PostgreSQL, retry after unconfirmed release, old API shapes, negative control and Piece gate.
+
+**Secondary contribution:** assembly/run-host — An observer can reap the reservation it saw without stopping its replacement.
