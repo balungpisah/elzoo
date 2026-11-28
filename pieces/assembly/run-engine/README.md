@@ -226,13 +226,37 @@ admitted the child, the `local_restart` loss that a start or a replacement Unit 
 for running local work, and the `lost_outcome` of a model or tool call whose intent was
 already tried) is not written, and its slot stays as it is. A refusal or a nested
 outcome is given again by a later drain; a `local_restart` or `lost_outcome` loss, which
-no drain selects again, is kept by the engine and given again in each drain after a
-pending stop and after the retained inputs and held reports that the drain gives first,
-once it fits, at the latest after a continue resumes the Run, with no second dispatch to
-the provider and no new intent attempt (an engine that stops forgets it, and the next
-start or replacement Unit records it again). A refusal writes nothing of the refused
-record, and what the call committed before its check (a stop that a Resource outcome
-set in the same call, for one) is drained all the same. The step stores the actual twice in the Budget and
+no drain selects again, is kept by the engine and given again by the drain, one loss per
+round, after a pending stop and after the retained inputs and held reports that the
+drain gives first, once it fits, at the latest after a continue resumes the Run, with no
+second dispatch to the provider and no new intent attempt. After each append the drain
+selects again, so a stop or a report that the append set comes first and a slot that its
+expiry pass settled gets no loss record; a loss refused again is skipped for the rest of
+that drain, so it neither blocks the other losses nor loops: each kept loss is tried at
+most once per drain unless an append settles it, so a drain whose losses are all refused
+ends after one try of each. Recovery that finds a loss
+while a retained input or held report can already be given (a continue committed before a
+crash) keeps the loss for the drain instead of recording it first. An engine that stops
+forgets a kept loss; the next start or replacement Unit finds it again only by the same
+recovery: running local work (`local_restart`), and a non-Approval model or tool call in
+`:running` or `:reconcile` whose intent owner is active again with a tried attempt
+(`lost_outcome`). A read-only intent owner moves the slot to `:reconcile` with
+`reconciliation: :read_only` instead, which no drain selects; a call held for Approval
+(`request_key`) is routed by the Run's release, not by this recovery. Observed: a v2
+tool call whose active owner was recovered at an engine restart, and v2 local work at a
+restart and at a same-Attempt replacement Unit; model calls, v1 and a read-only owner at
+that point are not exercised. Every ingress refusal that `input/4` gives after it has
+reconciled the owner's Run view and the Resources (`current/1`): a record that is too
+large, an ID conflict, an invalid correlation or payload, `record_size`, writes nothing of
+the refused input, and the reply is that refusal; the drain then serves what `current/1`
+committed (a stop that a Resource outcome set in the same call, for one). When that drain
+ends in a halt (the owner refuses completion with no terminal view:
+`:terminal_commit_pending`, for one) the reply is still the refusal and `status/1` shows
+the halt; when it exits the engine halts `:delivery_unknown` with its cached state
+cleared. A refused outcome from the engine's mailbox is drained the same way, and a v2
+mailbox delivery whose work after `current/1` exits halts the engine the same way rather
+than keeping the state from before `current/1`. The time checks stay before
+reconciliation (they write nothing). The step stores the actual twice in the Budget and
 once in the slot; a slot that the step settles frees its 4,096-byte reserve and its
 listed wait, while a slot that keeps the input as its pending input while paused frees
 its listed wait but keeps its reserve (it stays active until continue gives the input),
@@ -1675,12 +1699,18 @@ call where the first took one (its entry in `control.invocations` makes it a
 duplicate) and none in an older Attempt (it is late), but the second pair is written.
 The cursor refusal and the waiting slot's own deadline do not settle a slot that waits
 on that Resource (the expiry pass does not settle a Resource slot): while its Attempt
-and the Run stay open, and while its own outcome has not committed, it stays open past
-its own deadline until its entry is consumed. An entry can carry several inputs (a
-Resource close settles each waiting or active action and adds its closed event) and
-each commits on its own before the check before the cursor record, so a slot whose own
-outcome committed is settled while the cursor has not moved and the entry stays
-unconsumed for its later inputs or its cursor record. The existing close rules still apply. A
+and the Run stay open, and while no applied settlement of its own has committed, it
+stays open past its own deadline until its entry is consumed. What settles the slot is an
+applied settlement, not the presence of an input row or the cursor: an entry can carry
+several inputs (a Resource close settles each waiting or active action and adds its
+closed event), each commits on its own before the check before the cursor record, so a
+slot whose own outcome committed and applied is settled while the cursor has not moved
+(a crash between them leaves that state); and a committed input is not always an applied
+settlement (an outcome that comes at the Run deadline asks for `out_of_time` and is
+classified late, leaving the slot to the end of the Run). These two cases are the rule of
+the fold, not observed: the tests commit a Resource close's closed event before a refused
+cursor check, not a close action's applied settlement with the cursor unmoved, and no test
+commits a Resource input at the Run deadline. The existing close rules still apply. A
 change of Attempt settles a sent Resource slot of the older Attempt `unknown`, with no
 actual and its Budget entry held, in the fold of the new Attempt's Run view, before any
 later pass reads the Resource; the Resource's cursor does not move. A stop whose end of
@@ -2199,12 +2229,13 @@ them measures them); the tests that use it pass unchanged. The 32 KiB answer, re
 at the limit, is refused again after the owner moved, appending only the Run view that
 the call journaled; the Unit reopens with the ask waiting after the refusal and, after
 the accepted settlement, delivers the marked stop. Padded states in these tests are
-synthetic boundary-sized predecessors: `pad_invocations/2` adds invocation entries of
-up to 8,000-byte IDs keyed by digests of the padding itself (a public input ID is at
-most 160 bytes), and `journal_state/3` installs such a state with a `:pad` record; they
-stand for a state that an earlier revision recorded near the bound or that admission
-left at its limit, not for a history that an engine recorded, and the engine calls that
-follow them are real. An answer whose actual spends the
+synthetic boundary-sized predecessors: `pad_invocations/2` adds invocation entries whose
+keys are IDs of up to 8,000 bytes (a public input ID is at most 160 bytes) and whose
+values are the SHA-256 of that ID (the fold's own entries are keyed by the input ID with
+the digest of its input and correlation as value), and `journal_state/3` installs such a
+state with a `:pad` record; they stand for a state that an earlier revision recorded near
+the bound or that admission left at its limit, not for a history that an engine recorded,
+and the engine calls that follow them are real. An answer whose actual spends the
 Budget and whose step grows control by 100 to 200 bytes past what its settlement frees
 is admitted, on a state without the room for a step that sets a stop and within the
 bound (none left, found by bisection), at the padding where its unmarked step fits with
@@ -2229,10 +2260,27 @@ commit 9147a57c, which measured the room with the classification as it stood, it
 admitted unmarked). Through public calls, a Resource open's outcome that the call's
 own reconciliation takes makes the root ask past request cap 1 and sets the request-cap
 stop; an ask's verified answer of actual 3 in that call is then applied while the stop is
-pending and the stop is delivered (`out_of_budget`, reason `"request_cap"`), and, in v1
-and v2, a local outcome of the engine's mailbox form whose actual the slot bound cannot
-hold is refused with no record of it, and the stop that the reconciliation set is
-delivered all the same, the local work still running. Beside a nested child open at zero cost, a state without the room takes
+pending and the stop is delivered (`out_of_budget`, reason `"request_cap"`); in the same
+setup an answer that public ingress refuses before its room check (an encoded record
+above 262,144 bytes: `{:error, :input_too_large}`; the ID of the start input:
+`{:error, :input_id_conflict}`) gets that refusal as its reply, writes no answer record,
+and the stop is delivered in that call; with an owner that refuses the completion, the
+reply to an answer under the start input's ID is still `{:error, :input_id_conflict}`,
+`status/1` shows the drain's halt `:terminal_commit_pending`, the stop stays committed
+and marked, and a restart with the owner answering delivers it. In v2, when the drain of
+an injected mailbox record (as below) that is refused exits in its owner call after the owner took the completion, the
+engine halts `:delivery_unknown` with no cached state (not the state from before
+`current/1`), answers a later input with that halt, and a restart takes the owner's
+terminal view. Separately, a record injected into the engine's
+mailbox in the form of a local outcome (the test constructs it: the running task did not
+produce it, and the real producer uses the work's estimate, its sampled time and a derived
+stable ID), whose actual the slot bound cannot hold, is refused in v1 and v2 with no
+record of it, and the stop that the reconciliation of that delivery set is delivered, the
+local work still running. With the engine killed at its owner command after such a
+request-cap stop (the stop pending and marked, an ask waiting), a Budget-spending answer
+is admitted from a least padding that is lower, by the mark's bytes, than on the same
+state with the mark removed (a constructed state of an earlier revision), and refused one
+byte under it: the mark of a pending stop is not counted once the stop is dropped. Beside a nested child open at zero cost, a state without the room takes
 a Budget-spending answer unmarked at exact fit: no charge of the child is counted against
 that step. An answer of another Run that names the open ask's Attempt, action and
 occurrence is, by the fold and its size check, late: it is admitted, its step changes
@@ -2245,9 +2293,13 @@ removed, and continue gives it to the pattern once. Under `budget_rule: :pause`,
 answer with no actual whose own step pauses the Run on a Budget that an earlier Budget
 step exhausted is refused the same way, and kept with room. In a paused v2 Run, a
 Resource entry whose completed open the fold would settle without keeping it writes no
-row and leaves the slot open and the cursor unmoved; on the same engine a continue
-resumes the Run, and the next call's pass consumes the entry and gives its outcome to the
-pattern once. A running local work lost at a restart writes no
+row and leaves the slot open and the cursor unmoved at a call while paused (its
+`current/1` reads the entry and refuses it); on the same engine the continue
+control itself (its lifecycle row, then its own pass over the Resource, before it
+replies) commits the entry's input and cursor record, settles the slot without retaining
+it and gives its outcome to the pattern once; with room a call while paused consumes the
+entry and keeps the outcome as the slot's pending input, and the
+continue gives it once. A running local work lost at a restart writes no
 `local_restart` loss where its step could not keep it and stays running; the Unit is
 then replaced in the same Attempt, whose recovery refuses the loss again, and the
 continue that resumes the Run records the loss and gives it to the pattern once. A
@@ -2255,7 +2307,12 @@ dispatched tool call lost at a restart writes no `lost_outcome` where its step c
 not keep it; the continue records it and gives it once, with no second dispatch. With
 `expiry_reports: :owner`, an ask's expiry report held while paused and a running local
 work whose loss could not be kept are given after continue in that order: the report,
-then the loss. A
+then the loss; the same order holds at the cut after a continue's lifecycle row and
+before its drain (that state built by the fold and installed as the recorded state),
+where the restart's recovery finds the loss and keeps it behind the report. Two running
+local works whose losses were both refused while paused, resumed by a continue at their
+deadline: the first loss record's expiry pass settles both slots, and no loss record is
+written for the second. A
 nested start with an estimate of 4 KiB, a 60,000-byte child Budget ID and an empty child
 script is stepped at the least admitted padding and the 64 above it: each admitted step
 keeps the bound, and so does the Run view of a new Attempt after it, which closes the
@@ -2725,9 +2782,13 @@ fail). Listed finite scenarios, not a proof.
   still give it (else `input/4` gives `{:error, :record_size}`, a local work's outcome
   is dropped, a Resource entry stays unconsumed, and an outcome or loss of the engine
   is left for a later drain, each with no record appended; a Run view that the call
-  journaled before the check stays, and what the call committed before the check is
-  drained); in the fold, an input of another Run is late before any settlement or size
-  check (`input/4` validates its time, ID, schema and correlation first);
+  journaled before the check stays); every ingress refusal of `input/4` after it has
+  reconciled (`current/1`), a size, an ID conflict or room, replies with that refusal and
+  drains what that reconciliation committed (a halt in that drain is shown by `status/1`,
+  an exit halts `:delivery_unknown`); a kept loss is given again one per drain round after
+  a pending stop and the retained inputs and held reports; in the fold, an input of
+  another Run is late before any settlement or size check (`input/4` validates its time,
+  ID, schema and correlation first);
   the engine refuses a time or a Run revision above 2^63 - 1 where it enters (a start
   option, a control, an input's context, a clock sample, a Run view), before any write
   that reconciles the owner's Run view, and reads one clock sample for an input, a
@@ -2791,10 +2852,11 @@ fail). Listed finite scenarios, not a proof.
   step could not keep for continue waits for room or for continue; a Resource entry
   whose cursor transition would cut into the room, or whose projected transition fails,
   stays unconsumed, and a slot that waits on that Resource stays open past its own
-  deadline while its Attempt and the Run stay open until the entry is consumed (a change
-  of Attempt settles a sent slot `unknown` with its Budget held, which a later cursor
-  can still settle; a stop settles it unless the request-cap stop retains it, as
-  before); a `run_deadline` start option,
+  deadline while its Attempt and the Run stay open and no applied settlement of its own
+  has committed (an entry's inputs commit one by one before its cursor record, so a slot
+  can be settled with the cursor unmoved); a change of Attempt settles a sent slot
+  `unknown` with its Budget held, which a later cursor can still settle; a stop settles
+  it unless the request-cap stop retains it, as before); a `run_deadline` start option,
   a control or context deadline, a clock sample or a Run view revision above 2^63 - 1
   is refused, a binding deadline above it halts the engine (keep times within
   2^63 - 1), and a Run that the earlier revision started with a `run_deadline` above

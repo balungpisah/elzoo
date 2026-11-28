@@ -1959,6 +1959,7 @@ defmodule Elzoo.RunEngine do
         halted: nil,
         work: %{},
         lost: %{},
+        lost_tried: MapSet.new(),
         intents: %{},
         state: nil,
         appended: false,
@@ -2141,11 +2142,11 @@ defmodule Elzoo.RunEngine do
             case result do
               {:ok, s} -> {:noreply, s}
               {:error, _, s} -> {:noreply, s}
-              {:error, :record_size} -> drained(s)
+              {:error, :record_size} -> {:noreply, serve_committed(s)}
             end
 
           {:error, _} ->
-            {:noreply, s}
+            {:noreply, serve_committed(s)}
         end
 
       {:error, _, s} ->
@@ -2176,27 +2177,50 @@ defmodule Elzoo.RunEngine do
 
   def handle_info(_, s), do: {:noreply, s}
 
+  # The commit of a v2 input that the engine takes from its mailbox, after the Unit check
+  # (and its recovery) of current_unit/1. Everything after that check runs at the
+  # reconciled-state boundary (after_current/2): an exit there halts the engine with its
+  # cache cleared, never returns the state from before the check.
   defp commit_and_drain_input(s, id, record) do
     with_current_unit(s, fn s ->
-      {before, s} = read_state(s)
+      after_current(s, fn s ->
+        {before, s} = read_state(s)
 
-      with :ok <- actual_room(before, record),
-           {:ok, _, s} <- commit(s, id, record),
-           {:ok, s} <- drain(s) do
-        {:noreply, s}
-      else
-        {:error, :record_size} -> drained(s)
-        {:error, _, s} -> {:noreply, s}
-      end
+        with :ok <- actual_room(before, record),
+             {:ok, _, s} <- commit(s, id, record),
+             {:ok, s} <- drain(s) do
+          {:noreply, s}
+        else
+          {:error, :record_size} -> {:noreply, serve_committed(s)}
+          {:error, _, s} -> {:noreply, s}
+        end
+      end)
     end)
   end
 
-  # The drain after an input that the retained-input rule refused (nothing of it written).
-  defp drained(s) do
+  # After an ingress refusal that follows current/1 (the refused record wrote nothing),
+  # the work that current/1 committed (a Resource outcome's step that set a stop, for one)
+  # is served by a drain all the same. A drain that ends in a halt keeps it (status/1 shows
+  # it); one that exits halts the engine `:delivery_unknown` with its cache cleared. The
+  # caller's reply is the refusal (refused/2): the input is known not to be written.
+  defp serve_committed(s) do
     case drain(s) do
-      {:ok, s} -> {:noreply, s}
-      {:error, _, s} -> {:noreply, s}
+      {:ok, s} -> s
+      {:error, _, s} -> s
     end
+  catch
+    :exit, _ -> %{s | halted: :delivery_unknown, state: nil, decoded: %{}}
+  end
+
+  defp refused(s, reason), do: {{:error, reason}, serve_committed(s)}
+
+  # The part of a mailbox delivery after current/1 or current_unit/1 reconciled the state:
+  # an exit halts the engine `:delivery_unknown` with its cache cleared (rows may have
+  # committed), so status/1 never shows the state from before the reconciliation.
+  defp after_current(s, fun) do
+    fun.(s)
+  catch
+    :exit, _ -> {:noreply, %{s | halted: :delivery_unknown, state: nil, decoded: %{}}}
   end
 
   # A drain that no public call starts runs the Unit check of current/1 first
@@ -2213,16 +2237,18 @@ defmodule Elzoo.RunEngine do
   defp accept_local_work_input(s, id, record) do
     case current(s) do
       {:ok, s} ->
-        record = local_outcome_context(s, record)
+        after_current(s, fn s ->
+          record = local_outcome_context(s, record)
 
-        case checked_ingress(s, record.input, Map.merge(record.context, record.correlation)) do
-          {:ok, input, correlation, s} ->
-            record = %{record | input: input, correlation: correlation}
-            commit_and_drain_input(s, id, record)
+          case checked_ingress(s, record.input, Map.merge(record.context, record.correlation)) do
+            {:ok, input, correlation, s} ->
+              record = %{record | input: input, correlation: correlation}
+              commit_and_drain_input(s, id, record)
 
-          _ ->
-            {:noreply, s}
-        end
+            _ ->
+              {:noreply, serve_committed(s)}
+          end
+        end)
 
       # A halt of current/1 (a failed winner read included) stays: status/1 shows it.
       {:error, _, %{halted: reason} = halted} when not is_nil(reason) ->
@@ -2531,11 +2557,11 @@ defmodule Elzoo.RunEngine do
             end
 
           _ ->
-            {{:error, :source_unavailable}, checked_s}
+            refused(checked_s, :source_unavailable)
         end
 
       {:error, reason, checked_s} ->
-        {{:error, reason}, checked_s}
+        refused(checked_s, reason)
     end
   catch
     :exit, _ ->
@@ -2693,7 +2719,8 @@ defmodule Elzoo.RunEngine do
   end
 
   # The input is recorded at `at`, its one clock sample, which input_time/3 (for the input
-  # of a cancel control, control_time/3) took and checked before current/1.
+  # of a cancel control, control_time/3) took and checked before current/1. Every refusal
+  # after current/1 serves the work that current/1 committed (refused/2).
   defp ingest_current(s, id, neutral, context, at, cancel_work) do
     input = Map.put(neutral, "at_ms", at)
 
@@ -2701,7 +2728,7 @@ defmodule Elzoo.RunEngine do
          {:ok, checked, correlation, s} <- checked_ingress(s, input, context) do
       submit_ingress(s, id, input, checked, correlation, context, cancel_work)
     else
-      {:error, reason} -> {{:error, reason}, s}
+      {:error, reason} -> refused(s, reason)
     end
   end
 
@@ -2750,19 +2777,10 @@ defmodule Elzoo.RunEngine do
           {{:error, reason}, s}
       end
     else
-      {:error, :record_size} ->
-        # A refused input writes nothing; what current/1 committed before the check (a stop
-        # that a Resource outcome set, for one) is drained all the same.
-        case drain(s) do
-          {:ok, s} -> {{:error, :record_size}, s}
-          {:error, reason, s} -> {{:error, reason}, s}
-        end
-
-      {:error, reason} ->
-        {{:error, reason}, s}
-
-      _ ->
-        {{:error, :invalid_input}, s}
+      # A refusal before the write (its size, its ID, its time, its room): nothing of the
+      # input is written, and the reply is that refusal (refused/2).
+      {:error, reason} -> refused(s, reason)
+      _ -> refused(s, :invalid_input)
     end
   end
 
@@ -3367,13 +3385,13 @@ defmodule Elzoo.RunEngine do
   defp renewals_only?(_, _), do: false
 
   # The loss of running local work whose task this engine does not hold, `local_restart`,
-  # at a start and at a replacement Unit (lost_outcome/5).
+  # at a start and at a replacement Unit (recover_loss/5).
   defp recover_local(s) do
     {state, s} = read_state(s)
 
     Enum.reduce_while(state.slots, {:ok, s}, fn {key, slot}, {:ok, acc} ->
       if slot.kind == "local_work" and slot.phase == :running do
-        case lost_outcome(acc, key, "failed", "local_restart", %{loss: :unavailable}) do
+        case recover_loss(acc, key, "failed", "local_restart", %{loss: :unavailable}) do
           {:ok, acc} -> {:cont, {:ok, acc}}
           other -> {:halt, other}
         end
@@ -3383,16 +3401,38 @@ defmodule Elzoo.RunEngine do
     end)
   end
 
+  # A loss that recovery finds (at a start or a replacement Unit) is recorded at once
+  # (lost_outcome/5), unless the drain gives something before it: a retained input or held
+  # report that the Run can be given now, with no stop pending (the input of a continue
+  # that committed before a crash resumed it). Then it is kept in `lost` for drain_round/1,
+  # which gives it after them.
+  defp recover_loss(s, key, class, reason, correlation) do
+    {state, s} = read_state(s)
+
+    if retained_first?(state),
+      do: {:ok, %{s | lost: Map.put(s.lost, key, {class, reason, correlation})}},
+      else: lost_outcome(s, key, class, reason, correlation)
+  end
+
+  # Whether the drain gives a retained input or held report before any other work.
+  defp retained_first?(state) do
+    c = state.control
+
+    is_nil(c.stop_pending) and c.lifecycle.phase not in [:paused, :terminal] and
+      not c.generation_closed and
+      Enum.any?(state.slots, fn {_, slot} -> slot[:pending_input] != nil end)
+  end
+
   # An outcome that the engine gives itself for a slot that no drain selects again: the
   # `local_restart` loss of running local work, and the `lost_outcome` of a dispatched
-  # model or tool call whose intent was tried (at a start, a replacement Unit, or a
-  # dispatch that finds the intent tried). When the retained-input rule refuses it
-  # (internal_outcome/6 writes nothing: a paused Run without the room to keep it for
+  # model or tool call whose intent was tried, found active (at a start, a replacement
+  # Unit, or a dispatch that finds the intent tried). When the retained-input rule refuses
+  # it (internal_outcome/6 writes nothing: a paused Run without the room to keep it for
   # continue), the slot stays open and the outcome is kept in `lost`, by slot, so that
-  # drain_round/1 gives it again by the same rule after a pending stop and after the
-  # retained inputs that the drain gives first; the provider is not asked again and no new
-  # intent attempt is made. A slot that settles otherwise (its deadline, a change of
-  # Attempt, the end of the Run) leaves `lost`.
+  # drain_round/1 gives it again by the same rule, one loss per round, after a pending stop
+  # and after the retained inputs that the drain gives first; the provider is not asked
+  # again and no new intent attempt is made. A slot that settles otherwise (its deadline,
+  # a change of Attempt, the end of the Run) leaves `lost`.
   defp lost_outcome(s, key, class, reason, correlation) do
     with {:ok, s} <- internal_outcome(s, key, class, reason, correlation) do
       {state, s} = read_state(s)
@@ -3406,13 +3446,20 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp retry_lost(s) do
-    Enum.reduce_while(s.lost, {:ok, s}, fn {key, {class, reason, correlation}}, {:ok, acc} ->
-      case lost_outcome(acc, key, class, reason, correlation) do
-        {:ok, acc} -> {:cont, {:ok, acc}}
-        other -> {:halt, other}
-      end
-    end)
+  # One kept loss per round, in key order: the first whose step appends ends the round, so
+  # drain_round/1 selects again (a stop or a report that the append set comes first, and a
+  # slot that its expiry pass settled leaves `lost`); one that is refused again is skipped
+  # for the rest of this drain (`lost_tried`), so it neither blocks the others nor loops.
+  defp retry_lost(s, []), do: drain_progress(s)
+
+  defp retry_lost(s, [key | rest]) do
+    {class, reason, correlation} = s.lost[key]
+
+    with {:ok, s} <- lost_outcome(s, key, class, reason, correlation) do
+      if s.appended,
+        do: continue_drain(s),
+        else: retry_lost(%{s | lost_tried: MapSet.put(s.lost_tried, key)}, rest)
+    end
   end
 
   # At a start and at a replacement Unit the engine decides a pending stop before it writes
@@ -3480,12 +3527,12 @@ defmodule Elzoo.RunEngine do
   defp drain(%{halted: reason} = s) when not is_nil(reason),
     do: {:error, reason, %{s | state: nil, decoded: %{}}}
 
-  defp drain(s), do: drain_round(%{s | appended: false})
+  defp drain(s), do: drain_round(%{s | appended: false, lost_tried: MapSet.new()})
 
   # One round of the drain, in priority order: a pending stop; a retained input or held
-  # report that the Run can be given; an outcome that the engine gives itself and that the
-  # retained-input rule refused before (retry_lost/1); then the progress of a finished
-  # child or of a slot (drain_progress/1).
+  # report that the Run can be given; one outcome that the engine gives itself and that the
+  # retained-input rule refused before (retry_lost/2); then the progress of a finished
+  # child or of a slot (drain_progress/1). After each append the next round selects again.
   defp drain_round(s) do
     {state, s} = read_state(s)
     lost = Map.filter(s.lost, fn {key, _} -> state.slots[key][:phase] not in [nil, :settled] end)
@@ -3495,6 +3542,8 @@ defmodule Elzoo.RunEngine do
       state.slots
       |> Enum.filter(fn {_, slot} -> slot[:pending_input] != nil end)
       |> Enum.min_by(fn {_, slot} -> slot.pending_input.order end, fn -> nil end)
+
+    untried = lost |> Map.keys() |> Enum.reject(&MapSet.member?(s.lost_tried, &1)) |> Enum.sort()
 
     cond do
       state.control.stop_pending != nil ->
@@ -3513,10 +3562,8 @@ defmodule Elzoo.RunEngine do
                }),
              do: continue_drain(s)
 
-      lost != %{} ->
-        with {:ok, s} <- retry_lost(s) do
-          if s.appended, do: continue_drain(s), else: drain_progress(s)
-        end
+      untried != [] ->
+        retry_lost(s, untried)
 
       true ->
         drain_progress(s)
@@ -3578,7 +3625,7 @@ defmodule Elzoo.RunEngine do
   end
 
   # A round that appended a record goes on; otherwise the drain ends.
-  defp continue_drain(%{appended: true} = s), do: drain(s)
+  defp continue_drain(%{appended: true} = s), do: drain_round(%{s | appended: false})
   defp continue_drain(s), do: {:ok, %{s | appended: false, decoded: %{}}}
 
   # A closed child whose every slot cost is known or final unknown gives its parent
@@ -5052,7 +5099,7 @@ defmodule Elzoo.RunEngine do
                 end
 
               view.attempts > 0 ->
-                lost_outcome(acc, key, "unknown", "lost_outcome", %{dispatch: "unknown"})
+                recover_loss(acc, key, "unknown", "lost_outcome", %{dispatch: "unknown"})
 
               true ->
                 facts = %{reconciliation: :active}

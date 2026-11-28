@@ -24,6 +24,13 @@ defmodule Elzoo.RunEngineStopAttemptTest.CompleteForwarder do
   def handle_call({:command, %{kind: :complete}}, _from, {_run, :refuse} = state),
     do: {:reply, {:error, :unavailable}, state}
 
+  # `:forward_then_exit` gives the `:complete` command to the owner and then exits with no
+  # reply: the engine's call exits with the command delivered (an uncertain delivery).
+  def handle_call({:command, %{kind: :complete}} = message, _from, {run, :forward_then_exit}) do
+    _ = GenServer.call(run, message, 60_000)
+    {:stop, :normal, {run, :spent}}
+  end
+
   def handle_call(
         {:status, _} = status,
         _from,
@@ -1686,7 +1693,7 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert %{phase: :settled, pending_input: %{}} = state.slots[key]
     end
 
-    test "a paused v2 Run: a Resource entry whose outcome cannot be kept for continue writes no row and stays unconsumed; with room it is kept and continue gives it once" do
+    test "a paused v2 Run: a Resource entry whose outcome cannot be kept for continue writes no row and stays unconsumed at a call while paused, and the continue itself consumes it and gives it once" do
       payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
       c = run_fixture(fn frame -> [frame.([action("open", "resource_open", payload)])] end, 2)
       {owner, bindings} = resource(c)
@@ -1740,15 +1747,19 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       before = rows(c)
       flush_pattern_inputs()
       engine = start(c, opts)
+      # A call while paused runs current/1, whose pass reads the entry and refuses it.
+      assert {:ok, _} = RunEngine.input(engine, "paused-wake", input(c, "wake"), verified())
       assert entry_rows(c, before) == []
       state = unit_state(c)
       refute state.slots[key].phase == :settled
       assert state.control.cursors["document"] == cursor
 
-      # The same engine on the same blocked entry: a continue resumes the Run, and the next
-      # call's pass (a wake) consumes the entry, now settled without being retained, and
-      # gives its outcome to the pattern once.
+      # The same engine on the same blocked entry: the continue control itself (its
+      # lifecycle row, then its own pass over the Resource) consumes the entry, settles the
+      # slot without retaining it and gives its outcome to the pattern once, before it
+      # replies; no later call is needed.
       continue = %{kind: :continue, person_id: "person", run_deadline: 60_000}
+      at_continue = rows(c)
 
       assert {:ok, :applied} =
                RunEngine.control(
@@ -1758,8 +1769,50 @@ defmodule Elzoo.RunEngineStopAttemptTest do
                  verified(%{verified_person: "person"})
                )
 
-      assert {:ok, _} = RunEngine.input(engine, "after-continue", input(c, "wake"), verified())
-      assert unit_state(c).control.cursors["document"] > cursor
+      assert [_ | _] = consumed = entry_rows(c, at_continue)
+      assert Enum.any?(consumed, &String.starts_with?(&1, "resource:"))
+      assert Enum.any?(consumed, &String.starts_with?(&1, "cursor:"))
+      after_continue = unit_state(c)
+      assert after_continue.control.cursors["document"] > cursor
+      assert %{phase: :settled} = after_continue.slots[key]
+      refute Map.has_key?(after_continue.slots[key], :pending_input)
+
+      assert_receive {:pattern_input, "root", %{"kind" => "action_outcome", "action_id" => "open"}},
+                     5_000
+
+      refute_receive {:pattern_input, "root", %{"kind" => "action_outcome", "action_id" => "open"}},
+                     300
+    end
+
+    test "a paused v2 Run with room: a call's pass consumes a Resource entry while paused and the slot keeps its outcome as its pending input; the continue gives it to the pattern once" do
+      payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+      c = run_fixture(fn frame -> [frame.([action("open", "resource_open", payload)])] end, 2)
+      {owner, bindings} = resource(c)
+      engine = start(c, resources: %{"document" => owner}, bindings: bindings)
+      assert {:ok, :applied} = start_run(c, engine)
+      assert_receive {:effect_started, _opening, _}, 5_000
+      pause = %{kind: :pause, pause_deadline: 50_000}
+      assert {:ok, :applied} = RunEngine.control(engine, "pause", pause, verified())
+      paused = unit_state(c)
+      {key, _} = slot_of(paused, "open")
+      cursor = paused.control.cursors["document"]
+      observed(owner, "opened", "open", %{opened_at_ms: 2_000}, 2_000)
+      flush_pattern_inputs()
+      assert {:ok, _} = RunEngine.input(engine, "paused-wake", input(c, "wake"), verified())
+      kept = unit_state(c)
+      assert kept.control.lifecycle.phase == :paused
+      assert kept.control.cursors["document"] > cursor
+      assert %{phase: :settled, pending_input: %{}} = kept.slots[key]
+      refute_received {:pattern_input, "root", %{"action_id" => "open"}}
+      continue = %{kind: :continue, person_id: "person", run_deadline: 60_000}
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "continue",
+                 continue,
+                 verified(%{verified_person: "person"})
+               )
 
       assert_receive {:pattern_input, "root", %{"kind" => "action_outcome", "action_id" => "open"}},
                      5_000
@@ -1944,7 +1997,112 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert %{"action_id" => "slow", "outcome" => "failed"} = second
     end
 
-    test "a Resource outcome that current/1 takes sets a request-cap stop before a refused local outcome from the mailbox: the stop is drained all the same, in v1 and v2" do
+    test "a continue that committed before a crash (its lifecycle row paired, its drain not run) with a held expiry report: the restart gives the report before the loss that its recovery finds" do
+      c =
+        run_fixture(fn frame -> [frame.([action("ask", "ask_person", %{}), action("slow")])] end, 2)
+
+      person = c.opts[:bindings]["ask_person"]
+      early = %{person | facts: fn a -> %{person.facts.(a) | deadline_ms: 30_000} end}
+      opts = [bindings: Map.put(c.opts[:bindings], "ask_person", early), expiry_reports: :owner]
+      engine = start(c, opts)
+      assert {:ok, :applied} = start_run(c, engine)
+      assert_receive {:local_started, _}, 5_000
+      wait_for(engine, &match?({_, %{phase: :waiting}}, slot_of(&1, "ask")))
+      pause = %{kind: :pause, pause_deadline: 50_000}
+      assert {:ok, :applied} = RunEngine.control(engine, "pause", pause, verified())
+      Agent.update(c.clock, fn _ -> 30_000 end)
+      assert {:ok, _} = RunEngine.input(engine, "expire", input(c, "wake"), verified())
+      GenServer.stop(engine)
+      paused = unit_state(c)
+      {ask, %{pending_input: %{}}} = slot_of(paused, "ask")
+      {key, %{phase: :running}} = slot_of(paused, "slow")
+
+      # The continue's lifecycle row as the engine commits it, folded on the recorded state:
+      # the cut after that row and before its drain (by the fold, then installed as the
+      # Unit's recorded state).
+      continue = %{
+        version: 2,
+        kind: :lifecycle,
+        command: %{
+          control: :continue,
+          person_id: "person",
+          run_deadline: 60_000,
+          at_ms: 30_000,
+          attempt_id: "attempt"
+        },
+        context: %{verified_person: "person", pause_deadline: 50_000}
+      }
+
+      assert {:Transition, continued, _} = RunEngine.step(paused, continue)
+      refute continued.control.lifecycle.phase == :paused
+      assert %{pending_input: %{}} = continued.slots[ask]
+      journal_state(c, continued, "continue")
+      flush_pattern_inputs()
+      engine = start(c, opts)
+      assert_receive {:pattern_input, "root", first}, 5_000
+      assert_receive {:pattern_input, "root", second}, 5_000
+      assert %{"action_id" => "ask", "outcome" => "expired"} = first
+      assert %{"action_id" => "slow", "outcome" => "failed"} = second
+      assert %{phase: :settled} = unit_state(c).slots[key]
+      GenServer.stop(engine)
+    end
+
+    test "two running local works lost at a restart, both refused while paused: a continue at their deadline records one loss record, whose expiry pass settles both, and no second record for the slot it settled" do
+      c = run_fixture(fn frame -> [frame.([action("slow"), action("slow-two")])] end, 2)
+      bindings = c.opts[:bindings]
+      parent = self()
+
+      work = fn action -> {TestPattern, :blocked, [parent, action["payload"]]} end
+      bindings = Map.update!(bindings, "local_work", &Map.put(&1, :work, work))
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = start_run(c, engine)
+      assert_receive {:local_started, _}, 5_000
+      assert_receive {:local_started, _}, 5_000
+      pause = %{kind: :pause, pause_deadline: 50_000}
+      assert {:ok, :applied} = RunEngine.control(engine, "pause", pause, verified())
+      GenServer.stop(engine)
+      paused = unit_state(c)
+      {one, %{phase: :running, deadline_ms: deadline}} = slot_of(paused, "slow")
+      {two, %{phase: :running, deadline_ms: ^deadline}} = slot_of(paused, "slow-two")
+      loss = %{loss_record(c, paused, one) | context: %{pause_deadline: 50_000}}
+
+      refused =
+        Enum.find(0..4_000, fn extra ->
+          {:Transition, next, :none} = RunEngine.step(pad_invocations(paused, extra), loss)
+          next.control.classification != :record_size
+        end)
+
+      assert refused > 0
+      # A synthetic boundary-sized predecessor (pad_invocations/2); the calls are real.
+      journal_state(c, pad_invocations(paused, refused - 1))
+      engine = start(c, bindings: bindings)
+
+      losses = fn ->
+        for %{kind: :protocol, correlation: %{loss: :unavailable}} = record <- records(c),
+            do: record.correlation.occurrence
+      end
+
+      assert losses.() == []
+      assert %{phase: :running} = unit_state(c).slots[one]
+      assert %{phase: :running} = unit_state(c).slots[two]
+      Agent.update(c.clock, fn _ -> deadline end)
+      continue = %{kind: :continue, person_id: "person", run_deadline: 60_000}
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "continue",
+                 continue,
+                 verified(%{verified_person: "person"})
+               )
+
+      state = unit_state(c)
+      assert %{phase: :settled} = state.slots[one]
+      assert %{phase: :settled} = state.slots[two]
+      assert [_] = losses.()
+    end
+
+    test "a Resource outcome that current/1 takes sets a request-cap stop before an injected local outcome record that the mailbox refuses: the stop is drained all the same, in v1 and v2" do
       for version <- [1, 2] do
         payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
 
@@ -1964,8 +2122,10 @@ defmodule Elzoo.RunEngineStopAttemptTest do
         observed(owner, "opened", "open", %{opened_at_ms: 2_000}, 2_000)
         {key, _} = slot_of(unit_state(c), "slow")
 
-        # A message of the engine's own mailbox form whose actual the slot bound cannot
-        # hold: the retained-input rule refuses it, with no record of it written.
+        # A record injected into the engine's mailbox in the form of a local outcome (not
+        # produced by the running task: the real producer uses the slot's estimate, its
+        # sampled time and a derived stable ID), whose actual the slot bound cannot hold:
+        # the retained-input rule refuses it, with no record of it written.
         id = "local:refused-#{version}"
 
         outcome =
@@ -2076,6 +2236,216 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert %{outcome: :out_of_budget} = wait_for(engine, &(&1.outcome != nil))
       assert [{:terminal, "run", :out_of_budget, "request_cap", nil, _}] = terminal_rows(c)
       assert %{phase: :settled, actual: 3} = unit_state(c).slots[key]
+    end
+
+    test "a request-cap stop committed by a Resource outcome that current/1 takes, then an answer that public ingress refuses before its room check (too large, an ID conflict): the refusal is the reply and the stop is drained" do
+      for refusal <- [:input_too_large, :input_id_conflict] do
+        payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+
+        script = fn frame ->
+          [
+            frame.([action("open", "resource_open", payload), action("ask", "ask_person", %{})]),
+            frame.([action("more")])
+          ]
+        end
+
+        c = run_fixture(script, 1, request_cap: 1)
+        {owner, bindings} = resource(c)
+        engine = start(c, resources: %{"document" => owner}, bindings: bindings)
+        assert {:ok, :applied} = start_run(c, engine)
+        assert_receive {:effect_started, _opening, _}, 5_000
+        wait_for(engine, &match?({_, %{phase: :waiting}}, slot_of(&1, "ask")))
+        observed(owner, "opened", "open", %{opened_at_ms: 2_000}, 2_000)
+        {key, _} = slot_of(unit_state(c), "ask")
+
+        {id, actual} =
+          case refusal do
+            :input_too_large -> {"answer", Integer.pow(2, 8 * 270_000)}
+            :input_id_conflict -> {"start", 3}
+          end
+
+        answer = spending_answer(c, key, actual).input |> Map.delete("at_ms")
+        context = verified(%{occurrence: key, actual: actual, verified_person: "person"})
+        assert {:error, ^refusal} = RunEngine.input(engine, id, answer, context)
+        assert %{outcome: :out_of_budget} = view(engine), "#{refusal}"
+        assert [{:terminal, "run", :out_of_budget, "request_cap", nil, _}] = terminal_rows(c)
+
+        refute Enum.any?(
+                 records(c),
+                 &(&1[:kind] == :protocol and &1.input["kind"] == "person_answer")
+               )
+
+        GenServer.stop(engine)
+      end
+    end
+
+    test "a request-cap stop committed by current/1, then a public input refused with an ID conflict while the owner refuses completion: the reply is the conflict, status/1 shows the drain's halt, and a restart delivers the stop" do
+      payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+
+      script = fn frame ->
+        [
+          frame.([action("open", "resource_open", payload), action("ask", "ask_person", %{})]),
+          frame.([action("more")])
+        ]
+      end
+
+      c = run_fixture(script, 1, request_cap: 1)
+      {owner, bindings} = resource(c)
+      opts = [resources: %{"document" => owner}, bindings: bindings]
+      engine = start(c, opts ++ [run_owner: forwarder(c, :refuse)])
+      assert {:ok, :applied} = start_run(c, engine)
+      assert_receive {:effect_started, _opening, _}, 5_000
+      wait_for(engine, &match?({_, %{phase: :waiting}}, slot_of(&1, "ask")))
+      observed(owner, "opened", "open", %{opened_at_ms: 2_000}, 2_000)
+      {key, _} = slot_of(unit_state(c), "ask")
+      answer = spending_answer(c, key, 3).input |> Map.delete("at_ms")
+      context = verified(%{occurrence: key, actual: 3, verified_person: "person"})
+      assert {:error, :input_id_conflict} = RunEngine.input(engine, "start", answer, context)
+      assert {:ok, %{reconciliation: :terminal_commit_pending}} = RunEngine.status(engine)
+      # The stop that current/1 committed is durable and pending; no answer was written.
+      assert %{stop_pending: :out_of_budget, stop_attempt: {"attempt", :out_of_budget}} =
+               unit_state(c).control
+
+      refute Enum.any?(
+               records(c),
+               &(&1[:kind] == :protocol and &1.input["kind"] == "person_answer")
+             )
+
+      assert terminal_rows(c) == []
+      GenServer.stop(engine)
+      engine = start(c, opts)
+      assert %{outcome: :out_of_budget} = wait_for(engine, &(&1.outcome != nil))
+      assert [{:terminal, "run", :out_of_budget, "request_cap", nil, _}] = terminal_rows(c)
+    end
+
+    test "v2: current/1 of a mailbox delivery commits a request-cap stop, the injected local outcome is refused, and the drain's owner call exits after delivery: the engine halts delivery_unknown with its cache cleared" do
+      payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+
+      script = fn frame ->
+        [
+          frame.([action("open", "resource_open", payload), action("slow")]),
+          frame.([action("more")])
+        ]
+      end
+
+      c = run_fixture(script, 2, request_cap: 1)
+      {owner, bindings} = resource(c)
+      opts = [resources: %{"document" => owner}, bindings: bindings]
+      engine = start(c, opts ++ [run_owner: forwarder(c, :forward_then_exit)])
+      assert {:ok, :applied} = start_run(c, engine)
+      assert_receive {:effect_started, _opening, _}, 5_000
+      assert_receive {:local_started, task}, 5_000
+      observed(owner, "opened", "open", %{opened_at_ms: 2_000}, 2_000)
+      {key, _} = slot_of(unit_state(c), "slow")
+      before = :sys.get_state(engine)
+      assert before.halted == nil
+
+      # Injected, as in the test above (not produced by the task), refused for its actual.
+      id = "local:refused-exit"
+
+      outcome =
+        input(
+          c,
+          "action_outcome",
+          Elzoo.RunEngine.TestHelper.result("slow") |> Map.delete("version")
+        )
+
+      refused = %{
+        version: 2,
+        kind: :protocol,
+        id: id,
+        run_id: "run",
+        attempt_id: "attempt",
+        input: Map.put(outcome, "at_ms", 2_000),
+        correlation: %{occurrence: key, actual: Integer.pow(2, 8 * 200_000)},
+        context: %{}
+      }
+
+      send(engine, {:durable_unit_input, id, refused})
+      # The engine's own state after the delivery: halted, no cached state, never the
+      # state from before current/1.
+      after_delivery = :sys.get_state(engine)
+      assert %{halted: :delivery_unknown, state: nil, decoded: %{}} = after_delivery
+      refute after_delivery == before
+      assert {:ok, %{reconciliation: :delivery_unknown}} = RunEngine.status(engine)
+
+      assert {:error, :delivery_unknown} =
+               RunEngine.input(engine, "wake", input(c, "wake"), verified())
+
+      # Durable evidence: the stop that current/1 committed, and the owner's completion that
+      # the exited call delivered; no record of the refused outcome.
+      assert %{stop_pending: :out_of_budget} = unit_state(c).control
+      assert [{:terminal, "run", :out_of_budget, "request_cap", nil, _}] = terminal_rows(c)
+      refute Enum.any?(records(c), &(Map.get(&1, :id) == id))
+      send(task, :finish)
+      GenServer.stop(engine)
+      # A restart recovers from the durable state: it takes the owner's terminal view.
+      engine = start(c, opts)
+      assert %{outcome: :out_of_budget} = wait_for(engine, &(&1.outcome != nil))
+      assert [_] = terminal_rows(c)
+    end
+
+    test "a pending stop's mark is not counted against a settlement while it is pending: its least admitted padding is lower by the mark's bytes than on the unmarked twin (constructed earlier-revision state)" do
+      payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+
+      script = fn frame ->
+        [
+          frame.([action("open", "resource_open", payload), action("ask", "ask_person", %{})]),
+          frame.([action("more")])
+        ]
+      end
+
+      c = run_fixture(script, 1, request_cap: 1)
+      {owner, bindings} = resource(c)
+
+      engine =
+        start(c,
+          resources: %{"document" => owner},
+          bindings: bindings,
+          run_owner: forwarder(c, :kill)
+        )
+
+      monitor = Process.monitor(engine)
+      assert {:ok, :applied} = start_run(c, engine)
+      assert_receive {:effect_started, _opening, _}, 5_000
+      wait_for(engine, &match?({_, %{phase: :waiting}}, slot_of(&1, "ask")))
+      observed(owner, "opened", "open", %{opened_at_ms: 2_000}, 2_000)
+      # The next call's current/1 takes the open's outcome and the request-cap stop; the
+      # engine is killed at its owner command, the stop marked and pending, the ask waiting.
+      call(fn -> RunEngine.input(engine, "wake", input(c, "wake"), verified()) end)
+      assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+      marked = unit_state(c)
+      assert marked.control.stop_attempt == {"attempt", :out_of_budget}
+      {key, %{phase: :waiting}} = slot_of(marked, "ask")
+      # The twin an earlier revision would have recorded: the same state with no mark.
+      unmarked = update_in(marked.control, &Map.delete(&1, :stop_attempt))
+      record = spending_answer(c, key, Integer.pow(2, 8 * 3_000))
+
+      # Paddings with the stop pending count no room, so a target is the raw free bytes; 800
+      # keeps the room for a stop once the stop is dropped, before the answer.
+      least = fn state ->
+        admitted? = &RunEngine.actual_admits?(pad_invocations(state, &1), record)
+        refute admitted?.(800)
+        hi = control_headroom(state) - 43
+        assert admitted?.(hi)
+
+        {800, hi}
+        |> Stream.iterate(fn {lo, hi} ->
+          mid = div(lo + hi, 2)
+          if admitted?.(mid), do: {lo, mid}, else: {mid, hi}
+        end)
+        |> Enum.find(fn {lo, hi} -> hi - lo <= 1 end)
+        |> elem(1)
+      end
+
+      mark = byte_size(binary({:stop_attempt, {"attempt", :out_of_budget}})) - 3
+      least_marked = least.(marked)
+      least_unmarked = least.(unmarked)
+      assert least_unmarked - least_marked == mark
+
+      # At the adjacent paddings: admitted at the least, refused one byte under it.
+      assert RunEngine.actual_admits?(pad_invocations(marked, least_marked), record)
+      refute RunEngine.actual_admits?(pad_invocations(marked, least_marked - 1), record)
     end
 
     test "through the engine: a Budget stop at the least admitted padding, a crash, then a 200-byte Attempt B: the stop is dropped and a cancel at the Run deadline commits marked" do
