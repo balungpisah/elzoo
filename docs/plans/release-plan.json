@@ -11294,7 +11294,7 @@
       ],
       "issue": 1036,
       "url": "https://github.com/balungpisah/elzoo/issues/1036",
-      "issue_body_sha256": "c178f59c2d6922e17f380de26fdf62a4a0b3eee714931f8eb70f48e9f8069244"
+      "issue_body_sha256": "650a5c8a198ce325241cd998af1ab9710e0449edfdcb091444004a5cd86da906"
     },
     {
       "id": "ELZ-431",
@@ -11471,6 +11471,35 @@
       "issue": 1063,
       "url": "https://github.com/balungpisah/elzoo/issues/1063",
       "issue_body_sha256": "f01a77fdb4957ef0a8a81cb5aaf8ba53db48d2b1af02643dfc5c37b1e1e2c866"
+    },
+    {
+      "id": "ELZ-438",
+      "title": "ELZ-438 — assembly/run-host: reap only the incarnation that an observer saw",
+      "kind": "published",
+      "release": "V2",
+      "stage": "later",
+      "dependencies": [
+        "ELZ-421"
+      ],
+      "status": "published 2026-11-28",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-438-run-host-observed-reap.md"
+      ],
+      "outputs": [],
+      "contributions": [
+        {
+          "id": "assembly/run-host",
+          "role": "An observer can reap the reservation it saw without stopping its replacement."
+        }
+      ],
+      "acceptance": "Tagged status and terminal callback identify the same reservation with an observation reference separate from the private control token. Compare-and-reap at admission; a stale reference neither joins teardown nor reaps a replacement. Fenced replacement on Memory and PostgreSQL, retry after unconfirmed release, old API shapes, negative control and Piece gate.",
+      "product_aims": [
+        "P09"
+      ],
+      "issue": 1066,
+      "url": "https://github.com/balungpisah/elzoo/issues/1066",
+      "issue_body_sha256": "0db8be454e5a8d5d9ebad5d3ed6c16ac8fc3885f3339e7fe691547a37f6e7408"
     }
   ],
   "entries": [
