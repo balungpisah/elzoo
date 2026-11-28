@@ -451,6 +451,68 @@ defmodule Elzoo.RunHostTest do
       assert {:ok, %{status: :active, holder: %{owner: "node-a"}}} =
                Lease.status(env.lease, "run/handed")
     end
+
+    test "a callback's :DOWN that reaches the host after an unconfirmed release's result and before the release task exits frees and hands over nothing" do
+      test = self()
+      {:ok, hold} = Agent.start_link(fn -> false end)
+
+      hook = fn
+        :before_lock, %{key: "run/late"} ->
+          if Agent.get_and_update(hold, &{&1, false}) do
+            send(test, {:releasing, self()})
+            receive do: (:fail -> raise("the release fails"))
+          end
+
+        _, _ ->
+          :ok
+      end
+
+      env = postgres(lease: [test_hook: hook])
+      {cell, proof} = proof_cell()
+      {host, specs} = host(env, max_runs: 1, fencing_proof: proof)
+      spec = spec("late", stub([]))
+      remember(specs, :late, spec)
+
+      assert :ok = attribute(host, fn -> RunHost.start_run(host, :late, spec) end)
+      assert [_unit, _writer | _] = unit = unit_pids(state(host).units, "unit/late")
+      %{token: token, worker: worker} = run(host, :late)
+      Agent.update(hold, fn _ -> true end)
+      reap = Task.async(fn -> RunHost.reap(host, :late) end)
+
+      assert_receive {:releasing, releaser}, 5_000
+      start = Task.async(fn -> RunHost.start_run(host, :late, spec) end)
+      eventually(fn -> length(run(host, :late).deferred) == 1 end)
+      prove(cell, spawned() ++ unit, worker)
+
+      # The release's result, :unconfirmed, reaches the host while its task still runs.
+      [job] = for {ref, {:release, :late, _}} <- state(host).jobs, do: ref
+      send(host, {job, :unconfirmed})
+      assert %{token: ^token, phase: :releasing, deferred: [_]} = run(host, :late)
+
+      # A callback of the tenure that had exited when finish/3 filtered the callbacks (so
+      # the release started), and whose :DOWN the host takes only now: its monitor is the
+      # host's, under the Run's token, and its :DOWN arrives before the release task exits.
+      callback = spawn(fn -> :ok end)
+      monitor = make_ref()
+      :sys.replace_state(host, &put_in(&1.monitors[monitor], {:late, token, :callback}))
+      send(host, {:DOWN, monitor, :process, callback, :normal})
+      refute Map.has_key?(state(host).monitors, monitor)
+
+      # That :DOWN is not the release task's: nothing is freed or handed over.
+      assert Task.yield(start, 300) == nil
+      assert Task.yield(reap, 0) == nil
+      assert %{token: ^token, phase: :releasing, busy: true} = run(host, :late)
+      assert Process.alive?(releaser)
+
+      # The release task's own exit acts on its result.
+      gone = Process.monitor(releaser)
+      send(releaser, :fail)
+      assert_receive {:DOWN, ^gone, :process, ^releaser, _}, 5_000
+      assert {:error, :release_unconfirmed} = Task.await(reap)
+      assert :ok = Task.await(start)
+      assert %{phase: :live, token: next} = run(host, :late)
+      assert next != token
+    end
   end
 
   describe "callbacks" do

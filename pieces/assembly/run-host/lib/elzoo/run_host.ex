@@ -578,15 +578,17 @@ defmodule Elzoo.RunHost do
 
   # A job's result is applied when it arrives, so that a lost lease stops admission and
   # calls on_lost before a reap that comes after the result can begin a teardown. The job
-  # stays listed, as applied, until its process is gone (its :DOWN): what frees or hands
-  # over the Run's resources waits for that exit (finish/3, proceed/3).
+  # stays listed, as applied with its kind, until its process is gone (its own :DOWN): what
+  # frees or hands over the Run's resources waits for that exit (finish/3, proceed/3), and
+  # a release's result is acted on only at the :DOWN of the release task itself
+  # (release_exited/3), never at another process's exit.
   def handle_info({ref, result}, s) when is_reference(ref) and is_map_key(s.jobs, ref) do
     case s.jobs[ref] do
-      {:applied, _, _} ->
+      {:applied, _, _, _} ->
         {:noreply, s}
 
       job ->
-        s = put_in(s.jobs[ref], {:applied, elem(job, 1), elem(job, 2)})
+        s = put_in(s.jobs[ref], {:applied, elem(job, 1), elem(job, 2), elem(job, 0)})
         {:noreply, job(s, job, result)}
     end
   end
@@ -594,8 +596,16 @@ defmodule Elzoo.RunHost do
   def handle_info({:DOWN, ref, :process, _, reason}, s) when is_map_key(s.jobs, ref) do
     {entry, jobs} = Map.pop(s.jobs, ref)
     s = %{s | jobs: jobs}
-    s = if elem(entry, 0) == :applied, do: s, else: job(s, entry, {:crashed, reason})
-    {:noreply, proceed(s, elem(entry, 1), elem(entry, 2))}
+
+    {s, kind} =
+      case entry do
+        {:applied, _, _, kind} -> {s, kind}
+        _ -> {job(s, entry, {:crashed, reason}), elem(entry, 0)}
+      end
+
+    if kind == :release,
+      do: {:noreply, release_exited(s, elem(entry, 1), elem(entry, 2))},
+      else: {:noreply, proceed(s, elem(entry, 1), elem(entry, 2))}
   end
 
   def handle_info({:DOWN, ref, :process, _, reason}, s) do
@@ -1148,14 +1158,20 @@ defmodule Elzoo.RunHost do
   defp release_key(%{held: nil, obligation: key}), do: key
   defp release_key(%{stream: key}), do: key
 
-  # A teardown that waits for a callback or a job of the Run goes on when it ends; the
-  # result of a release is acted on once its task has exited, so that neither freeing the
-  # reservation nor handing the key over to the next tenure comes before that exit.
+  # A teardown that waits for a callback or a job of the Run goes on when it ends.
   defp proceed(s, run_ref, token) do
     case s.runs[run_ref] do
-      %{token: ^token, phase: :awaiting, busy: false} = run ->
-        finish(s, run_ref, run)
+      %{token: ^token, phase: :awaiting, busy: false} = run -> finish(s, run_ref, run)
+      _ -> s
+    end
+  end
 
+  # The result of a release is acted on at the exit of the release task itself, so that
+  # neither freeing the reservation nor handing the key over to the next tenure comes
+  # before that exit; another process's :DOWN (a callback's that arrives late) does not
+  # stand for it.
+  defp release_exited(s, run_ref, token) do
+    case s.runs[run_ref] do
       %{token: ^token, phase: :releasing, busy: true, released: result} = run
       when result != nil ->
         released(s, run_ref, %{run | busy: false, released: nil}, result)
