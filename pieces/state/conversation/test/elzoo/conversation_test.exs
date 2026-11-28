@@ -1,1053 +1,655 @@
 # SPDX-License-Identifier: Apache-2.0
-defmodule Elzoo.ConversationTest.StructValue do
-  defstruct [:tenant, :resource, :revision, :fields]
-end
+Code.require_file("../support/conversation_test_helper.exs", __DIR__)
 
-defmodule Elzoo.ConversationTest.RequestValue do
-  defstruct [:operation_id, :resource, :expected_revision, :payload]
-end
-
-defmodule Elzoo.ConversationTest.FactsValue do
-  defstruct [:tenant, :actor, :data]
-end
-
-defmodule Elzoo.ConversationTest.ScopeValue do
-  defstruct [:tenant, :actor, :resources]
+defmodule Elzoo.ConversationTest.DtoStruct do
+  defstruct [:message_id, :role, :actor, :text]
 end
 
 defmodule Elzoo.ConversationTest do
+  @moduledoc "Pure scenarios: the codec, the fold, the decision table and the version 1 rules."
   use ExUnit.Case, async: true
 
-  alias Elzoo.Conversation
+  alias Elzoo.Conversation.{History, Record, V1}
+  alias Elzoo.ConversationTest.Helper, as: H
+  alias Elzoo.DurableLog, as: Log
 
-  @tenant "tenant-a"
-  @resource "conversation-a"
-  @max_revision 9_223_372_036_854_775_807
-  @max_expected_revision @max_revision - 1
+  @stream "conversation/tenant-1/conversation-1"
 
-  test "prepares, reconstructs and projects immutable messages across Runs" do
-    empty = snapshot()
+  describe "codec" do
+    test "DTOs and payloads accept exactly the declared keys and bounds" do
+      id128 = String.duplicate("i", 128)
+      text4096 = String.duplicate("t", 4096)
 
-    {one, write, response} =
-      successful_step(
-        empty,
-        append_input(empty, "input-1", "First\0 input", role: "user", actor: "person-1")
-      )
+      accepted = [
+        {:input, H.input("m", text: "x")},
+        {:input, H.input(id128, role: "source", actor: id128, text: text4096)},
+        {:association, H.association(id128, id128)},
+        {:answer, H.answer(id128, id128, id128, actor: id128, text: text4096)},
+        {:answer, H.answer("a", "m", "r", completed: false)}
+      ]
 
-    assert write.target == @resource
-    assert write.field == "conversation"
-    assert Enum.sort(Map.keys(write)) == [:field, :target, :value]
-    assert response == record([{"message_id", text("input-1")}, {"revision", 1}])
+      for {mode, dto} <- accepted do
+        assert {:ok, entry, completed} = Record.intent(mode, dto), inspect(dto)
+        assert completed == Map.get(dto, :completed, true)
+        assert {:ok, ^entry} = decode(row(1, entry))
+      end
 
-    {two, _write, response} = successful_step(one, associate(one, "input-1", "run-1"))
+      refused = [
+        {:input, Map.delete(H.input("m"), :actor)},
+        {:input, Map.put(H.input("m"), :extra, "x")},
+        {:input, H.input("")},
+        {:input, H.input(String.duplicate("i", 129))},
+        {:input, H.input("m\0")},
+        {:input, H.input(<<0xFF>>)},
+        {:input, H.input("m", role: "assistant")},
+        {:input, H.input("m", actor: String.duplicate("a", 129))},
+        {:input, H.input("m", text: "")},
+        {:input, H.input("m", text: String.duplicate("t", 4097))},
+        {:input, H.input("m", text: <<0xC3>>)},
+        {:input, %{H.input("m") | text: :text}},
+        {:input, struct(Elzoo.ConversationTest.DtoStruct, H.input("m"))},
+        {:input, [message_id: "m", role: "user", actor: "a", text: "t"]},
+        {:association, H.association("m", "")},
+        {:association, Map.put(H.association("m", "r"), :completed, true)},
+        {:association, H.association(String.duplicate("i", 129), "r")},
+        {:answer, %{H.answer("a", "m", "r") | completed: "true"}},
+        {:answer, Map.delete(H.answer("a", "m", "r"), :completed)},
+        {:answer, H.answer("a", "m", "r\0")},
+        {:answer, H.answer("a", "m", "r", text: String.duplicate("t", 4097))},
+        {:other, H.input("m")}
+      ]
 
-    assert response ==
-             record([{"message_id", text("input-1")}, {"revision", 2}, {"run_id", text("run-1")}])
-
-    {three, _write, answer_response} =
-      successful_step(
-        two,
-        append_answer(two, "answer-1", "input-1", "run-1", "First answer", actor: "run-host")
-      )
-
-    assert answer_response ==
-             record([
-               {"input_message_id", text("input-1")},
-               {"message_id", text("answer-1")},
-               {"revision", 3},
-               {"run_id", text("run-1")}
-             ])
-
-    {four, _write, _response} =
-      successful_step(three, append_input(three, "input-2", "Second input", role: "source"))
-
-    {five, _write, _response} = successful_step(four, associate(four, "input-2", "run-1"))
-
-    {six, _write, _response} =
-      successful_step(five, append_answer(five, "answer-2", "input-2", "run-1", "Second answer"))
-
-    {seven, _write, _response} = successful_step(six, append_input(six, "input-3", "Third input"))
-    {eight, _write, _response} = successful_step(seven, associate(seven, "input-3", "run-2"))
-
-    {nine, _write, _response} =
-      successful_step(eight, append_answer(eight, "answer-3", "input-3", "run-2", "Third answer"))
-
-    assert nine.revision == 9
-
-    assert {:ok, view} =
-             Conversation.view(nine, %{tenant: @tenant, actor: "reader", resources: [@resource]})
-
-    assert Enum.map(view.messages, &{&1.message_id, &1.role, &1.text}) == [
-             {"input-1", "user", "First\0 input"},
-             {"answer-1", "assistant", "First answer"},
-             {"input-2", "source", "Second input"},
-             {"answer-2", "assistant", "Second answer"},
-             {"input-3", "user", "Third input"},
-             {"answer-3", "assistant", "Third answer"}
-           ]
-
-    assert Enum.map(view.messages, & &1.actor) == [
-             "person-1",
-             "run-host",
-             "host",
-             "host",
-             "host",
-             "host"
-           ]
-
-    assert view.associations == [
-             %{input_message_id: "input-1", run_id: "run-1"},
-             %{input_message_id: "input-2", run_id: "run-1"},
-             %{input_message_id: "input-3", run_id: "run-2"}
-           ]
-
-    assert view.tenant == @tenant
-    assert view.resource == @resource
-    assert view.revision == 9
-
-    assert Map.keys(view) |> Enum.sort() == [
-             :associations,
-             :messages,
-             :resource,
-             :revision,
-             :tenant
-           ]
-
-    {:record, state_fields} = nine.fields["conversation"]
-    assert Enum.map(state_fields, &elem(&1, 0)) == ["associations", "messages", "version"]
-  end
-
-  test "accepts the exact DTOs and facts schema, and rejects extra or forged controls" do
-    initial = snapshot()
-    input_data = [{"mode", text("append_input")}, {"input_role", text("user")}]
-    unsorted_facts = %{tenant: @tenant, actor: "host", data: {:record, Enum.reverse(input_data)}}
-    input_request = request(initial, %{"message_id" => "input-1", "text" => "text"})
-
-    assert {:ok, [_write], _response} = Conversation.prepare(initial, input_request, unsorted_facts)
-
-    assert {:refused, "invalid_facts"} =
-             Conversation.prepare(
-               initial,
-               input_request,
-               struct(Elzoo.ConversationTest.FactsValue,
-                 tenant: @tenant,
-                 actor: "host",
-                 data: {:record, input_data}
-               )
-             )
-
-    assert {:refused, "invalid_facts"} =
-             Conversation.prepare(
-               initial,
-               input_request,
-               Map.put(unsorted_facts, :principal, "forged")
-             )
-
-    assert {:refused, "invalid_facts"} =
-             prepare_with_data(initial, input_request, [
-               {"mode", text("append_input")},
-               {"input_role", text("assistant")}
-             ])
-
-    assert {:refused, "invalid_facts"} =
-             prepare_with_data(initial, input_request, input_data ++ [{"actor", text("forged")}])
-
-    assert {:refused, "invalid_facts"} =
-             prepare_with_data(initial, input_request, [
-               {"mode", text("append_input")},
-               {"input_role", text("user")},
-               {"mode", text("append_input")}
-             ])
-
-    assert {:refused, "invalid_facts"} =
-             prepare_with_data(initial, input_request, [{"mode", text("append_input")}])
-
-    malformed_fact_data = [
-      {:list, []},
-      {:record, [{"mode", text("append_input")}, {"input_role", text("user")} | :improper]},
-      {:record, [{"mode", text("unknown")}, {"input_role", text("user")}]}
-    ]
-
-    for data <- malformed_fact_data do
-      assert {:refused, "invalid_facts"} =
-               Conversation.prepare(initial, input_request, %{
-                 tenant: @tenant,
-                 actor: "host",
-                 data: data
-               }),
-             inspect(data)
+      for {mode, dto} <- refused do
+        assert :error = Record.intent(mode, dto), inspect({mode, dto})
+      end
     end
 
-    assert {:refused, "invalid_facts"} =
-             prepare_with_data(initial, input_request, [
-               {"mode", "append_input"},
-               {"input_role", text("user")}
-             ])
+    test "text keeps NUL and every other byte; the payload is exact JSON in declared key order" do
+      chunk = IO.iodata_to_binary([Enum.to_list(0..127), "é漢😀"])
+      text = chunk |> String.duplicate(30) |> binary_part(0, 4096) |> trim_utf8()
+      entry = H.entry!(:input, H.input("m", text: text))
 
-    assert {:refused, "invalid_facts"} =
-             Conversation.prepare(initial, input_request, %{
-               tenant: @tenant,
-               actor: "host",
-               data: %{"mode" => "append_input"}
-             })
+      assert Record.payload(entry) ==
+               Jason.encode!(%Jason.OrderedObject{
+                 values: [
+                   {"message_id", "m"},
+                   {"role", "user"},
+                   {"actor", "host"},
+                   {"text", text}
+                 ]
+               })
 
-    assert {:refused, "invalid_facts"} =
-             Conversation.prepare(initial, input_request, %{
-               tenant: @tenant,
-               actor: "",
-               data: facts_data("append_input", input_role: "user")
-             })
-
-    assert {:refused, "invalid_facts"} =
-             Conversation.prepare(initial, input_request, %{
-               tenant: @tenant,
-               actor: "host\0",
-               data: facts_data("append_input", input_role: "user")
-             })
-
-    assert {:refused, "invalid_facts"} =
-             Conversation.prepare(
-               initial,
-               input_request,
-               %{
-                 tenant: @tenant,
-                 actor: String.duplicate("a", 129),
-                 data: facts_data("append_input", input_role: "user")
-               }
-             )
-
-    assert {:refused, "invalid_facts"} =
-             Conversation.prepare(
-               initial,
-               input_request,
-               struct(Elzoo.ConversationTest.StructValue,
-                 tenant: @tenant,
-                 resource: @resource,
-                 revision: 0,
-                 fields: %{}
-               )
-             )
-
-    answer_snapshot = associated_snapshot()
-    answer_request = request(answer_snapshot, %{"message_id" => "answer-1", "text" => "answer"})
-
-    assert {:refused, "invalid_facts"} =
-             prepare_with_data(answer_snapshot, answer_request, [
-               {"mode", text("append_answer")},
-               {"run_id", text("run-1")},
-               {"input_message_id", text("input-1")},
-               {"completed", 1}
-             ])
-
-    associate_request = request(initial, %{"message_id" => "input-1"})
-
-    assert {:refused, "invalid_facts"} =
-             prepare_with_data(associated_snapshot(), associate_request, [
-               {"mode", text("associate_run")},
-               {"run_id", text("run-1")},
-               {"extra", text("control")}
-             ])
-  end
-
-  test "bounds and validates IDs and text by UTF-8 byte length without normalizing text" do
-    initial = snapshot()
-    id128 = String.duplicate("i", 128)
-    id128_unicode = String.duplicate("é", 64)
-    text4096 = String.duplicate("é", 2048)
-
-    assert byte_size(id128_unicode) == 128
-    assert byte_size(text4096) == 4096
-    assert {:ok, [_write], _response} = append_input(initial, id128, "x")
-    assert {:ok, [_write], _response} = append_input(initial, id128_unicode, "x")
-    assert {:ok, [_write], _response} = append_input(initial, "input-1", text4096)
-    assert {:ok, [_write], _response} = append_input(initial, "input-1", "x\0y")
-
-    assert {:refused, "invalid_request"} = append_input(initial, String.duplicate("i", 129), "x")
-
-    assert {:refused, "invalid_request"} =
-             append_input(initial, String.duplicate("é", 64) <> "a", "x")
-
-    assert {:refused, "invalid_request"} = append_input(initial, "input-1\0", "x")
-    assert {:refused, "invalid_request"} = append_input(initial, <<255>>, "x")
-    assert {:refused, "invalid_request"} = append_input(initial, "input-1", "")
-    assert {:refused, "invalid_request"} = append_input(initial, "input-1", text4096 <> "a")
-    assert {:refused, "invalid_request"} = append_input(initial, "input-1", <<255>>)
-
-    original_text = "é" <> "é"
-    assert {:ok, [write], _response} = append_input(initial, "input-1", original_text)
-    assert {:record, state_fields} = write.value
-    {:list, [message]} = Map.fetch!(Map.new(state_fields), "messages")
-    assert {:record, message_fields} = message
-    assert Map.fetch!(Map.new(message_fields), "text") == text(original_text)
-  end
-
-  test "accepts 128-byte IDs in every trusted DTO slot" do
-    id = String.duplicate("i", 128)
-    initial = %{tenant: id, resource: id, revision: 0, fields: %{}}
-
-    request = %{
-      operation_id: id,
-      resource: id,
-      expected_revision: 0,
-      payload: %{"message_id" => id, "text" => "x"}
-    }
-
-    facts = %{tenant: id, actor: id, data: facts_data("append_input", input_role: "user")}
-
-    assert {:ok, [write], response} = Conversation.prepare(initial, request, facts)
-
-    stored = %{
-      initial
-      | revision: response_field(response, "revision"),
-        fields: %{"conversation" => write.value}
-    }
-
-    association_request = %{
-      operation_id: id,
-      resource: id,
-      expected_revision: stored.revision,
-      payload: %{"message_id" => id}
-    }
-
-    association_facts = %{
-      tenant: id,
-      actor: id,
-      data: record([{"mode", text("associate_run")}, {"run_id", text(id)}])
-    }
-
-    assert {:ok, [association_write], association_response} =
-             Conversation.prepare(stored, association_request, association_facts)
-
-    assert response_field(association_response, "run_id") == text(id)
-
-    stored = %{
-      stored
-      | revision: response_field(association_response, "revision"),
-        fields: %{"conversation" => association_write.value}
-    }
-
-    assert {:ok, _view} = Conversation.view(stored, %{tenant: id, actor: id, resources: [id]})
-  end
-
-  test "enforces exact request maps and the resource revision range" do
-    initial = snapshot()
-    valid_facts = facts("append_input", [])
-    valid_request = request(initial, %{"message_id" => "input-1", "text" => "x"})
-
-    assert {:refused, "invalid_request"} =
-             Conversation.prepare(
-               initial,
-               Map.put(valid_request, :unknown, "sentinel"),
-               valid_facts
-             )
-
-    assert {:refused, "invalid_request"} =
-             Conversation.prepare(
-               initial,
-               struct(Elzoo.ConversationTest.StructValue,
-                 tenant: @tenant,
-                 resource: @resource,
-                 revision: 0,
-                 fields: %{}
-               ),
-               valid_facts
-             )
-
-    assert {:refused, "invalid_request"} =
-             Conversation.prepare(
-               initial,
-               struct(Elzoo.ConversationTest.RequestValue,
-                 operation_id: "operation-1",
-                 resource: @resource,
-                 expected_revision: 0,
-                 payload: %{"message_id" => "input-1", "text" => "x"}
-               ),
-               valid_facts
-             )
-
-    assert {:refused, "invalid_request"} =
-             Conversation.prepare(
-               initial,
-               %{valid_request | payload: %{:message_id => "input-1", "text" => "x"}},
-               valid_facts
-             )
-
-    assert {:refused, "invalid_request"} =
-             Conversation.prepare(
-               initial,
-               %{
-                 valid_request
-                 | payload: %{"message_id" => "input-1", "text" => "x", "role" => "assistant"}
-               },
-               valid_facts
-             )
-
-    control_fields = [
-      {"tenant", "tenant-b"},
-      {"principal", "principal-1"},
-      {"actor", "actor-1"},
-      {"authorization", "allow"},
-      {"mode", "append_answer"},
-      {"run_id", "run-1"},
-      {"completed", true}
-    ]
-
-    for {key, value} <- control_fields do
-      payload = Map.put(valid_request.payload, key, value)
-
-      assert {:refused, "invalid_request"} =
-               Conversation.prepare(initial, %{valid_request | payload: payload}, valid_facts),
-             key
+      assert String.starts_with?(Record.payload(entry), ~s({"message_id":"m","role":"user"))
+      assert {:ok, decoded} = decode(row(1, entry))
+      assert decoded.text == text
+      assert :binary.match(decoded.text, <<0>>) != :nomatch
     end
 
-    assert {:refused, "invalid_request"} =
-             Conversation.prepare(
-               initial,
-               request(initial, %{"input_message_id" => "input-1"}),
-               facts("associate_run", run_id: "run-1")
-             )
+    test "the worst-case payload is an answer of 27,720 bytes" do
+      id = String.duplicate(<<1>>, 128)
 
-    for expected_revision <- [-1, 0.0, nil, @max_revision] do
-      assert {:refused, "invalid_request"} =
-               Conversation.prepare(
-                 initial,
-                 %{valid_request | expected_revision: expected_revision},
-                 valid_facts
-               ),
-             inspect(expected_revision)
+      worst =
+        H.entry!(:answer, H.answer(id, id, id, actor: id, text: String.duplicate(<<0>>, 4096)))
+
+      assert byte_size(Record.payload(worst)) == 27_720
+      assert Record.max_payload_bytes() == 27_720
+
+      input =
+        H.entry!(
+          :input,
+          H.input(id, role: "source", actor: id, text: String.duplicate(<<0>>, 4096))
+        )
+
+      association = H.entry!(:association, H.association(id, id))
+
+      shorter =
+        H.entry!(:answer, H.answer(id, id, id, actor: id, text: String.duplicate(<<0>>, 4095)))
+
+      for smaller <- [input, association, shorter] do
+        assert byte_size(Record.payload(smaller)) < 27_720
+      end
+
+      for character <- [<<0x22>>, <<0x5C>>, <<0x1F>>, "é", <<0x7F>>] do
+        text = String.duplicate(character, div(4096, byte_size(character)))
+        entry = H.entry!(:answer, H.answer(id, id, id, actor: id, text: text))
+        assert byte_size(Record.payload(entry)) <= 27_720
+      end
     end
 
-    at_max = snapshot_with_state([input("old", "old")], [], @max_expected_revision)
+    test "malformed rows fail closed" do
+      entry = H.entry!(:input, H.input("m", text: "abc"))
+      valid = row(1, entry)
+      assert {:ok, ^entry} = decode(valid)
 
-    assert {:ok, [_write], response} =
-             append_input(at_max, "new", "text", expected_revision: @max_expected_revision)
+      payloads = [
+        "{",
+        "[]",
+        ~s({"message_id":"m","role":"user","actor":"host"}),
+        ~s({"message_id":"m","role":"user","actor":"host","text":"abc","extra":"x"}),
+        ~s({"message_id":"m","role":"user","actor":"host","txt":"abc"}),
+        ~s({"role":"user","message_id":"m","actor":"host","text":"abc"}),
+        ~s({"message_id":"m","message_id":"m","role":"user","actor":"host","text":"abc"}),
+        ~s({"message_id":"m","role":"user","actor":"host","text":1}),
+        ~s({"message_id":"m","role":"user","actor":"host","text":null}),
+        ~s({"message_id":"m","role":"user","actor":"host","text":{"a":"b"}}),
+        ~s({ "message_id":"m","role":"user","actor":"host","text":"abc"}),
+        ~s({"message_id":"m","role":"user","actor":"host","text":"\\u0061bc"}),
+        ~s({"message_id":"m","role":"user","actor":"host","text":"a\\/c"}),
+        ~s({"message_id":"m","role":"user","actor":"host","text":"abc"} ),
+        ~s({"message_id":"m\\u0000","role":"user","actor":"host","text":"abc"}),
+        ~s({"message_id":"m","role":"assistant","actor":"host","text":"abc"}),
+        ~s({"message_id":"m","role":"user","actor":"host","text":""}),
+        ~s({"message_id":"m","role":"user","actor":"host","text":") <>
+          String.duplicate("t", 4097) <> ~s("}),
+        ~s({"message_id":"m","role":"user","actor":"host","text":") <> <<0xFF>> <> ~s("})
+      ]
 
-    assert response_field(response, "revision") == @max_revision
+      for payload <- payloads do
+        assert :error = decode(redigest(%{valid | payload: payload})), payload
+      end
 
-    assert {:refused, "stale_revision"} =
-             append_input(
-               snapshot_with_state([input("old", "old")], [], @max_revision),
-               "new",
-               "text",
-               expected_revision: @max_expected_revision
-             )
+      assert :error = decode(redigest(%{valid | kind: Record.kind(:answer)}))
+      assert :error = decode(redigest(%{valid | kind: "foreign"}))
+      assert :error = decode(redigest(%{valid | schema_version: 2}), %{H.fold() | versions: [1, 2]})
 
-    for revision <- [-1, 0.0, @max_revision + 1] do
-      assert {:error, :invalid_snapshot} =
-               Conversation.view(%{initial | revision: revision}, read_scope()),
-             inspect(revision)
+      assert :error =
+               decode(%{
+                 valid
+                 | payload: ~s({"message_id":"m","role":"user","actor":"host","text":"abd"})
+               })
+
+      assert :error = decode(%{valid | digest: :crypto.hash(:sha256, "other")})
+      assert :error = decode(%{valid | nonce: <<1, 2>>} |> redigest())
+      assert :error = decode(valid, H.fold(), 2)
+      assert :error = Record.decode(valid, "conversation/tenant-1/other", 1, H.fold(), H.limits())
+      assert :error = decode(:not_a_row)
     end
 
-    assert {:refused, "stale_revision"} =
-             append_input(snapshot_with_state([input("old", "old")], [], 10), "new", "text",
-               expected_revision: 9
-             )
+    test "a segment is 1..64 bytes of [A-Za-z0-9._-], never . or .., so a stream name is at most 142 bytes" do
+      seg64 = String.duplicate("s", 64)
+
+      for segment <- ["s", "tenant-1", "A.b_c-9", "...", ".a", "a..", seg64] do
+        assert Record.segment?(segment), inspect(segment)
+      end
+
+      longest = Record.stream(seg64, seg64)
+      assert byte_size(longest) == 142
+      assert Elzoo.DurableLog.Codec.stream?(longest)
+
+      for segment <- H.refused_segments() ++ [:segment, nil, ~c"segment"] do
+        refute Record.segment?(segment), inspect(segment)
+      end
+    end
   end
 
-  test "uses the specified prepare refusal order without exposing unscoped state" do
-    empty = snapshot(fields: :malformed)
+  describe "fold" do
+    test "generated histories fold to the reference model" do
+      for seed <- 1..12 do
+        :rand.seed(:exsss, {seed, 7, 19})
+        operations = history(60)
+        rows = rows(operations)
 
-    bad_request =
-      request(snapshot(), %{"message_id" => "input-1", "text" => "x"}) |> Map.put(:extra, true)
+        assert {:ok, model, next} = History.fold_rows(History.new(), rows, context(), 1)
+        assert next == length(rows) + 1
+        assert model == reference(operations)
+      end
+    end
 
-    mismatched_facts = %{facts("append_input", []) | tenant: "another-tenant"}
+    test "the fold reports damage for a duplicate ID, an early reference, a double answer, a wrong stream or sequence and a bad digest" do
+      assert {:ok, _, 1} = History.fold_rows(History.new(), [], context(), 1)
 
-    assert {:refused, "invalid_facts"} = Conversation.prepare(empty, bad_request, %{})
-    assert {:refused, "invalid_scope"} = Conversation.prepare(empty, bad_request, mismatched_facts)
+      base = [
+        {:input, H.input("i1")},
+        {:input, H.input("i2", role: "source")},
+        {:association, H.association("i1", "run-a")},
+        {:answer, H.answer("a1", "i1", "run-a")},
+        {:association, H.association("i2", "run-a")}
+      ]
 
-    assert {:refused, "invalid_request"} =
-             Conversation.prepare(empty, bad_request, facts("append_input", []))
+      assert {:ok, _, 6} = History.fold_rows(History.new(), rows(base), context(), 1)
 
-    valid_route_bad_state = %{snapshot() | fields: :malformed}
+      histories = %{
+        duplicate_input_id: base ++ [{:input, H.input("i1", text: "other")}],
+        duplicate_answer_id_as_input: base ++ [{:input, H.input("a1")}],
+        input_id_reused_by_answer: base ++ [{:answer, H.answer("i2", "i2", "run-a")}],
+        identical_row_repeated: base ++ [{:input, H.input("i2", role: "source")}],
+        association_before_input: [{:association, H.association("i1", "run-a")} | base],
+        answer_before_association: [
+          {:input, H.input("i1")},
+          {:answer, H.answer("a1", "i1", "run-a")},
+          {:association, H.association("i1", "run-a")}
+        ],
+        association_to_answer: base ++ [{:association, H.association("a1", "run-b")}],
+        second_association: base ++ [{:association, H.association("i1", "run-b")}],
+        double_answer: base ++ [{:answer, H.answer("a2", "i1", "run-a")}],
+        answer_with_other_run: base ++ [{:answer, H.answer("a2", "i2", "run-b")}]
+      }
 
-    assert {:refused, "invalid_snapshot"} =
-             Conversation.prepare(
-               valid_route_bad_state,
-               request(valid_route_bad_state, %{"message_id" => "input-1", "text" => "x"}, 9),
-               facts("append_input", [])
-             )
+      for {name, operations} <- histories do
+        assert {:error, :damaged} = History.fold_rows(History.new(), rows(operations), context(), 1),
+               inspect(name)
+      end
 
-    associated = associated_snapshot()
+      valid = rows(base)
+      other_stream = Enum.map(valid, &redigest(%{&1 | stream: "conversation/tenant-1/other"}))
+      gap = List.update_at(valid, 4, &redigest(%{&1 | sequence: 6}))
+      repeat = List.insert_at(valid, 2, Enum.at(valid, 1))
+      reordered = [Enum.at(valid, 1), Enum.at(valid, 0) | Enum.drop(valid, 2)]
 
-    assert {:refused, "stale_revision"} =
-             append_answer(associated, "answer-1", "input-1", "wrong-run", "answer",
-               completed: false,
-               expected_revision: 0
-             )
+      flipped =
+        List.update_at(valid, 2, fn row ->
+          %{row | payload: String.replace(row.payload, "run-a", "run-b")}
+        end)
 
-    assert {:refused, "run_not_completed"} =
-             append_answer(associated, "answer-1", "input-1", "run-1", "answer", completed: false)
+      for {name, rows} <- [
+            other_stream: other_stream,
+            gap: gap,
+            repeat: repeat,
+            reordered: reordered,
+            flipped_payload_old_digest: flipped
+          ] do
+        assert {:error, :damaged} = History.fold_rows(History.new(), rows, context(), 1),
+               inspect(name)
+      end
+
+      assert {:error, :damaged} =
+               History.fold_rows(History.new(), Enum.drop(valid, 1), context(), 1)
+    end
   end
 
-  @tag :duplicate_message_id_control
-  test "rejects all duplicate IDs across roles, whether equal or changed" do
-    initial = snapshot()
-
-    {with_input, _write, _response} =
-      successful_step(initial, append_input(initial, "shared-id", "same"))
-
-    assert {:refused, "duplicate_message_id"} = append_input(with_input, "shared-id", "same")
-    assert {:refused, "duplicate_message_id"} = append_input(with_input, "shared-id", "changed")
-
-    with_answer =
-      snapshot_with_state(
-        [input("input-1", "question"), answer("shared-id", "input-1", "run-1", "answer")],
-        [association("input-1", "run-1")]
-      )
-
-    assert {:refused, "duplicate_message_id"} =
-             append_input(with_answer, "shared-id", "different role")
-
-    assert {:refused, "duplicate_message_id"} =
-             append_answer(with_answer, "shared-id", "input-1", "run-1", "same")
-  end
-
-  @tag :run_input_association_control
-  test "refuses an answer whose trusted Run does not match the stored input association" do
-    associated = associated_snapshot()
-
-    assert {:refused, "association_mismatch"} =
-             append_answer(associated, "answer-1", "input-1", "run-2", "answer")
-  end
-
-  test "Cure applies input, association, completion, match and answered refusals" do
-    initial = snapshot()
-
-    {with_input, _write, _response} =
-      successful_step(initial, append_input(initial, "input-1", "question"))
-
-    assert {:refused, "missing_input"} = associate(with_input, "missing", "run-1")
-    assert {:ok, [_write], _response} = associate(with_input, "input-1", "run-1")
-
-    {associated, _write, _response} =
-      successful_step(with_input, associate(with_input, "input-1", "run-1"))
-
-    assert {:refused, "already_associated"} = associate(associated, "input-1", "run-2")
-
-    non_input =
-      snapshot_with_state(
-        [input("input-1", "question"), answer("answer-1", "input-1", "run-1", "answer")],
-        [association("input-1", "run-1")]
-      )
-
-    assert {:refused, "missing_input"} = associate(non_input, "answer-1", "run-2")
-
-    assert {:refused, "association_mismatch"} =
-             append_answer(associated, "answer-1", "input-1", "run-2", "answer")
-
-    assert {:refused, "missing_input"} =
-             append_answer(associated, "answer-1", "absent", "run-1", "answer")
-
-    {answered, _write, _response} =
-      successful_step(
-        associated,
-        append_answer(associated, "answer-1", "input-1", "run-1", "answer")
-      )
-
-    assert {:refused, "already_answered"} =
-             append_answer(answered, "answer-2", "input-1", "run-1", "another answer")
-
-    assert {:refused, "duplicate_message_id"} =
-             append_answer(answered, "input-1", "input-1", "run-1", "cross-role duplicate")
-  end
-
-  test "snapshot validation is strict, canonical, bounded and fail-closed" do
-    valid_input = input("input-1", "question")
-    valid_assoc = association("input-1", "run-1")
-    valid_answer = answer("answer-1", "input-1", "run-1", "answer")
-
-    for version <- [1.0, nil] do
-      invalid_version =
-        record([
-          {"associations", list([])},
-          {"messages", list([valid_input])},
-          {"version", version}
+  describe "decision" do
+    test "today's precedence holds and the identical record is checked first" do
+      model =
+        fold!([
+          {:input, H.input("i1")},
+          {:input, H.input("i2", role: "source")},
+          {:association, H.association("i1", "run-a")},
+          {:answer, H.answer("a1", "i1", "run-a")},
+          {:input, H.input("i3")},
+          {:association, H.association("i3", "run-b")}
         ])
 
-      assert {:error, :invalid_snapshot} = view_state(invalid_version), inspect(version)
+      cases = [
+        {:input, H.input("i1"), true, :already_present},
+        {:input, H.input("i1", text: "other"), true, {:refused, "duplicate_message_id"}},
+        {:input, H.input("i1", role: "source"), true, {:refused, "duplicate_message_id"}},
+        {:input, H.input("a1"), true, {:refused, "duplicate_message_id"}},
+        {:input, H.input("i9"), true, :proceed},
+        {:association, H.association("i1", "run-a"), true, :already_present},
+        {:association, H.association("i1", "run-b"), true, {:refused, "already_associated"}},
+        {:association, H.association("i9", "run-a"), true, {:refused, "missing_input"}},
+        {:association, H.association("a1", "run-a"), true, {:refused, "missing_input"}},
+        {:association, H.association("i2", "run-a"), true, :proceed},
+        {:answer, H.answer("a1", "i1", "run-a"), true, :already_present},
+        {:answer, H.answer("a1", "i1", "run-a", completed: false), false, :already_present},
+        {:answer, H.answer("a1", "i1", "run-a", text: "other"), true,
+         {:refused, "duplicate_message_id"}},
+        {:answer, H.answer("i2", "i9", "run-x", completed: false), false,
+         {:refused, "duplicate_message_id"}},
+        {:answer, H.answer("a9", "i9", "run-x", completed: false), false,
+         {:refused, "run_not_completed"}},
+        {:answer, H.answer("a9", "i9", "run-x"), true, {:refused, "missing_input"}},
+        {:answer, H.answer("a9", "a1", "run-a"), true, {:refused, "missing_input"}},
+        {:answer, H.answer("a9", "i2", "run-a"), true, {:refused, "association_mismatch"}},
+        {:answer, H.answer("a9", "i1", "run-b"), true, {:refused, "association_mismatch"}},
+        {:answer, H.answer("a9", "i1", "run-a"), true, {:refused, "already_answered"}},
+        {:answer, H.answer("a9", "i3", "run-b"), true, :proceed}
+      ]
+
+      for {mode, dto, completed, expected} <- cases do
+        {:ok, entry, ^completed} = Record.intent(mode, dto)
+        assert History.decide(model, entry, completed) == expected, inspect({mode, dto})
+      end
     end
 
-    invalid_states = [
-      record([{"associations", list([])}, {"messages", list([valid_input])}, {"version", 2}]),
-      record([{"associations", list([])}, {"messages", list([])}, {"version", 1}]),
-      {:record, [{"messages", list([valid_input])}, {"associations", list([])}, {"version", 1}]},
-      {:record, [{"associations", list([])}, {"associations", list([])}, {"version", 1}]},
-      record([
-        {"associations", list([])},
-        {"messages",
-         list([
-           record([
-             {"actor", text("host")},
-             {"extra", text("x")},
-             {"message_id", text("input-1")},
-             {"role", text("user")},
-             {"text", text("question")}
-           ])
-         ])},
-        {"version", 1}
-      ]),
-      record([
-        {"associations", list([])},
-        {"messages", list([input("input-1", "q", "admin")])},
-        {"version", 1}
-      ]),
-      record([
-        {"associations", list([])},
-        {"messages", list([input("input-1", "q"), input("input-1", "q")])},
-        {"version", 1}
-      ]),
-      record([
-        {"associations", list([valid_assoc, valid_assoc])},
-        {"messages", list([valid_input])},
-        {"version", 1}
-      ]),
-      record([
-        {"associations", list([association("missing", "run-1")])},
-        {"messages", list([valid_input])},
-        {"version", 1}
-      ]),
-      record([
-        {"associations", list([association("answer-1", "run-1")])},
-        {"messages", list([input("input-1", "q"), valid_answer])},
-        {"version", 1}
-      ]),
-      record([
-        {"associations", list([])},
-        {"messages", list([input("input-1", "q"), valid_answer])},
-        {"version", 1}
-      ]),
-      record([
-        {"associations", list([association("input-1", "run-2")])},
-        {"messages", list([input("input-1", "q"), valid_answer])},
-        {"version", 1}
-      ]),
-      record([
-        {"associations", list([valid_assoc])},
-        {"messages", list([valid_answer, valid_input])},
-        {"version", 1}
-      ]),
-      record([
-        {"associations", list([valid_assoc])},
-        {"messages",
-         list([valid_input, valid_answer, answer("answer-2", "input-1", "run-1", "second")])},
-        {"version", 1}
-      ]),
-      record([
-        {"associations", list([])},
-        {"messages",
-         list([
-           {:record,
-            [
-              {"message_id", text("id")},
-              {"role", text("user")},
-              {"actor", text("actor")},
-              {"text", nil}
-            ]}
-         ])},
-        {"version", 1}
-      ]),
-      record([
-        {"associations", list([])},
-        {"messages", {:list, [valid_input | :improper]}},
-        {"version", 1}
-      ]),
-      record([
-        {"associations", {:list, [valid_assoc | :improper]}},
-        {"messages", list([valid_input])},
-        {"version", 1}
-      ]),
-      state_value([input("input-1", String.duplicate("x", 4097))], []),
-      state_value([input("input-1\0", "q")], []),
-      state_value([input(String.duplicate("i", 129), "q")], []),
-      record([
-        {"associations", list([])},
-        {"messages", list([valid_input])},
-        {"version", 1},
-        {"unknown", true}
-      ])
-    ]
+    test "the compiled Cure table equals the stated precedence for every combination of checks" do
+      names = [
+        :identical,
+        :duplicate_message_id,
+        :input_exists,
+        :input_is_input,
+        :already_associated,
+        :association_exists,
+        :association_matches,
+        :already_answered,
+        :completed
+      ]
 
-    for malformed <- invalid_states do
-      assert {:error, :invalid_snapshot} = view_state(malformed), inspect(malformed)
+      for mode <- [:input, :association, :answer], bits <- 0..511 do
+        checks =
+          names
+          |> Enum.with_index()
+          |> Map.new(fn {name, index} -> {name, Bitwise.band(bits, Bitwise.bsl(1, index)) != 0} end)
+
+        assert History.decision(mode, checks) == precedence(mode, checks), inspect({mode, checks})
+      end
     end
 
-    assert {:error, :invalid_snapshot} =
-             Conversation.view(
-               %{
-                 snapshot()
-                 | revision: 0,
-                   fields: %{"conversation" => state_value([valid_input], [])}
-               },
-               read_scope()
-             )
+    test "check decides intents in order against a copy of the model" do
+      model = fold!([{:input, H.input("i1")}])
 
-    assert {:error, :invalid_snapshot} =
-             Conversation.view(%{snapshot() | revision: 1, fields: %{}}, read_scope())
+      intents = [
+        {:input, H.input("i2")},
+        {:association, H.association("i2", "run-a")},
+        {:answer, H.answer("a2", "i2", "run-a")},
+        {:input, H.input("i1")},
+        {:input, H.input("i2", text: "other")},
+        {:answer, H.answer("a3", "i1", "run-a")},
+        {:input, %{}}
+      ]
 
-    assert {:error, :invalid_snapshot} =
-             Conversation.view(
-               %{
-                 snapshot()
-                 | revision: 1,
-                   fields: %{"conversation" => state_value([valid_input], []), "other" => true}
-               },
-               read_scope()
-             )
+      prepared =
+        Enum.map(intents, fn {mode, dto} ->
+          case Record.intent(mode, dto) do
+            {:ok, entry, completed} -> {:ok, entry, completed}
+            :error -> :invalid
+          end
+        end)
+
+      assert History.check(model, prepared) == [
+               :ok,
+               :ok,
+               :ok,
+               {:ok, :already_present},
+               {:refused, "duplicate_message_id"},
+               {:refused, "association_mismatch"},
+               {:refused, "invalid_request"}
+             ]
+
+      assert model == fold!([{:input, H.input("i1")}])
+    end
   end
 
-  test "view validates scope before malformed fields and enforces the proper bounded resource list" do
-    malformed = snapshot(fields: :malformed)
+  describe "version 1 rules" do
+    test "a version 1 snapshot parses to its ordered messages and associations" do
+      snapshot =
+        H.v1_snapshot(
+          [
+            H.v1_input("i1", "q1"),
+            H.v1_input("i2", "q2\0", "source", "actor-2"),
+            H.v1_answer("a1", "i1", "run-1", "answer")
+          ],
+          [H.v1_association("i2", "run-1"), H.v1_association("i1", "run-1")]
+        )
 
-    assert {:error, :invalid_snapshot} =
-             Conversation.view(
-               struct(Elzoo.ConversationTest.StructValue,
-                 tenant: @tenant,
-                 resource: @resource,
-                 revision: 0,
-                 fields: %{}
-               ),
-               read_scope()
-             )
+      assert {:ok,
+              %{
+                messages: [
+                  %{message_id: "i1", role: "user", actor: "host", text: "q1"},
+                  %{message_id: "i2", role: "source", actor: "actor-2", text: "q2\0"},
+                  %{
+                    message_id: "a1",
+                    role: "assistant",
+                    actor: "host",
+                    text: "answer",
+                    run_id: "run-1",
+                    input_message_id: "i1"
+                  }
+                ],
+                associations: [
+                  %{input_message_id: "i2", run_id: "run-1"},
+                  %{input_message_id: "i1", run_id: "run-1"}
+                ]
+              }} = V1.parse(snapshot)
 
-    assert {:error, :invalid_scope} =
-             Conversation.view(
-               snapshot(),
-               struct(Elzoo.ConversationTest.ScopeValue,
-                 tenant: @tenant,
-                 actor: "reader",
-                 resources: [@resource]
-               )
-             )
+      assert {:ok, %{messages: [], associations: []}} =
+               V1.parse(%{tenant: "t", resource: "r", revision: 0, fields: %{}})
+    end
 
-    assert :not_found =
-             Conversation.view(%{malformed | tenant: "another-tenant"}, %{
-               tenant: @tenant,
-               actor: "reader",
-               resources: [@resource]
-             })
+    test "version 1 validation is strict, canonical, bounded and fail-closed" do
+      valid_input = H.v1_input("input-1", "question")
+      valid_assoc = H.v1_association("input-1", "run-1")
+      valid_answer = H.v1_answer("answer-1", "input-1", "run-1", "answer")
+      record = &H.v1_record/1
 
-    assert :not_found =
-             Conversation.view(malformed, %{
-               tenant: @tenant,
-               actor: "reader",
-               resources: ["other-resource"]
-             })
+      invalid_states = [
+        record.([
+          {"associations", {:list, []}},
+          {"messages", {:list, [valid_input]}},
+          {"version", 2}
+        ]),
+        record.([
+          {"associations", {:list, []}},
+          {"messages", {:list, [valid_input]}},
+          {"version", nil}
+        ]),
+        record.([{"associations", {:list, []}}, {"messages", {:list, []}}, {"version", 1}]),
+        {:record,
+         [{"messages", {:list, [valid_input]}}, {"associations", {:list, []}}, {"version", 1}]},
+        H.v1_state([H.v1_input("input-1", "q", "admin")], []),
+        H.v1_state([H.v1_input("input-1", "q"), H.v1_input("input-1", "q")], []),
+        H.v1_state([valid_input], [valid_assoc, valid_assoc]),
+        H.v1_state([valid_input], [H.v1_association("missing", "run-1")]),
+        H.v1_state([H.v1_input("input-1", "q"), valid_answer], [
+          H.v1_association("answer-1", "run-1")
+        ]),
+        H.v1_state([H.v1_input("input-1", "q"), valid_answer], []),
+        H.v1_state([H.v1_input("input-1", "q"), valid_answer], [
+          H.v1_association("input-1", "run-2")
+        ]),
+        H.v1_state([valid_answer, valid_input], [valid_assoc]),
+        H.v1_state(
+          [valid_input, valid_answer, H.v1_answer("answer-2", "input-1", "run-1", "second")],
+          [valid_assoc]
+        ),
+        record.([
+          {"associations", {:list, []}},
+          {"messages", {:list, [valid_input | :improper]}},
+          {"version", 1}
+        ]),
+        H.v1_state([H.v1_input("input-1", String.duplicate("x", 4097))], []),
+        H.v1_state([H.v1_input("input-1\0", "q")], []),
+        H.v1_state([H.v1_input(String.duplicate("i", 129), "q")], []),
+        record.([
+          {"associations", {:list, []}},
+          {"messages", {:list, [valid_input]}},
+          {"version", 1},
+          {"unknown", true}
+        ]),
+        H.v1_state(Enum.map(1..65, &H.v1_input("input-#{&1}", "q")), [])
+      ]
 
-    assert {:error, :invalid_scope} =
-             Conversation.view(malformed, %{tenant: @tenant, actor: "", resources: [@resource]})
+      for state <- invalid_states do
+        assert {:error, :invalid_snapshot} =
+                 V1.parse(%{
+                   tenant: "t",
+                   resource: "r",
+                   revision: 1,
+                   fields: %{"conversation" => state}
+                 }),
+               inspect(state)
+      end
 
-    assert {:error, :invalid_scope} =
-             Conversation.view(malformed, %{
-               tenant: @tenant,
-               actor: "reader",
-               resources: [@resource | :improper]
-             })
+      state = H.v1_state([valid_input], [])
 
-    allowed = Enum.map(1..63, &"resource-#{&1}") ++ [@resource]
+      for snapshot <- [
+            %{tenant: "t", resource: "r", revision: 0, fields: %{"conversation" => state}},
+            %{tenant: "t", resource: "r", revision: 1, fields: %{}},
+            %{
+              tenant: "t",
+              resource: "r",
+              revision: 1,
+              fields: %{"conversation" => state, "other" => true}
+            },
+            %{
+              tenant: "t",
+              resource: "r",
+              revision: 1,
+              fields: %{"conversation" => state},
+              extra: 1
+            },
+            %{tenant: "t\0", resource: "r", revision: 1, fields: %{"conversation" => state}},
+            %{tenant: "t", resource: "r", revision: -1, fields: %{"conversation" => state}},
+            :not_a_snapshot
+          ] do
+        assert {:error, :invalid_snapshot} = V1.parse(snapshot), inspect(snapshot)
+      end
+    end
 
-    assert {:ok, _view} =
-             Conversation.view(snapshot(), %{tenant: @tenant, actor: "reader", resources: allowed})
+    test "version 1 accepts exactly the encoded state bound and refuses one byte over" do
+      existing = Enum.map(1..15, &H.v1_input("input-#{&1}", String.duplicate("x", 4096)))
 
-    too_many = [@resource | Enum.map(1..64, &"resource-#{&1}")]
+      base =
+        byte_size(
+          :erlang.term_to_binary(H.v1_state(existing ++ [H.v1_input("input-final", "")], []))
+        )
 
-    assert {:error, :invalid_scope} =
-             Conversation.view(snapshot(), %{tenant: @tenant, actor: "reader", resources: too_many})
+      exact = 65_536 - base
+      assert exact in 1..4095
 
-    assert {:error, :invalid_scope} =
-             Conversation.view(snapshot(), %{
-               tenant: @tenant,
-               actor: "reader",
-               resources: [String.duplicate("r", 129)]
-             })
+      at_bound =
+        H.v1_state(existing ++ [H.v1_input("input-final", String.duplicate("x", exact))], [])
 
-    assert {:error, :invalid_scope} =
-             Conversation.view(snapshot(), Map.put(read_scope(), :unknown, true))
+      over =
+        H.v1_state(existing ++ [H.v1_input("input-final", String.duplicate("x", exact + 1))], [])
+
+      assert byte_size(:erlang.term_to_binary(at_bound)) == 65_536
+      assert byte_size(:erlang.term_to_binary(over)) == 65_537
+
+      assert {:ok, %{messages: messages}} =
+               V1.parse(%{
+                 tenant: "t",
+                 resource: "r",
+                 revision: 16,
+                 fields: %{"conversation" => at_bound}
+               })
+
+      assert length(messages) == 16
+
+      assert {:error, :invalid_snapshot} =
+               V1.parse(%{
+                 tenant: "t",
+                 resource: "r",
+                 revision: 16,
+                 fields: %{"conversation" => over}
+               })
+    end
   end
 
-  test "enforces message and association container bounds without truncation" do
-    messages = Enum.map(1..64, &input("input-#{&1}", "question"))
-    full_messages = snapshot_with_state(messages, [], 10)
-    before = :erlang.term_to_binary(full_messages)
+  # A random valid history: inputs of both roles, associations that share Runs,
+  # answers of associated inputs.
+  defp history(count) do
+    initial = %{inputs: [], runs: %{}, answered: MapSet.new()}
 
-    assert {:refused, "capacity"} = append_input(full_messages, "input-65", "new")
-    assert :erlang.term_to_binary(full_messages) == before
+    {operations, _state} =
+      Enum.reduce(1..count, {[], initial}, fn index, {operations, s} ->
+        unassociated = Enum.reject(s.inputs, &Map.has_key?(s.runs, &1))
+        open = s.runs |> Map.keys() |> Enum.sort() |> Enum.reject(&MapSet.member?(s.answered, &1))
 
-    answer_snapshot = snapshot_with_state(messages, [association("input-1", "run-1")], 11)
-    answer_before = :erlang.term_to_binary(answer_snapshot)
+        choice =
+          if s.inputs == [], do: :input, else: Enum.random([:input, :input, :association, :answer])
 
-    assert {:refused, "capacity"} =
-             append_answer(answer_snapshot, "answer-1", "input-1", "run-1", "answer")
+        case choice do
+          :association when unassociated != [] ->
+            input = Enum.random(unassociated)
+            run = "run-#{:rand.uniform(4)}"
 
-    assert :erlang.term_to_binary(answer_snapshot) == answer_before
+            {[{:association, H.association(input, run)} | operations],
+             %{s | runs: Map.put(s.runs, input, run)}}
 
-    assert {:error, :invalid_snapshot} =
-             view_state(state_value(messages ++ [input("input-65", "extra")], []))
+          :answer when open != [] ->
+            input = Enum.random(open)
+            answer = H.answer("answer-#{index}", input, Map.fetch!(s.runs, input))
+            {[{:answer, answer} | operations], %{s | answered: MapSet.put(s.answered, input)}}
 
-    messages63 = Enum.map(1..63, &input("input-#{&1}", "question"))
+          _ ->
+            id = "input-#{index}"
+            dto = H.input(id, role: Enum.random(["user", "source"]), text: "text #{index}\0")
+            {[{:input, dto} | operations], %{s | inputs: [id | s.inputs]}}
+        end
+      end)
 
-    associations63 =
-      Enum.map(1..63, &association("input-#{&1}", "run-shared"))
-
-    snapshot63 = snapshot_with_state(messages63, associations63, 12)
-
-    assert {:ok, [input_write], input_response} =
-             append_input(snapshot63, "input-64", "question")
-
-    snapshot64 = apply_write(snapshot63, input_write, input_response)
-    assert {:ok, input_view} = Conversation.view(snapshot64, read_scope())
-    assert length(input_view.messages) == 64
-    assert length(input_view.associations) == 63
-
-    assert {:ok, [association_write], association_response} =
-             associate(snapshot64, "input-64", "run-shared")
-
-    fully_associated = apply_write(snapshot64, association_write, association_response)
-    assert {:ok, association_view} = Conversation.view(fully_associated, read_scope())
-    assert length(association_view.messages) == 64
-    assert length(association_view.associations) == 64
-    assert Enum.map(association_view.associations, & &1.run_id) == List.duplicate("run-shared", 64)
-
-    associations = Enum.map(1..64, &association("input-#{&1}", "run-shared"))
-    full_associations = snapshot_with_state(messages, associations, 11)
-
-    assert {:ok, full_view} = Conversation.view(full_associations, read_scope())
-    assert length(full_view.messages) == 64
-    assert length(full_view.associations) == 64
-
-    assert {:error, :invalid_snapshot} =
-             view_state(
-               state_value(messages, associations ++ [association("input-1", "run-other")])
-             )
+    Enum.reverse(operations)
   end
 
-  test "accepts exactly the encoded state bound and refuses one byte over" do
-    existing_messages = Enum.map(1..15, &input("input-#{&1}", String.duplicate("x", 4096)))
-    candidate = input("input-final", "")
-    empty_text_state = state_value(existing_messages ++ [candidate], [])
-    base_size = byte_size(:erlang.term_to_binary(empty_text_state))
-    exact_text_size = 65_536 - base_size
+  defp reference(operations) do
+    Enum.reduce(operations, %{messages: %{}, inputs: %{}}, fn
+      {:input, dto}, model ->
+        digest = :crypto.hash(:sha256, Record.payload(H.entry!(:input, dto)))
 
-    assert exact_text_size in 1..4096
+        %{
+          model
+          | messages: Map.put(model.messages, dto.message_id, {:input, digest}),
+            inputs: Map.put(model.inputs, dto.message_id, {nil, false})
+        }
 
-    exact_snapshot = snapshot_with_state(existing_messages, [], 21)
+      {:association, dto}, model ->
+        %{model | inputs: Map.put(model.inputs, dto.input_message_id, {dto.run_id, false})}
 
-    assert {:ok, [write], response} =
-             append_input(exact_snapshot, "input-final", String.duplicate("x", exact_text_size))
+      {:answer, dto}, model ->
+        digest = :crypto.hash(:sha256, Record.payload(H.entry!(:answer, dto)))
 
-    assert byte_size(:erlang.term_to_binary(write.value)) == 65_536
-    reconstructed = apply_write(exact_snapshot, write, response)
-    assert {:ok, _view} = Conversation.view(reconstructed, read_scope())
-
-    over_text_size = exact_text_size + 1
-    assert over_text_size <= 4096
-
-    assert {:refused, "capacity"} =
-             append_input(exact_snapshot, "input-final", String.duplicate("x", over_text_size))
-
-    oversized =
-      state_value(
-        existing_messages ++ [input("input-final", String.duplicate("x", over_text_size))],
-        []
-      )
-
-    assert byte_size(:erlang.term_to_binary(oversized)) == 65_537
-    assert {:error, :invalid_snapshot} = view_state(oversized)
-    assert exact_snapshot == snapshot_with_state(existing_messages, [], 21)
+        %{
+          model
+          | messages: Map.put(model.messages, dto.message_id, {:answer, digest}),
+            inputs: Map.put(model.inputs, dto.input_message_id, {dto.run_id, true})
+        }
+    end)
   end
 
-  test "refuses an association that crosses encoded capacity without changing prior state" do
-    existing_messages = Enum.map(1..15, &input("input-#{&1}", String.duplicate("x", 4096)))
-    candidate = input("input-final", "")
-    empty_association_state = state_value(existing_messages ++ [candidate], [])
+  defp precedence(mode, c) do
+    cond do
+      c.identical ->
+        :already_present
 
-    associated_state =
-      state_value(existing_messages ++ [candidate], [association("input-final", "run-1")])
+      mode == :input and c.duplicate_message_id ->
+        {:refused, "duplicate_message_id"}
 
-    empty_size = byte_size(:erlang.term_to_binary(empty_association_state))
-    association_delta = byte_size(:erlang.term_to_binary(associated_state)) - empty_size
-    text_size = 65_537 - association_delta - empty_size
+      mode == :input ->
+        :proceed
 
-    assert association_delta > 0
-    assert text_size in 1..4096
+      mode == :association and not (c.input_exists and c.input_is_input) ->
+        {:refused, "missing_input"}
 
-    messages = existing_messages ++ [input("input-final", String.duplicate("x", text_size))]
-    state = state_value(messages, [])
-    before_size = 65_537 - association_delta
+      mode == :association and c.already_associated ->
+        {:refused, "already_associated"}
 
-    assert byte_size(:erlang.term_to_binary(state)) == before_size
-    assert before_size <= 65_536
+      mode == :association ->
+        :proceed
 
-    stored = snapshot_with_state(messages, [], 23)
-    before = :erlang.term_to_binary(stored.fields["conversation"])
-    assert {:ok, _view} = Conversation.view(stored, read_scope())
-    assert {:refused, "capacity"} = associate(stored, "input-final", "run-1")
-    assert :erlang.term_to_binary(stored.fields["conversation"]) == before
+      c.duplicate_message_id ->
+        {:refused, "duplicate_message_id"}
+
+      not c.completed ->
+        {:refused, "run_not_completed"}
+
+      not (c.input_exists and c.input_is_input) ->
+        {:refused, "missing_input"}
+
+      not (c.association_exists and c.association_matches) ->
+        {:refused, "association_mismatch"}
+
+      c.already_answered ->
+        {:refused, "already_answered"}
+
+      true ->
+        :proceed
+    end
   end
 
-  defp append_input(snapshot, message_id, message_text, opts \\ []) do
-    request_opts = Keyword.take(opts, [:expected_revision])
-    facts_opts = Keyword.take(opts, [:actor, :role])
-
-    attempt(
-      snapshot,
-      "append_input",
-      %{"message_id" => message_id, "text" => message_text},
-      request_opts,
-      facts_opts
-    )
+  defp fold!(operations) do
+    {:ok, model, _} = History.fold_rows(History.new(), rows(operations), context(), 1)
+    model
   end
 
-  defp append_answer(snapshot, message_id, input_id, run_id, message_text, opts \\ []) do
-    request_opts = Keyword.take(opts, [:expected_revision])
-
-    facts_opts =
-      [run_id: run_id, input_message_id: input_id] ++ Keyword.take(opts, [:completed, :actor])
-
-    attempt(
-      snapshot,
-      "append_answer",
-      %{"message_id" => message_id, "text" => message_text},
-      request_opts,
-      facts_opts
-    )
+  defp rows(operations) do
+    operations
+    |> Enum.with_index(1)
+    |> Enum.map(fn {{mode, dto}, sequence} -> row(sequence, H.entry!(mode, dto)) end)
   end
 
-  defp associate(snapshot, input_id, run_id, opts \\ []) do
-    attempt(
-      snapshot,
-      "associate_run",
-      %{"message_id" => input_id},
-      Keyword.take(opts, [:expected_revision]),
-      run_id: run_id
-    )
+  defp row(sequence, entry), do: Record.row(@stream, sequence, entry, :crypto.strong_rand_bytes(16))
+
+  defp redigest(row), do: %{row | digest: Log.digest(row)}
+
+  defp context, do: %{stream: @stream, fold: H.fold(), limits: H.limits()}
+
+  defp decode(row, fold \\ H.fold(), sequence \\ 1),
+    do: Record.decode(row, @stream, sequence, fold, H.limits())
+
+  defp trim_utf8(binary) do
+    if String.valid?(binary),
+      do: binary,
+      else: trim_utf8(binary_part(binary, 0, byte_size(binary) - 1))
   end
-
-  defp attempt(snapshot, mode, payload, request_opts, facts_opts) do
-    request =
-      request(snapshot, payload, Keyword.get(request_opts, :expected_revision, snapshot.revision))
-
-    Conversation.prepare(snapshot, request, facts(mode, facts_opts))
-  end
-
-  defp successful_step(snapshot, {:ok, [write], response}) do
-    {apply_write(snapshot, write, response), write, response}
-  end
-
-  defp facts(mode, opts) do
-    pairs = [{"mode", text(mode)} | fact_pairs(mode, opts)]
-    %{tenant: @tenant, actor: Keyword.get(opts, :actor, "host"), data: {:record, pairs}}
-  end
-
-  defp fact_pairs("append_input", opts),
-    do: [{"input_role", text(Keyword.get(opts, :role, "user"))}]
-
-  defp fact_pairs("associate_run", opts), do: [{"run_id", text(Keyword.fetch!(opts, :run_id))}]
-
-  defp fact_pairs("append_answer", opts) do
-    [
-      {"run_id", text(Keyword.fetch!(opts, :run_id))},
-      {"input_message_id", text(Keyword.fetch!(opts, :input_message_id))},
-      {"completed", Keyword.get(opts, :completed, true)}
-    ]
-  end
-
-  defp facts_data(mode, opts) do
-    {:record, Enum.sort_by([{"mode", text(mode)} | fact_pairs(mode, opts)], &elem(&1, 0))}
-  end
-
-  defp prepare_with_data(snapshot, request, pairs) do
-    Conversation.prepare(snapshot, request, %{
-      tenant: @tenant,
-      actor: "host",
-      data: {:record, pairs}
-    })
-  end
-
-  defp request(snapshot, payload), do: request(snapshot, payload, snapshot.revision)
-
-  defp request(snapshot, payload, expected_revision) do
-    %{
-      operation_id: "operation-1",
-      resource: snapshot.resource,
-      expected_revision: expected_revision,
-      payload: payload
-    }
-  end
-
-  defp snapshot(opts \\ []) do
-    %{
-      tenant: Keyword.get(opts, :tenant, @tenant),
-      resource: @resource,
-      revision: Keyword.get(opts, :revision, 0),
-      fields: Keyword.get(opts, :fields, %{})
-    }
-  end
-
-  defp snapshot_with_state(messages, associations, revision \\ 1) do
-    %{
-      tenant: @tenant,
-      resource: @resource,
-      revision: revision,
-      fields: %{"conversation" => state_value(messages, associations)}
-    }
-  end
-
-  defp associated_snapshot do
-    snapshot_with_state([input("input-1", "question")], [association("input-1", "run-1")])
-  end
-
-  defp view_state(value) do
-    Conversation.view(snapshot(revision: 1, fields: %{"conversation" => value}), read_scope())
-  end
-
-  defp read_scope, do: %{tenant: @tenant, actor: "reader", resources: [@resource]}
-
-  defp apply_write(snapshot, write, response) do
-    %{
-      snapshot
-      | revision: response_field(response, "revision"),
-        fields: %{write.field => write.value}
-    }
-  end
-
-  defp response_field({:record, pairs}, name) do
-    {^name, value} = Enum.find(pairs, fn {field, _} -> field == name end)
-    value
-  end
-
-  defp state_value(messages, associations) do
-    record([
-      {"associations", list(associations)},
-      {"messages", list(messages)},
-      {"version", 1}
-    ])
-  end
-
-  defp input(id, message_text, role \\ "user", actor \\ "host") do
-    record([
-      {"actor", text(actor)},
-      {"message_id", text(id)},
-      {"role", text(role)},
-      {"text", text(message_text)}
-    ])
-  end
-
-  defp answer(id, input_id, run_id, message_text, actor \\ "host") do
-    record([
-      {"actor", text(actor)},
-      {"input_message_id", text(input_id)},
-      {"message_id", text(id)},
-      {"role", text("assistant")},
-      {"run_id", text(run_id)},
-      {"text", text(message_text)}
-    ])
-  end
-
-  defp association(input_id, run_id) do
-    record([{"input_message_id", text(input_id)}, {"run_id", text(run_id)}])
-  end
-
-  defp record(pairs), do: {:record, Enum.sort_by(pairs, &elem(&1, 0))}
-  defp text(value), do: {:text, value}
-  defp list(values), do: {:list, values}
 end

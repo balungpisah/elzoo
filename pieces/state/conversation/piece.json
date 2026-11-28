@@ -5,20 +5,30 @@
   "coverage": "subset",
   "license": "Apache-2.0",
   "kind": "owned",
-  "providers": ["cure", "elixir", "otp"],
-  "dependencies": ["domain/authorization"],
-  "contract": "Pure version-1 preparation and bounded projection over one conversation resource field. Exact host facts select immutable input messages, input-to-Run associations and completed assistant answers; message IDs are unique within one conversation across all roles and several inputs may share one Run. The checked portable state has exact sorted record/list shapes, at most 64 messages and associations, and at most 65,536 bytes by pinned OTP term_to_binary/1. view/2 requires the host-vouched tenant/actor/resource read scope. No I/O, authentication, authorization, Run creation, persistence or CheckedCommand integration claim.",
+  "providers": ["cure", "jason", "ecto_sql", "postgrex", "elixir", "otp"],
+  "dependencies": ["state/event-log", "domain/authorization", "integration/sql"],
+  "applications": ["crypto"],
+  "contract": "One caller-supervised owner per conversation appends immutable, self-contained input, input-to-Run association and completed-answer records to the event-log stream conversation/<target_tenant>/<conversation_id> through the Store's head compare-and-set. Exact host-vouched DTOs; an identical record is {:ok, :already_present}; every other write follows the Cure decision table with today's refusal codes and precedence, and a refusal is decided only after reading the rows after the owner's head; a lost compare-and-set reads only the new rows and decides again, at most 9 attempts; an unknown append is resolved by its own nonce and bytes or by the identical record, never by the referenced input. check/2 decides ordered intents against a copy of the refreshed history without appending. Owner-free page/5 and tail/4 validate scope and grant before any Store call and every row they return. import_v1/3 migrates a version 1 field snapshot offline. No message cap; owner memory and start time grow with the conversation. No authentication, authorization, Run creation, retention or writer exclusivity.",
   "limits": [
-    "IDs are 1..128 valid UTF-8 bytes without NUL; message text is 1..4,096 valid UTF-8 bytes and is preserved byte-for-byte, including NUL.",
-    "Stored state contains only exact version-1 messages and input/Run associations. Unknown, noncanonical, over-bound or inconsistent state is refused, not repaired or treated as empty.",
-    "At most 64 messages and 64 associations; every prospective write can refuse at encoded capacity. No eviction or truncation.",
-    "The caller owns CAS, authority, approval, receipts and atomic persistence. A pure proposal is not a committed success.",
-    "Mandatory ELZ-252 acceptance of actual Memory/PostgreSQL CheckedCommand composition and RunEngine parity must pass before a durable Conversation or Wave4 completion claim."
+    "IDs (actor, message, Run) are 1..128 valid UTF-8 bytes without NUL; text is 1..4,096 valid UTF-8 bytes, NUL allowed, kept byte for byte. target_tenant and conversation_id are segments of 1..64 bytes of [A-Za-z0-9._-], never . or .. (state/artifact's segment rule), so a stream name is at most 142 bytes.",
+    "Records are the kinds conversation_input, conversation_association and conversation_answer at row schema_version 1. A payload is a JSON object with the kind's keys in declared order and Jason 1.4.5 default escaping, accepted only when it re-encodes to the same bytes. The worst-case payload is 27,720 bytes; the owner and import_v1/3 refuse a Store whose limits.max_record_bytes is below it.",
+    "Start reads and validates the whole stream once: contiguous from 1, stream, kind, version, exact payload, digest and the cross-history decisions. low_water > 0 or any failing row is {:error, :damaged}. The owner keeps each message ID with its kind and content digest and each input with its Run and answered flag, so its memory and start time grow with the conversation (three local runs of 100,000 messages: about 22-28 MB; start 1.3-1.5 s on PostgreSQL 19 and 6.6-7.7 s on the Memory Store).",
+    "Owner calls time out after 30,000 ms unless the call passes another positive timeout. A timed-out or interrupted write is {:unknown, :unresolved} and may still commit; a check's timeout is one deadline that also covers validating and encoding its intents in the caller, and a timed-out check is {:error, :timeout}. Only the identical operation is retried.",
+    "A refresh (check/2, an append after a lost compare-and-set, or a write before it refuses) that cannot read the Store returns {:error, :unavailable}; one that finds a failing row returns {:error, :damaged}; nothing is appended and the owner keeps its last validated model. {:error, :contended} follows 9 lost compare-and-sets in one call; {:error, :rejected} reports a definite Store rejection.",
+    "page/5 and tail/4 take the scope %{tenant, actor, resources} with at most 64 granted IDs and a limit or count of 1..1,000, validated before any Store call. page makes one Store call and tail two. A missing or invalid row, a nonzero low_water in an observed head or a pruned read is {:error, :damaged}. Provider work inside the Store is not claimed bounded.",
+    "Needs: the Store's append is atomic, and its term carries the fold (declaring the three kinds and version 1) and the limits that its rows are validated with; nothing retains or prunes these streams out of band; the host vouches every DTO field. The wave 4 channel is the sole writer of the streams it delivers to and the only party that acknowledges its own outbox items, each with that item's own nonce and only after that item's append is proven: check/2 reserves no message ID, an outside write of the same ID with other content makes the delivery refuse, and an identical outside write cannot be told from a redelivery. An item that the channel holds, acknowledged without its row, fences the channel, which never appends it. It holds an input item once it observes the item in the outbox window, the item of each association, reply association or answer command that it issued, and after a fenced reopen the items that its persisted custody names. An input acknowledged before the channel observed it is not held: such a primary is never delivered, and later inputs of the conversation are; such a reply keeps the reply observation fenced live, and after a fenced reopen the Run's expiry ends in the reply-ambiguity fence. Version 1 association and answer recovery needs the primary pending in the outbox window: with the primary and its association both acknowledged from outside, a reopened channel finds no round.",
+    "Version 1 field state is read only by import_v1/3, with the version 1 rules and domain/authorization as a migration-only dependency. The new stream orders each association directly after its input, not in the version 1 association order. The offline migration step in the README is the caller's.",
+    "integration/sql is the PostgreSQL test closure (its migration and PostgresHarness). Memory is volatile test evidence. No durability, exactly-once, tamper-evidence or cross-conversation ordering claim."
   ],
   "files": [
     "cure/elzoo/conversation.cure",
     "lib/elzoo/conversation.ex",
+    "lib/elzoo/conversation/history.ex",
+    "lib/elzoo/conversation/record.ex",
+    "lib/elzoo/conversation/v1.ex",
     "test/elzoo/conversation_test.exs",
+    "test/elzoo/conversation_store_test.exs",
+    "test/support/conversation_test_helper.exs",
     "examples/conversation.exs"
   ],
   "grounding": [
@@ -26,48 +36,73 @@
       "kind": "type",
       "file": "cure/elzoo/conversation.cure",
       "symbol": "decide",
-      "claim": "Pinned Cure type-checks the decision function and checks its declared totality over bounded host-computed classifications. Intended refusal precedence is covered by scenario tests."
+      "claim": "Pinned Cure type-checks decide/2 and decide_new/2 and checks their declared totality over host-computed checks. That the compiled table equals the stated precedence, identical record first, is a test over all 1,536 combinations, not a proof."
     },
     {
       "kind": "test",
       "file": "test/elzoo/conversation_test.exs",
-      "claim": "Named finite scenarios cover exact DTOs and portable shapes, round trips, bounded scope, immutable multi-Run progression, malformed references, precedence, every published bound and duplicate-ID/Run-association mutation controls; they are not universal storage or security proofs."
+      "claim": "Pure scenarios: exact DTO and payload keys and bounds, NUL and byte preservation, the 27,720-byte worst case, malformed rows failing closed, generated histories folding to a reference model, damage for duplicate IDs, early references, double answers and associations, wrong stream or sequence and bad digests, the decision precedence with the identical-record exception, ordered check decisions, and the version 1 rules and bounds."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/conversation_store_test.exs",
+      "claim": "Each scenario on the Memory Store and on a disposable PostgreSQL database: 100,000 messages with a deep page, a tail window and a measured owner start; identical retries; two owners racing one ID; a refusal decided after another owner's append; four concurrent owners; already_answered and missing_input; committed and unresolved lost replies of an append and an association; check parity, refresh, chains and timeouts including a late commit; check without an intent count bound and with its deadline covering preparation; refresh errors; zero Store calls for refused reads; row checks of page and tail; a pruned prefix; start refusals; the contention bound; and import_v1/3 including a cut import. Finite scenarios, not proofs."
     },
     {
       "kind": "upstream",
       "provider": "cure",
       "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
-      "claim": "The pinned Cure compiler checks types and totality of the pure conversation mode decision; compiler soundness is not locally proved."
+      "claim": "The pinned Cure compiler checks types and totality of the conversation decision table; compiler soundness is not locally proved."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "Jason 1.4.5 encodes the payloads as ordered objects with default escaping and decodes them as ordered objects with copied strings; a decoding failure or a payload that does not re-encode to the same bytes is damage."
     },
     {
       "kind": "upstream",
       "provider": "elixir",
-      "reference": "https://hexdocs.pm/elixir/1.20.4/",
-      "claim": "Pinned Elixir maps, binaries and collection operations implement DTO validation and bounded immutable list updates."
+      "reference": "https://hexdocs.pm/elixir/1.20.5/",
+      "claim": "The owner is an Elixir GenServer: start_link/1 returns the {:error, reason} that init/1 returns, and GenServer.call/3 exits on its timeout, which the Piece maps to its timeout results."
     },
     {
       "kind": "upstream",
       "provider": "otp",
-      "reference": "https://www.erlang.org/doc/apps/erts/erlang.html#term_to_binary/1",
-      "claim": "The encoded-state limit is byte_size(:erlang.term_to_binary(normalized_portable_state)) under pinned OTP 29.1.2."
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.3 gen_server semantics (an init error exits normally; a reply after the caller's timeout is not delivered to it) and crypto SHA-256 and strong random nonces are upstream contracts."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "The PostgreSQL scenarios run the ready integration/sql Store through a test-owned Repo; they cover named scenarios on one local database only."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://hexdocs.pm/postgrex/0.23.0/Postgrex.html",
+      "claim": "The SQL Store's PostgreSQL driver behavior relies on the pinned Postgrex implementation and its public contract."
     },
     {
       "kind": "assumption",
-      "claim": "The host authenticates facts and read grants, allocates stable Run IDs, attests completed outcomes and commits the returned single-field proposal with its own authority, CAS, receipt, approval and atomicity rules."
+      "claim": "The host authenticates and vouches every DTO field and read grant, allocates stable Run IDs, attests Run completion, supervises the owner, keeps one writer per conversation stream and supplies an atomic Store that nothing prunes out of band."
     }
   ],
   "operations": {
     "telemetry": {
       "status": "not_applicable",
-      "contract": "Pure preparation and projection emit no observations."
+      "contract": "The owner, its writes and check, page, tail and import_v1 emit no observations; every outcome is a returned value."
     },
     "config": {
-      "status": "not_applicable",
-      "contract": "Exact operands and fixed Contract bounds; no ambient settings."
+      "status": "supported",
+      "contract": "Construction-time Store term (with its fold and limits) and target (target_tenant, conversation_id) of the owner, and a per-call owner timeout (default 30,000 ms); a change is a new owner, no hot reconfiguration.",
+      "evidence": ["test/elzoo/conversation_store_test.exs"]
     },
     "control": {
-      "status": "not_applicable",
-      "contract": "No process or independent lifecycle."
+      "status": "supported",
+      "contract": "The owner process under the caller's supervisor (OTP start and stop) and its three writes with exact results: committed at a sequence, already present, refused with a code, contended, unavailable, damaged, rejected or unknown; no pause or drain.",
+      "evidence": ["test/elzoo/conversation_store_test.exs"]
     }
   }
 }

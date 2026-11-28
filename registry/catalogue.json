@@ -919,7 +919,7 @@
     },
     {
       "id": "state/conversation",
-      "summary": "Bounded immutable tenant-scoped conversation messages and Run/input associations",
+      "summary": "Immutable tenant-scoped conversation records on a per-conversation event-log stream with no message cap",
       "disposition": "own",
       "phase": "P13",
       "status": "ready",

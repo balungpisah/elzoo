@@ -3,6 +3,7 @@ mod Elzoo.Conversation
   type ConversationMode = AppendInput | AssociateRun | AppendAnswer
 
   rec ConversationChecks
+    identical: Bool
     duplicate_message_id: Bool
     input_exists: Bool
     input_is_input: Bool
@@ -14,6 +15,7 @@ mod Elzoo.Conversation
 
   type ConversationDecision =
     ConversationProceed
+    | ConversationAlreadyPresent
     | ConversationDuplicateMessageId
     | ConversationMissingInput
     | ConversationAlreadyAssociated
@@ -24,6 +26,13 @@ mod Elzoo.Conversation
   @total true
   @reducible
   fn decide(mode: ConversationMode, checks: ConversationChecks) -> ConversationDecision =
+    match checks.identical
+      True() -> ConversationAlreadyPresent()
+      False() -> decide_new(mode, checks)
+
+  @total true
+  @reducible
+  fn decide_new(mode: ConversationMode, checks: ConversationChecks) -> ConversationDecision =
     match mode
       AppendInput() ->
         match checks.duplicate_message_id

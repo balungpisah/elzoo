@@ -1,737 +1,631 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.Conversation do
-  @moduledoc "Pure bounded preparation and projection for immutable conversation state."
+  @moduledoc """
+  One conversation on its own `state/event-log` stream,
+  `conversation/<target_tenant>/<conversation_id>`.
 
-  alias Elzoo.Authorization
+  `start_link/1` starts the owner of one conversation under the caller's
+  supervisor. The owner reads and validates the whole stream once, keeps a
+  model of it in memory and appends immutable, self-contained records through
+  the Store's head compare-and-set: `append_input/3`, `associate_run/3` and
+  `append_answer/3`. `check/3` decides intents against the stream without
+  appending. `page/5` and `tail/4` read without an owner, and `import_v1/3`
+  migrates a version 1 field snapshot offline. See the README for the exact
+  DTOs, results, bounds and Needs.
+  """
+  use GenServer
 
-  @cure :"Cure.Elzoo.Conversation"
-  @max_id_bytes 128
-  @max_text_bytes 4096
-  @max_messages 64
-  @max_associations 64
+  alias Elzoo.Conversation.{History, Record, V1}
+  alias Elzoo.DurableLog, as: Log
+  alias Elzoo.DurableLog.{Codec, Store}
+
+  @call_timeout 30_000
+  @max_conflicts 8
+  @read_page 1_000
+  @max_count 1_000
   @max_resources 64
-  @max_encoded_bytes 65_536
-  @max_revision 9_223_372_036_854_775_807
-  @max_expected_revision @max_revision - 1
-  @snapshot_keys [:tenant, :resource, :revision, :fields]
-  @request_keys [:operation_id, :resource, :expected_revision, :payload]
-  @facts_keys [:tenant, :actor, :data]
-  @state_keys ["associations", "messages", "version"]
-  @input_keys ["actor", "message_id", "role", "text"]
-  @answer_keys ["actor", "input_message_id", "message_id", "role", "run_id", "text"]
-  @association_keys ["input_message_id", "run_id"]
+  @max_sequence 9_223_372_036_854_775_807
 
-  @doc "Prepare one bounded conversation field replacement from exact host DTOs."
-  def prepare(snapshot, request, facts) do
-    with {:ok, facts} <- validate_facts(facts),
-         :ok <- prepare_scope(snapshot, request, facts),
-         {:ok, request} <- validate_request(request, facts.mode),
-         {:ok, snapshot} <- validate_snapshot(snapshot),
-         :ok <- check_revision(request.expected_revision, snapshot.revision),
-         {:ok, state, response} <- propose(snapshot.state, request, facts) do
-      {:ok,
-       [
-         %{target: request.resource, field: "conversation", value: encode_state(state)}
-       ], response}
-    else
-      {:error, :invalid_snapshot} -> {:refused, "invalid_snapshot"}
-      {:error, code} when is_binary(code) -> {:refused, code}
-      {:refused, code} -> {:refused, code}
+  @doc """
+  Start the owner of one conversation. Options, exactly: `store` (a ready
+  Store term `{module, %{fold: fold, limits: limits, ...}}`), `target_tenant`
+  and `conversation_id` (stream-name segments). Returns `{:ok, pid}` or
+  `{:error, :invalid_options | :unsupported_store | :damaged | :unavailable}`.
+  """
+  def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+  @doc "Append one input message: `%{message_id, role, actor, text}`."
+  def append_input(owner, dto, timeout \\ @call_timeout), do: write(owner, :input, dto, timeout)
+
+  @doc "Associate one input with a Run: `%{input_message_id, run_id}`."
+  def associate_run(owner, dto, timeout \\ @call_timeout),
+    do: write(owner, :association, dto, timeout)
+
+  @doc "Append one answer: `%{message_id, actor, text, run_id, input_message_id, completed}`."
+  def append_answer(owner, dto, timeout \\ @call_timeout),
+    do: write(owner, :answer, dto, timeout)
+
+  @doc """
+  Decide intents in order without appending. `intents` is a non-empty proper
+  list of `{:input | :association | :answer, dto}`. Returns
+  `{:ok, decisions}` with one `:ok`, `{:ok, :already_present}` or
+  `{:refused, code}` per intent, or
+  `{:error, :invalid_request | :timeout | :unavailable | :damaged}`. The
+  timeout is one deadline for the whole call: it covers validating and
+  encoding the intents in the caller as well as the owner call.
+  """
+  def check(owner, intents, timeout \\ @call_timeout)
+      when is_integer(timeout) and timeout > 0 do
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    case prepare(intents, deadline) do
+      {:ok, prepared} ->
+        case deadline - System.monotonic_time(:millisecond) do
+          remaining when remaining > 0 ->
+            try do
+              GenServer.call(owner, {:check, prepared}, remaining)
+            catch
+              :exit, {:timeout, _} -> {:error, :timeout}
+              :exit, _ -> {:error, :unavailable}
+            end
+
+          _ ->
+            {:error, :timeout}
+        end
+
+      :timeout ->
+        {:error, :timeout}
+
+      :error ->
+        {:error, :invalid_request}
     end
   end
 
-  @doc "Project a checked conversation when the host-vouched scope grants its resource."
-  def view(snapshot, scope) do
-    with {:ok, scope} <- validate_read_scope(scope),
-         :ok <- read_scope_route(snapshot, scope),
-         {:ok, snapshot} <- validate_snapshot(snapshot) do
-      {:ok,
-       %{
-         tenant: snapshot.tenant,
-         resource: snapshot.resource,
-         revision: snapshot.revision,
-         messages: Enum.map(snapshot.state.messages, &view_message/1),
-         associations: Enum.map(snapshot.state.associations, &view_association/1)
-       }}
-    else
-      :not_found -> :not_found
-      {:error, reason} -> {:error, reason}
-    end
-  end
+  @doc """
+  Read the entries `from_sequence..min(head, from_sequence + limit - 1)`.
+  Returns `{:ok, %{revision: head_revision, entries: entries}}`, `:not_found`
+  or `{:error, :invalid_scope | :invalid_request | :damaged | :unavailable}`.
+  """
+  def page(store, scope, reference, from_sequence, limit) do
+    with {:ok, context} <- read_request(store, scope, reference, from_sequence, limit) do
+      case Store.read(context.store, :read, [context.stream, from_sequence, limit]) do
+        {:ok, rows, head} ->
+          through = min(head.revision, from_sequence + limit - 1)
+          entries(context, rows, head, from_sequence, through, head.revision)
 
-  defp validate_facts(facts) do
-    if exact_plain_map?(facts, @facts_keys) and valid_id?(facts.tenant) and valid_id?(facts.actor) do
-      case validate_facts_data(facts.data) do
-        {:ok, data} ->
-          {:ok, Map.merge(data, %{tenant: facts.tenant, actor: facts.actor})}
-
-        :error ->
-          {:error, "invalid_facts"}
+        error ->
+          read_error(error)
       end
-    else
-      {:error, "invalid_facts"}
     end
   end
 
-  defp validate_facts_data(data) do
-    with {:ok, fields} <- portable_record_map(data, 4, false),
-         {:ok, mode} <- tagged_mode(Map.get(fields, "mode")),
-         true <- exact_string_keys?(fields, fact_keys(mode)),
-         {:ok, parsed} <- parse_facts_fields(mode, fields),
-         {:ok, normalized} <- normalize_portable(data),
-         true <- match?({:record, _}, normalized) do
-      {:ok, Map.merge(parsed, %{mode: mode, data: normalized})}
-    else
-      _ -> :error
-    end
-  end
-
-  defp fact_keys("append_input"), do: ["mode", "input_role"]
-  defp fact_keys("associate_run"), do: ["mode", "run_id"]
-  defp fact_keys("append_answer"), do: ["mode", "run_id", "input_message_id", "completed"]
-  defp fact_keys(_), do: []
-
-  defp tagged_mode({:text, mode}) when mode in ["append_input", "associate_run", "append_answer"],
-    do: {:ok, mode}
-
-  defp tagged_mode(_), do: :error
-
-  defp parse_facts_fields("append_input", fields) do
-    with {:text, role} <- Map.get(fields, "input_role"),
-         true <- role in ["user", "source"],
-         true <- valid_id?(role) do
-      {:ok, %{input_role: role}}
-    else
-      _ -> :error
-    end
-  end
-
-  defp parse_facts_fields("associate_run", fields) do
-    with {:ok, run_id} <- tagged_id(Map.get(fields, "run_id")) do
-      {:ok, %{run_id: run_id}}
-    else
-      _ -> :error
-    end
-  end
-
-  defp parse_facts_fields("append_answer", fields) do
-    with {:ok, run_id} <- tagged_id(Map.get(fields, "run_id")),
-         {:ok, input_message_id} <- tagged_id(Map.get(fields, "input_message_id")),
-         completed when is_boolean(completed) <- Map.get(fields, "completed") do
-      {:ok, %{run_id: run_id, input_message_id: input_message_id, completed: completed}}
-    else
-      _ -> :error
-    end
-  end
-
-  defp prepare_scope(snapshot, request, facts) do
-    cond do
-      not plain_map?(request) or not Map.has_key?(request, :resource) ->
-        {:error, "invalid_request"}
-
-      not plain_map?(snapshot) or not Map.has_key?(snapshot, :tenant) or
-          not Map.has_key?(snapshot, :resource) ->
-        {:error, "invalid_snapshot"}
-
-      not valid_id?(request.resource) or not valid_id?(snapshot.tenant) or
-          not valid_id?(snapshot.resource) ->
-        {:error, "invalid_scope"}
-
-      facts.tenant != snapshot.tenant or request.resource != snapshot.resource ->
-        {:error, "invalid_scope"}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp validate_request(request, mode) do
-    if exact_plain_map?(request, @request_keys) do
-      with true <- valid_id?(request.operation_id),
-           true <- valid_id?(request.resource),
-           true <- valid_revision?(request.expected_revision, @max_expected_revision),
-           {:ok, payload} <- validate_payload(request.payload, mode) do
-        {:ok,
-         %{
-           operation_id: request.operation_id,
-           resource: request.resource,
-           expected_revision: request.expected_revision,
-           payload: payload
-         }}
+  @doc """
+  Read the last `count` entries up to the sampled head. Returns the same
+  shapes as `page/5`.
+  """
+  def tail(store, scope, reference, count) do
+    with {:ok, context} <- read_request(store, scope, reference, 1, count),
+         {:ok, head} <- head(context) do
+      if head.revision == 0 do
+        {:ok, %{revision: 0, entries: []}}
       else
-        _ -> {:error, "invalid_request"}
+        from = max(1, head.revision - count + 1)
+        limit = head.revision - from + 1
+
+        case Store.read(context.store, :read, [context.stream, from, limit]) do
+          {:ok, rows, second} ->
+            if second.revision >= head.revision,
+              do: entries(context, rows, second, from, head.revision, head.revision),
+              else: {:error, :damaged}
+
+          error ->
+            read_error(error)
+        end
+      end
+    end
+  end
+
+  @doc """
+  Import a version 1 conversation snapshot (the value that
+  `CheckedCommand.resource/3` returns) into the empty stream of `reference`.
+  Returns `{:ok, %{sequence: last_row}}`, `{:ok, :already_present}`,
+  `{:error, :not_empty | :invalid_snapshot | :invalid_request |
+  :unsupported_store | :damaged | :unavailable | :rejected | :contended}` or
+  `{:unknown, :unresolved}`.
+  """
+  def import_v1(store, reference, snapshot) do
+    with {:ok, tenant, id} <- reference(reference),
+         {:ok, context} <- context(store, tenant, id),
+         :ok <- atomic(store),
+         {:ok, v1} <- V1.parse(snapshot),
+         {:ok, planned} <- plan(v1) do
+      import_planned(%{context: context, v1: v1, planned: planned, appended?: false, restarts: 0})
+    end
+  end
+
+  @impl true
+  def init(opts) do
+    with {:ok, store, tenant, id} <- options(opts),
+         {:ok, context} <- context(store, tenant, id),
+         :ok <- atomic(store),
+         {:ok, head} <- head(context),
+         {:ok, model} <- read_fold(context, History.new(), 1, head.revision) do
+      {:ok, Map.merge(context, %{head: head.revision, model: model})}
+    end
+  end
+
+  @impl true
+  def handle_call({:write, entry, completed}, _from, state) do
+    {reply, state} = attempt(state, entry, completed, 0)
+    {:reply, reply, state}
+  end
+
+  def handle_call({:check, intents}, _from, state) do
+    case refresh(state) do
+      {:ok, state, _first} -> {:reply, {:ok, History.check(state.model, intents)}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp write(owner, mode, dto, timeout) when is_integer(timeout) and timeout > 0 do
+    case Record.intent(mode, dto) do
+      {:ok, entry, completed} ->
+        try do
+          GenServer.call(owner, {:write, entry, completed}, timeout)
+        catch
+          :exit, _ -> {:unknown, :unresolved}
+        end
+
+      :error ->
+        {:refused, "invalid_request"}
+    end
+  end
+
+  # One pass over the intents under the call's deadline, with no count
+  # ceiling: each intent is validated and encoded only while time remains.
+  defp prepare([], _deadline), do: :error
+  defp prepare(intents, deadline), do: prepare(intents, deadline, [])
+
+  defp prepare([], _deadline, acc), do: {:ok, Enum.reverse(acc)}
+
+  defp prepare([{mode, dto} | rest], deadline, acc)
+       when mode in [:input, :association, :answer] do
+    if System.monotonic_time(:millisecond) >= deadline do
+      :timeout
+    else
+      prepared =
+        case Record.intent(mode, dto) do
+          {:ok, entry, completed} -> {:ok, entry, completed}
+          :error -> :invalid
+        end
+
+      prepare(rest, deadline, [prepared | acc])
+    end
+  end
+
+  defp prepare(_intents, _deadline, _acc), do: :error
+
+  defp attempt(state, entry, completed, conflicts) do
+    case History.decide(state.model, entry, completed) do
+      :proceed -> append(state, entry, completed, conflicts)
+      :already_present -> {{:ok, :already_present}, state}
+      {:refused, code} -> refuse(state, entry, completed, conflicts, code)
+    end
+  end
+
+  # A refusal decided on the owner's model can be stale: rows that another
+  # writer appended after the owner's head can make the same record identical
+  # (already present) or admissible. The owner reads them before it refuses
+  # and decides once more on the refreshed model; a refresh that cannot read
+  # or finds damage returns its error and appends nothing.
+  defp refuse(state, entry, completed, conflicts, code) do
+    case refresh(state) do
+      {:ok, state, nil} ->
+        {{:refused, code}, state}
+
+      {:ok, state, _first} ->
+        case History.decide(state.model, entry, completed) do
+          :proceed -> append(state, entry, completed, conflicts)
+          :already_present -> {{:ok, :already_present}, state}
+          {:refused, code} -> {{:refused, code}, state}
+        end
+
+      {:error, reason} ->
+        {{:error, reason}, state}
+    end
+  end
+
+  defp append(state, entry, completed, conflicts) do
+    row = Record.row(state.stream, state.head + 1, entry, :crypto.strong_rand_bytes(16))
+
+    case Store.write(
+           state.store,
+           :append,
+           [state.stream, state.head, [row], []],
+           Record.request(row)
+         ) do
+      {:committed, sequence} ->
+        {{:ok, %{sequence: sequence}}, commit(state, entry, sequence)}
+
+      {:conflict, _} ->
+        lost(state, entry, completed, conflicts)
+
+      {:indeterminate, _} ->
+        resolve(state, entry, completed, row, conflicts)
+
+      {:rejected, _} ->
+        {{:error, :rejected}, state}
+    end
+  end
+
+  # The compare-and-set lost: read only the new rows, fold them and decide again.
+  defp lost(state, _entry, _completed, conflicts) when conflicts >= @max_conflicts,
+    do: {{:error, :contended}, state}
+
+  defp lost(state, entry, completed, conflicts) do
+    case refresh(state) do
+      {:ok, state, _first} -> attempt(state, entry, completed, conflicts + 1)
+      {:error, reason} -> {{:error, reason}, state}
+    end
+  end
+
+  # An indeterminate append is resolved by its own nonce and bytes, or by
+  # finding the identical record; a missing row is not proof of non-commit.
+  defp resolve(state, entry, completed, row, conflicts) do
+    case Log.confirm(state.store, state.stream, state.head, row.nonce, [row]) do
+      {:committed, sequence} ->
+        {{:ok, %{sequence: sequence}}, commit(state, entry, sequence)}
+
+      :superseded ->
+        lost(state, entry, completed, conflicts)
+
+      {:unknown, _} ->
+        case refresh(state) do
+          {:ok, _refreshed, nil} ->
+            {{:unknown, :unresolved}, state}
+
+          {:ok, refreshed, first} ->
+            if same_row?(first, row),
+              do: {{:ok, %{sequence: row.sequence}}, refreshed},
+              else: lost_after_refresh(refreshed, entry, completed, conflicts)
+
+          {:error, _} ->
+            {{:unknown, :unresolved}, state}
+        end
+    end
+  end
+
+  # Another row owns the slot of the indeterminate append: its compare-and-set lost.
+  defp lost_after_refresh(state, _entry, _completed, conflicts) when conflicts >= @max_conflicts,
+    do: {{:error, :contended}, state}
+
+  defp lost_after_refresh(state, entry, completed, conflicts),
+    do: attempt(state, entry, completed, conflicts + 1)
+
+  defp commit(state, entry, sequence),
+    do: %{state | head: sequence, model: History.admit(state.model, entry)}
+
+  # Read and fold the rows after the owner's head. Returns the refreshed state
+  # and the raw row at the old head + 1 (nil when the head did not move).
+  defp refresh(state) do
+    with {:ok, head} <- head(state) do
+      cond do
+        head.revision == state.head ->
+          {:ok, state, nil}
+
+        head.revision < state.head ->
+          {:error, :damaged}
+
+        true ->
+          from = state.head + 1
+          limit = min(@read_page, head.revision - from + 1)
+
+          with {:ok, [first | _] = rows} <- read_rows(state, from, limit, head.revision),
+               {:ok, model, next} <- History.fold_rows(state.model, rows, state, from),
+               {:ok, model} <- read_fold(state, model, next, head.revision) do
+            {:ok, %{state | head: head.revision, model: model}, first}
+          end
+      end
+    end
+  end
+
+  defp read_fold(_context, model, from, through) when from > through, do: {:ok, model}
+
+  defp read_fold(context, model, from, through) do
+    limit = min(@read_page, through - from + 1)
+
+    with {:ok, rows} <- read_rows(context, from, limit, through),
+         {:ok, model, next} <- History.fold_rows(model, rows, context, from) do
+      read_fold(context, model, next, through)
+    end
+  end
+
+  defp read_rows(context, from, limit, through) do
+    case Store.read(context.store, :read, [context.stream, from, limit]) do
+      {:ok, rows, head} ->
+        if head.low_water == 0 and head.revision >= through and length(rows) == limit,
+          do: {:ok, rows},
+          else: {:error, :damaged}
+
+      error ->
+        read_error(error)
+    end
+  end
+
+  defp head(context) do
+    case Store.read(context.store, :head, [context.stream]) do
+      {:ok, %{low_water: 0} = head} -> {:ok, head}
+      {:ok, _pruned} -> {:error, :damaged}
+      error -> read_error(error)
+    end
+  end
+
+  defp read_error({:error, {:pruned, _}}), do: {:error, :damaged}
+  defp read_error({:error, :malformed}), do: {:error, :damaged}
+  defp read_error(_), do: {:error, :unavailable}
+
+  defp entries(context, rows, head, from, through, revision) do
+    expected = max(through - from + 1, 0)
+
+    if head.low_water == 0 and length(rows) == expected do
+      rows
+      |> Enum.with_index(from)
+      |> Enum.reduce_while({:ok, []}, fn {row, sequence}, {:ok, acc} ->
+        case Record.decode(row, context.stream, sequence, context.fold, context.limits) do
+          {:ok, entry} -> {:cont, {:ok, [Record.public(entry, sequence) | acc]}}
+          :error -> {:halt, {:error, :damaged}}
+        end
+      end)
+      |> case do
+        {:ok, entries} -> {:ok, %{revision: revision, entries: Enum.reverse(entries)}}
+        error -> error
       end
     else
-      {:error, "invalid_request"}
+      {:error, :damaged}
     end
   end
 
-  defp validate_payload(payload, "append_input"), do: validate_message_payload(payload)
-  defp validate_payload(payload, "append_answer"), do: validate_message_payload(payload)
-
-  defp validate_payload(payload, "associate_run") do
-    if exact_plain_map?(payload, ["message_id"]) and valid_id?(payload["message_id"]) do
-      {:ok, %{message_id: payload["message_id"]}}
+  defp read_request(store, scope, reference, from, count) do
+    with {:ok, scope} <- read_scope(scope),
+         {:ok, tenant, id} <- reference(reference),
+         :ok <- grant(scope, tenant, id),
+         :ok <- operands(from, count),
+         {:ok, context} <- context(store, tenant, id) do
+      {:ok, context}
     else
-      :error
+      {:error, :unsupported_store} -> {:error, :invalid_request}
+      other -> other
     end
   end
 
-  defp validate_message_payload(payload) do
-    if exact_plain_map?(payload, ["message_id", "text"]) and valid_id?(payload["message_id"]) and
-         valid_message_text?(payload["text"]) do
-      {:ok, %{message_id: payload["message_id"], text: payload["text"]}}
+  defp read_scope(scope) do
+    with true <- exact_map?(scope, [:tenant, :actor, :resources]),
+         true <- Record.id?(scope.tenant) and Record.id?(scope.actor),
+         {:ok, resources} <- bounded_list(scope.resources, @max_resources),
+         true <- Enum.all?(resources, &Record.id?/1) do
+      {:ok, scope}
     else
-      :error
+      _ -> {:error, :invalid_scope}
     end
   end
 
-  defp validate_snapshot(snapshot) do
-    if exact_plain_map?(snapshot, @snapshot_keys) do
-      with true <- valid_id?(snapshot.tenant),
-           true <- valid_id?(snapshot.resource),
-           true <- valid_revision?(snapshot.revision, @max_revision),
-           true <- plain_map?(snapshot.fields),
-           {:ok, state} <- validate_fields(snapshot.revision, snapshot.fields) do
-        {:ok,
-         %{
-           tenant: snapshot.tenant,
-           resource: snapshot.resource,
-           revision: snapshot.revision,
-           state: state
-         }}
-      else
-        _ -> {:error, :invalid_snapshot}
-      end
-    else
-      {:error, :invalid_snapshot}
+  defp reference(reference) do
+    if exact_map?(reference, [:target_tenant, :conversation_id]) and
+         Record.segment?(reference.target_tenant) and Record.segment?(reference.conversation_id),
+       do: {:ok, reference.target_tenant, reference.conversation_id},
+       else: {:error, :invalid_request}
+  end
+
+  defp grant(scope, tenant, id),
+    do: if(scope.tenant == tenant and id in scope.resources, do: :ok, else: :not_found)
+
+  defp operands(from, count) do
+    if is_integer(from) and from >= 1 and from <= @max_sequence and is_integer(count) and
+         count in 1..@max_count,
+       do: :ok,
+       else: {:error, :invalid_request}
+  end
+
+  defp options(opts) do
+    if is_list(opts) and Keyword.keyword?(opts) and length(opts) == 3 and
+         Enum.sort(Keyword.keys(opts)) == [:conversation_id, :store, :target_tenant] and
+         Record.segment?(opts[:target_tenant]) and Record.segment?(opts[:conversation_id]),
+       do: {:ok, opts[:store], opts[:target_tenant], opts[:conversation_id]},
+       else: {:error, :invalid_options}
+  end
+
+  # The Store term carries the fold and limits that its rows are validated with.
+  defp context({module, %{fold: fold, limits: limits}} = store, tenant, id)
+       when is_atom(module) do
+    if Codec.fold_valid?(fold) and Enum.all?(Record.kinds(), &Map.has_key?(fold.kinds, &1)) and
+         Record.version() in fold.versions and is_map(limits) and
+         is_integer(Map.get(limits, :max_record_bytes)) and
+         limits.max_record_bytes >= Record.max_payload_bytes() and
+         is_integer(Map.get(limits, :max_batch_size)) and limits.max_batch_size >= 1,
+       do: {:ok, %{store: store, stream: Record.stream(tenant, id), fold: fold, limits: limits}},
+       else: {:error, :unsupported_store}
+  end
+
+  defp context(_store, _tenant, _id), do: {:error, :unsupported_store}
+
+  defp atomic(store) do
+    case Store.read(store, :capabilities, []) do
+      %{append_visibility: :atomic} -> :ok
+      _ -> {:error, :unsupported_store}
     end
   end
 
-  defp validate_fields(0, fields) when map_size(fields) == 0,
-    do: {:ok, %{messages: [], associations: []}}
+  # Version 1 import: each message in list order, each association directly
+  # after its input.
+  defp plan(v1) do
+    runs = Map.new(v1.associations, &{&1.input_message_id, &1.run_id})
 
-  defp validate_fields(revision, fields) when revision > 0 and map_size(fields) == 1 do
-    if Map.has_key?(fields, "conversation") do
-      parse_state(Map.fetch!(fields, "conversation"))
-    else
-      :error
-    end
-  end
+    v1.messages
+    |> Enum.flat_map(fn
+      %{role: "assistant"} = message ->
+        [Record.entry(:answer, message)]
 
-  defp validate_fields(_, _), do: :error
+      message ->
+        case Map.fetch(runs, message.message_id) do
+          {:ok, run} ->
+            [
+              Record.entry(:input, message),
+              Record.entry(:association, %{input_message_id: message.message_id, run_id: run})
+            ]
 
-  defp parse_state(value) do
-    with {:ok, fields} <- canonical_record_map(value, @state_keys, 3),
-         1 <- Map.get(fields, "version"),
-         {:ok, messages} <- parse_messages(Map.get(fields, "messages")),
-         true <- messages != [],
-         {:ok, associations} <- parse_associations(Map.get(fields, "associations")),
-         :ok <- consistent_state(messages, associations),
-         {:ok, ^value} <- normalize_portable(value),
-         true <- encoded_size(value) <= @max_encoded_bytes do
-      {:ok, %{messages: messages, associations: associations}}
-    else
-      _ -> :error
-    end
-  end
-
-  defp parse_messages({:list, values}) do
-    with {:ok, values} <- bounded_proper_list(values, @max_messages) do
-      reduce_parsed(values, &parse_message/1)
-    else
-      _ -> :error
-    end
-  end
-
-  defp parse_messages(_), do: :error
-
-  defp parse_message(value) do
-    with {:ok, fields} <- canonical_record_map(value, nil, 6),
-         {:text, role} <- Map.get(fields, "role"),
-         {:ok, message} <- parse_message_fields(role, fields) do
-      {:ok, message}
-    else
-      _ -> :error
-    end
-  end
-
-  defp parse_message_fields(role, fields) when role in ["user", "source"] do
-    with true <- exact_string_keys?(fields, @input_keys),
-         {:ok, message_id} <- tagged_id(Map.get(fields, "message_id")),
-         {:ok, actor} <- tagged_id(Map.get(fields, "actor")),
-         {:ok, text} <- tagged_message_text(Map.get(fields, "text")) do
-      {:ok, %{message_id: message_id, role: role, actor: actor, text: text}}
-    else
-      _ -> :error
-    end
-  end
-
-  defp parse_message_fields("assistant", fields) do
-    with true <- exact_string_keys?(fields, @answer_keys),
-         {:ok, message_id} <- tagged_id(Map.get(fields, "message_id")),
-         {:ok, actor} <- tagged_id(Map.get(fields, "actor")),
-         {:ok, text} <- tagged_message_text(Map.get(fields, "text")),
-         {:ok, run_id} <- tagged_id(Map.get(fields, "run_id")),
-         {:ok, input_message_id} <- tagged_id(Map.get(fields, "input_message_id")) do
-      {:ok,
-       %{
-         message_id: message_id,
-         role: "assistant",
-         actor: actor,
-         text: text,
-         run_id: run_id,
-         input_message_id: input_message_id
-       }}
-    else
-      _ -> :error
-    end
-  end
-
-  defp parse_message_fields(_, _), do: :error
-
-  defp parse_associations({:list, values}) do
-    with {:ok, values} <- bounded_proper_list(values, @max_associations) do
-      reduce_parsed(values, &parse_association/1)
-    else
-      _ -> :error
-    end
-  end
-
-  defp parse_associations(_), do: :error
-
-  defp parse_association(value) do
-    with {:ok, fields} <- canonical_record_map(value, @association_keys, 2),
-         {:ok, input_message_id} <- tagged_id(Map.get(fields, "input_message_id")),
-         {:ok, run_id} <- tagged_id(Map.get(fields, "run_id")) do
-      {:ok, %{input_message_id: input_message_id, run_id: run_id}}
-    else
-      _ -> :error
-    end
-  end
-
-  defp reduce_parsed(values, parser) do
-    Enum.reduce_while(values, {:ok, []}, fn value, {:ok, acc} ->
-      case parser.(value) do
-        {:ok, parsed} -> {:cont, {:ok, [parsed | acc]}}
-        :error -> {:halt, :error}
-      end
+          :error ->
+            [Record.entry(:input, message)]
+        end
+    end)
+    |> Enum.reduce_while({:ok, []}, fn
+      {:ok, entry}, {:ok, acc} -> {:cont, {:ok, [entry | acc]}}
+      :error, _ -> {:halt, {:error, :invalid_snapshot}}
     end)
     |> case do
-      {:ok, parsed} -> {:ok, Enum.reverse(parsed)}
-      :error -> :error
+      {:ok, entries} -> {:ok, Enum.reverse(entries)}
+      error -> error
     end
   end
 
-  defp consistent_state(messages, associations) do
-    ids = Enum.map(messages, & &1.message_id)
-    message_by_id = Map.new(messages, &{&1.message_id, &1})
-
-    index_by_id =
-      messages
-      |> Enum.with_index()
-      |> Map.new(fn {message, index} -> {message.message_id, index} end)
-
-    with true <- MapSet.size(MapSet.new(ids)) == length(ids),
-         {:ok, association_by_input} <- unique_associations(associations),
-         :ok <- associations_reference_inputs(association_by_input, message_by_id),
-         :ok <-
-           answers_reference_associations(
-             messages,
-             message_by_id,
-             index_by_id,
-             association_by_input
-           ) do
-      :ok
-    else
-      _ -> :error
-    end
-  end
-
-  defp unique_associations(associations) do
-    pairs = Enum.map(associations, &{&1.input_message_id, &1.run_id})
-    inputs = Enum.map(pairs, &elem(&1, 0))
-
-    if MapSet.size(MapSet.new(inputs)) == length(inputs) do
-      {:ok, Map.new(pairs)}
-    else
-      :error
-    end
-  end
-
-  defp associations_reference_inputs(association_by_input, message_by_id) do
-    if Enum.all?(association_by_input, fn {input_id, _run_id} ->
-         case Map.get(message_by_id, input_id) do
-           %{role: role} when role in ["user", "source"] -> true
-           _ -> false
-         end
-       end) do
-      :ok
-    else
-      :error
-    end
-  end
-
-  defp answers_reference_associations(messages, message_by_id, index_by_id, association_by_input) do
-    answers = Enum.filter(messages, &(&1.role == "assistant"))
-    input_ids = Enum.map(answers, & &1.input_message_id)
-
-    valid_answers? =
-      MapSet.size(MapSet.new(input_ids)) == length(input_ids) and
-        Enum.all?(answers, fn answer ->
-          input = Map.get(message_by_id, answer.input_message_id)
-
-          match?(%{role: role} when role in ["user", "source"], input) and
-            Map.fetch!(index_by_id, answer.input_message_id) <
-              Map.fetch!(index_by_id, answer.message_id) and
-            Map.get(association_by_input, answer.input_message_id) == answer.run_id
-        end)
-
-    if valid_answers?, do: :ok, else: :error
-  end
-
-  defp check_revision(expected, actual) when expected == actual, do: :ok
-  defp check_revision(_, _), do: {:error, "stale_revision"}
-
-  defp propose(state, request, facts) do
-    checks = policy_checks(state, request, facts)
-
-    case cure_decision(facts.mode, checks) do
-      :proceed -> propose_mode(state, request, facts)
-      {:refused, code} -> {:refused, code}
-    end
-  end
-
-  defp policy_checks(state, request, %{mode: "append_input"}) do
-    duplicate = message_id_set(state.messages) |> MapSet.member?(request.payload.message_id)
-    checks(duplicate_message_id: duplicate)
-  end
-
-  defp policy_checks(state, request, %{mode: "associate_run"}) do
-    input_id = request.payload.message_id
-    input = Enum.find(state.messages, &(&1.message_id == input_id))
-
-    checks(
-      input_exists: input != nil,
-      input_is_input: input != nil and input.role in ["user", "source"],
-      already_associated: Enum.any?(state.associations, &(&1.input_message_id == input_id))
-    )
-  end
-
-  defp policy_checks(state, request, %{mode: "append_answer"} = facts) do
-    input_id = facts.input_message_id
-    input = Enum.find(state.messages, &(&1.message_id == input_id))
-    association = Enum.find(state.associations, &(&1.input_message_id == input_id))
-
-    checks(
-      duplicate_message_id:
-        MapSet.member?(message_id_set(state.messages), request.payload.message_id),
-      input_exists: input != nil,
-      input_is_input: input != nil and input.role in ["user", "source"],
-      association_exists: association != nil,
-      association_matches: association != nil and association.run_id == facts.run_id,
-      already_answered:
-        Enum.any?(state.messages, fn message ->
-          message.role == "assistant" and message.input_message_id == input_id
-        end),
-      completed: facts.completed
-    )
-  end
-
-  defp checks(opts) do
-    defaults = [
-      duplicate_message_id: false,
-      input_exists: false,
-      input_is_input: false,
-      already_associated: false,
-      association_exists: false,
-      association_matches: false,
-      already_answered: false,
-      completed: false
-    ]
-
-    Keyword.merge(defaults, opts) |> Map.new()
-  end
-
-  defp propose_mode(state, request, %{mode: "append_input"} = facts) do
-    message = %{
-      message_id: request.payload.message_id,
-      role: facts.input_role,
-      actor: facts.actor,
-      text: request.payload.text
-    }
-
-    prospective(
-      %{state | messages: state.messages ++ [message]},
-      fn revision ->
-        response([{"message_id", {:text, message.message_id}}, {"revision", revision}])
-      end,
-      request.expected_revision
-    )
-  end
-
-  defp propose_mode(state, request, %{mode: "associate_run"} = facts) do
-    association = %{input_message_id: request.payload.message_id, run_id: facts.run_id}
-
-    prospective(
-      %{state | associations: state.associations ++ [association]},
-      fn revision ->
-        response([
-          {"message_id", {:text, association.input_message_id}},
-          {"revision", revision},
-          {"run_id", {:text, association.run_id}}
-        ])
-      end,
-      request.expected_revision
-    )
-  end
-
-  defp propose_mode(state, request, %{mode: "append_answer"} = facts) do
-    message = %{
-      message_id: request.payload.message_id,
-      role: "assistant",
-      actor: facts.actor,
-      text: request.payload.text,
-      run_id: facts.run_id,
-      input_message_id: facts.input_message_id
-    }
-
-    prospective(
-      %{state | messages: state.messages ++ [message]},
-      fn revision ->
-        response([
-          {"input_message_id", {:text, message.input_message_id}},
-          {"message_id", {:text, message.message_id}},
-          {"revision", revision},
-          {"run_id", {:text, message.run_id}}
-        ])
-      end,
-      request.expected_revision
-    )
-  end
-
-  defp prospective(next_state, response_builder, expected_revision) do
-    value = encode_state(next_state)
-
-    with true <- length(next_state.messages) <= @max_messages,
-         true <- length(next_state.associations) <= @max_associations,
-         {:ok, ^value} <- normalize_portable(value),
-         true <- encoded_size(value) <= @max_encoded_bytes do
-      {:ok, next_state, response_builder.(expected_revision + 1)}
-    else
-      _ -> {:refused, "capacity"}
-    end
-  end
-
-  defp encode_state(state) do
-    {:record,
-     [
-       {"associations", {:list, Enum.map(state.associations, &encode_association/1)}},
-       {"messages", {:list, Enum.map(state.messages, &encode_message/1)}},
-       {"version", 1}
-     ]}
-  end
-
-  defp encode_message(%{role: "assistant"} = message) do
-    {:record,
-     [
-       {"actor", {:text, message.actor}},
-       {"input_message_id", {:text, message.input_message_id}},
-       {"message_id", {:text, message.message_id}},
-       {"role", {:text, message.role}},
-       {"run_id", {:text, message.run_id}},
-       {"text", {:text, message.text}}
-     ]}
-  end
-
-  defp encode_message(message) do
-    {:record,
-     [
-       {"actor", {:text, message.actor}},
-       {"message_id", {:text, message.message_id}},
-       {"role", {:text, message.role}},
-       {"text", {:text, message.text}}
-     ]}
-  end
-
-  defp encode_association(association) do
-    {:record,
-     [
-       {"input_message_id", {:text, association.input_message_id}},
-       {"run_id", {:text, association.run_id}}
-     ]}
-  end
-
-  defp response(pairs) do
-    {:record, Enum.sort_by(pairs, &elem(&1, 0))}
-  end
-
-  defp view_message(%{role: "assistant"} = message) do
-    %{
-      actor: message.actor,
-      input_message_id: message.input_message_id,
-      message_id: message.message_id,
-      role: message.role,
-      run_id: message.run_id,
-      text: message.text
-    }
-  end
-
-  defp view_message(message) do
-    %{actor: message.actor, message_id: message.message_id, role: message.role, text: message.text}
-  end
-
-  defp view_association(association) do
-    %{input_message_id: association.input_message_id, run_id: association.run_id}
-  end
-
-  defp message_id_set(messages), do: MapSet.new(Enum.map(messages, & &1.message_id))
-
-  defp cure_decision(mode, checks) when is_map(checks) do
-    flags = [
-      checks.duplicate_message_id,
-      checks.input_exists,
-      checks.input_is_input,
-      checks.already_associated,
-      checks.association_exists,
-      checks.association_matches,
-      checks.already_answered,
-      checks.completed
-    ]
-
-    cure_mode =
-      case mode do
-        "append_input" -> :AppendInput
-        "associate_run" -> :AssociateRun
-        "append_answer" -> :AppendAnswer
+  defp import_planned(job) do
+    with {:ok, head} <- head(job.context) do
+      if head.revision > length(job.planned) do
+        {:error, :not_empty}
+      else
+        with {:ok, existing} <- read_entries(job.context, head.revision) do
+          if existing == Enum.take(job.planned, length(existing)),
+            do: import_rest(job, Enum.drop(job.planned, length(existing)), head.revision),
+            else: {:error, :not_empty}
+        end
       end
-
-    raw = apply(@cure, :decide, [cure_mode, List.to_tuple([:ConversationChecks | flags])])
-
-    case raw do
-      :ConversationProceed -> :proceed
-      :ConversationDuplicateMessageId -> {:refused, "duplicate_message_id"}
-      :ConversationMissingInput -> {:refused, "missing_input"}
-      :ConversationAlreadyAssociated -> {:refused, "already_associated"}
-      :ConversationRunNotCompleted -> {:refused, "run_not_completed"}
-      :ConversationAssociationMismatch -> {:refused, "association_mismatch"}
-      :ConversationAlreadyAnswered -> {:refused, "already_answered"}
     end
   end
 
-  defp validate_read_scope(scope) do
-    if exact_plain_map?(scope, [:tenant, :actor, :resources]) and valid_id?(scope.tenant) and
-         valid_id?(scope.actor) do
-      case bounded_proper_list(scope.resources, @max_resources) do
-        {:ok, resources} ->
-          if Enum.all?(resources, &valid_id?/1),
-            do: {:ok, %{tenant: scope.tenant, actor: scope.actor, resources: resources}},
-            else: {:error, :invalid_scope}
+  defp import_rest(job, [], head) do
+    with :ok <- verify(job) do
+      if job.appended?, do: {:ok, %{sequence: head}}, else: {:ok, :already_present}
+    end
+  end
 
-        _ ->
-          {:error, :invalid_scope}
+  defp import_rest(job, [entry | rest], head) do
+    context = job.context
+    row = Record.row(context.stream, head + 1, entry, :crypto.strong_rand_bytes(16))
+
+    case Store.write(
+           context.store,
+           :append,
+           [context.stream, head, [row], []],
+           Record.request(row)
+         ) do
+      {:committed, sequence} ->
+        import_rest(%{job | appended?: true}, rest, sequence)
+
+      {:conflict, _} ->
+        restart(job)
+
+      {:indeterminate, _} ->
+        case Log.confirm(context.store, context.stream, head, row.nonce, [row]) do
+          {:committed, sequence} -> import_rest(%{job | appended?: true}, rest, sequence)
+          :superseded -> restart(job)
+          {:unknown, _} -> inspect_import(job, rest, row)
+        end
+
+      {:rejected, :caller_transaction} ->
+        {:error, :unavailable}
+
+      {:rejected, _} ->
+        {:error, :rejected}
+    end
+  end
+
+  # The append's outcome is unknown: its own row in the slot proves the commit,
+  # another row proves that its compare-and-set lost, and no row proves nothing.
+  defp inspect_import(job, rest, row) do
+    with {:ok, head} <- head(job.context),
+         true <- head.revision >= row.sequence,
+         {:ok, [stored]} <- read_rows(job.context, row.sequence, 1, row.sequence) do
+      if same_row?(stored, row),
+        do: import_rest(%{job | appended?: true}, rest, row.sequence),
+        else: restart(job)
+    else
+      _ -> {:unknown, :unresolved}
+    end
+  end
+
+  # Another writer appended: read the stream again and compare it with the plan.
+  defp restart(job) do
+    if job.restarts >= length(job.planned) + @max_conflicts,
+      do: {:error, :contended},
+      else: import_planned(%{job | restarts: job.restarts + 1})
+  end
+
+  defp same_row?(stored, row),
+    do:
+      is_map(stored) and
+        Enum.all?(
+          [:stream, :sequence, :kind, :schema_version, :payload, :nonce, :digest],
+          &(Map.get(stored, &1) == Map.fetch!(row, &1))
+        )
+
+  # After the import, the stream must hold exactly the planned rows, and its
+  # ordered message list and input-to-Run mapping must equal version 1's.
+  defp verify(%{context: context, v1: v1, planned: planned}) do
+    with {:ok, head} <- head(context),
+         true <- head.revision == length(planned) || {:error, :not_empty},
+         {:ok, entries} <- read_entries(context, head.revision),
+         true <- entries == planned || {:error, :not_empty},
+         true <-
+           (messages(entries) == v1.messages and
+              runs(entries) == Map.new(v1.associations, &{&1.input_message_id, &1.run_id})) ||
+             {:error, :damaged} do
+      :ok
+    end
+  end
+
+  defp read_entries(_context, 0), do: {:ok, []}
+
+  defp read_entries(context, through) do
+    with {:ok, rows} <- read_rows(context, 1, through, through),
+         {:ok, _model, _next} <- History.fold_rows(History.new(), rows, context, 1) do
+      {:ok,
+       rows
+       |> Enum.with_index(1)
+       |> Enum.map(fn {row, sequence} ->
+         {:ok, entry} =
+           Record.decode(row, context.stream, sequence, context.fold, context.limits)
+
+         entry
+       end)}
+    end
+  end
+
+  defp messages(entries) do
+    for %{kind: kind} = entry <- entries, kind in [:input, :answer] do
+      case entry do
+        %{kind: :input} ->
+          Map.take(entry, [:message_id, :role, :actor, :text])
+
+        %{kind: :answer} ->
+          entry
+          |> Map.take([:message_id, :actor, :text, :run_id, :input_message_id])
+          |> Map.put(:role, "assistant")
       end
-    else
-      {:error, :invalid_scope}
     end
   end
 
-  defp read_scope_route(snapshot, scope) do
-    cond do
-      not plain_map?(snapshot) ->
-        {:error, :invalid_snapshot}
+  defp runs(entries),
+    do: Map.new(for %{kind: :association} = e <- entries, do: {e.input_message_id, e.run_id})
 
-      not Map.has_key?(snapshot, :tenant) or not Map.has_key?(snapshot, :resource) ->
-        {:error, :invalid_snapshot}
+  defp bounded_list(list, limit), do: bounded_list(list, limit, 0, [])
+  defp bounded_list([], _limit, _count, acc), do: {:ok, Enum.reverse(acc)}
 
-      not valid_id?(snapshot.tenant) or not valid_id?(snapshot.resource) ->
-        {:error, :invalid_snapshot}
+  defp bounded_list([head | tail], limit, count, acc) when count < limit,
+    do: bounded_list(tail, limit, count + 1, [head | acc])
 
-      snapshot.tenant != scope.tenant or snapshot.resource not in scope.resources ->
-        :not_found
+  defp bounded_list(_list, _limit, _count, _acc), do: :error
 
-      true ->
-        :ok
-    end
-  end
-
-  defp canonical_record_map(value, expected_keys, max_fields) do
-    with {:ok, fields} <- portable_record_map(value, max_fields, true),
-         true <- is_nil(expected_keys) or exact_string_keys?(fields, expected_keys) do
-      {:ok, fields}
-    else
-      _ -> :error
-    end
-  end
-
-  defp portable_record_map({:record, pairs}, max_fields, canonical?) do
-    with {:ok, pairs} <- bounded_proper_list(pairs, max_fields),
-         true <- Enum.all?(pairs, &match?({name, _} when is_binary(name), &1)),
-         names <- Enum.map(pairs, &elem(&1, 0)),
-         true <- Enum.all?(names, &(byte_size(&1) <= 4096)),
-         true <- MapSet.size(MapSet.new(names)) == length(names),
-         true <- not canonical? or Enum.sort(names) == names do
-      {:ok, Map.new(pairs)}
-    else
-      _ -> :error
-    end
-  end
-
-  defp portable_record_map(_, _, _), do: :error
-
-  defp exact_string_keys?(map, expected) do
-    map_size(map) == length(expected) and Enum.all?(expected, &Map.has_key?(map, &1))
-  end
-
-  defp bounded_proper_list(list, limit), do: bounded_proper_list(list, limit, 0, [])
-
-  defp bounded_proper_list([], _limit, _count, acc), do: {:ok, Enum.reverse(acc)}
-
-  defp bounded_proper_list([head | tail], limit, count, acc) when count < limit,
-    do: bounded_proper_list(tail, limit, count + 1, [head | acc])
-
-  defp bounded_proper_list([_ | _], _limit, _count, _acc), do: :error
-  defp bounded_proper_list(_, _, _, _), do: :error
-
-  defp normalize_portable(value) do
-    case Authorization.validate_value(value) do
-      {:ok, normalized} -> {:ok, normalized}
-      _ -> :error
-    end
-  end
-
-  defp encoded_size(value), do: byte_size(:erlang.term_to_binary(value))
-
-  defp tagged_id({:text, value}) do
-    if valid_id?(value), do: {:ok, value}, else: :error
-  end
-
-  defp tagged_id(_), do: :error
-
-  defp tagged_message_text({:text, value}) do
-    if valid_message_text?(value), do: {:ok, value}, else: :error
-  end
-
-  defp tagged_message_text(_), do: :error
-
-  defp valid_id?(value) when is_binary(value) do
-    byte_size(value) in 1..@max_id_bytes and String.valid?(value) and
-      :binary.match(value, <<0>>) == :nomatch
-  end
-
-  defp valid_id?(_), do: false
-
-  defp valid_message_text?(value) when is_binary(value),
-    do: byte_size(value) in 1..@max_text_bytes and String.valid?(value)
-
-  defp valid_message_text?(_), do: false
-
-  defp valid_revision?(value, max), do: is_integer(value) and value >= 0 and value <= max
-
-  defp exact_plain_map?(value, keys) do
-    plain_map?(value) and map_size(value) == length(keys) and
-      Enum.all?(keys, &Map.has_key?(value, &1))
-  end
-
-  defp plain_map?(value), do: is_map(value) and not is_struct(value)
+  defp exact_map?(value, keys),
+    do:
+      is_map(value) and not is_struct(value) and map_size(value) == length(keys) and
+        Enum.all?(keys, &Map.has_key?(value, &1))
 end

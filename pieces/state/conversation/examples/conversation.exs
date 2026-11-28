@@ -1,83 +1,69 @@
 # SPDX-License-Identifier: Apache-2.0
+# Run with `mix run pieces/state/conversation/examples/conversation.exs` from the repository root.
+# It uses the volatile Memory Store; a real host passes its PostgreSQL Store term instead.
 defmodule ConversationExample do
   alias Elzoo.Conversation
+  alias Elzoo.Conversation.Record
+  alias Elzoo.DurableLog.Memory
 
   def run do
-    snapshot = %{tenant: "tenant-1", resource: "conversation-1", revision: 0, fields: %{}}
-
-    {:ok, [input_write], input_response} =
-      Conversation.prepare(
-        snapshot,
-        request("op-1", 0, %{"message_id" => "input-1", "text" => "First"}),
-        facts("append_input", "worker", input_role: "user")
-      )
-
-    snapshot = reconstruct(snapshot, input_write, input_response)
-
-    {:ok, [association_write], association_response} =
-      Conversation.prepare(
-        snapshot,
-        request("op-2", snapshot.revision, %{"message_id" => "input-1"}),
-        facts("associate_run", "worker", run_id: "run-1")
-      )
-
-    snapshot = reconstruct(snapshot, association_write, association_response)
-
-    {:ok, [answer_write], answer_response} =
-      Conversation.prepare(
-        snapshot,
-        request("op-3", snapshot.revision, %{"message_id" => "answer-1", "text" => "First answer"}),
-        facts("append_answer", "worker",
-          run_id: "run-1",
-          input_message_id: "input-1",
-          completed: true
-        )
-      )
-
-    snapshot = reconstruct(snapshot, answer_write, answer_response)
-
-    Conversation.view(snapshot, %{
-      tenant: "tenant-1",
-      actor: "reader",
-      resources: ["conversation-1"]
-    })
-  end
-
-  defp request(operation_id, revision, payload) do
-    %{
-      operation_id: operation_id,
-      resource: "conversation-1",
-      expected_revision: revision,
-      payload: payload
+    fold = %{
+      kinds: Map.new(Record.kinds(), &{&1, :non_state_bearing}),
+      versions: [Record.version()],
+      destinations: []
     }
-  end
 
-  defp facts(mode, actor, values) do
-    data =
-      values
-      |> Enum.map(fn
-        {:input_role, role} -> {"input_role", {:text, role}}
-        {:run_id, run_id} -> {"run_id", {:text, run_id}}
-        {:input_message_id, id} -> {"input_message_id", {:text, id}}
-        {:completed, completed} -> {"completed", completed}
-      end)
-      |> then(&[{"mode", {:text, mode}} | &1])
-      |> Enum.sort_by(&elem(&1, 0))
+    limits = %{max_record_bytes: Record.max_payload_bytes(), max_batch_size: 1}
+    {:ok, memory} = Memory.start_link(fold: fold, limits: limits, append_visibility: :atomic)
+    store = Memory.store(memory)
+    reference = %{target_tenant: "tenant-1", conversation_id: "conversation-1"}
 
-    %{tenant: "tenant-1", actor: actor, data: {:record, data}}
-  end
+    {:ok, owner} =
+      Conversation.start_link(
+        store: store,
+        target_tenant: reference.target_tenant,
+        conversation_id: reference.conversation_id
+      )
 
-  defp reconstruct(snapshot, write, response) do
-    %{
-      snapshot
-      | revision: portable_field(response, "revision"),
-        fields: %{write.field => write.value}
-    }
-  end
+    input = %{message_id: "input-1", role: "user", actor: "worker", text: "First"}
+    {:ok, %{sequence: 1}} = Conversation.append_input(owner, input)
+    {:ok, :already_present} = Conversation.append_input(owner, input)
 
-  defp portable_field({:record, fields}, key) do
-    {^key, value} = Enum.find(fields, fn {name, _} -> name == key end)
-    value
+    {:ok, [:ok, :ok]} =
+      Conversation.check(owner, [
+        {:association, %{input_message_id: "input-1", run_id: "run-1"}},
+        {:answer,
+         %{
+           message_id: "answer-1",
+           actor: "worker",
+           text: "First answer",
+           run_id: "run-1",
+           input_message_id: "input-1",
+           completed: true
+         }}
+      ])
+
+    {:ok, %{sequence: 2}} =
+      Conversation.associate_run(owner, %{input_message_id: "input-1", run_id: "run-1"})
+
+    {:ok, %{sequence: 3}} =
+      Conversation.append_answer(owner, %{
+        message_id: "answer-1",
+        actor: "worker",
+        text: "First answer",
+        run_id: "run-1",
+        input_message_id: "input-1",
+        completed: true
+      })
+
+    {:refused, "duplicate_message_id"} =
+      Conversation.append_input(owner, %{input | text: "Other content"})
+
+    scope = %{tenant: "tenant-1", actor: "reader", resources: ["conversation-1"]}
+    {:ok, page} = Conversation.page(store, scope, reference, 1, 10)
+    {:ok, tail} = Conversation.tail(store, scope, reference, 1)
+    :not_found = Conversation.tail(store, %{scope | resources: []}, reference, 1)
+    %{page: page, tail: tail}
   end
 end
 
