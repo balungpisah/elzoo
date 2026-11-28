@@ -1959,7 +1959,11 @@ defmodule Elzoo.Wave4ChannelExample do
       {:error, :foreign} ->
         {:ok, state, pass}
 
+      # The item was read and its notice names this conversation: an input is
+      # held from this observation on, also when its intent cannot be
+      # rebuilt yet.
       {:error, reason} ->
+        state = if reason == :notice, do: state, else: hold_input(state, item)
         fail_delivery(state, {:delivery, item.idempotency_key, reason}, {:unknown, :delivery})
     end
   end
@@ -2150,6 +2154,11 @@ defmodule Elzoo.Wave4ChannelExample do
           else
             {:error, :revision}
           end
+
+        # A result that could not be read is retried; any other outcome of
+        # the item's command is final.
+        {:unknown, reason} when reason != :not_observed ->
+          {:error, :read}
 
         _ ->
           {:error, :result}
@@ -4924,6 +4933,7 @@ defmodule Elzoo.Wave4ChannelExample do
   defp item_delivery(state, kind, item) do
     case delivery_intent(state, item) do
       {:ok, mode, intent} -> intent_delivery(state, kind, item, mode, intent)
+      {:error, :read} -> {:error, :read}
       _ -> {:error, :intent}
     end
   end
@@ -4991,26 +5001,21 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   # Held items in command order, each decided by `item_decision/3` from its
-  # latest observation (`seen`, else a read by its key): `{:ok, state}` when
-  # each is settled (proven, or pending without its row: its own delivery
-  # comes in its turn), else `{failure, state}` with the first failure: a
-  # fence (`{:unproven, kind, key}`, `{:superseded, key, nonce}` or
-  # `{:conflict, key, code}`) after which nothing later is dispatched, or
+  # latest observation (`seen`, else one read by its key): `{:ok, state}`
+  # when each is settled (proven, or pending without its row: its own
+  # delivery comes in its turn), else `{failure, state}` with the first
+  # failure: a fence (`{:unproven, kind, key}`, `{:superseded, key, nonce}`
+  # or `{:conflict, key, code}`) after which nothing later is dispatched, or
   # `{:error, reason}` when the item cannot be read. An unreadable item stays
-  # held by its exact key; a held item that a check proves is released,
-  # except an input, which stays held until this host acknowledges it.
+  # held by its exact key (`settle_held/3` decides the release).
   defp held_proven(items, state, seen) do
     items
     |> Enum.sort_by(fn {_kind, _destination, key} -> item_sequence(key) end)
-    |> Enum.reduce_while({:ok, state}, fn {kind, destination, key} = held, {:ok, state} ->
-      decision =
-        case Map.fetch(seen, key) do
-          {:ok, item} -> item_decision(state, kind, item)
-          :error -> held_item(state, kind, destination, key)
-        end
+    |> Enum.reduce_while({:ok, state}, fn held, {:ok, state} ->
+      {decision, item} = held_decision(state, held, seen)
 
       case decision do
-        :ok -> {:cont, {:ok, settle_held(state, held)}}
+        :ok -> {:cont, {:ok, settle_held(state, held, item)}}
         {:undelivered, _kind} -> {:cont, {:ok, state}}
         {:error, _reason} = error -> {:halt, {error, hold_item(state, held)}}
         failure -> {:halt, {failure, state}}
@@ -5018,10 +5023,32 @@ defmodule Elzoo.Wave4ChannelExample do
     end)
   end
 
-  defp settle_held(state, {:input, _destination, _key}), do: state
+  # The decision for one held item and the observation that it rests on.
+  defp held_decision(state, {kind, destination, key}, seen) do
+    observed =
+      case Map.fetch(seen, key) do
+        {:ok, item} -> {:ok, item}
+        :error -> observe_item(state, destination, key)
+      end
 
-  defp settle_held(state, {_kind, _destination, key}),
-    do: %{state | held: Map.delete(state.held, key)}
+    case observed do
+      {:ok, item} -> {item_decision(state, kind, item), item}
+      error -> {error, nil}
+    end
+  end
+
+  # A held input stays held until this host acknowledges it
+  # (`release_held/2`). A held delivery-only item stays held while its
+  # observed item is pending, also with its exact row, and is released once
+  # observed acknowledged with its own nonce, its append proven. Items that
+  # are not held are never added here.
+  defp settle_held(state, {:input, _destination, _key}, _item), do: state
+
+  defp settle_held(state, {_kind, _destination, key}, item) do
+    if item.state == :acked and item.ack_nonce == item.nonce,
+      do: %{state | held: Map.delete(state.held, key)},
+      else: state
+  end
 
   # Live, the round's input items and the delivery-only items that it
   # carries.
@@ -5084,18 +5111,42 @@ defmodule Elzoo.Wave4ChannelExample do
         _ -> {:error, :custody}
       end
     else
-      primary =
-        Enum.find(window, fn item ->
-          item.destination == @destination and
-            match?({:ok, _notice}, delivery_notice(item, state.profile))
-        end)
-
-      if is_nil(primary), do: {:ok, nil}, else: {:ok, {primary.sequence, {:primary, primary}}}
+      v1_custody_root(state, window)
     end
   rescue
     _ -> {:error, :custody}
   catch
     _, _ -> {:error, :custody}
+  end
+
+  # Version 1: the round's primary is the earliest primary input that this
+  # host holds (it observed it and has not acknowledged it), also once it has
+  # left the window, never a later input that a newer window shows first;
+  # without one, the window's first pending primary of this conversation.
+  defp v1_custody_root(state, window) do
+    case held_primary(state) do
+      nil ->
+        primary =
+          Enum.find(window, fn item ->
+            item.destination == @destination and
+              match?({:ok, _notice}, delivery_notice(item, state.profile))
+          end)
+
+        if is_nil(primary), do: {:ok, nil}, else: {:ok, {primary.sequence, {:primary, primary}}}
+
+      key ->
+        case read_original_item(state, key, @destination) do
+          {:ok, item} -> {:ok, {item.sequence, {:primary, item}}}
+          _ -> {:error, :custody}
+        end
+    end
+  end
+
+  defp held_primary(state) do
+    state.held
+    |> Enum.filter(fn {_key, held} -> held == {:input, @destination} end)
+    |> Enum.map(fn {key, _held} -> key end)
+    |> Enum.min_by(&item_sequence/1, &<=/2, fn -> nil end)
   end
 
   # The items that a custody root names: in version 1, the delivery items of
@@ -5215,13 +5266,17 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
-  # One held item, read by its key and decided (`item_decision/3`). A read
-  # that the store could not serve is `{:error, :read}` and is retried; an
-  # item that is absent, malformed or not this channel's is `{:error,
-  # :item}`, which a retry does not change.
-  defp held_item(state, kind, destination, key) do
+  # One held item, read by its key and decided (`item_decision/3`).
+  defp held_item(state, kind, destination, key),
+    do: state |> held_decision({kind, destination, key}, %{}) |> elem(0)
+
+  # One item read by its key: `{:ok, item}`; a read that the store could not
+  # serve is `{:error, :read}` and is retried; an item that is absent,
+  # malformed or not this channel's is `{:error, :item}`, which a retry does
+  # not change.
+  defp observe_item(state, destination, key) do
     case read_original_item(state, key, destination) do
-      {:ok, item} -> item_decision(state, kind, item)
+      {:ok, item} -> {:ok, item}
       {:error, :read} -> {:error, :read}
       _ -> {:error, :item}
     end
