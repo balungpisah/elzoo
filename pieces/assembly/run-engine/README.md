@@ -186,29 +186,50 @@ The same admitted ID retains its original data and time on retry. Changed bytes
 are a conflict, not another invocation. Applied/duplicate means the DU result
 committed, not merely that a message was sent. Other results are bounded error
 or indeterminate classifications; never choose another ID to evade uncertainty.
-An input whose step settles its own open slot at a positive actual (an answer, a
-model or tool call's outcome), or that does so while the Run is paused, is written only
-when the state that its step writes fits and so does each charge that the slot's
-parents take later (counted at its largest, with no release that would come after it),
-and, while no stop was pending, the room for a stop that admission keeps (ELZ-430,
-below); a step that sets a Budget stop takes its stop and mark from the room and leaves
-free the 227 bytes of it that no check admits (a longer Attempt ID, the encodings, the
-phase), and on
-a state that an earlier revision recorded without the room it is taken unmarked when
-the unmarked step fits. While the Run is paused the step must also keep the input as the
-slot's pending input for continue (in v2 it is retained only with the room); an answer
-that it could not keep is refused, never settled without it. Otherwise `input/4` returns
-`{:error, :record_size}` and appends no record of the input; a Run view that the call
-journaled first (when the owner had moved, before the check) stays. The actual is
-neither capped nor dropped from an applied step, and the slot stays open: the same
-input, sent again (nothing of it is recorded), is taken once the state has that room,
-and otherwise its deadline, a change of Attempt or the end of the Run settles the slot
-with no actual. A local work's outcome, which the engine takes from its mailbox at the
-work's estimate, is dropped by the same check with no append of it, and its slot stays
-open the same way. The step stores the actual twice in the Budget and once in the slot;
-a slot that the step settles frees its 4,096-byte reserve and its wait, but a slot that
-keeps the input as its pending input while paused stays active and frees neither, so
-near the bound a paused Run refuses a smaller actual than a running one.
+An input whose step settles its own open slot is checked before it is written (ELZ-430,
+the retained-input rule) when its step stores a positive actual (an answer, a model or
+tool call's outcome) or leaves the Run paused: an input that comes while the Run is
+paused, or, under `budget_rule: :pause`, one whose own step enters the pause on a Budget
+that an earlier step exhausted (a Resource cursor's settlement, for one). It is written
+only when the state that its step writes fits and so does each charge that the slot's
+parents take later (counted at its largest, with no release that would come after it,
+together with what the sweep of that charge's Budget step adds to its other held
+entries), and, while no stop was pending, the room for a stop that admission keeps
+(below). When the step leaves the Run paused, the input must also be kept where the fold
+keeps it for continue: as the slot's pending input, while the slot's callable and the
+generation are open, the slot is of the current Attempt and no stop is pending (in v2
+the fold keeps it only with the room). An input that the fold would settle without
+keeping it there is refused, never settled without it; one whose slot belongs to a
+closed callable is applied and not kept (a tool result of a child that already
+finished, for one: the child is closed, and what its parent keeps is the parent's own
+outcome). A step that sets a Budget stop takes its stop and mark from the room: the
+state with the mark fits with the part of the 227 bytes that no check admits which that
+state can still take left free (a longer Attempt ID, the wider encodings of the Run
+revision and the deadlines, the phase; what an earlier step took of them, such as a Run
+revision that grew from 255 to 256, is not kept twice). A state that lacks the room for
+that step (its 468 bytes and that part, after its later charges and waits) is one that
+an earlier revision recorded near the bound, since every state that this revision
+writes with no stop pending keeps it: there the stop is taken when the unmarked step
+fits the bound, as the earlier revision took it, and marked when its mark fits too.
+Otherwise `input/4` returns `{:error, :record_size}` and appends no record of the input;
+a Run view that the call journaled first (when the owner had moved, before the check)
+stays. The actual is neither capped nor dropped from an applied step, and the slot stays
+open: the same input, sent again (nothing of it is recorded), is taken once the state
+has that room, and otherwise its deadline, a change of Attempt or the end of the Run
+settles the slot with no actual. The same rule decides every other record that settles
+a slot. A local work's outcome, which the engine takes from its mailbox at the work's
+estimate, is dropped with no append of it, and its slot stays open the same way. A
+Resource entry's input is not committed, and its entry stays unconsumed for a later
+pass (see the limits of the invocation entries). An outcome that the engine gives
+itself (a refusal, a nested parent's outcome, whose actual admission counted when it
+admitted the child, and the `local_restart` loss that a start or a replacement Unit
+records for running local work) is not written, and its slot stays as it is: a later
+drain gives it again, and a `local_restart` loss is recorded once it fits, at the latest
+after a continue resumes the Run. The step stores the actual twice in the Budget and
+once in the slot; a slot that the step settles frees its 4,096-byte reserve and its
+listed wait, while a slot that keeps the input as its pending input while paused frees
+its listed wait but keeps its reserve (it stays active until continue gives the input),
+so near the bound a paused Run refuses a smaller actual than a running one.
 
 `control(engine, id, command, context)` routes begin-Attempt, Approval evidence
 or revocation through Run; pause/verified-person continue through lifecycle;
@@ -736,9 +757,14 @@ the Budget settlement and the slot actual that its entry commits, so a same-widt
 advance is admitted only when its Budget settlement, slot actual and the parent charges
 after them also fit; a cursor-only advance (no Budget command) that grows neither
 control nor the slots is always committed, and one whose projected step
-fails is never committed (the check fails closed). An input whose step settles its own
-open slot at a positive actual is checked with that step before it is written (see
-"Input and controls"). The 695 bytes cover what can grow with no such check from an
+fails is never committed (the check fails closed). Every record that settles an open slot
+at a positive actual, or whose step leaves the Run paused, is checked with that step
+before it is written (the retained-input rule, see "Input and controls"). The charge
+that a nested child gives its parent is counted with the sweep that the step of the
+parent's Budget makes first: each other held entry of that Budget whose expiry has
+passed turns into its expired form, one byte longer for an expiry up to 255 (60 such
+entries grow 60 bytes), counted once for each Budget that a charge lands in. The 695
+bytes cover what can grow with no such check from an
 admitted state to the end of the step that sets a stop, each at its largest: the growth
 of that step together with its mark (468 bytes, a cancel's at the Run deadline in a
 200-byte Attempt, the longest that the engine and the Run owner take, from the
@@ -747,13 +773,27 @@ shortest classification: its record of the Attempt, 200 bytes, its stop
 cancel before the deadline takes 230 and 232, a wake or an outcome that asks for
 `:out_of_budget` at most 38 and 236), a change to a longer Attempt ID at a Run view
 (199 bytes), the encodings of the recorded Run revision, the pause deadline and the
-Run deadline (9 bytes each, from 2 to 11) and the lifecycle phase (1 byte). The step
-that sets a stop adds the mark when the marked state passes the state bound and leaves
-the stop unmarked otherwise; from a state that this revision admitted it marks the stop
-and never fails the bound. Only a state recorded without that room (by an earlier
-revision, near the bound) leaves a stop unmarked, and only when the unmarked step fits
-the bound; one byte past that, the step fails after its input commits and the Unit does
-not reopen, the existing limit for a state at the exact byte of the control bound. The
+Run deadline (9 bytes each, from 2 to 11) and the lifecycle phase (1 byte). Of those
+last 227 bytes a state keeps only what it can still take: each is measured from where
+it stands (a Run revision whose encoding grew from 255 to 256 has 3 bytes fewer to
+grow, and the 3 that it took are not kept again). The room for the step that sets a
+stop is its 468 bytes and that part, after the waits and charges that admission
+counts. Every state that this revision writes keeps it: with no stop pending
+(admission keeps at least that, and each growth that no check admits takes from the
+free bytes what it takes from the part kept); after a step that sets a stop, whose
+marked state keeps that part free and whose state with the stop dropped (as a change of
+Attempt drops it) keeps the whole room; and while a stop is pending, where growth that
+is admitted (an answer's actual, a Resource cursor) keeps the room of the state with
+the stop dropped (an answer that would not is refused `record_size`, its slot open).
+The step that sets a stop adds the mark when the marked state passes the state bound
+and leaves the stop unmarked otherwise; from a state that this revision wrote it marks
+the stop and never fails the bound. A state without that room is one that an earlier
+revision recorded near the bound, and only such a state leaves a stop unmarked: its
+stop is taken when the unmarked step fits the bound, with no charge counted that its
+step does not make (a child's charge to its parent lands in a later step), and marked
+when the mark fits too; one byte past that, the step fails after its input commits and
+the Unit does not reopen, the existing limit for a state at the exact byte of the
+control bound. The
 engine takes no time or Run revision above 2^63 - 1 (the largest sequence of a
 journal) and refuses one where it enters, with no write and before any write that
 reconciles the owner's Run view: a `run_deadline` start option and a Run view at the
@@ -1622,20 +1662,24 @@ then has room (after a change to a shorter Attempt ID, for one) commits the same
 again under the same ID as a second journal pair. Its fold gives it no second pattern
 call where the first took one (its entry in `control.invocations` makes it a
 duplicate) and none in an older Attempt (it is late), but the second pair is written.
-A slot that waits on that Resource stays open past its own deadline (the expiry pass
-does not settle a Resource slot, and its outcome is in the unconsumed entries) at least
-until its entry is consumed, the Run stops or the Attempt changes (the Run view of a new
-Attempt settles it `unknown` as any older-Attempt slot, before the next pass reads the
-Resource), while the Attempt stays current. That is a lower boundary, not a
-settlement that every stop gives: a stop whose end of the Run settles every open slot
-(a cancel, the Run deadline, a Budget stop, a completion, a failure, an owner outcome)
-settles it as any open slot (`unknown` once its effect may have been sent, with no
-actual and its reservation held), and the request-cap stop retains it as it retains
-every sent Resource slot before its deadline (unchanged by ELZ-430), so it stays open after the
-Run ends until its entry is consumed or a later input of the Attempt at or after its
-deadline closes it. The Run's stop and the Run deadline still come. An entry that is
-still refused after the Run ends stays unconsumed, with its Budget settlement. A Run
-recorded before this repair can fold to another state (Elzoo is not released).
+The cursor refusal and the waiting slot's own deadline do not settle a slot that waits
+on that Resource (the expiry pass does not settle a Resource slot, and its outcome is
+in the unconsumed entries): while its Attempt and the Run stay open it stays open past
+its own deadline until its entry is consumed. The existing close rules still apply. A
+change of Attempt settles a sent Resource slot of the older Attempt `unknown`, with no
+actual and its Budget entry held, in the fold of the new Attempt's Run view, before any
+later pass reads the Resource; the Resource's cursor does not move. A stop whose end of
+the Run settles every open slot (a cancel, the Run deadline, a Budget stop, a
+completion, a failure, an owner outcome) settles it as any open slot (`unknown` once its
+effect may have been sent, with no actual and its reservation held), and the
+request-cap stop retains it as it retains every sent Resource slot before its deadline
+(unchanged by ELZ-430), so it stays open after the Run ends until its entry is consumed
+or a later input of the Attempt at or after its deadline closes it. Closing the slot
+does not consume the entry: a later pass that has room still reads it, and its cursor
+transition settles the held Budget. The Run's stop and the Run deadline still come. An
+entry that is still refused after the Run ends stays unconsumed, with its Budget
+settlement. A Run recorded before this repair can fold to another state (Elzoo is not
+released).
 
 Limits of the stop bound to its Attempt (ELZ-430). A journal recorded before ELZ-430
 keeps its records and reads as recorded when each step equals exactly the step of
@@ -1645,15 +1689,24 @@ had the recorded Attempt, also when the earlier fold set it in place of another 
 of that Attempt: the replaced stop's effects stand, and the later stop is the one
 that the owner gets; in a Run with more than one Attempt the start refuses it
 (`{:error, :stop_origin_unknown}`, with no engine write). This fold leaves a stop
-unmarked only on a state that an earlier revision recorded within 695 bytes of the
-control bound, which it admitted up to the bound, and only when the unmarked step fits
-the bound (one byte past that, the step fails after its input commits and the Unit does
-not reopen, as before). Admission keeps those 695 bytes free while no stop is pending,
-and counts the wait that an admitted model call, tool call or ask lists later and the
-charge that a nested child's committed amount gives its parent, and an input that
-settles its slot at an actual is refused `record_size` when its step would cut into
-the room, so a new Run near the bound admits less than before (its configuration
-included); a history already recorded keeps its records. A new Run that stays outside
+unmarked only on a state without the room for a step that sets a stop (its 468 bytes
+and what of the 227 bytes that no check admits the state can still take, after the
+waits and charges that admission counts), and only when the unmarked step fits the
+bound (one byte past that, the step fails after its input commits and the Unit does
+not reopen, as before). Every state that this revision writes keeps that room, the
+state that a change of Attempt leaves after dropping a stop of this revision included,
+so only a state that an earlier revision recorded near the bound lacks it; a growth
+that no check admits (a longer Run revision, for one) spends from the free bytes what
+it spends from the part of the 227 that a state can still take, so it never makes a
+state of this revision look like one of an earlier revision. Admission keeps 695 bytes
+free while no stop is pending, and counts the wait that an admitted model call, tool
+call or ask lists later and the charge that a nested child's committed amount gives its
+parent (with the sweep of its Budget step); every record that settles a slot at an
+actual that admission has not counted, or whose step leaves the Run paused, is checked
+with that step before it is written (the retained-input rule, "Input and controls"); a
+step that sets a stop takes only its stop and mark from the room, so a new Run near the
+bound admits less than before (its configuration included); a history already recorded
+keeps its records. A new Run that stays outside
 the room records as before apart from the mark and the order of clock samples: an
 input, a pause, a continue and a cancel now read the clock before the owner's Run view
 is reconciled, and a fresh v2 outside event before that reconciliation too, so where
@@ -2131,23 +2184,53 @@ them measures them); the tests that use it pass unchanged. The 32 KiB answer, re
 at the limit, is refused again after the owner moved, appending only the Run view that
 the call journaled; the Unit reopens with the ask waiting after the refusal and, after
 the accepted settlement, delivers the marked stop. An answer whose actual spends the
-Budget is admitted at the least padding (found by bisection) where its unmarked step
-fits with none of the bound left, on a state without the room, and is taken unmarked
-there; one byte less it is refused and its step fails the bound; with the mark's bytes
-more it is admitted and marks the stop. A paused v2 answer is refused with no row and
-the ask waiting at a padding where the fold would settle it and drop its pending input
-(`record_size`); with room it is applied and continue gives it to the pattern once. A
-nested start with an estimate of 4 KiB and a 60,000-byte child Budget ID, and a child's
-Resource cursor, are each stepped at the least admitted padding and the 64 above it:
-each admitted step keeps the bound, and so does the parent's charge after it. On a state
-that keeps the room, a Budget-spending answer whose step and mark take part of the room
-(the smallest actual, by its bytes, that does) is admitted and marks its stop; and a
-nested start at request cap 1 with a fixed 300-byte child Budget ID, stepped at every
-padding from 64 bytes under its least admitted padding to 64 above (that least padding
-measured 64,946 bytes of headroom on this revision, a value of that fixture, not a
-policy), is refused at each of the 64 paddings under it and
-admitted with its stop marked at it and each of the 64 above, and no padding admits it
-with its stop unmarked.
+Budget and whose step grows control by 100 to 200 bytes past what its settlement frees
+is admitted, on a state without the room for a step that sets a stop and within the
+bound (none left, found by bisection), at the padding where its unmarked step fits with
+none of the bound left, and is taken unmarked there; one byte less it is refused and its
+step fails the bound; with the mark's bytes more (as a control map entry) it is admitted
+and marks the stop with none left. On a state with that room it is refused at the
+admission limit and admitted from the least padding at which the state, once a Run view
+of a 200-byte Attempt drops its stop, keeps the room: there a cancel at the Run deadline
+marks its stop. The same holds through the engine with an actual of 2,400 bytes: at
+that least padding the answer commits its stop marked, the engine is killed at its
+owner command, the host begins a 200-byte Attempt, the restart drops the stop, and a
+cancel at the Run deadline commits marked and is delivered. With an ask admitted at the
+limit and an owner update in the same Attempt that takes the Run revision from 255 to
+256 (3 bytes of the room, with no check), an answer whose step marks its stop is
+admitted, and the smallest actual whose step the fold leaves unmarked (its mark does not
+fit) is refused. Beside a nested child open at zero cost, a state without the room takes
+a Budget-spending answer unmarked at exact fit: no charge of the child is counted against
+that step. An answer of another Run that names the open ask's Attempt, action and
+occurrence is late: it is admitted, its step changes no slot or Budget, and
+`own_settlement?/3` is false for it. A paused v2 answer is refused with no row and the
+ask waiting at a padding where the fold would settle it and drop its pending input
+(`record_size`); with room it is applied, kept as the slot's pending input with its wait
+removed, and continue gives it to the pattern once. Under `budget_rule: :pause`, a v2
+answer with no actual whose own step pauses the Run on a Budget that an earlier Budget
+step exhausted is refused the same way, and kept with room. In a paused v2 Run, a
+Resource entry whose completed open the fold would settle without keeping it writes no
+row and leaves the slot open and the cursor unmoved, and with room it is kept and
+continue gives it once; a running local work lost at a restart writes no
+`local_restart` loss where its step could not keep it and stays running, and the
+continue that resumes the Run records the loss and gives it to the pattern once. A
+nested start with an estimate of 4 KiB, a 60,000-byte child Budget ID and an empty child
+script is stepped at the least admitted padding and the 64 above it: each admitted step
+keeps the bound, and so does the Run view of a new Attempt after it, which closes the
+open child (its cost known, zero) and settles the parent `unknown` at actual 0 in its
+own step. A child's Resource cursor is stepped the same way, and so is one whose
+parent's charge lands in a root Budget holding 60 one-credit entries that expire at 100
+(entries of a Run on a clock below 100), whose sweep grows them 60 bytes: after each
+admitted cursor, the charge keeps the bound and leaves the room for a stop free (on the
+revision before this one, whose bound left the sweep out, the same charge left the
+room 29 bytes short). On a state that keeps the room, a
+Budget-spending answer whose step and mark take part of the room (the smallest actual,
+by its bytes, that does) is admitted and marks its stop; and a nested start at request
+cap 1 with a fixed 300-byte child Budget ID, stepped at every padding from 64 bytes
+under its least admitted padding to 64 above (that least padding measured 65,345 bytes
+of headroom on this revision, a value of that fixture, not a policy), is refused at each
+of the 64 paddings under it and admitted with its stop marked at it and each of the 64
+above, and no padding admits it with its stop unmarked.
 
 `bounded_times`: a `run_deadline` start option of 2^63 fails the start with no row; on
 a running engine, a pause control with that `pause_deadline` and a continue control
@@ -2203,7 +2286,11 @@ cursor record and the Budget settlement. A slot that waits on a blocked Resource
 open's) stays open after a wake at its own deadline (40,000, before the Run deadline of
 60,000), and the Run's stop (a cancel) settles it `unknown` with no actual; at request
 cap 1 a wake at the cap ends the Run `out_of_budget` (reason `"request_cap"`) and the
-stop retains that slot, still running after the Run ends with the entry unconsumed. A
+stop retains that slot, still running after the Run ends with the entry unconsumed. With
+that entry blocked, the host begins Attempt `second`: in the state that the start
+records with its Run view, before any later cursor, the open's slot is settled
+`unknown` with no actual, its Budget entry is still held and the Resource's cursor has
+not moved. A
 child of a nested action opens a Resource `document` with its own Budget and closes it
 on a pause; the host begins Attempt `second`, whose Run view settles the parent with no
 actual: the Resource's next entry settles the child's held Budget at the 400-byte
@@ -2579,16 +2666,21 @@ fail). Listed finite scenarios, not a proof.
   to a longer Attempt ID, the encodings of the Run revision, the pause deadline and the
   Run deadline, and the lifecycle phase, each at its largest), counting the wait that an
   admitted model call, tool call or ask lists later and the charge that a nested child's
-  committed amount gives its parent later, so the step that sets a stop marks it and
-  never fails the bound after its input commits; an input whose step settles its slot at
-  a positive actual, or while paused, is written only when the state that step writes and
+  committed amount gives its parent later (with the sweep of that Budget step), so the
+  step that sets a stop marks it and never fails the bound after its input commits;
+  every record that settles a slot at a positive actual, or whose step leaves the Run
+  paused (an input, a Resource entry's input, an outcome that the engine gives itself,
+  a `local_restart` loss included), is written only when the state that step writes and
   every later parent charge fit with the room (an upper bound that counts no release; a
-  Budget stop takes its stop and mark from the room and leaves its 227 bytes that no
-  check admits, and an earlier revision's state near the bound
-  takes it unmarked when it fits), and only when a paused step keeps the input for
-  continue (else `input/4` gives `{:error, :record_size}`, and a local work's outcome is
-  dropped, each with no record of the input appended; a Run view that the call
-  journaled before the check stays);
+  step that sets a stop takes only its stop and mark from the room, leaves free what of
+  the 227 bytes that no check admits the state can still take, and leaves the room once
+  a change of Attempt drops its stop, and a state that lacks the room for such a step,
+  which only an earlier revision records, takes it unmarked when it fits), and only when
+  a step that leaves the Run paused keeps the input for continue where the slot can
+  still give it (else `input/4` gives `{:error, :record_size}`, a local work's outcome
+  is dropped, a Resource entry stays unconsumed, and an outcome or loss of the engine
+  is left for a later drain, each with no record appended; a Run view that the call
+  journaled before the check stays); an input of another Run is late before any check;
   the engine refuses a time or a Run revision above 2^63 - 1 where it enters (a start
   option, a control, an input's context, a clock sample, a Run view), before any write
   that reconciles the owner's Run view, and reads one clock sample for an input, a
@@ -2646,11 +2738,16 @@ fail). Listed finite scenarios, not a proof.
   retained or held input or an event activation is refused `record_size`; an input whose
   actual's growth would cut into the room gives `{:error, :record_size}` (a local work's
   outcome is dropped) with no record of it appended and its slot stays open (a paused
-  slot keeps its 4,096-byte reserve, so it takes a smaller actual); a Resource entry whose
-  cursor transition would cut into the room, or whose projected transition fails, stays
-  unconsumed, and a slot that waits on that Resource stays open past its own deadline at
-  least until the entry is consumed or the Run stops (a request-cap stop retains it, as
-  before, after the Run ends); a `run_deadline` start option,
+  slot keeps its 4,096-byte reserve, so it takes a smaller actual), and a Budget stop's
+  answer is taken only where its state, once a change of Attempt drops the stop, keeps
+  the room; a paused Run's Resource entry or recovered `local_restart` loss that the
+  step could not keep for continue waits for room or for continue; a Resource entry
+  whose cursor transition would cut into the room, or whose projected transition fails,
+  stays unconsumed, and a slot that waits on that Resource stays open past its own
+  deadline while its Attempt and the Run stay open until the entry is consumed (a change
+  of Attempt settles a sent slot `unknown` with its Budget held, which a later cursor
+  can still settle; a stop settles it unless the request-cap stop retains it, as
+  before); a `run_deadline` start option,
   a control or context deadline, a clock sample or a Run view revision above 2^63 - 1
   is refused, a binding deadline above it halts the engine (keep times within
   2^63 - 1), and a Run that the earlier revision started with a `run_deadline` above

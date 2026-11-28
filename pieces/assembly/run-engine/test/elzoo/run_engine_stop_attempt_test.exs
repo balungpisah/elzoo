@@ -1190,7 +1190,7 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert %{phase: :refusing, refusal: "record_size"} = refused.slots[key]
     end
 
-    test "a nested start with a 4 KiB integer estimate and a long child Budget ID, child cost zero: at every padding near the limit, a start that admission takes keeps the bound, and its charge after it too" do
+    test "a 4 KiB nested estimate, long child Budget ID, empty child: each admitted start keeps the bound, and so does the change of Attempt that closes the child and settles the parent at zero" do
       estimate = Integer.pow(2, 8 * 4_096) - 1
       long = String.duplicate("b", 60_000)
 
@@ -1207,12 +1207,29 @@ defmodule Elzoo.RunEngineStopAttemptTest do
 
       assert admitted != []
 
+      # The child's script is empty: it asks for nothing and stays open, so no drain can give
+      # its parent an outcome. A change of Attempt closes it (with no slot, its cost is
+      # known: zero) and settles the parent with that amount in the Run view's own step.
+      view = %{
+        version: 1,
+        kind: :run_view,
+        view: %{
+          id: "run",
+          operation_id: "operation",
+          current_attempt: "second",
+          revision: ready.control.run_revision + 1,
+          outcome: nil,
+          at_ms: 3_000
+        }
+      }
+
       for target <- admitted do
         {:Transition, next, _} = RunEngine.step(pad_invocations(ready, target), nested)
-        # The parent's charge at the child's committed amount (zero), recorded later.
-        charge = %{version: 1, kind: :nested_actual, occurrence: key, actual: 0, at_ms: 3_000}
-        settled = put_in(next.slots[key].phase, :settled)
-        assert {:Transition, _, :none} = RunEngine.step(settled, charge)
+        assert %{closed: false} = next.control.callables["1:0"]
+        assert {:Transition, changed, :none} = RunEngine.step(next, view)
+        assert %{closed: true} = changed.control.callables["1:0"]
+        assert %{phase: :settled, outcome: "unknown", actual: 0} = changed.slots[key]
+        assert control_headroom(changed) >= 0
       end
     end
 
@@ -1287,16 +1304,30 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert %{outcome: :out_of_budget} = wait_for(engine, &(&1.outcome != nil))
     end
 
-    test "a Budget-spending answer: unmarked at exact fit without the room, refused one byte less, marked within the room" do
+    test "a Budget-spending answer: without the room, unmarked at exact fit within the old bound and marked once its mark fits; with the room, admitted only where its dropped stop leaves the room" do
       {c, waiting} = waiting_ask()
       key = {1, 0}
-      record = spending_answer(c, key, 100)
+      long = String.duplicate("l", 200)
+      # The mark's bytes as an entry of the control map (its key and value, without the
+      # version byte and the tuple header of a separate term).
+      mark = byte_size(binary({:stop_attempt, {"attempt", :out_of_budget}})) - 3
+      left = &(control_headroom(&1) + if(is_nil(&1.control.stop_pending), do: @room, else: 0))
+
+      # An actual whose step grows control (its amount twice in the Budget) by between 100
+      # and 200 bytes more than the slot's reserve and wait that the settlement frees, so
+      # its exact fit lies within the bound that an earlier revision kept (no room).
+      {record, growth} =
+        Enum.find_value(Stream.iterate(2_000, &(&1 + 4)), fn n ->
+          record = spending_answer(c, key, Integer.pow(2, 8 * n))
+          {:Transition, next, :none} = RunEngine.step(waiting, record)
+          growth = left.(waiting) - left.(next) - mark
+          if growth in 100..200, do: {record, growth}
+        end)
 
       admitted? = fn target ->
         RunEngine.actual_admits?(pad_invocations(waiting, target), record)
       end
 
-      # The least headroom (with the room counted) at which the answer is admitted.
       least = fn lo, hi ->
         {lo, hi}
         |> Stream.iterate(fn {lo, hi} ->
@@ -1307,24 +1338,60 @@ defmodule Elzoo.RunEngineStopAttemptTest do
         |> elem(1)
       end
 
-      limit = least.(-@room - 4_096, control_headroom(waiting) - 43)
+      # Without the room for a step that sets a stop (fewer than its 468 bytes free, so
+      # neither this revision nor its admission wrote the state): the least headroom (with
+      # the room counted) at which the answer is admitted, from the fullest state that the
+      # bound records (no room left).
+      refute admitted?.(-@room)
+      limit = least.(-@room, 467 - @room)
+      assert limit == growth - @room
+      assert limit > -@room
       at_limit = pad_invocations(waiting, limit)
       assert {:Transition, next, :none} = RunEngine.step(at_limit, record)
       assert next.control.stop_pending == :out_of_budget
-      # Taken unmarked: the state lacks the room, and the unmarked step fits exactly.
       refute Map.has_key?(next.control, :stop_attempt)
       assert control_headroom(next) == 0
       refute admitted?.(limit - 1)
       assert_raise MatchError, fn -> RunEngine.step(pad_invocations(waiting, limit - 1), record) end
 
-      # With the mark's bytes more, the step is admitted and marks the stop within the bound
-      # (the mark's bytes are part of the room, not counted again on top of it).
-      mark = byte_size(binary({:stop_attempt, {"attempt", :out_of_budget}}))
+      # With the mark's bytes more, still without the room, the step marks the stop.
+      assert admitted?.(limit + mark)
       marked_at = pad_invocations(waiting, limit + mark)
-      assert RunEngine.actual_admits?(marked_at, record)
       assert {:Transition, marked, :none} = RunEngine.step(marked_at, record)
       assert marked.control.stop_attempt == {"attempt", :out_of_budget}
-      assert control_headroom(marked) in 0..@room
+      assert control_headroom(marked) == 0
+
+      # With the room (at the admission limit and above), the answer takes its stop and mark
+      # from the room, and the rest of its growth keeps the room as any admitted growth
+      # does: at the admission limit it is refused, and the least padding that admits it
+      # leaves a state that, once a change of Attempt drops its stop, keeps the room. After
+      # the Run view of a 200-byte Attempt, a cancel at the Run deadline marks its stop.
+      refute admitted?.(0)
+      cut = least.(0, control_headroom(waiting) - 43)
+      assert cut <= growth
+      refute admitted?.(cut - 1)
+      assert {:Transition, stopped, :none} = RunEngine.step(pad_invocations(waiting, cut), record)
+      assert stopped.control.stop_attempt == {"attempt", :out_of_budget}
+
+      view = %{
+        version: 1,
+        kind: :run_view,
+        view: %{
+          id: "run",
+          operation_id: "operation",
+          current_attempt: long,
+          revision: stopped.control.run_revision + 1,
+          outcome: nil,
+          at_ms: 3_000
+        }
+      }
+
+      assert {:Transition, changed, :none} = RunEngine.step(stopped, view)
+      assert changed.control.stop_pending == nil
+      cancel = input(c, "cancel", %{"attempt_id" => long, "at_ms" => 60_000})
+      at_deadline = record(c, "cancel-at-deadline", cancel, attempt_id: long)
+      assert {:Transition, cancelled, :none} = RunEngine.step(changed, at_deadline)
+      assert cancelled.control.stop_attempt == {long, :out_of_time}
     end
 
     test "with the room kept, a Budget-spending answer whose step and mark take part of the room is admitted and marked" do
@@ -1420,6 +1487,12 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert {:ok, :applied} =
                RunEngine.input(engine, "answer", record.input |> Map.delete("at_ms"), context)
 
+      # Kept as the slot's pending input, the slot keeps its reserve (it stays active), and
+      # its listed wait is removed.
+      kept = unit_state(c)
+      assert %{phase: :settled, pending_input: %{}} = kept.slots[key]
+      refute Map.has_key?(kept.control.lifecycle.waits, "ask")
+
       continue = %{kind: :continue, person_id: "person", run_deadline: 60_000}
 
       assert {:ok, :applied} =
@@ -1434,6 +1507,357 @@ defmodule Elzoo.RunEngineStopAttemptTest do
                      5_000
 
       refute_receive {:pattern_input, "root", %{"kind" => "person_answer"}}, 300
+    end
+
+    test "an ask admitted at the limit, then a Run view of the same Attempt whose revision encoding grows from 255 to 256: a Budget-spending answer is admitted only where it marks its stop" do
+      {c, waiting} = waiting_ask()
+      key = {1, 0}
+      assert waiting.control.run_revision <= 255
+
+      view = fn state, revision ->
+        %{
+          version: 1,
+          kind: :run_view,
+          view: %{
+            id: "run",
+            operation_id: state.control.operation_id,
+            current_attempt: "attempt",
+            revision: revision,
+            outcome: nil,
+            at_ms: 2_000
+          }
+        }
+      end
+
+      {:Transition, at_255, :none} = RunEngine.step(waiting, view.(waiting, 255))
+      admitted = pad_invocations(at_255, 0)
+      # The owner's update takes 3 bytes of the room with no admission check.
+      {:Transition, at_256, :none} = RunEngine.step(admitted, view.(admitted, 256))
+      assert control_headroom(at_256) == -3
+
+      answer = fn n -> spending_answer(c, key, Integer.pow(2, 8 * n)) end
+
+      outcome = fn n ->
+        try do
+          {:Transition, next, :none} = RunEngine.step(at_256, answer.(n))
+          assert next.control.stop_pending == :out_of_budget
+          if Map.has_key?(next.control, :stop_attempt), do: :marked, else: :unmarked
+        rescue
+          MatchError -> :failed
+        end
+      end
+
+      # The smallest actual (by its bytes) whose step by the fold leaves its stop unmarked:
+      # its unmarked step fits and its mark does not. Admission refuses it; an answer whose
+      # step marks its stop and keeps the room once the stop is dropped is admitted.
+      assert outcome.(1) == :marked
+      assert RunEngine.actual_admits?(at_256, answer.(1))
+
+      first =
+        {1, 8_000}
+        |> Stream.iterate(fn {lo, hi} ->
+          mid = div(lo + hi, 2)
+          if outcome.(mid) == :marked, do: {mid, hi}, else: {lo, mid}
+        end)
+        |> Enum.find(fn {lo, hi} -> hi - lo <= 1 end)
+        |> elem(1)
+
+      assert outcome.(first) == :unmarked
+      refute RunEngine.actual_admits?(at_256, answer.(first))
+    end
+
+    test "a state recorded without the room, with a nested child open at zero cost beside a waiting ask: a Budget-spending answer whose unmarked step fits exactly is taken unmarked" do
+      script = fn frame ->
+        [frame.([action("nested", "nested_callable"), action("ask", "ask_person", %{})])]
+      end
+
+      c = run_fixture(script, 1)
+      base = c.opts[:bindings]["nested_callable"]
+      child = %{name: "nested", script: []}
+      nested = fn a -> %{base.nested.(a) | mfa: {TestPattern, :scripted}, initial_state: child} end
+      bindings = Map.put(c.opts[:bindings], "nested_callable", %{base | nested: nested})
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = start_run(c, engine)
+      wait_for(engine, &match?({_, %{phase: :waiting}}, slot_of(&1, "ask")))
+      state = unit_state(c)
+      GenServer.stop(engine)
+      {key, _} = slot_of(state, "ask")
+      {parent, %{phase: :running}} = slot_of(state, "nested")
+      assert %{closed: false, parent: ^parent} = state.control.callables["1:0"]
+      mark = byte_size(binary({:stop_attempt, {"attempt", :out_of_budget}})) - 3
+      left = &(control_headroom(&1) + if(is_nil(&1.control.stop_pending), do: @room, else: 0))
+
+      {record, growth} =
+        Enum.find_value(Stream.iterate(2_000, &(&1 + 4)), fn n ->
+          record = spending_answer(c, key, Integer.pow(2, 8 * n))
+          {:Transition, next, :none} = RunEngine.step(state, record)
+          growth = left.(state) - left.(next) - mark
+          if growth in 100..200, do: {record, growth}
+        end)
+
+      admitted? = &RunEngine.actual_admits?(pad_invocations(state, &1), record)
+      refute admitted?.(-@room)
+
+      limit =
+        {-@room, 467 - @room}
+        |> Stream.iterate(fn {lo, hi} ->
+          mid = div(lo + hi, 2)
+          if admitted?.(mid), do: {lo, mid}, else: {mid, hi}
+        end)
+        |> Enum.find(fn {lo, hi} -> hi - lo <= 1 end)
+        |> elem(1)
+
+      # No charge of the open child is counted against the step: its parent's charge lands
+      # in a later step, not in this one.
+      assert limit == growth - @room
+      assert {:Transition, next, :none} = RunEngine.step(pad_invocations(state, limit), record)
+      assert next.control.stop_pending == :out_of_budget
+      refute Map.has_key?(next.control, :stop_attempt)
+      assert control_headroom(next) == 0
+    end
+
+    test "an answer of another Run whose Attempt, action and occurrence match the open ask is late: not refused for size, and not an own settlement" do
+      {c, waiting} = waiting_ask()
+      key = {1, 0}
+      big = Integer.pow(2, 8 * 32_760)
+      record = spending_answer(c, key, big)
+      other = %{record | run_id: "earlier-run"}
+      padded = pad_invocations(waiting, 0)
+      refute RunEngine.actual_admits?(padded, record)
+      refute RunEngine.own_settlement?(padded, other, key)
+      assert RunEngine.actual_admits?(padded, other)
+      assert {:Transition, next, :none} = RunEngine.step(padded, other)
+      assert next.control.classification == :late
+      assert %{phase: :waiting} = next.slots[key]
+      assert next.control.budgets == padded.control.budgets
+    end
+
+    test "budget_rule :pause: a v2 answer whose own step pauses the Run on an exhausted Budget is refused with no write where its pending input cannot be kept; with room it is kept" do
+      c =
+        run_fixture(fn frame -> [frame.([action("ask", "ask_person", %{})])] end, 2,
+          budget_rule: :pause
+        )
+
+      engine = start(c)
+      assert {:ok, :applied} = start_run(c, engine)
+      wait_for(engine, &match?({_, %{phase: :waiting}}, slot_of(&1, "ask")))
+      GenServer.stop(engine)
+      # The Budget is exhausted as a root Resource cursor's settlement leaves it: by its own
+      # Budget step, which leaves the lifecycle phase as it is.
+      exhausted = exhaust_root(unit_state(c))
+      assert exhausted.control.lifecycle.phase == :waiting
+      key = {1, 0}
+      record = spending_answer(c, key, nil)
+
+      assert {:Transition, kept, :none} = RunEngine.step(exhausted, record)
+      assert kept.control.lifecycle.phase == :paused
+      assert %{phase: :settled, pending_input: %{}} = kept.slots[key]
+
+      refused =
+        Enum.find(0..4_000, fn extra ->
+          {:Transition, next, :none} = RunEngine.step(pad_invocations(exhausted, extra), record)
+          next.control.classification != :record_size
+        end)
+
+      assert refused > 0
+      short = pad_invocations(exhausted, refused - 1)
+      assert {:Transition, dropped, :none} = RunEngine.step(short, record)
+      assert dropped.control.lifecycle.phase == :paused
+      assert %{phase: :settled} = dropped.slots[key]
+      refute Map.has_key?(dropped.slots[key], :pending_input)
+      refute RunEngine.actual_admits?(short, record)
+      assert RunEngine.actual_admits?(pad_invocations(exhausted, refused), record)
+
+      journal_state(c, short)
+      engine = start(c)
+      before = rows(c)
+      context = verified(%{occurrence: key, verified_person: "person"})
+      answer = record.input |> Map.delete("at_ms")
+      assert {:error, :record_size} = RunEngine.input(engine, "answer", answer, context)
+      assert rows(c) == before
+      assert %{phase: :waiting} = unit_state(c).slots[key]
+      GenServer.stop(engine)
+
+      journal_state(c, exhausted, "relieved")
+      engine = start(c)
+      assert {:ok, :applied} = RunEngine.input(engine, "answer", answer, context)
+      state = unit_state(c)
+      assert state.control.lifecycle.phase == :paused
+      assert %{phase: :settled, pending_input: %{}} = state.slots[key]
+    end
+
+    test "a paused v2 Run: a Resource entry whose outcome cannot be kept for continue writes no row and stays unconsumed; with room it is kept and continue gives it once" do
+      payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+      c = run_fixture(fn frame -> [frame.([action("open", "resource_open", payload)])] end, 2)
+      {owner, bindings} = resource(c)
+      opts = [resources: %{"document" => owner}, bindings: bindings]
+      engine = start(c, opts)
+      assert {:ok, :applied} = start_run(c, engine)
+      assert_receive {:effect_started, _opening, _}, 5_000
+      pause = %{kind: :pause, pause_deadline: 50_000}
+      assert {:ok, :applied} = RunEngine.control(engine, "pause", pause, verified())
+      GenServer.stop(engine)
+      paused = unit_state(c)
+      assert paused.control.lifecycle.phase == :paused
+      {key, _} = slot_of(paused, "open")
+      cursor = paused.control.cursors["document"]
+      observed(owner, "opened", "open", %{opened_at_ms: 2_000}, 2_000)
+      {:ok, %{entries: entries}} = Elzoo.RunResource.read(owner, cursor)
+
+      input =
+        Enum.find_value(entries, fn entry ->
+          Enum.find(entry.inputs, &(&1["action_id"] == "open"))
+        end)
+
+      # The record that the engine commits for that input; its stable ID is longer than
+      # this one, so a state that refuses this record refuses it too.
+      record = %{
+        version: 2,
+        kind: :protocol,
+        id: "resource-probe",
+        run_id: "run",
+        attempt_id: "attempt",
+        input: Map.put(input, "version", 2),
+        correlation: %{occurrence: key, resource: "document"},
+        context: %{pause_deadline: 50_000}
+      }
+
+      refused =
+        Enum.find(0..4_000, fn extra ->
+          {:Transition, next, :none} = RunEngine.step(pad_invocations(paused, extra), record)
+          next.control.classification != :record_size
+        end)
+
+      assert refused > 0
+      short = pad_invocations(paused, refused - 1)
+      assert {:Transition, dropped, :none} = RunEngine.step(short, record)
+      assert %{phase: :settled} = dropped.slots[key]
+      refute Map.has_key?(dropped.slots[key], :pending_input)
+
+      journal_state(c, short)
+      before = rows(c)
+      engine = start(c, opts)
+      assert entry_rows(c, before) == []
+      state = unit_state(c)
+      refute state.slots[key].phase == :settled
+      assert state.control.cursors["document"] == cursor
+      GenServer.stop(engine)
+
+      journal_state(c, paused, "relieved")
+      flush_pattern_inputs()
+      engine = start(c, opts)
+      kept = unit_state(c)
+      assert %{phase: :settled, pending_input: %{}} = kept.slots[key]
+      continue = %{kind: :continue, person_id: "person", run_deadline: 60_000}
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "continue",
+                 continue,
+                 verified(%{verified_person: "person"})
+               )
+
+      assert_receive {:pattern_input, "root", %{"kind" => "action_outcome", "action_id" => "open"}},
+                     5_000
+
+      refute_receive {:pattern_input, "root", %{"kind" => "action_outcome", "action_id" => "open"}},
+                     300
+    end
+
+    test "a paused v2 Run lost at a restart: a local_restart loss that cannot be kept is not written and the work stays running; after continue it is recorded and given once" do
+      c = run_fixture(fn frame -> [frame.([action("slow")])] end, 2)
+      engine = start(c)
+      assert {:ok, :applied} = start_run(c, engine)
+      assert_receive {:local_started, _}, 5_000
+      pause = %{kind: :pause, pause_deadline: 50_000}
+      assert {:ok, :applied} = RunEngine.control(engine, "pause", pause, verified())
+      GenServer.stop(engine)
+      paused = unit_state(c)
+      {key, %{phase: :running}} = slot_of(paused, "slow")
+      # The loss that the restart records; its stable ID is longer than this one, so a
+      # state that refuses this record refuses it too.
+      loss = %{loss_record(c, paused, key) | context: %{pause_deadline: 50_000}}
+
+      refused =
+        Enum.find(0..4_000, fn extra ->
+          {:Transition, next, :none} = RunEngine.step(pad_invocations(paused, extra), loss)
+          next.control.classification != :record_size
+        end)
+
+      assert refused > 0
+      journal_state(c, pad_invocations(paused, refused - 1))
+      flush_pattern_inputs()
+      engine = start(c)
+
+      losses = fn ->
+        for %{kind: :protocol, correlation: %{loss: :unavailable}} <- records(c), do: :loss
+      end
+
+      assert %{phase: :running} = unit_state(c).slots[key]
+      assert losses.() == []
+      continue = %{kind: :continue, person_id: "person", run_deadline: 60_000}
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "continue",
+                 continue,
+                 verified(%{verified_person: "person"})
+               )
+
+      assert_receive {:pattern_input, "root",
+                      %{"kind" => "action_outcome", "action_id" => "slow", "outcome" => "failed"}},
+                     5_000
+
+      assert %{phase: :settled, outcome: "failed"} = unit_state(c).slots[key]
+      assert losses.() == [:loss]
+
+      refute_receive {:pattern_input, "root", %{"kind" => "action_outcome", "action_id" => "slow"}},
+                     300
+    end
+
+    test "through the engine: a Budget stop at the least admitted padding, a crash, then a 200-byte Attempt B: the stop is dropped and a cancel at the Run deadline commits marked" do
+      {c, waiting} = waiting_ask()
+      key = {1, 0}
+      long = String.duplicate("l", 200)
+      big = Integer.pow(2, 8 * 2_400)
+      record = spending_answer(c, key, big)
+      admitted? = &RunEngine.actual_admits?(pad_invocations(waiting, &1), record)
+
+      cut =
+        {0, control_headroom(waiting) - 43}
+        |> Stream.iterate(fn {lo, hi} ->
+          mid = div(lo + hi, 2)
+          if admitted?.(mid), do: {lo, mid}, else: {mid, hi}
+        end)
+        |> Enum.find(fn {lo, hi} -> hi - lo <= 1 end)
+        |> elem(1)
+
+      refute admitted?.(cut - 1)
+      journal_state(c, pad_invocations(waiting, cut))
+      engine = start(c, run_owner: forwarder(c, :kill))
+      monitor = Process.monitor(engine)
+      context = verified(%{occurrence: key, actual: big, verified_person: "person"})
+      answer = record.input |> Map.delete("at_ms")
+      call(fn -> RunEngine.input(engine, "answer", answer, context) end)
+      assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+      assert unit_state(c).control.stop_attempt == {"attempt", :out_of_budget}
+
+      begin_attempt(c, long)
+      assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+      engine = start(c, run_owner: forwarder(c, :kill))
+      monitor = Process.monitor(engine)
+      assert %{attempt_id: ^long, stop_pending: nil} = unit_state(c).control
+      Agent.update(c.clock, fn _ -> 60_000 end)
+      stop_request(c, engine, :cancel, long)
+      assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}, 5_000
+      committed = unit_state(c)
+      assert %{stop_pending: :out_of_time, attempt_id: ^long} = committed.control
+      assert committed.control.stop_attempt == {long, :out_of_time}
+      assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+      engine = start(c)
+      assert %{outcome: :out_of_time} = wait_for(engine, &(&1.outcome != nil))
     end
   end
 
@@ -1564,6 +1988,43 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert %{outcome: :cancelled} = wait_for(engine, &(&1.outcome != nil))
       assert %{phase: :settled, outcome: "unknown"} = settled = unit_state(c).slots[key]
       assert is_nil(settled[:actual])
+    end
+
+    test "a new Attempt while a Resource entry is blocked: the state paired with its Run view, before any later cursor, settles the sent slot unknown with no actual, its Budget held and the cursor unmoved" do
+      {c, opts} = blocked_open()
+      engine = start(c, opts)
+      blocked = unit_state(c)
+      {key, slot} = slot_of(blocked, "open")
+      refute slot.phase == :settled
+      refute Map.has_key?(blocked.control.cursors, "document")
+
+      reserved = fn state ->
+        budget = state.control.budgets[slot.callable].state
+        {:Transition, _, {:some, {:status, status}}} = Elzoo.Budget.step(budget, {2_000, :status})
+        status.reserved
+      end
+
+      held = reserved.(blocked)
+      assert held > 0
+      GenServer.stop(engine)
+      begin_attempt(c, "second")
+      before = rows(c)
+      engine = start(c, opts)
+
+      # The Run view's own input and result rows, as the start committed them, before any
+      # later record.
+      [{_, paired}] =
+        for row <- Enum.drop(rows(c), length(before)),
+            row.kind == "result",
+            {1, {"run:" <> _, state}} <- [decode(row)],
+            do: {row, state}
+
+      assert paired.control.attempt_id == "second"
+      assert %{phase: :settled, outcome: "unknown"} = settled = paired.slots[key]
+      assert is_nil(settled[:actual])
+      assert reserved.(paired) == held
+      refute Map.has_key?(paired.control.cursors, "document")
+      GenServer.stop(engine)
     end
 
     test "a request-cap stop retains a sent Resource slot that waits on a blocked Resource: the slot stays open after the Run ends, as the stop retains any sent Resource slot" do
@@ -1721,6 +2182,27 @@ defmodule Elzoo.RunEngineStopAttemptTest do
         assert record.correlation.actual == 7
         assert record.input =~ String.duplicate("x", 60_000)
         send(provider, {:result, %{}})
+      end
+    end
+
+    test "a parent charge into a root Budget with 60 entries expiring at 100: its sweep grows 60 bytes, and at every padding that admits the child's cursor the charge keeps the room for a stop" do
+      {_c, _opts, changed, record} = settled_parent_with_resource(@rate)
+      parent = {1, 0}
+      held = hold_expiring(changed, "root", 60, 100)
+      root = held.control.budgets["root"].state
+      {:Transition, swept, _} = Elzoo.Budget.step(root, {3_000, :sweep})
+      assert byte_size(binary(swept)) - byte_size(binary(root)) == 60
+      charge = %{version: 1, kind: :nested_actual, occurrence: parent, actual: @rate, at_ms: 3_000}
+      admitted = window(held, &RunEngine.cursor_admits?(pad_invocations(held, &1), record))
+      assert admitted != []
+
+      # The charge fits the bound and leaves the room for a stop free: its sweep's growth
+      # was counted when the cursor was admitted.
+      for target <- admitted do
+        assert {:Transition, charged, :none} = RunEngine.step(pad_invocations(held, target), record)
+        assert {:Transition, settled, :none} = RunEngine.step(charged, charge)
+        assert settled.slots[parent].actual == @rate
+        assert control_headroom(settled) >= 0
       end
     end
 
@@ -2695,6 +3177,58 @@ defmodule Elzoo.RunEngineStopAttemptTest do
     GenServer.stop(engine)
     assert Map.has_key?(state.control.lifecycle.waits, "ask")
     {c, state}
+  end
+
+  # `state` with `count` one-credit entries held in Budget `holder` that expire at
+  # `expiry` (entries that a Run on a clock below `expiry` reserved, as the Budget takes
+  # them).
+  defp hold_expiring(state, holder, count, expiry) do
+    budget = state.control.budgets[holder].state
+    {:Transition, _, {:some, {:status, status}}} = Elzoo.Budget.step(budget, {1, :status})
+
+    held =
+      Enum.reduce(1..count, budget, fn index, acc ->
+        reserve = %{
+          cap: status.cap,
+          unit: status.unit,
+          estimate: 1,
+          cost_ref: "held-#{index}",
+          expiry: expiry
+        }
+
+        {:Transition, next, {:some, {:reserved, _}}} =
+          Elzoo.Budget.step(acc, {1, {:reserve, reserve}})
+
+        next
+      end)
+
+    put_in(state.control.budgets[holder].state, held)
+  end
+
+  # `state` with its root Budget spent to its cap by a Budget step of its own (as a root
+  # Resource cursor's settlement spends it), the lifecycle left as it is.
+  defp exhaust_root(state) do
+    budget = state.control.budgets["root"].state
+    {:Transition, _, {:some, {:status, status}}} = Elzoo.Budget.step(budget, {2_000, :status})
+    spend = status.cap - status.committed - status.reserved
+
+    reserve = %{
+      cap: status.cap,
+      unit: status.unit,
+      estimate: spend,
+      cost_ref: "spent",
+      expiry: 50_000
+    }
+
+    {:Transition, held, {:some, {:reserved, %{generation: generation}}}} =
+      Elzoo.Budget.step(budget, {2_000, {:reserve, reserve}})
+
+    settle = %{cost_ref: "spent", generation: generation, actual: spend + status.reserved}
+
+    {:Transition, spent, {:some, {:settled, _}}} =
+      Elzoo.Budget.step(held, {2_000, {:settle, settle}})
+
+    put_in(state.control.budgets["root"].state, spent)
   end
 
   # A root request with a nested_callable `nested` whose child asks for `child_script` (by
