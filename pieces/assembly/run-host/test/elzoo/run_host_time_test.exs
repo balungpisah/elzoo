@@ -8,6 +8,7 @@ defmodule Elzoo.RunHostTimeTest do
   use ExUnit.Case, async: false
   import Elzoo.RunHost.TestHelper
   alias Elzoo.{Lease, RunEngine, RunHost}
+  alias Elzoo.DurableLog.Memory
   alias Elzoo.RunApprovalRelease, as: Owner
   alias Elzoo.EffectIntent.Model
   alias Elzoo.RunHost.Ai
@@ -236,7 +237,7 @@ defmodule Elzoo.RunHostTimeTest do
 
   describe "call_limit" do
     @tag timeout: 180_000
-    test "an engine read that ends by the call limit decides nothing: a due wake waits for a readable deadline, an input for a confirmed Attempt" do
+    test "an engine read that ends by the call limit decides nothing: a due wake waits for a readable deadline, an input for a confirmed Attempt, and calls queued behind a cancel find the Run terminal" do
       env = postgres()
 
       stub =
@@ -246,7 +247,7 @@ defmodule Elzoo.RunHostTimeTest do
         end)
 
       {host, _} = host(env, notify())
-      trace([{RunEngine, :deadlines, 1}, {RunEngine, :input, 4}])
+      trace([{RunEngine, :deadlines, 1}, {RunEngine, :input, 4}, {RunEngine, :control, 4}])
 
       # A: an idle Run whose engine is held across its deadline, once its timer is set.
       deadline = clock() + 3_000
@@ -255,6 +256,11 @@ defmodule Elzoo.RunHostTimeTest do
       %{worker: worker_a, pids: %{engine: engine_a}} = run(host, :unread)
       eventually(fn -> :sys.get_state(worker_a).timer != nil end)
       :sys.suspend(engine_a)
+
+      # C: an idle Run, cancelled below; started before the Run owner's status is traced.
+      cancelled = spec("cancelled", stub([]))
+      assert :ok = RunHost.start_run(host, :cancelled, cancelled)
+      %{worker: worker_c, pids: %{engine: engine_c, owner: owner_c}} = run(host, :cancelled)
 
       # B: a begin_attempt whose reply comes, and whose read after it waits in the held engine.
       confirm = spec("confirm", stub, pattern: starts())
@@ -306,6 +312,59 @@ defmodule Elzoo.RunHostTimeTest do
         Enum.any?(messages, &match?({:"$gen_call", _, {:input, "start-2", _, _}}, &1))
       end)
 
+      # C: the engine applies a cancel while its owner is held and is held right after its
+      # reply, so the worker's read after the cancel ends by the call limit too. A control
+      # and then an input wait behind the cancel: each passed the worker's terminal check
+      # before the cancel was observed.
+      :sys.suspend(owner_c)
+
+      cancel =
+        Task.async(fn ->
+          RunHost.control(
+            host,
+            :cancelled,
+            "cancel",
+            %{kind: :cancel, attempt_id: cancelled.attempt_id},
+            verified(cancelled)
+          )
+        end)
+
+      assert_receive {:trace, ^engine_c, :call, {Owner, :status, _}}, 5_000
+      spawn(fn -> :sys.suspend(engine_c, :infinity) end)
+
+      eventually(fn ->
+        {:messages, messages} = Process.info(engine_c, :messages)
+        Enum.any?(messages, &match?({:system, _, :suspend}, &1))
+      end)
+
+      pause =
+        Task.async(fn ->
+          RunHost.control(
+            host,
+            :cancelled,
+            "pause",
+            %{kind: :pause, pause_deadline: clock() + 600_000},
+            verified(cancelled)
+          )
+        end)
+
+      eventually(fn ->
+        {:messages, messages} = Process.info(worker_c, :messages)
+        Enum.any?(messages, &match?({:"$gen_call", _, {:control, "pause", _, _}}, &1))
+      end)
+
+      late =
+        Task.async(fn ->
+          RunHost.input(host, :cancelled, "late", message("late"), verified(cancelled))
+        end)
+
+      eventually(fn ->
+        {:messages, messages} = Process.info(worker_c, :messages)
+        Enum.any?(messages, &match?({:"$gen_call", _, {:input, "late", _, _}}, &1))
+      end)
+
+      :sys.resume(owner_c)
+
       # Both reads end by the engine's 60 s call limit.
       assert_receive {:trace, ^worker_b, :exception_from, {RunEngine, :deadlines, 1}, _}, 75_000
       assert_receive {:trace, ^worker_a, :exception_from, {RunEngine, :deadlines, 1}, _}, 10_000
@@ -336,6 +395,23 @@ defmodule Elzoo.RunHostTimeTest do
       assert_receive {:terminal, :unread, :out_of_time}, 5_000
       assert [wake] = wakes(transcript(host, :unread, unread))
       assert wake.input_id == wake_id(unread, deadline)
+
+      # C: the queued control reads the Run again, finds it terminal and gets
+      # {:error, :terminal} with no engine call, and so does the input behind it. The
+      # terminal observation stays confirmed (a late sink outcome is still forwarded), and
+      # on_terminal is called once.
+      assert_receive {:trace, ^worker_c, :exception_from, {RunEngine, :deadlines, 1}, _}, 10_000
+      :sys.resume(engine_c)
+      assert {:ok, :applied} = Task.await(cancel)
+      assert {:error, :terminal} = Task.await(pause)
+      assert {:error, :terminal} = Task.await(late)
+      assert_receive {:terminal, :cancelled, :cancelled}, 5_000
+      delivered = :erlang.trace_delivered(worker_c)
+      assert_receive {:trace_delivered, ^worker_c, ^delivered}, 5_000
+      refute_received {:trace, ^worker_c, :call, {RunEngine, :control, [_, "pause", _, _]}}
+      refute_received {:trace, ^worker_c, :call, {RunEngine, :input, [_, "late", _, _]}}
+      assert :sys.get_state(worker_c).confirmed
+      refute_receive {:terminal, :cancelled, _}, 300
     end
   end
 
@@ -518,6 +594,109 @@ defmodule Elzoo.RunHostTimeTest do
       assert renewals(env, spec) == 1
     end
 
+    test "a renewal whose reply comes after the lease clock passed the last confirmed until and whose first reading fails: read again, the Run is lost (:expired) before this node's deadline" do
+      test = self()
+      {:ok, armed} = Agent.start_link(fn -> false end)
+
+      # The renewal is held in the Lease backend right after it sampled the lease clock.
+      hook = fn
+        :after_clock, %{key: "run/reread", owner: backend} ->
+          if Agent.get_and_update(armed, &{&1, false}) do
+            send(test, {:sampled, backend})
+            receive do: (:go -> :ok)
+          end
+
+        _, _ ->
+          :ok
+      end
+
+      env = memory(lease: [test_hook: hook])
+      {host, _} = host(env, notify() ++ [lease_ttl_ms: 4_000])
+      spec = spec("reread", stub([]))
+      assert :ok = RunHost.start_run(host, :reread, spec)
+      %{lease: %{deadline: deadline}} = run(host, :reread)
+
+      # The renewal (half the TTL in, on this node's clock) samples the lease clock 2 s
+      # after the claim: its until is 6 s after the claim, the last confirmed one 4 s.
+      Lease.Clock.advance(env.clock, 2_000_000)
+      Agent.update(armed, fn _ -> true end)
+      assert_receive {:sampled, backend}, 5_000
+      [task] = Task.Supervisor.children(state(host).tasks)
+      :erlang.suspend_process(task)
+
+      # Before the reply the lease clock passes the last confirmed until (5 s after the
+      # claim) while this node's clock is still before its deadline. Once the reply is in
+      # the renewal task, the task's first reading of the lease fails.
+      Lease.Clock.advance(env.clock, 3_000_000)
+      send(backend, :go)
+
+      eventually(fn ->
+        match?({:message_queue_len, n} when n > 0, Process.info(task, :message_queue_len))
+      end)
+
+      :ok = Memory.fault(env.store, :head, :unavailable)
+      trace([{Lease, :status, 2}])
+      :erlang.resume_process(task)
+
+      # No reading is replaced by this node's clock: the task reads again, and that
+      # reading shows the lease clock past the last confirmed until.
+      assert_receive {:lost, :reread, :expired}, 1_500
+      assert System.monotonic_time(:millisecond) < deadline
+
+      assert_receive {:trace, ^task, :return_from, {Lease, :status, 2}, {:error, :unavailable}},
+                     1_000
+
+      assert_receive {:trace, ^task, :return_from, {Lease, :status, 2},
+                      {:ok, %{status: :active, holder: %{owner: "node-a"}}}},
+                     1_000
+
+      assert {:error, :lease_lost} =
+               RunHost.input(host, :reread, "late", start_input(), verified(spec))
+
+      eventually(fn -> run(host, :reread) == nil end)
+      refute_receive {:lost, :reread, _}, 300
+    end
+
+    test "a renewal that commits and whose lease is then seized before its reading: that reading shows the other holder, so the Run is lost at once, with no input" do
+      test = self()
+      {:ok, armed} = Agent.start_link(fn -> false end)
+
+      # The renewal is held in the Run owner right after its transaction committed.
+      hook = fn
+        :after_commit, %{key: "run/overtaken"} ->
+          if Agent.get_and_update(armed, &{&1, false}) do
+            send(test, {:committed, self()})
+            receive do: (:go -> :ok)
+          end
+
+        _, _ ->
+          :ok
+      end
+
+      env = postgres(lease: [test_hook: hook])
+      {host, _} = host(env, notify() ++ [lease_ttl_ms: 4_000])
+      spec = spec("overtaken", stub([]))
+      assert :ok = RunHost.start_run(host, :overtaken, spec)
+      %{lease: %{deadline: deadline}} = run(host, :overtaken)
+      Agent.update(armed, fn _ -> true end)
+      assert_receive {:committed, owner}, 5_000
+
+      {:held, _} =
+        Lease.seize(env.lease, "run/overtaken", "operator", 60_000, :operator_takeover)
+
+      send(owner, :go)
+
+      assert_receive {:lost, :overtaken, {:lease_lost, %{holder: "operator"}}}, 1_500
+      assert System.monotonic_time(:millisecond) < deadline
+
+      assert {:error, :lease_lost} =
+               RunHost.input(host, :overtaken, "late", start_input(), verified(spec))
+
+      eventually(fn -> run(host, :overtaken) == nil end)
+      refute_receive {:lost, :overtaken, _}, 300
+      assert renewals(env, spec) == 1
+    end
+
     @tag timeout: 60_000
     test "a renewal reply delayed past the caller timeout: admission stops, the owner is fenced before any replacement" do
       {:ok, delay} = Agent.start_link(fn -> false end)
@@ -550,7 +729,7 @@ defmodule Elzoo.RunHostTimeTest do
 
       eventually(fn -> not Process.alive?(owner) end)
       eventually(fn -> run(host, :slow) == nil end)
-      Agent.update(cell, fn _ -> spawned() end)
+      prove(cell, spawned(), owner)
       assert [slow: :woken] = RunHost.wake(host, [:slow])
       assert run(host, :slow).pids.owner != owner
 
@@ -588,9 +767,11 @@ defmodule Elzoo.RunHostTimeTest do
 
       # The owner answers an indeterminate renewal as it stops, so its own exit reaches
       # the host before the renewal task's result. The test delivers that result first,
-      # under the renewal job's reference, as the task delivers it: an indeterminate
-      # receipt (for a write that a later record superseded) while the owner still runs.
+      # under the renewal job's reference, as the task delivers it, and then ends the task,
+      # whose exit applies it: an indeterminate receipt (for a write that a later record
+      # superseded) while the owner still runs.
       [job] = for {ref, {:renew, :first, _, _}} <- state(host).jobs, do: ref
+      [task] = Task.Supervisor.children(state(host).tasks)
 
       # A renewal record at sequence 2, a revision that the Run's create already holds
       # under another nonce: the next owner's reconcile: finds it superseded.
@@ -608,6 +789,8 @@ defmodule Elzoo.RunHostTimeTest do
       receipt = %{stream: "run/first", expected: 1, nonce: nonce, records: [renewal]}
 
       send(host, {job, {:indeterminate, receipt}})
+      eventually(fn -> match?({:done, _, _}, state(host).jobs[job]) end)
+      Process.exit(task, :kill)
 
       assert_receive {:lost, :first, {:indeterminate, ^receipt}}, 5_000
       eventually(fn -> run(host, :first) == nil end)
@@ -616,7 +799,7 @@ defmodule Elzoo.RunHostTimeTest do
       assert state(host).receipts == %{first: receipt}
 
       trace([{Owner, :start_link, 1}])
-      Agent.update(cell, fn _ -> spawned() end)
+      prove(cell, spawned(), owner)
       assert [first: :woken] = RunHost.wake(host, [:first])
       assert_receive {:trace, _, :call, {Owner, :start_link, [opts]}}, 1_000
       assert opts[:reconcile] == receipt
@@ -677,7 +860,7 @@ defmodule Elzoo.RunHostTimeTest do
       # The renewal never committed: the next start gives its receipt to the owner as
       # reconcile:, and the new claim supersedes it.
       trace([{Owner, :start_link, 1}])
-      Agent.update(cell, fn _ -> spawned() end)
+      prove(cell, spawned(), owner)
       assert [indeterminate: :woken] = RunHost.wake(host, [:indeterminate])
       assert_receive {:trace, _, :call, {Owner, :start_link, [opts]}}, 1_000
       assert opts[:reconcile] == receipt
@@ -751,7 +934,7 @@ defmodule Elzoo.RunHostTimeTest do
       assert {:ok, %{status: :free}} = Lease.status(env.lease, "run/cancelled")
     end
 
-    test "a reap waits for the Run's renewal job before it frees the reservation" do
+    test "a reap waits for the exit of the Run's renewal job, not for its result, before it frees the reservation" do
       test = self()
       {:ok, hold} = Agent.start_link(fn -> false end)
 
@@ -767,25 +950,35 @@ defmodule Elzoo.RunHostTimeTest do
       end
 
       env = postgres(lease: [test_hook: hook])
-      {host, _} = host(env, lease_ttl_ms: 2_000)
+      {host, _} = host(env, notify() ++ [lease_ttl_ms: 2_000])
       spec = spec("awaited", stub([]))
       assert :ok = RunHost.start_run(host, :awaited, spec)
       Agent.update(hold, fn _ -> true end)
       assert_receive {:renewing, owner}, 5_000
 
       # The renewal job (the host's only task now) is held.
-      [job] = Task.Supervisor.children(state(host).tasks)
-      :erlang.suspend_process(job)
+      [job] = for {ref, {:renew, :awaited, _, _}} <- state(host).jobs, do: ref
+      [task] = Task.Supervisor.children(state(host).tasks)
+      :erlang.suspend_process(task)
       reap = Task.async(fn -> RunHost.reap(host, :awaited) end)
 
       # Every process of the Run is gone; the reservation stays while the job runs.
       eventually(fn -> match?(%{phase: :awaiting}, run(host, :awaited)) end)
       refute Process.alive?(owner)
       assert Task.yield(reap, 300) == nil
-      :erlang.resume_process(job)
+
+      # A task sends its result before it exits: a result that reaches the host while
+      # the job's process still runs frees nothing.
+      send(host, {job, {:unknown, :no_receipt}})
+      assert Task.yield(reap, 300) == nil
+      assert %{phase: :awaiting} = run(host, :awaited)
+      assert Process.alive?(task)
+
+      :erlang.resume_process(task)
       assert :ok = Task.await(reap)
-      refute Process.alive?(job)
+      refute Process.alive?(task)
       assert run(host, :awaited) == nil
+      refute_received {:lost, :awaited, _}
     end
   end
 

@@ -189,6 +189,7 @@ defmodule Elzoo.RunHostRecoveryTest do
       assert {:committed, landed} = Memory.release(env.store, :held)
       assert landed == armed + 1
       pids = spawned()
+      assert worker in pids
       Agent.update(prior, fn _ -> pids end)
 
       # Now the proof is given: recovery reads the landed write and the slot settles once.
@@ -520,7 +521,6 @@ defmodule Elzoo.RunHostRecoveryTest do
     prove(cell, spawned(), engine)
     {host, ref, spec}
   end
-
 
   describe "teardown" do
     test "a read-only intent owner whose activation never reached the host is stopped by reap" do

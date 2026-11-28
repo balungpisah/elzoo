@@ -221,6 +221,7 @@ defmodule Elzoo.RunHost.TestHelper do
 
     store = Memory.store(memory)
     {:ok, clock} = Lease.Clock.manual(1_800_000_000_000_000)
+
     {:ok, lease} =
       Lease.new([store: store, clock: {:manual, clock}] ++ Keyword.get(opts, :lease, []))
 
