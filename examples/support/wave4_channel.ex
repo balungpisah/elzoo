@@ -1804,6 +1804,10 @@ defmodule Elzoo.Wave4ChannelExample do
         state = %{state | delivered: Map.put(state.delivered, key, nil)}
         if prefix == :complete, do: deliver_retry(state), else: {{:unknown, :delivery}, state}
 
+      # Not this conversation's item: nothing of it is decided here.
+      :foreign ->
+        if prefix == :complete, do: deliver_retry(state), else: {{:unknown, :delivery}, state}
+
       {:error, _reason} ->
         {{:unknown, :delivery}, state}
 
@@ -2005,7 +2009,8 @@ defmodule Elzoo.Wave4ChannelExample do
   # The delivery item of a command, by its operation and committed revision,
   # as read now: `{:ok, item, observed}` with `observed`, the other items of
   # this channel that the scan read on its way, by key, or `{:error,
-  # reason}`.
+  # reason}` (`{:error, reason, observed}` when the scan read items before it
+  # stopped).
   defp delivery_item(state, operation, revision) do
     stream = checked_stream(state.profile.tenant)
 
@@ -2053,11 +2058,12 @@ defmodule Elzoo.Wave4ChannelExample do
   # profile's item, reported malformed) are not this item, so the scan goes
   # on. Each item of this channel that it reads on the way is kept in
   # `observed`, a later observation than any window. A storage failure stops
-  # it, and reaching the revision without a match is `{:error, :absent}`:
-  # the caller stays fenced either way.
-  defp find_delivery_item(_state, _stream, _command, from, through, _observed)
+  # it, and reaching the revision without a match is `{:error, :absent,
+  # observed}`: the caller stays fenced either way, and the reads made before
+  # it stopped are returned.
+  defp find_delivery_item(_state, _stream, _command, from, through, observed)
        when from < through or from < 1,
-       do: {:error, :absent}
+       do: {:error, :absent, observed}
 
   defp find_delivery_item(state, stream, {operation, revision} = command, from, through, observed) do
     key = Elzoo.DurableLog.Codec.item_key(stream, from, 1)
@@ -2076,7 +2082,7 @@ defmodule Elzoo.Wave4ChannelExample do
         find_delivery_item(state, stream, command, from - 1, through, observed)
 
       _ ->
-        {:error, :unavailable}
+        {:error, :unavailable, observed}
     end
   end
 
@@ -2249,6 +2255,12 @@ defmodule Elzoo.Wave4ChannelExample do
           {:ok, _observed} ->
             held_unreadable(%{state | delivered: Map.put(state.delivered, key, nil)}, item)
 
+          :foreign when prefix == :complete ->
+            {:ok, state, pass}
+
+          :foreign ->
+            held_unreadable(state, item)
+
           {:error, _reason} ->
             fail_delivery(state, {:delivery, key, :acked}, {:unknown, :delivery})
 
@@ -2273,28 +2285,39 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
-  # An item observed acknowledged is never appended. Its own receipt
-  # decides first: another nonce's acknowledgement is the superseded fence,
-  # whatever its kind, row or retained intent. With its own nonce, its
-  # intent (`intent` as already read, else read now) and the kind that the
-  # pass's custody discovery named it (`pass_kind/5`, after a primary that
-  # deriving the kind had to read) decide its row, read-only. `{:ok,
-  # observed}` with that primary's read, a fence, or `{:error, reason}`.
+  # An item observed acknowledged is never appended. Its validated notice
+  # decides first whose it is: an item of another conversation or principal
+  # is `:foreign`, and one whose notice cannot be classified is unreadable.
+  # For this conversation's item its own receipt decides next: another
+  # nonce's acknowledgement is the superseded fence, whatever its kind, row
+  # or retained intent. With its own nonce, its intent (`intent` as already
+  # read, else read now) and the kind that the pass's custody discovery
+  # named it (`pass_kind/5`, after a primary that deriving the kind had to
+  # read) decide its row, read-only. `{:ok, observed}` with that primary's
+  # read, `:foreign`, a fence, or `{:error, reason}`.
   defp acked_decision(state, pass, item, intent) do
     key = item.idempotency_key
 
-    if item.ack_nonce != item.nonce do
-      {:superseded, key, item.nonce}
-    else
-      with {:ok, mode, dto} <- intent || delivery_intent(state, item),
-           {:ok, kind, observed} <- pass_kind(state, pass, key, mode, dto),
-           :ok <- observed_settled(state, observed),
-           :ok <- intent_delivery(state, kind, item, mode, dto) do
-        {:ok, observed}
-      else
-        :error -> {:error, :kind}
-        failure -> failure
-      end
+    case delivery_notice(item, state.profile) do
+      {:ok, _notice} when item.ack_nonce != item.nonce ->
+        {:superseded, key, item.nonce}
+
+      {:ok, _notice} ->
+        with {:ok, mode, dto} <- intent || delivery_intent(state, item),
+             {:ok, kind, observed} <- pass_kind(state, pass, key, mode, dto),
+             :ok <- observed_settled(state, observed),
+             :ok <- intent_delivery(state, kind, item, mode, dto) do
+          {:ok, observed}
+        else
+          :error -> {:error, :kind}
+          failure -> failure
+        end
+
+      {:error, :foreign} ->
+        :foreign
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -2560,7 +2583,7 @@ defmodule Elzoo.Wave4ChannelExample do
              "type",
              "version"
            ],
-         true <- notice["type"] == "checked_command" and notice["version"] == 1,
+         true <- notice["type"] == "checked_command" and notice["version"] === 1,
          true <- notice["tenant"] == profile.tenant,
          true <-
            bounded_text?(notice["actor"]) and bounded_text?(notice["resource"]) and
@@ -3422,7 +3445,7 @@ defmodule Elzoo.Wave4ChannelExample do
              "type",
              "version"
            ],
-         true <- notice["type"] == "checked_command" and notice["version"] == 1,
+         true <- notice["type"] == "checked_command" and notice["version"] === 1,
          true <- notice["tenant"] == state.profile.tenant and notice["actor"] == state.profile.actor,
          true <- is_binary(notice["operation_id"]) and is_binary(notice["resource"]),
          true <- notice["resource"] == state.profile.conversation_id,
@@ -5748,8 +5771,12 @@ defmodule Elzoo.Wave4ChannelExample do
   # association's scan, the reply's reads and its association's scan, then
   # its answer's scan. `{:ok, items, seen}` with the items read on the way,
   # or `{:error, reason, items, seen, base}` when a read fails: what was
-  # named and read before it is kept, and every item that could not be named
-  # lies after the sequence `base`.
+  # named and read before it, also within the failed step, is kept, and
+  # every item that could not be named lies after the sequence `base`. A
+  # step that completes moves `base` past what it named and past its floor:
+  # once the primary's association is found, every item left to name (the
+  # reply's association and the answer) lies after a reply that the
+  # custody facts name, whether or not the reply has an association.
   defp custody_items(state, {first, names}, seen) do
     {named, primary} =
       case names do
@@ -5776,37 +5803,43 @@ defmodule Elzoo.Wave4ChannelExample do
     with {:ok, event, operation, _revision, _intent} <- recover_input(state, item) do
       input = event.input_id
 
-      [
-        fn ->
-          command_receipt(
-            state,
-            state.handles.association,
-            :association,
-            association_operation(operation, input, state.profile)
-          )
-        end,
-        fn -> reply_receipt(state, names, seen) end,
-        fn ->
-          command_receipt(
-            state,
-            state.handles.answer,
-            :answer,
-            answer_operation(operation, input, state.profile)
-          )
+      reply_floor =
+        case names do
+          {:facts, %{reply_key: reply}} when is_binary(reply) -> item_sequence(reply)
+          _ -> 0
         end
+
+      [
+        {fn ->
+           command_receipt(
+             state,
+             state.handles.association,
+             :association,
+             association_operation(operation, input, state.profile)
+           )
+         end, reply_floor},
+        {fn -> reply_receipt(state, names, seen) end, reply_floor},
+        {fn ->
+           command_receipt(
+             state,
+             state.handles.answer,
+             :answer,
+             answer_operation(operation, input, state.profile)
+           )
+         end, 0}
       ]
-      |> Enum.reduce_while(found, fn step, {:ok, items, seen, base} ->
+      |> Enum.reduce_while(found, fn {step, floor}, {:ok, items, seen, base} ->
         case step.() do
           {:ok, named, read} ->
             base =
-              Enum.reduce(named, base, fn {_kind, _destination, key}, base ->
+              Enum.reduce(named, max(base, floor), fn {_kind, _destination, key}, base ->
                 max(base, item_sequence(key))
               end)
 
             {:cont, {:ok, named ++ items, Map.merge(seen, read), base}}
 
-          _ ->
-            {:halt, {:error, :custody, items, seen, base}}
+          {:error, _reason, read} ->
+            {:halt, {:error, :custody, items, Map.merge(seen, read), base}}
         end
       end)
       |> case do
@@ -5830,26 +5863,33 @@ defmodule Elzoo.Wave4ChannelExample do
   defp reply_receipt(_state, {:facts, %{reply_key: nil}}, _seen), do: {:ok, [], %{}}
 
   defp reply_receipt(state, {:facts, %{reply_key: key}}, seen) do
-    with {:ok, item} <- acked_or_read(state, seen, key, @reply_destination),
-         {:ok, %{"operation_id" => operation}} <- reply_notice(item, state.profile),
-         {:completed, %{response: response}} <-
-           CheckedCommand.result(
-             state.handles.reply_input,
-             result_scope(state.profile),
-             {state.profile.tenant, state.profile.actor, operation}
-           ),
-         {:ok, ticket, _revision} <- receipt_input(response),
-         {:ok, association, scanned} <-
-           command_receipt(
-             state,
-             state.handles.reply_association,
-             :reply_association,
-             association_operation(operation, ticket, state.profile)
-           ) do
-      # The reply's read comes before the scan's: a newer read of a key wins.
-      {:ok, association, Map.merge(%{key => item}, scanned)}
-    else
-      _ -> {:error, :custody}
+    case acked_or_read(state, seen, key, @reply_destination) do
+      {:ok, item} ->
+        # The reply's read comes before the scan's: a newer read of a key
+        # wins, and the reply's read is kept whatever follows it.
+        with {:ok, %{"operation_id" => operation}} <- reply_notice(item, state.profile),
+             {:completed, %{response: response}} <-
+               CheckedCommand.result(
+                 state.handles.reply_input,
+                 result_scope(state.profile),
+                 {state.profile.tenant, state.profile.actor, operation}
+               ),
+             {:ok, ticket, _revision} <- receipt_input(response),
+             {:ok, association, scanned} <-
+               command_receipt(
+                 state,
+                 state.handles.reply_association,
+                 :reply_association,
+                 association_operation(operation, ticket, state.profile)
+               ) do
+          {:ok, association, Map.merge(%{key => item}, scanned)}
+        else
+          {:error, _reason, scanned} -> {:error, :custody, Map.merge(%{key => item}, scanned)}
+          _ -> {:error, :custody, %{key => item}}
+        end
+
+      _ ->
+        {:error, :custody, %{}}
     end
   end
 
@@ -5869,15 +5909,18 @@ defmodule Elzoo.Wave4ChannelExample do
             {:ok, [{kind, @delivery_destination, item.idempotency_key}],
              Map.put(observed, item.idempotency_key, item)}
 
+          {:error, _reason, observed} ->
+            {:error, :receipt, observed}
+
           _ ->
-            {:error, :receipt}
+            {:error, :receipt, %{}}
         end
 
       {:unknown, :not_observed} ->
         {:ok, [], %{}}
 
       {:unknown, _reason} ->
-        {:error, :command}
+        {:error, :command, %{}}
 
       _settled ->
         {:ok, [], %{}}
