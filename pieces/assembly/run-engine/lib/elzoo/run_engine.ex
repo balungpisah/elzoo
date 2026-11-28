@@ -2201,26 +2201,28 @@ defmodule Elzoo.RunEngine do
   # After an ingress refusal that follows current/1 (the refused record wrote nothing),
   # the work that current/1 committed (a Resource outcome's step that set a stop, for one)
   # is served by a drain all the same. A drain that ends in a halt keeps it (status/1 shows
-  # it); one that exits halts the engine `:delivery_unknown` with its cache cleared. The
-  # caller's reply is the refusal (refused/2): the input is known not to be written.
+  # it: an evidence append that the Writer did not report committed, for one, halts
+  # `:delivery_unknown`); one that exits or raises halts the engine `:delivery_unknown`
+  # with its cache cleared. The caller's reply is the refusal (refused/2): the input is
+  # known not to be written.
   defp serve_committed(s) do
     case drain(s) do
       {:ok, s} -> s
       {:error, _, s} -> s
     end
   catch
-    :exit, _ -> %{s | halted: :delivery_unknown, state: nil, decoded: %{}}
+    _, _ -> %{s | halted: :delivery_unknown, state: nil, decoded: %{}}
   end
 
   defp refused(s, reason), do: {{:error, reason}, serve_committed(s)}
 
   # The part of a mailbox delivery after current/1 or current_unit/1 reconciled the state:
-  # an exit halts the engine `:delivery_unknown` with its cache cleared (rows may have
-  # committed), so status/1 never shows the state from before the reconciliation.
+  # an exit or a raise halts the engine `:delivery_unknown` with its cache cleared (rows
+  # may have committed), so status/1 never shows the state from before the reconciliation.
   defp after_current(s, fun) do
     fun.(s)
   catch
-    :exit, _ -> {:noreply, %{s | halted: :delivery_unknown, state: nil, decoded: %{}}}
+    _, _ -> {:noreply, %{s | halted: :delivery_unknown, state: nil, decoded: %{}}}
   end
 
   # A drain that no public call starts runs the Unit check of current/1 first
@@ -4405,11 +4407,25 @@ defmodule Elzoo.RunEngine do
     {state, s} = read_state(s)
     attempt = state.control.attempt_id
 
-    {evidence, s} =
+    evidence =
       if result in [:completed, :failed],
-        do: completion_evidence(s, key, attempt),
-        else: {nil, s}
+        do: completion_evidence(s, state, key, attempt),
+        else: {:ok, nil}
 
+    case evidence do
+      {:ok, evidence} ->
+        complete_run(s, state, result, evidence, attempt)
+
+      # The evidence Writer did not report a commit (an indeterminate append, a rejection
+      # or conflict): the row may or may not exist, so the engine sends no owner command
+      # and does not append again; it halts with its cache cleared, and a restart (which
+      # decides the pending stop again, recover_stop/1) is the explicit recovery.
+      :uncommitted ->
+        {:error, :delivery_unknown, %{s | halted: :delivery_unknown, state: nil, decoded: %{}}}
+    end
+  end
+
+  defp complete_run(s, state, result, evidence, attempt) do
     reason =
       cond do
         result == :failed -> "pattern"
@@ -4441,8 +4457,7 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp completion_evidence(s, key, attempt) do
-    {state, s} = read_state(s)
+  defp completion_evidence(s, state, key, attempt) do
     c = state.control
     slot = state.slots[key]
     # The caller's existing Writer/Store is the evidence authority. No invented
@@ -4456,10 +4471,10 @@ defmodule Elzoo.RunEngine do
       action_id: slot.action_id
     }
 
-    {:committed, sequence} =
-      Elzoo.DurableLog.Writer.append(writer, [{"completion", 1, binary(event)}])
-
-    {%{stream: stream, sequence: sequence}, s}
+    case Elzoo.DurableLog.Writer.append(writer, [{"completion", 1, binary(event)}]) do
+      {:committed, sequence} -> {:ok, %{stream: stream, sequence: sequence}}
+      _ -> :uncommitted
+    end
   end
 
   defp end_resources(s, outcome) do
@@ -4919,8 +4934,11 @@ defmodule Elzoo.RunEngine do
     {state, s} = read_state(s)
 
     Enum.reduce_while(state.slots, {:ok, s}, fn {key, slot}, {:ok, acc} ->
+      # A running slot whose loss recovery holds in `lost` (queued behind a retained input
+      # or report, or refused for room) is owned by that loss: its approval is not
+      # released again, so its work is not dispatched a second time.
       recovering =
-        slot.phase in [:running, :reconcile] and
+        slot.phase in [:running, :reconcile] and not Map.has_key?(acc.lost, key) and
           (id in ["startup", "replacement"] or
              slot.kind in ["resource_open", "resource_use", "resource_close"])
 

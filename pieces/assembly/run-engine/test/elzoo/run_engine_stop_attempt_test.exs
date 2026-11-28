@@ -103,6 +103,55 @@ defmodule Elzoo.RunEngineStopAttemptTest.CompleteForwarder do
     do: {:reply, GenServer.call(run, message, 60_000), state}
 end
 
+defmodule Elzoo.RunEngineStopAttemptTest.EvidenceFaultStore do
+  # The evidence Store under a real DurableLog.Writer: every call is forwarded; once armed,
+  # one append is committed by the Store underneath and then answered {:error,
+  # :unavailable}, which the Writer's classification turns into {:indeterminate, info}
+  # (and the Writer stops): an uncertain append whose row exists.
+  @behaviour Elzoo.DurableLog.Store
+
+  def new(store) do
+    control = ExUnit.Callbacks.start_supervised!({Agent, fn -> false end}, id: make_ref())
+    {__MODULE__, %{store: store, control: control}}
+  end
+
+  def arm({__MODULE__, %{control: control}}), do: Agent.update(control, fn _ -> true end)
+
+  def append({__MODULE__, %{control: control}} = adapter, stream, expected, records, items) do
+    reply = delegate(adapter, :append, [stream, expected, records, items])
+    if Agent.get_and_update(control, &{&1, false}), do: {:error, :unavailable}, else: reply
+  end
+
+  def capabilities(adapter), do: delegate(adapter, :capabilities, [])
+  def head(adapter, stream), do: delegate(adapter, :head, [stream])
+  def read(adapter, stream, from, limit), do: delegate(adapter, :read, [stream, from, limit])
+  def read_at(adapter, stream, sequence), do: delegate(adapter, :read_at, [stream, sequence])
+  def pending(adapter, stream, limit), do: delegate(adapter, :pending, [stream, limit])
+  def read_ack(adapter, id), do: delegate(adapter, :read_ack, [id])
+
+  def latest_checkpoint(adapter, stream, version),
+    do: delegate(adapter, :latest_checkpoint, [stream, version])
+
+  def read_checkpoint(adapter, stream, sequence, version),
+    do: delegate(adapter, :read_checkpoint, [stream, sequence, version])
+
+  def read_maintenance(adapter, stream, operation),
+    do: delegate(adapter, :read_maintenance, [stream, operation])
+
+  def put_checkpoint(adapter, checkpoint), do: delegate(adapter, :put_checkpoint, [checkpoint])
+
+  def retain(adapter, stream, expected, through, nonce),
+    do: delegate(adapter, :retain, [stream, expected, through, nonce])
+
+  def ack(adapter, id, nonce), do: delegate(adapter, :ack, [id, nonce])
+
+  def repair_torn_tail(adapter, stream, expected, staged, nonce),
+    do: delegate(adapter, :repair_torn_tail, [stream, expected, staged, nonce])
+
+  defp delegate({__MODULE__, %{store: {module, _} = store}}, operation, args),
+    do: apply(module, operation, [store | args])
+end
+
 defmodule Elzoo.RunEngineStopAttemptTest do
   # ELZ-430: every pending stop (`:completed`, `:failed`, `:cancelled`, `:out_of_time`,
   # `:out_of_budget`), its evidence row where one is written and the owner command are
@@ -115,7 +164,7 @@ defmodule Elzoo.RunEngineStopAttemptTest do
   alias Elzoo.{DurableLog, DurableUnit, DynamicUnits, RunEngine}
   alias Elzoo.RunApprovalRelease, as: Run
   alias Elzoo.RunEngine.TestPattern
-  alias Elzoo.RunEngineStopAttemptTest.CompleteForwarder
+  alias Elzoo.RunEngineStopAttemptTest.{CompleteForwarder, EvidenceFaultStore}
 
   setup do
     Process.flag(:trap_exit, true)
@@ -2385,7 +2434,7 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       assert [_] = terminal_rows(c)
     end
 
-    test "a pending stop's mark is not counted against a settlement while it is pending: its least admitted padding is lower by the mark's bytes than on the unmarked twin (constructed earlier-revision state)" do
+    test "a pending stop's mark is not counted against a settlement while it is pending: the marked state needs fewer free bytes, by the mark's bytes, than its unmarked twin (constructed earlier-revision state)" do
       payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
 
       script = fn frame ->
@@ -2421,8 +2470,10 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       unmarked = update_in(marked.control, &Map.delete(&1, :stop_attempt))
       record = spending_answer(c, key, Integer.pow(2, 8 * 3_000))
 
-      # Paddings with the stop pending count no room, so a target is the raw free bytes; 800
-      # keeps the room for a stop once the stop is dropped, before the answer.
+      # A target of pad_invocations/2 is the free bytes left after the padding (the padding
+      # added is the state's headroom minus the target). With the stop pending no room is
+      # counted, so the target is the raw free bytes; 800 keeps the room for a stop once the
+      # stop is dropped, before the answer.
       least = fn state ->
         admitted? = &RunEngine.actual_admits?(pad_invocations(state, &1), record)
         refute admitted?.(800)
@@ -2441,11 +2492,191 @@ defmodule Elzoo.RunEngineStopAttemptTest do
       mark = byte_size(binary({:stop_attempt, {"attempt", :out_of_budget}})) - 3
       least_marked = least.(marked)
       least_unmarked = least.(unmarked)
+      # The least free bytes at which the answer is admitted: the marked state needs the
+      # mark's bytes fewer (removing the mark frees those bytes too, so both admit the same
+      # largest added padding).
       assert least_unmarked - least_marked == mark
 
-      # At the adjacent paddings: admitted at the least, refused one byte under it.
+      # At the adjacent targets: admitted with that many free bytes, refused with one fewer.
       assert RunEngine.actual_admits?(pad_invocations(marked, least_marked), record)
       refute RunEngine.actual_admits?(pad_invocations(marked, least_marked - 1), record)
+    end
+
+    test "approved local work running with an older held expiry report, at the cut after a continue's lifecycle row (fold-built): the restart starts no second task and gives the report, then the loss, in v1 and v2" do
+      for version <- [1, 2] do
+        c =
+          run_fixture(
+            fn frame -> [frame.([action("ask", "ask_person", %{}), action("slow")])] end,
+            version
+          )
+
+        require_approval(c)
+        person = c.opts[:bindings]["ask_person"]
+        early = %{person | facts: fn a -> %{person.facts.(a) | deadline_ms: 5_000} end}
+        local = %{c.opts[:bindings]["local_work"] | effect_class: "publish"}
+
+        bindings =
+          c.opts[:bindings] |> Map.put("ask_person", early) |> Map.put("local_work", local)
+
+        opts = [bindings: bindings, expiry_reports: :owner]
+        engine = start(c, opts)
+        assert {:ok, :applied} = start_run(c, engine)
+        wait_for(engine, &match?({_, %{phase: :approval}}, slot_of(&1, "slow")))
+        refute_received {:local_started, _}
+        # The real Approval: the host gives the evidence, the owner releases, the engine
+        # dispatches the work once.
+        {:ok, run} = Run.status(c.run, "run")
+        [%{request_key: request_key}] = run.approvals
+
+        approval = %{
+          kind: :approval_evidence,
+          request_key: request_key,
+          evidence: consent(request_key)
+        }
+
+        assert {:ok, :applied} = RunEngine.control(engine, "approve", approval, verified())
+        assert_receive {:local_started, _}, 5_000
+        wait_for(engine, &match?({_, %{phase: :waiting}}, slot_of(&1, "ask")))
+        pause = %{kind: :pause, pause_deadline: 50_000}
+        assert {:ok, :applied} = RunEngine.control(engine, "pause", pause, verified())
+        Agent.update(c.clock, fn _ -> 5_000 end)
+        assert {:ok, _} = RunEngine.input(engine, "expire", input(c, "wake"), verified())
+        GenServer.stop(engine)
+        paused = unit_state(c)
+        {ask, %{pending_input: %{}}} = slot_of(paused, "ask")
+        {key, %{phase: :running, request_key: ^request_key}} = slot_of(paused, "slow")
+
+        # The cut after the continue's lifecycle row and before its drain, built by the fold
+        # from the recorded state and installed as the Unit's state; the Approval, its
+        # release and the dispatch above are real, and still valid at the restart.
+        continue = %{
+          version: version,
+          kind: :lifecycle,
+          command: %{
+            control: :continue,
+            person_id: "person",
+            run_deadline: 60_000,
+            at_ms: 5_000,
+            attempt_id: "attempt"
+          },
+          context: %{verified_person: "person", pause_deadline: 50_000}
+        }
+
+        assert {:Transition, continued, _} = RunEngine.step(paused, continue)
+        assert %{pending_input: %{}} = continued.slots[ask]
+        journal_state(c, continued, "continue")
+        flush_pattern_inputs()
+        engine = start(c, opts)
+        assert_receive {:pattern_input, "root", first}, 5_000
+        assert_receive {:pattern_input, "root", second}, 5_000
+        assert %{"action_id" => "ask", "outcome" => "expired"} = first, "v#{version}"
+        assert %{"action_id" => "slow", "outcome" => "failed"} = second, "v#{version}"
+        refute_received {:local_started, _}, "v#{version}: a second task started"
+        assert %{phase: :settled} = unit_state(c).slots[key]
+        GenServer.stop(engine)
+      end
+    end
+
+    test "a completion stop that the drain of a refused public input (an ID conflict) sets, with the evidence Writer committing or answering indeterminate: the reply is the conflict; indeterminate halts with no resend, in v1 and v2" do
+      for version <- [1, 2], mode <- [:committed, :indeterminate] do
+        c = evidence_fixture(version, action("ask", "ask_person", %{}))
+        {store, writer} = evidence_writer(c)
+        {owner, bindings} = resource(c)
+        opts = [resources: %{"document" => owner}, bindings: bindings]
+        engine = start(c, opts ++ [evidence: %{writer: writer, stream: "evidence"}])
+        assert {:ok, :applied} = start_run(c, engine)
+        assert_receive {:effect_started, _opening, _}, 5_000
+        wait_for(engine, &match?({_, %{phase: :waiting}}, slot_of(&1, "ask")))
+        observed(owner, "opened", "open", %{opened_at_ms: 2_000}, 2_000)
+        {key, _} = slot_of(unit_state(c), "ask")
+        if mode == :indeterminate, do: EvidenceFaultStore.arm(store)
+        answer = spending_answer(c, key, 3).input |> Map.delete("at_ms")
+        context = verified(%{occurrence: key, actual: 3, verified_person: "person"})
+        label = "v#{version} #{mode}"
+
+        assert {:error, :input_id_conflict} = RunEngine.input(engine, "start", answer, context),
+               label
+
+        assert [_] = evidence_rows(c), label
+
+        case mode do
+          :committed ->
+            assert %{outcome: :completed} = view(engine), label
+            assert [{:terminal, "run", :completed, _, _, _}] = terminal_rows(c), label
+            GenServer.stop(engine)
+
+          :indeterminate ->
+            assert %{halted: :delivery_unknown, state: nil, decoded: %{}} = :sys.get_state(engine)
+            assert {:ok, %{reconciliation: :delivery_unknown}} = RunEngine.status(engine)
+            assert unit_state(c).control.stop_pending == :completed
+            assert terminal_rows(c) == [], label
+            wake = input(c, "wake")
+            assert {:error, :delivery_unknown} = RunEngine.input(engine, "wake", wake, verified())
+            # No resend while halted: still the one row of the uncertain append.
+            assert [_] = evidence_rows(c), label
+            GenServer.stop(engine)
+            # A restart is the explicit recovery: it decides the pending stop again, with a
+            # new evidence Writer, and appends its own evidence row for the owner command.
+            {_, fresh} = evidence_writer(c)
+            restarted = start(c, opts ++ [evidence: %{writer: fresh, stream: "evidence"}])
+            assert %{outcome: :completed} = wait_for(restarted, &(&1.outcome != nil)), label
+            assert [{:terminal, "run", :completed, _, _, _}] = terminal_rows(c), label
+            GenServer.stop(restarted)
+        end
+      end
+    end
+
+    test "a completion stop that the drain of a refused injected mailbox record sets, with the evidence append indeterminate: the engine halts delivery_unknown with its cache cleared, in v1 and v2" do
+      for version <- [1, 2] do
+        c = evidence_fixture(version, action("slow"))
+        {store, writer} = evidence_writer(c)
+        {owner, bindings} = resource(c)
+        opts = [resources: %{"document" => owner}, bindings: bindings]
+        engine = start(c, opts ++ [evidence: %{writer: writer, stream: "evidence"}])
+        assert {:ok, :applied} = start_run(c, engine)
+        assert_receive {:effect_started, _opening, _}, 5_000
+        assert_receive {:local_started, task}, 5_000
+        observed(owner, "opened", "open", %{opened_at_ms: 2_000}, 2_000)
+        {key, _} = slot_of(unit_state(c), "slow")
+        EvidenceFaultStore.arm(store)
+        # Injected (not produced by the task), refused for its actual.
+        id = "local:refused-evidence-#{version}"
+
+        outcome =
+          input(
+            c,
+            "action_outcome",
+            Elzoo.RunEngine.TestHelper.result("slow") |> Map.delete("version")
+          )
+
+        refused = %{
+          version: version,
+          kind: :protocol,
+          id: id,
+          run_id: "run",
+          attempt_id: "attempt",
+          input: Map.put(outcome, "at_ms", 2_000),
+          correlation: %{occurrence: key, actual: Integer.pow(2, 8 * 200_000)},
+          context: %{}
+        }
+
+        send(engine, {:durable_unit_input, id, refused})
+        label = "v#{version}"
+
+        assert %{halted: :delivery_unknown, state: nil, decoded: %{}} = :sys.get_state(engine),
+               label
+
+        assert unit_state(c).control.stop_pending == :completed, label
+        assert [_] = evidence_rows(c), label
+        assert terminal_rows(c) == [], label
+        refute Enum.any?(records(c), &(Map.get(&1, :id) == id))
+        send(task, :finish)
+        GenServer.stop(engine)
+        {_, fresh} = evidence_writer(c)
+        engine = start(c, opts ++ [evidence: %{writer: fresh, stream: "evidence"}])
+        assert %{outcome: :completed} = wait_for(engine, &(&1.outcome != nil)), label
+        GenServer.stop(engine)
+      end
     end
 
     test "through the engine: a Budget stop at the least admitted padding, a crash, then a 200-byte Attempt B: the stop is dropped and a cancel at the Run deadline commits marked" do
@@ -2935,6 +3166,46 @@ defmodule Elzoo.RunEngineStopAttemptTest do
   # The kind of a decoded Unit row: an input's record kind, or :result for a result row.
   defp row_kind({1, {_id, %{kind: kind}}}), do: kind
   defp row_kind(_), do: :result
+
+  # A Resource open and `other` in the first request, at request cap 2; the open's outcome
+  # makes the root finish naming the open (a completion stop with an evidence row).
+  defp evidence_fixture(version, other) do
+    payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+
+    script = fn frame ->
+      [
+        frame.([action("open", "resource_open", payload), other]),
+        frame.([finish_action("finish", %{"action_id" => "open"})])
+      ]
+    end
+
+    run_fixture(script, version, request_cap: 2)
+  end
+
+  # A real DurableLog.Writer of the fixture's evidence stream over EvidenceFaultStore.
+  defp evidence_writer(c) do
+    store = EvidenceFaultStore.new(c.evidence_store)
+
+    fold = %{
+      initial: nil,
+      kinds: %{"completion" => :state_bearing},
+      versions: [1],
+      destinations: [],
+      reduce: fn _, _, _, bytes -> bytes end
+    }
+
+    limits = %{max_record_bytes: 131_072, max_batch_size: 1, max_checkpoint_bytes: 1_048_576}
+    opts = [store: store, stream: "evidence", fold: fold, limits: limits]
+
+    writer =
+      start_supervised!(%{
+        id: make_ref(),
+        restart: :temporary,
+        start: {Elzoo.DurableLog.Writer, :start_link, [opts]}
+      })
+
+    {store, writer}
+  end
 
   defp slot_key(c, action_id) do
     {key, _} = slot_of(unit_state(c), action_id)

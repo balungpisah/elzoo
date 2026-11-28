@@ -252,10 +252,17 @@ the refused input, and the reply is that refusal; the drain then serves what `cu
 committed (a stop that a Resource outcome set in the same call, for one). When that drain
 ends in a halt (the owner refuses completion with no terminal view:
 `:terminal_commit_pending`, for one) the reply is still the refusal and `status/1` shows
-the halt; when it exits the engine halts `:delivery_unknown` with its cached state
-cleared. A refused outcome from the engine's mailbox is drained the same way, and a v2
-mailbox delivery whose work after `current/1` exits halts the engine the same way rather
-than keeping the state from before `current/1`. The time checks stay before
+the halt; when a completion stop's evidence append is not reported committed by the
+evidence Writer (`{:indeterminate, info}`, a rejection or conflict), the engine sends no
+owner command, does not append again and halts `:delivery_unknown` with its cached
+state cleared (a restart decides the stop again); when the drain exits or raises the
+engine halts `:delivery_unknown` with its cached state cleared. A refused outcome from
+the engine's mailbox is drained the same way, and a v2
+mailbox delivery whose work after `current/1` exits or raises halts the engine the same way rather
+than keeping the state from before `current/1`. Approved work whose loss recovery holds
+(queued behind a held report, or refused for room) is not released again by the start's
+or a replacement Unit's release of approved work, so it is not dispatched a second time.
+The time checks stay before
 reconciliation (they write nothing). The step stores the actual twice in the Budget and
 once in the slot; a slot that the step settles frees its 4,096-byte reserve and its
 listed wait, while a slot that keeps the input as its pending input while paused frees
@@ -1752,12 +1759,19 @@ with that step before it is written (the retained-input rule, "Input and control
 step that sets a stop takes only its stop and mark from the room, so a new Run near the
 bound admits less than before (its configuration included); a history already recorded
 keeps its records. A new Run that stays outside
-the room records as before apart from the mark and the order of clock samples: an
+the room records as before apart from the mark, the order of clock samples and the
+order of recovered work: an
 input, a pause, a continue and a cancel now read the clock before the owner's Run view
 is reconciled, and a fresh v2 outside event before that reconciliation too, so where
 the call journals a Run view (the owner moved) with a clock that moves, the input's
 recorded time can be earlier than that Run view's, though the input is committed after
-it, where before it was read after that Run view. The room is kept in a terminal Run
+it, where before it was read after that Run view. With any room, a loss that a start or
+a replacement Unit finds while a held report or retained input can already be given (a
+continue that committed before a crash) is now given after it (the earlier revision
+committed the loss first, so the pattern saw the loss first), kept losses are given one
+per drain round, and a refusal after `current/1` now drains what `current/1` committed
+in the same call (before, the next call did). These change the inputs of a new
+execution, not the reading of a recorded history. The room is kept in a terminal Run
 too, so a Resource entry refused near the bound after the Run ends stays unconsumed.
 Times: under
 `budget_rule: :pause` an input needs a pause deadline after its clock sample, so a wake
@@ -2230,9 +2244,11 @@ at the limit, is refused again after the owner moved, appending only the Run vie
 the call journaled; the Unit reopens with the ask waiting after the refusal and, after
 the accepted settlement, delivers the marked stop. Padded states in these tests are
 synthetic boundary-sized predecessors: `pad_invocations/2` adds invocation entries whose
-keys are IDs of up to 8,000 bytes (a public input ID is at most 160 bytes) and whose
+keys are IDs (full chunks of 8,000 bytes and a final one of up to 8,099 bytes; a public
+input ID is at most 160 bytes) and whose
 values are the SHA-256 of that ID (the fold's own entries are keyed by the input ID with
-the digest of its input and correlation as value), and `journal_state/3` installs such a
+the digest of its input and correlation as value), and its target is the free bytes left
+after the padding, not the bytes added; `journal_state/3` installs such a
 state with a `:pad` record; they stand for a state that an earlier revision recorded near
 the bound or that admission left at its limit, not for a history that an engine recorded,
 and the engine calls that follow them are real. An answer whose actual spends the
@@ -2271,16 +2287,32 @@ and marked, and a restart with the owner answering delivers it. In v2, when the 
 an injected mailbox record (as below) that is refused exits in its owner call after the owner took the completion, the
 engine halts `:delivery_unknown` with no cached state (not the state from before
 `current/1`), answers a later input with that halt, and a restart takes the owner's
-terminal view. Separately, a record injected into the engine's
+terminal view. When the evidence Writer of a completion stop that such a drain sets
+answers without a commit (the test's Store commits the row and answers unavailable, so
+the Writer gives `{:indeterminate, info}`), the reply to an answer under the start
+input's ID is still `{:error, :input_id_conflict}`, the engine halts
+`:delivery_unknown` with no cached state, sends no owner command, appends no second
+row while halted and answers a later input with that halt, and a restart with a new
+Writer delivers the stop (appending its own evidence row); with the Writer committing,
+the stop is delivered in that call, in v1 and v2. The same indeterminate append in the
+drain of a refused injected mailbox record halts the engine the same way in v1 and v2
+(before, v1 died on a match error and v2 kept the state from before `current/1`).
+Separately, a record injected into the engine's
 mailbox in the form of a local outcome (the test constructs it: the running task did not
 produce it, and the real producer uses the work's estimate, its sampled time and a derived
 stable ID), whose actual the slot bound cannot hold, is refused in v1 and v2 with no
 record of it, and the stop that the reconciliation of that delivery set is delivered, the
 local work still running. With the engine killed at its owner command after such a
 request-cap stop (the stop pending and marked, an ask waiting), a Budget-spending answer
-is admitted from a least padding that is lower, by the mark's bytes, than on the same
-state with the mark removed (a constructed state of an earlier revision), and refused one
-byte under it: the mark of a pending stop is not counted once the stop is dropped. Beside a nested child open at zero cost, a state without the room takes
+is admitted with fewer free bytes, by the mark's bytes, than on the same state with the
+mark removed (a constructed state of an earlier revision; removing the mark frees the
+same bytes, so both admit the same largest added padding), and refused with one free
+byte fewer: the mark of a pending stop is not counted once the stop is dropped. Approved
+local work (a real Approval, release and dispatch) running beside an ask whose expiry
+report is held while paused, at the cut after a continue's lifecycle row (built by the
+fold): the restart starts no second task for it (its loss, kept behind the report, owns
+the slot, so the start's release of approved work does not dispatch it again) and gives
+the report, then the loss, in v1 and v2; before, the release dispatched it again. Beside a nested child open at zero cost, a state without the room takes
 a Budget-spending answer unmarked at exact fit: no charge of the child is counted against
 that step. An answer of another Run that names the open ask's Attempt, action and
 occurrence is, by the fold and its size check, late: it is admitted, its step changes
@@ -2832,9 +2864,13 @@ fail). Listed finite scenarios, not a proof.
   stop pending never holds it, and the record kinds and the fingerprint are unchanged.
   Apart from the mark, a Run with no stale pending stop and no later lifecycle request
   against a pending one records what the earlier revision recorded as long as it stays
-  outside the room, and a history already recorded keeps its records; where a call
+  outside the room and no loss is recovered behind a held report or retained input, and
+  a history already recorded keeps its records; where a call
   journals a Run view with a moving clock, the time of its input (or control) can now be
-  earlier than that Run view's, as it is sampled before the reconciliation. The mark proves
+  earlier than that Run view's, as it is sampled before the reconciliation; a recovered
+  loss is now given after an eligible held report or retained input, kept losses one per
+  drain round, and a refusal after `current/1` drains what it committed in that call,
+  which changes the inputs of a new execution with any room. The mark proves
   only a different final stop or Attempt (a replacement by the same stop in the same
   Attempt still matches it). The cold-recovery capture of a completed Run is taken again
   for that key alone (with the key removed, its rows give the capture before). What
