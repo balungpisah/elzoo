@@ -2192,19 +2192,20 @@ the owner with the pending stop and its own reason (`"engine"`, `"pattern"` for 
 failure), the end of the Run settles `slow`, `ask` and `pay` with no charge stop, and
 the step kept the stop, its completion and its cancel record and closed no local work.
 
-Temporary edits were negative controls, all 38 run in one batch on this revision against
-this file and `test/elzoo/run_engine_read_failure_test.exs` (93 tests), the engine
+Temporary edits were negative controls, all 45 run in one batch on this revision against
+this file and `test/elzoo/run_engine_read_failure_test.exs` (100 tests), the engine
 restored byte for byte after each (checked with `cmp`); each made the named tests fail:
-admission with no room for the mark (9: the wake and the cancel after the Run view of a
+admission with no room for the mark (11: the wake and the cancel after the Run view of a
 200-byte Attempt, the cursor decision, the opened Resource's entry, both configuration
-tests, both ask tests and two `cursor_transition` tests; the groups
-`wake_without_room_is_not_given`, `the_switch_is_one_place` and
+tests, both ask tests, the nested start at request cap 1 and three `cursor_transition`
+tests; the groups `wake_without_room_is_not_given`, `the_switch_is_one_place` and
 `each_kind_without_a_slot` of `test/elzoo/run_engine_test.exs` fail too); a mark
-added whether or not the state passes the bound (1: the step at the bound raises after
-its input); a mark of another Attempt or another stop counted as a mark (1: the
-rollback-then-retake stop is delivered with two Attempts); a history read that checks
-only the mark's presence (1: the changed mark reads); the close before ELZ-215 taken by
-the earlier fold (3: v1 and v2, and the host's own cancel); a terminal Run view
+added whether or not the state passes the bound (2: the step at the bound raises after
+its input, and by the fold alone the cancel at the Run deadline with one byte less than
+its 468 fails the bound); a mark of another Attempt or another stop counted as a mark
+(1: the rollback-then-retake stop is delivered with two Attempts); a history read that
+checks only the mark's presence (1: the changed mark reads); the close before ELZ-215
+taken by the earlier fold (3: v1 and v2, and the host's own cancel); a terminal Run view
 replayed only while a stop is pending (1: the host's own cancel); a stop without a
 matching mark delivered in a Run with two Attempts (8: every two-Attempt refusal); an
 outbox offer that drains without the Unit check (1: the engine halts
@@ -2217,8 +2218,8 @@ at the request cap that stops the charge (6); the owner's `:completed` taken fro
 source slot's kind (1); a cancel control that cancels the task of every running local
 work (1); a replay under the current fold only (4) and a v2 validation under the
 current fold only (4); the stop facts compared, with `==` in v2, in place of the whole
-state with `===` (4); a Resource cursor record committed with no check (4: the opened
-Resource's entry and three `cursor_transition` tests); each time bound removed, at an
+state with `===` (4); a Resource cursor record committed with no check (6: the opened
+Resource's entry and five `cursor_transition` tests); each time bound removed, at an
 input's context deadline, the clock at an input and a control's times (2 each: the
 `bounded_times` refusal test and the test with the owner's revision not taken), the
 `run_deadline` start option (2: the refusal test and the restart of a journal started
@@ -2228,14 +2229,22 @@ an action's admission that checks the room only for a child's first finish (2: b
 ask tests); the times checked after `current/1` (2: the test with the owner's revision
 not taken and the clock test); an outside event's clock above 2^63 - 1 taken as
 `:source_unavailable` (1); a binding deadline above 2^63 - 1 admitted (1); the cursor
-check sizing the cursor map alone (3: three `cursor_transition` tests); the v1 check of
+check sizing the cursor map alone (4: four `cursor_transition` tests); the v1 check of
 a new mark skipped (1: the cancel changed to `out_of_time`); a Run view at the largest
 revision refused at the start (1: the wake and the cancel at the largest revision and
 deadlines); the cursor record committed with no second check (1: the entry refused
 before its cursor record); an input that reads the clock again for its record (1: the
-clock test); a cursor check that admits a transition whose projection fails (1); and a
+clock test); a cursor check that admits a transition whose projection fails (1); a
 wait listed under the action ID taken to leave nothing to count (1: the ask with a
-shorter wait listed). Listed finite scenarios, not a proof.
+shorter wait listed); a room of 693 bytes (4: both configuration tests and both ask
+tests); a nested start admitted by the state after its step alone (1: the nested start
+at request cap 1); admission that leaves out the charges that nested parents take
+after their children (1: the child's last Resource charge after a change of Attempt);
+a verified answer's actual admitted with no check (1: the answer of about 32 KiB); a
+fresh v2 outside event that reads the clock again when it is delivered (1: the
+one-sample test); a control that does not give a stored halt first (1: the binding
+deadline of 2^63); and a control's clock sample `nil` taken as a time (1: the cancel
+whose sample is `nil`). Listed finite scenarios, not a proof.
 
 `test/elzoo/run_engine_deadlines_test.exs` exercises `deadlines/1` in four groups
 on disposable PostgreSQL, each read checked against the `phase` of `status/1`.
