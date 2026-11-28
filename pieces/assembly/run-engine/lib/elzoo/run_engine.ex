@@ -35,6 +35,10 @@ defmodule Elzoo.RunEngine do
   # input's actual is admitted with its step before the input is written
   # (actual_admits?/2), so the room counts none of them. 468 + 199 + 27 + 1 = 695.
   @stop_room 695
+  # The part of @stop_room that no check admits (a change to a longer Attempt ID, 199; the
+  # encodings of the Run revision and the deadlines, 27; the lifecycle phase, 1): the room
+  # without the 468 bytes of the step that sets a stop and its mark (admits?/2).
+  @after_stop 199 + 27 + 1
   # The largest time and Run revision that the engine takes (2^63 - 1, the largest
   # sequence of a journal): each encodes in at most 11 bytes.
   @max_time 9_223_372_036_854_775_807
@@ -5413,8 +5417,10 @@ defmodule Elzoo.RunEngine do
   # no future release counted. While no stop is pending before the step:
   # - a step that sets no stop keeps the room (@stop_room and future_waits/1);
   # - a step that sets a stop (a nested start whose child's first request passes the cap,
-  #   an outcome whose actual spends the Budget) needs room for its mark only, which the
-  #   room holds: the state with the mark fits. From a state that lacks the room (an earlier
+  #   an outcome whose actual spends the Budget) takes its stop and mark from the part of
+  #   the room kept for the step that sets a stop: the state with the mark fits with the
+  #   rest of the room free (@after_stop, the growths that no check admits, which can still
+  #   come while the stop is pending). From a state that lacks the room (an earlier
   #   revision recorded it near the bound), the stop is taken unmarked when that fits, as
   #   mark_stop/2 then leaves it.
   # With a stop pending before, the state fits the bound with its deferred charges.
@@ -5432,7 +5438,7 @@ defmodule Elzoo.RunEngine do
       true ->
         marked = mark_stop(before, next)
 
-        (Map.has_key?(marked.control, :stop_attempt) and deferred_fits?(marked, 0)) or
+        (Map.has_key?(marked.control, :stop_attempt) and deferred_fits?(marked, @after_stop)) or
           (not admits?(before) and deferred_fits?(next, 0))
     end
   end
@@ -5475,12 +5481,19 @@ defmodule Elzoo.RunEngine do
   # `actual` (8 bytes) with the amount (bytes(amount) - 1), and an internal outcome's
   # settlement replaces the open slot's fields by fewer of them (settled_event_slot/4) and
   # adds `outcome` with a class of at most 9 bytes (17), not counted back: bounded by
-  # bytes(amount) + 16 + 17 with the outcome counted where the parent is open. An open
-  # parent's outcome can be retained in its slot as its pending input (a Run paused when
-  # the drain gives it): that record, built here at its largest form and times, is counted
-  # in the slot, and its settlement's growth in control (the tracker and the join, within
-  # the 4,096 bytes of a settling slot) is counted too, since a retained slot keeps its
-  # reserve. Siblings and ancestors: charges are applied deepest child first and each
+  # bytes(amount) + 16 + 17 with the outcome counted where the parent is open; when the
+  # parent settles by that outcome, the 4,096-byte reserve of its slot, which the settlement
+  # frees, covers the growth of its request's tracker and join, as for any settling slot. An
+  # open parent's outcome can instead be retained in its slot as its pending input (a Run
+  # paused when the drain gives it, or paused by that outcome's own charge): that record,
+  # built here at its largest form and times, is counted in the slot, and its settlement's
+  # growth in control is counted too, since a retained slot stays active and keeps its
+  # reserve (retained_outcome/6). That needs the child's cost known while its parent is
+  # open, which needs the child closed (its kept finish closes it; generation closed retains
+  # no input): so only a child with a finish kept or reachable (reachable_finishes/3) can
+  # give a retained outcome, and a child that admits a finish later is counted then, at that
+  # finish's admission. Siblings and ancestors: charges are applied deepest child first and
+  # each
   # parent's amount adds to the Budget of its own callable (`extra`), so an ancestor's
   # charge counts every charge below it; each charge's bound is a sum over its own bytes
   # and counts no release, so every order in which the charges land, and every state
@@ -5501,11 +5514,13 @@ defmodule Elzoo.RunEngine do
         amount = committed + Map.get(extra, id, 0)
         extra = Map.update(extra, parent.callable, amount, &(&1 + amount))
         open = parent.phase != :settled
-        control = control + 2 * bytes(amount) + 32 + if(open, do: 4_096, else: 0)
 
-        retained =
-          if open, do: retained_outcome_bytes(state, key, parent, id, node, amount), else: 0
+        {retained, settled} =
+          if open and reachable_finishes(state, id, node) != [],
+            do: retained_outcome(state, key, parent, id, node, amount),
+            else: {0, 0}
 
+        control = control + 2 * bytes(amount) + 32 + settled
         grow = bytes(amount) + 16 + if(open, do: 17 + retained, else: 0)
         {extra, control, Map.update(slots, key, grow, &(&1 + grow))}
       else
@@ -5515,11 +5530,16 @@ defmodule Elzoo.RunEngine do
     |> then(fn {_, control, slots} -> {control, slots} end)
   end
 
-  # The bytes of the pending input that an open parent's internal outcome at `amount` keeps
-  # in its slot while the Run is paused, at the largest of its forms, with the largest time
-  # and pause deadline: a failed or a completed refusal, and each finish that the child can
-  # give its parent (reachable_finishes/3).
-  defp retained_outcome_bytes(state, key, parent, child_id, child, amount) do
+  # The outcome that an open parent's internal outcome at `amount` gives while the Run is
+  # paused, at the largest of its forms (a failed or a completed refusal, and each finish
+  # that the child can give its parent: reachable_finishes/3), with the largest time and
+  # pause deadline. Returns the bytes of the pending input that its slot keeps and the
+  # growth of control in its settlement, measured by projecting that settlement on the
+  # parent's own request (its tracker and its join: settlement_growth/4) with 32 bytes for
+  # the rest of the step (its classification, `:applied`, at most 3 bytes over the shortest,
+  # and a pause that the step enters, its pause deadline from nil to at most 11 bytes and
+  # its phase; a listed wait that it removes is not counted back).
+  defp retained_outcome(state, key, parent, child_id, child, amount) do
     refusal = fn class, reason ->
       outcome(
         state.version,
@@ -5546,24 +5566,43 @@ defmodule Elzoo.RunEngine do
         {finish, %{actual: amount}}
       end
 
-    inputs = finishes ++ inputs
+    sized =
+      for {input, correlation} <- finishes ++ inputs do
+        record = %{
+          version: state.version,
+          kind: :protocol,
+          id: String.duplicate("0", 68),
+          run_id: state.control.run_id,
+          attempt_id: parent.attempt_id,
+          input: Jason.encode!(input),
+          correlation: Map.put(correlation, :occurrence, key),
+          context: %{pause_deadline: @max_time}
+        }
 
-    inputs
-    |> Enum.map(fn {input, correlation} ->
-      record = %{
-        version: state.version,
-        kind: :protocol,
-        id: String.duplicate("0", 68),
-        run_id: state.control.run_id,
-        attempt_id: parent.attempt_id,
-        input: Jason.encode!(input),
-        correlation: Map.put(correlation, :occurrence, key),
-        context: %{pause_deadline: @max_time}
-      }
+        {bytes({:pending_input, %{order: 2_147_483_647, record: record}}),
+         settlement_growth(state, key, input, correlation) + 32}
+      end
 
-      bytes({:pending_input, %{order: 2_147_483_647, record: record}})
-    end)
-    |> Enum.max()
+    {sized |> Enum.map(&elem(&1, 0)) |> Enum.max(), sized |> Enum.map(&elem(&1, 1)) |> Enum.max()}
+  end
+
+  # The growth of the parent's request (its tracker and its join) when the settlement of
+  # `input` is applied to it, as settle_protocol/3 applies it. One that cannot be projected
+  # (no tracker for the request) is bounded by the 4,096 bytes of a settling slot.
+  defp settlement_growth(state, {ordinal, _} = key, input, correlation) do
+    request = state.control.trackers[ordinal]
+    {:ok, checked} = decode_step(input, state.version)
+
+    tracker =
+      case PatternStep.accept(request.tracker, checked) do
+        {:applied, tracker} -> tracker
+        _ -> request.tracker
+      end
+
+    join = settle_join(state, key, input, correlation).control.trackers[ordinal].join
+    max(0, bytes(%{request | tracker: tracker, join: join}) - bytes(request))
+  rescue
+    _ -> 4_096
   end
 
   # The finishes that a child callable can still give its parent (ELZ-430): the one that it

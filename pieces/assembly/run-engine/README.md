@@ -191,7 +191,9 @@ model or tool call's outcome), or that does so while the Run is paused, is writt
 when the state that its step writes fits and so does each charge that the slot's
 parents take later (counted at its largest, with no release that would come after it),
 and, while no stop was pending, the room for a stop that admission keeps (ELZ-430,
-below); a step that sets a Budget stop needs only the room for that stop's mark, and on
+below); a step that sets a Budget stop takes its stop and mark from the room and leaves
+free the 227 bytes of it that no check admits (a longer Attempt ID, the encodings, the
+phase), and on
 a state that an earlier revision recorded without the room it is taken unmarked when
 the unmarked step fits. While the Run is paused the step must also keep the input as the
 slot's pending input for continue (in v2 it is retained only with the room); an answer
@@ -711,12 +713,19 @@ the parent's Budget twice and in its slot, counted for every child whose parent 
 no actual yet, at its committed amount so far, a child whose cost ends unknown
 included. Each such charge is counted at an upper bound of its growth (twice the
 amount's bytes and 32 in control; the amount's bytes and 16 in the parent slot and, for
-an open parent, 17 for its outcome, the largest record that the parent keeps as its
-pending input while paused, with the largest finish that the child can still give it:
-the finish that it keeps, or while it keeps none each admitted finish of its own that
-waits for its authorization or Approval or is ready, and 4,096 in control for that
-settlement), with no
-release counted (no reservation, slot reserve or kept finish freed), and an ancestor's
+an open parent, 17 for its outcome); and, for an open parent whose child has a finish
+that it keeps or can still keep (each admitted finish of its own that waits for its
+authorization or Approval or is ready), the largest record that the parent keeps as its
+pending input while paused, with the largest such finish, and the growth that the
+settlement of that outcome gives its request's tracker and join (projected, with 32
+bytes for the rest of the step), since a slot that keeps its pending input stays active
+and keeps its 4,096-byte reserve. A child with no such finish cannot give its parent an
+outcome while the parent is open and the Run paused with the generation open (its cost
+is known only once it is closed), so that retained record is not counted for it until a
+finish of its own is admitted; when the parent settles by its outcome, the 4,096-byte
+reserve that the settlement frees covers the growth of its tracker and join, as for any
+settling slot. Each charge counts no release (no reservation, slot reserve or kept
+finish freed), and an ancestor's
 charge counts every charge below it; the state that the step writes fits too, and so
 does each slot and the slots map with these charges. A cancel records nothing for a
 listed wait. A fresh or rollover configuration
@@ -2135,7 +2144,8 @@ that keeps the room, a Budget-spending answer whose step and mark take part of t
 (the smallest actual, by its bytes, that does) is admitted and marks its stop; and a
 nested start at request cap 1 with a fixed 300-byte child Budget ID, stepped at every
 padding from 64 bytes under its least admitted padding to 64 above (that least padding
-measured 68,815 bytes of headroom), is refused at each of the 64 paddings under it and
+measured 64,946 bytes of headroom on this revision, a value of that fixture, not a
+policy), is refused at each of the 64 paddings under it and
 admitted with its stop marked at it and each of the 64 above, and no padding admits it
 with its stop unmarked.
 
@@ -2334,10 +2344,18 @@ fixed padding in that band the edit admits the nested start and marks its stop w
 that revision refuses it `record_size`. No test asserts the outcome at a fixed padding
 there, so the tests do not detect that edit (a limit of these tests). So 51 of the 52
 edits made named tests fail across the two runs, not in one run. That inventory was not
-run on this revision. On this revision one temporary edit, the bound counting only the
+run on this revision. At commit 815d4362 one temporary edit, the bound counting only the
 finish that a child keeps (not one that waits for Approval), was made in place and made
 the test of the 60,000-byte finish fail (its 40,000-byte actual applied, before the
-Approval); the engine was restored byte for byte and the test passed again. Listed
+Approval); the engine was restored byte for byte and the test passed again. On this
+revision three temporary edits, each made in place and the engine restored byte for byte
+after it, made named tests fail: the retained parent record counted for every open
+parent, also one whose child has no finish (two of the four admission tests of
+`test/elzoo/run_engine_test.exs` run with it: the nested starts refused out of order and
+the root's state that can grow, a refused later start admitted), the retained record
+never counted (the paused v1 parent with a 70 KiB actual and the 60,000-byte finish
+waiting for Approval), and a stop-setting step that keeps none of the room after its
+mark (the nested start at request cap 1: 38 bytes left after the mark, not 227). Listed
 finite scenarios, not a proof.
 
 `test/elzoo/run_engine_deadlines_test.exs` exercises `deadlines/1` in four groups
@@ -2565,7 +2583,8 @@ fail). Listed finite scenarios, not a proof.
   never fails the bound after its input commits; an input whose step settles its slot at
   a positive actual, or while paused, is written only when the state that step writes and
   every later parent charge fit with the room (an upper bound that counts no release; a
-  Budget stop needs only its mark's room, and an earlier revision's state near the bound
+  Budget stop takes its stop and mark from the room and leaves its 227 bytes that no
+  check admits, and an earlier revision's state near the bound
   takes it unmarked when it fits), and only when a paused step keeps the input for
   continue (else `input/4` gives `{:error, :record_size}`, and a local work's outcome is
   dropped, each with no record of the input appended; a Run view that the call
