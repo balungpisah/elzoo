@@ -221,23 +221,36 @@ is not claimed bounded (the Memory Store scans its map).
   fenced reopen; recovery then reads the row read-only, and only the row
   equal to the intent rebuilt from the retained command proves the delivery.
   An unreadable row is retried, a row with other content is the refusal
-  fence, and an acknowledgement under another nonce is the superseded fence.
-  Detection covers the items the channel holds: live once it has observed
-  the item; after a fenced reopen, the acknowledged items that it can name
-  from durable evidence: associations and answers (version 1 and 2) and
-  reply associations, through their retained commands, and version 2
-  primary and reply inputs, through their custody facts. It cannot name a
-  version 1 primary input, a version 2 reply input before its custody facts
-  exist, or any item acknowledged before the channel first saw it: such an
-  acknowledgement leaves no pending item and no custody, so nothing the
-  channel reads shows it. The Need excludes these cases, as it excludes an
-  identical outside write, and later deliveries to that conversation
-  proceed without that item. A version 2 reply input acknowledged without
-  its row before the channel observed its item keeps the reply observation
-  fenced live (`{:reply_observation, :unproven}`); after a fenced reopen the
-  round is restored without that reply, its wait keeps waiting with an
-  ambiguous reply cursor, and the Run's expiry ends in the reply-ambiguity
-  fence (`{:reply_ambiguity, :expiry}`).
+  fence, decided with the owner's precedence (for an answer, a message ID
+  that another record holds is `duplicate_message_id` before
+  `already_answered`), and an acknowledgement under another nonce is the
+  superseded fence, also when the exact row exists. The channel detects the
+  breach for each item that it holds. Live, it holds an input item once it
+  observes the item in the outbox window, and the item of an association,
+  reply association or answer command that it issued, which it finds by
+  that command's operation and revision. Before it dispatches a later
+  append or native action of a conversation (a Run, an Attempt, an engine
+  start or a native input), it checks each earlier held item of that
+  conversation for the breach, in command order. After a fenced reopen it
+  holds the items that it can name from the custody that it persisted: in
+  version 1, an association or an answer through its primary input, which
+  recovery must find pending in the outbox window; in version 2, a primary
+  or reply input through the custody facts of its Run, and an association,
+  reply association or answer through those facts and its retained command.
+  An input item acknowledged before the channel observed it (live, between
+  the input command's commit and the observation; after a reopen, an input
+  whose custody the channel did not persist: a version 1 primary, or a
+  version 2 reply before its custody facts exist) is not held: it leaves no
+  pending item and no custody, and nothing that the channel reads shows the
+  breach, as for an identical outside write. Such a primary input is never
+  delivered, and later inputs of the conversation are. Such a reply input
+  keeps the reply observation fenced live (`{:reply_observation,
+  :unproven}`); after a fenced reopen the round is restored without it, its
+  wait keeps waiting with an ambiguous reply cursor, and the Run's expiry
+  ends in the reply-ambiguity fence (`{:reply_ambiguity, :expiry}`), so the
+  conversation's next round does not start. With a version 1 primary and
+  its association both acknowledged from outside, a reopened channel finds
+  no round.
 
 ## Migration from version 1
 
