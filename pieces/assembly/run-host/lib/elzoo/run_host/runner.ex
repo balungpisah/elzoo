@@ -208,8 +208,8 @@ defmodule Elzoo.RunHost.Runner do
   defp claim(s) do
     case Lease.claim(s.c.lease, s.stream, s.c.owner_id, s.c.lease_ttl_ms) do
       {:held, held} ->
-        deadline = RunHost.lease_deadline(s.c.lease, s.stream, held.live.until)
-        :ok = host(s, {:held, held, deadline})
+        {t0, read} = RunHost.lease_reading(s.c.lease, s.stream)
+        :ok = host(s, {:held, held, t0, read})
         {:ok, %{s | held: held}}
 
       {:lease_refused, refusal} ->

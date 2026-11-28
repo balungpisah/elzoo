@@ -13,6 +13,14 @@ defmodule Elzoo.RunHostTimeTest do
   alias Elzoo.EffectIntent.Model
   alias Elzoo.RunHost.Ai
 
+  # Margins of the timing assertions, in ms, each against a cutoff that the test measures
+  # itself: the host's deadline can be earlier than a cutoff by the delay between the node
+  # time that the host takes before a reading and the reading's lease clock sample
+  # (@sampling); a timer, the host's handling of it and the on_lost task that reports the
+  # moment take at most @timer.
+  @sampling 250
+  @timer 300
+
   setup_all do
     repo = database()
     on_exit(fn -> if Process.alive?(repo), do: Supervisor.stop(repo) end)
@@ -582,7 +590,7 @@ defmodule Elzoo.RunHostTimeTest do
       assert {:error, :not_running} = RunHost.status(host, :seized)
     end
 
-    test "a renewal that commits but would reply only after the last confirmed until: the Run is lost (:expired) at its deadline, not by that reply" do
+    test "a renewal that commits but would reply only after the last confirmed until: the Run is lost (:expired) at the claim's until, before that reply" do
       test = self()
       {:ok, delay} = Agent.start_link(fn -> false end)
 
@@ -591,7 +599,7 @@ defmodule Elzoo.RunHostTimeTest do
       hook = fn
         :after_commit, %{key: "run/late"} ->
           if Agent.get_and_update(delay, &{&1, false}) do
-            send(test, :renewal_committed)
+            send(test, {:renewal_committed, System.monotonic_time(:millisecond)})
             Process.sleep(1_500)
           end
 
@@ -600,23 +608,28 @@ defmodule Elzoo.RunHostTimeTest do
       end
 
       env = postgres(lease: [test_hook: hook])
-      {host, _} = host(env, notify() ++ [lease_ttl_ms: 2_000])
+      {host, _} = host(env, timed() ++ [lease_ttl_ms: 2_000])
       spec = spec("late", stub([]))
       assert :ok = RunHost.start_run(host, :late, spec)
+      # When the claim's until passes on the store clock, by a reading of the test's own.
+      cutoff = passes(env.lease, "run/late")
       Agent.update(delay, fn _ -> true end)
-      assert_receive :renewal_committed, 5_000
-      %{lease: %{deadline: deadline}} = run(host, :late)
+      assert_receive {:renewal_committed, committed_at}, 5_000
 
-      # No renewal is confirmed by the Run's deadline: the fence there loses the Run,
-      # about 500 ms before the reply could come; the teardown then stops the owner.
-      assert_receive {:lost, :late, :expired}, 5_000
-      assert System.monotonic_time(:millisecond) < deadline + 500
+      # No renewal is confirmed by the last confirmed until: the fence at the deadline loses
+      # the Run at that cutoff, no earlier than the host's own sampling margin allows and no
+      # later than a timer's, and before the renewal's reply could come; the teardown then
+      # stops the owner.
+      assert_receive {:lost, :late, :expired, lost_at}, 5_000
+      assert lost_at >= cutoff.from - @sampling
+      assert lost_at <= cutoff.by + @timer
+      assert lost_at < committed_at + 1_500
 
       assert {:error, :lease_lost} =
                RunHost.input(host, :late, "late", start_input(), verified(spec))
 
       eventually(fn -> run(host, :late) == nil end)
-      refute_receive {:lost, :late, _}, 300
+      refute_receive {:lost, :late, _, _}, 300
       assert renewals(env, spec) == 1
     end
 
@@ -637,10 +650,10 @@ defmodule Elzoo.RunHostTimeTest do
       end
 
       env = memory(lease: [test_hook: hook])
-      {host, _} = host(env, notify() ++ [lease_ttl_ms: 4_000])
+      {host, _} = host(env, timed() ++ [lease_ttl_ms: 4_000])
       spec = spec("reread", stub([]))
+      started = now_ms()
       assert :ok = RunHost.start_run(host, :reread, spec)
-      %{lease: %{deadline: deadline}} = run(host, :reread)
 
       # The renewal (half the TTL in, on this node's clock) samples the lease clock 2 s
       # after the claim: its until is 6 s after the claim, the last confirmed one 4 s.
@@ -663,12 +676,17 @@ defmodule Elzoo.RunHostTimeTest do
       :ok = Memory.fault(env.store, :head, :unavailable)
       trace([{Lease, :status, 2}])
       trace_spawns(task)
+      resumed = now_ms()
       :erlang.resume_process(task)
 
       # No reading is replaced by this node's clock: the task reads again, and that
-      # reading shows the lease clock past the last confirmed until.
-      assert_receive {:lost, :reread, :expired}, 1_500
-      assert System.monotonic_time(:millisecond) < deadline
+      # reading shows the lease clock past the last confirmed until. The loss follows the
+      # test's letting the task go on, and comes before the earliest moment that the host's
+      # deadline can be: 4 s after its reading in start_run, on a lease clock that stood
+      # still until the test moved it.
+      assert_receive {:lost, :reread, :expired, lost_at}, 1_500
+      assert lost_at >= resumed
+      assert lost_at < started + 4_000
 
       assert_receive {:trace, first, :return_from, {Lease, :status, 2}, {:error, :unavailable}},
                      1_000
@@ -685,7 +703,7 @@ defmodule Elzoo.RunHostTimeTest do
                RunHost.input(host, :reread, "late", start_input(), verified(spec))
 
       eventually(fn -> run(host, :reread) == nil end)
-      refute_receive {:lost, :reread, _}, 300
+      refute_receive {:lost, :reread, _, _}, 300
     end
 
     test "a renewal that commits and whose lease is then seized before its reading: that reading shows the other holder, so the Run is lost at once, with no input" do
@@ -705,26 +723,32 @@ defmodule Elzoo.RunHostTimeTest do
       end
 
       env = postgres(lease: [test_hook: hook])
-      {host, _} = host(env, notify() ++ [lease_ttl_ms: 4_000])
+      {host, _} = host(env, timed() ++ [lease_ttl_ms: 4_000])
       spec = spec("overtaken", stub([]))
       assert :ok = RunHost.start_run(host, :overtaken, spec)
-      %{lease: %{deadline: deadline}} = run(host, :overtaken)
+      cutoff = passes(env.lease, "run/overtaken")
       Agent.update(armed, fn _ -> true end)
       assert_receive {:committed, owner}, 5_000
+
+      seized = now_ms()
 
       {:held, _} =
         Lease.seize(env.lease, "run/overtaken", "operator", 60_000, :operator_takeover)
 
       send(owner, :go)
 
-      assert_receive {:lost, :overtaken, {:lease_lost, %{holder: "operator"}}}, 1_500
-      assert System.monotonic_time(:millisecond) < deadline
+      # The reading after the seizure is the loss: after the seizure, and before the fence
+      # of the claim's until could come (the cutoff measured by the test, less the host's
+      # sampling margin).
+      assert_receive {:lost, :overtaken, {:lease_lost, %{holder: "operator"}}, lost_at}, 1_500
+      assert lost_at >= seized
+      assert lost_at < cutoff.from - @sampling
 
       assert {:error, :lease_lost} =
                RunHost.input(host, :overtaken, "late", start_input(), verified(spec))
 
       eventually(fn -> run(host, :overtaken) == nil end)
-      refute_receive {:lost, :overtaken, _}, 300
+      refute_receive {:lost, :overtaken, _, _}, 300
       assert renewals(env, spec) == 1
     end
 
@@ -1118,28 +1142,36 @@ defmodule Elzoo.RunHostTimeTest do
       renewal_env = memory(lease: [test_hook: renewal_hook])
       {read_host, _} = host(read_env, on_lost ++ [lease_ttl_ms: 2_000])
       {renewal_host, _} = host(renewal_env, on_lost ++ [lease_ttl_ms: 2_000])
+
+      # On a lease clock that the test does not move, the claim's until is 2 s after the
+      # claim, and the host's deadline 2 s after the node time of its reading in start_run.
+      read_started = now_ms()
       assert :ok = RunHost.start_run(read_host, :read_held, spec("read-held", stub([])))
+      read_ready = now_ms()
 
       assert :ok =
                RunHost.start_run(renewal_host, :renewal_held, spec("renewal-held", stub([])))
 
-      %{lease: %{deadline: read_deadline}} = run(read_host, :read_held)
-      %{lease: %{deadline: renewal_deadline}} = run(renewal_host, :renewal_held)
+      renewal_ready = now_ms()
       Agent.update(armed, fn _ -> %{reply: true, renewal: true} end)
       assert_receive {:renewal_held, renewal_backend}, 5_000
 
-      # Each Run is lost at its deadline (a Memory reading waits up to 35 s).
+      # Each Run is lost at its deadline (a Memory reading waits up to 35 s), no reading having
+      # moved it: not before the earliest node time that it can be, nor later than the latest
+      # plus a timer's margin.
       assert_receive {:lost, :read_held, :expired, read_lost}, 5_000
       assert_receive {:lost, :renewal_held, :expired, renewal_lost}, 5_000
-      assert read_lost < read_deadline + 500
-      assert renewal_lost < renewal_deadline + 500
+      assert read_lost >= read_started + 2_000 and read_lost <= read_ready + 2_000 + @timer
+
+      assert renewal_lost >= read_ready + 2_000 and
+               renewal_lost <= renewal_ready + 2_000 + @timer
 
       # Both teardowns end with every job of the Run gone, while the readings still wait
       # in their backends: the renewal's and the expiry check's on :read_held, the expiry
       # check's on :renewal_held.
       eventually(fn -> run(read_host, :read_held) == nil end)
       eventually(fn -> run(renewal_host, :renewal_held) == nil end)
-      assert System.monotonic_time(:millisecond) < max(read_deadline, renewal_deadline) + 2_000
+      assert now_ms() < renewal_ready + 2_000 + 2_000
       read_backend = Lease.Memory.owner(read_env.lease.backend)
 
       for {backend, key, n} <- [
@@ -1179,29 +1211,141 @@ defmodule Elzoo.RunHostTimeTest do
       end
 
       env = postgres(lease: [test_hook: hook])
-      {host, _} = host(env, notify() ++ [lease_ttl_ms: 4_000])
+      {host, _} = host(env, timed() ++ [lease_ttl_ms: 4_000])
       spec = spec("cut", stub([]))
       assert :ok = RunHost.start_run(host, :cut, spec)
       Agent.update(flags, &%{&1 | committed: true})
       assert_receive {:committed, owner}, 5_000
 
       # Between the renewal's commit and its reading the same owner re-claims the key for
-      # 1 s: the reading shows this owner's lease live, until about 1 s from now, while the
-      # renewal itself returned an until 4 s after its commit.
-      {:held, _} = Lease.claim(env.lease, "run/cut", "node-a", 1_000)
-      claimed = System.monotonic_time(:millisecond)
+      # 1 s: the reading shows this owner's lease live until then, while the renewal itself
+      # returned an until 4 s after its commit. The re-claim's until passes 1 s after its
+      # store clock sample, which comes between the node times taken around it.
+      before = now_ms()
+      {:held, %{live: %{at: at, until: cut}}} = Lease.claim(env.lease, "run/cut", "node-a", 1_000)
+      cutoff = %{from: before + div(cut - at, 1_000), by: now_ms() + div(cut - at, 1_000)}
       Agent.update(flags, &%{&1 | held: true})
       send(owner, :go)
 
-      assert_receive {:lost, :cut, :expired}, 3_000
-      assert System.monotonic_time(:millisecond) - claimed < 2_000
-      assert_received :renewing_again
+      # With no further input the Run is lost at the shorter cutoff: no earlier than the
+      # host's sampling margin allows, no later than a timer's, and with no renewal of the
+      # re-claim's lease record.
+      assert_receive {:lost, :cut, :expired, lost_at}, 3_000
+      assert lost_at >= cutoff.from - @sampling
+      assert lost_at <= cutoff.by + @timer
+      refute_received :renewing_again
 
       assert {:error, :lease_lost} =
                RunHost.input(host, :cut, "late", start_input(), verified(spec))
 
       eventually(fn -> run(host, :cut) == nil end)
-      refute_receive {:lost, :cut, _}, 300
+      refute_receive {:lost, :cut, _, _}, 300
+      refute_received :renewing_again
+      assert renewals(env, spec) == 1
+    end
+
+    test "a renewal's confirmation that reaches the host after a newer reading of a shortened lease keeps the shorter deadline" do
+      shortened!(:reading_first)
+    end
+
+    test "a reading of a shortened lease that reaches the host after the renewal's confirmation still shortens the deadline" do
+      shortened!(:confirmation_first)
+    end
+
+    test "a renewal whose own reading is given up at a deadline that a newer reading has since moved: a reading after its reply confirms it, and the Run is not lost" do
+      test = self()
+      key = "run/moved"
+      {:ok, armed} = Agent.start_link(fn -> %{lock: false, write: false} end)
+
+      hook = fn
+        :before_lock, %{key: ^key, owner: backend} ->
+          if Agent.get_and_update(armed, &{&1.lock, %{&1 | lock: false}}) do
+            send(test, {:renewing, backend})
+            receive do: (:go -> :ok)
+          end
+
+        :before_write, %{key: ^key, owner: backend} ->
+          if Agent.get_and_update(armed, &{&1.write, %{&1 | write: false}}),
+            do: suspend_after_call(backend)
+
+        _, _ ->
+          :ok
+      end
+
+      env = memory(lease: [test_hook: hook])
+      {host, _} = host(env, timed() ++ [lease_ttl_ms: 2_000])
+      spec = spec("moved", stub([]))
+      assert :ok = RunHost.start_run(host, :moved, spec)
+      %{lease: %{deadline: first_deadline, until: until}} = run(host, :moved)
+      Agent.update(armed, fn _ -> %{lock: true, write: true} end)
+
+      # The renewal (half the TTL in) samples the lease clock 1 s on and commits an until
+      # 3 s after the claim's lease time; the backend suspends right after it, with the
+      # renewal's reading after its reply first in its queue.
+      assert_receive {:renewing, backend}, 5_000
+      Lease.Clock.advance(env.clock, 1_000_000)
+      send(backend, :go)
+      reader = queued_reader!(backend, key, [])
+      renewal = parent(reader)
+      gone = Process.monitor(reader)
+
+      # The reader is held, so it never answers its renewal job, and the job is held too.
+      :erlang.suspend_process(reader)
+      :erlang.suspend_process(renewal)
+      :sys.resume(backend)
+
+      # The host's own expiry check, 200 ms before the deadline, reads the lease clock 1 s
+      # on: the last confirmed until is still 1 s ahead of it, so the deadline moves 800 ms
+      # later.
+      eventually(fn -> run(host, :moved).lease.deadline > first_deadline end)
+      %{lease: %{deadline: moved}} = run(host, :moved)
+
+      # Only now does the renewal job go on: it gives its reading up at its own deadline (the
+      # first one), with no reply, and its result has no reading.
+      :erlang.resume_process(renewal)
+      assert_receive {:DOWN, ^gone, :process, ^reader, :killed}, 5_000
+      assert now_ms() >= first_deadline
+
+      # The host reads again after that reply, and the reading confirms the renewal: its
+      # until is the last confirmed one. The Run is lost neither at the first deadline nor at
+      # the moved one, and its next generation renews again.
+      eventually(fn -> run(host, :moved).lease.until > until end)
+      refute_receive {:lost, :moved, _, _}, max(moved + @timer - now_ms(), 0)
+      eventually(fn -> renewals(env, spec) == 2 end)
+      refute_received {:lost, :moved, _, _}
+      assert %{phase: :live} = run(host, :moved)
+      assert :ok = RunHost.reap(host, :moved)
+    end
+
+    @tag timeout: 15_000
+    test "a lease reader that replied and has not exited (it is suspended): the reading is taken at once and the reader stopped, so no job waits for its exit" do
+      test = self()
+
+      reader =
+        spawn(fn ->
+          receive do
+            {:reply, to} ->
+              send(to, {to, {:ok, :reading}})
+              send(test, :replied)
+              receive do: (:never -> :ok)
+          end
+        end)
+
+      # The reader's reply comes as a Task reply does: under the alias of its monitor.
+      tag = :erlang.monitor(:process, reader, alias: :demonitor)
+      gone = Process.monitor(reader)
+      send(reader, {:reply, tag})
+      assert_receive :replied
+      :erlang.suspend_process(reader)
+
+      task = %Task{pid: reader, ref: tag, owner: self(), mfa: {Lease, :status, 2}}
+      deadline = now_ms() + 5_000
+      {elapsed, read} = :timer.tc(fn -> RunHost.reading_of(task, deadline) end, :millisecond)
+
+      assert read == {:ok, :reading}
+      assert elapsed < 1_000
+      refute Process.alive?(reader)
+      assert_receive {:DOWN, ^gone, :process, ^reader, :killed}, 1_000
     end
   end
 
@@ -1245,6 +1389,152 @@ defmodule Elzoo.RunHostTimeTest do
     send(engine, :go)
     {worker, engine, call}
   end
+
+  # A renewal and a same-holder re-claim that shortens the lease, read in a fixed Store order
+  # and applied by the host in a fixed order (Memory, a 4 s TTL, a lease clock that only the
+  # test moves). The renewal commits and the Lease backend is suspended right after it, so
+  # that the renewal's reading after its reply, the re-claim (a 1 s TTL) and an expiry
+  # check's reading wait in its queue in that order: the renewal's reading shows the
+  # renewal's record, the check's reading the re-claim's. One of the two jobs is held while
+  # the other one's result is applied, then let go. `order` is `:reading_first` (the check's
+  # newer reading is applied first, the renewal's confirmation after it) or
+  # `:confirmation_first`.
+  defp shortened!(order) do
+    test = self()
+    name = "shortened-#{order}"
+    key = "run/" <> name
+    ref = String.to_atom(name)
+    {:ok, armed} = Agent.start_link(fn -> false end)
+
+    hook = fn
+      :before_write, %{key: ^key, owner: backend} ->
+        if Agent.get_and_update(armed, &{&1, false}) do
+          suspend_after_call(backend)
+          send(test, {:suspending, backend})
+        end
+
+      _, _ ->
+        :ok
+    end
+
+    env = memory(lease: [test_hook: hook])
+    {host, _} = host(env, timed() ++ [lease_ttl_ms: 4_000])
+    spec = spec(name, stub([]))
+    assert :ok = RunHost.start_run(host, ref, spec)
+    %{token: token, lease: %{generation: first, deadline: deadline}} = run(host, ref)
+    {:ok, lease_now} = Lease.Clock.sample(env.clock)
+    Agent.update(armed, fn _ -> true end)
+
+    # The renewal (half the TTL in) commits, and its reading after the reply waits first in
+    # the suspended backend's queue; the re-claim waits behind it, and behind that the
+    # reading of the expiry check of the current deadline, which the test fires itself (the
+    # host's own timer message).
+    assert_receive {:suspending, backend}, 5_000
+    renewal_reader = queued_reader!(backend, key, [])
+    reclaim = Task.async(fn -> Lease.claim(env.lease, key, "node-a", 1_000) end)
+    eventually(fn -> queued?(backend, &match?({:"$gen_call", _, {:single, ^key, _}}, &1)) end)
+    checked = now_ms()
+    send(host, {:expiry, ref, token, deadline})
+    check_reader = queued_reader!(backend, key, [renewal_reader])
+    {renewal, check} = {parent(renewal_reader), parent(check_reader)}
+
+    # The job applied second is held until the first one's result is applied.
+    later = if order == :reading_first, do: renewal, else: check
+    :erlang.suspend_process(later)
+    :sys.resume(backend)
+    assert {:held, %{live: %{until: cut}}} = Task.await(reclaim)
+    assert cut == lease_now + 1_000_000
+    confirmed? = fn -> run(host, ref).lease.generation != first end
+    shortened? = fn -> run(host, ref).lease.seen.until == cut end
+
+    if order == :reading_first do
+      eventually(shortened?)
+      refute confirmed?.()
+    else
+      eventually(confirmed?)
+      refute shortened?.()
+    end
+
+    :erlang.resume_process(later)
+    eventually(fn -> confirmed?.() and shortened?.() end)
+    applied = now_ms()
+
+    # Both are applied, in either order: the renewal's until is the last confirmed one, the
+    # check's newer reading is the one seen, and the deadline is the re-claim's, 1 s after
+    # the node time of the check's reading (taken after `checked`, before `applied`) on the
+    # lease clock that stood still.
+    assert %{phase: :live, lease: %{until: until, deadline: short}} = run(host, ref)
+    assert until > cut
+    assert short >= checked + 1_000 and short <= applied + 1_000
+
+    # The lease clock passes the re-claim's until now (not the renewal's). The Run is lost
+    # either by the host's check of the short deadline, which reads it after `moved`, or by
+    # the fence at that deadline: never before both, and no later than that deadline plus a
+    # timer's margin. With the renewal's until as its deadline, nothing would read the lease
+    # before the next renewal, 2 s after the confirmation's reading.
+    Lease.Clock.advance(env.clock, 1_500_000)
+    moved = now_ms()
+    assert_receive {:lost, ^ref, :expired, lost_at}, 5_000
+    assert lost_at >= min(moved, short)
+    assert lost_at <= short + @timer
+
+    # Nothing renewed the re-claim's lease record.
+    eventually(fn -> run(host, ref) == nil end)
+    refute_receive {:lost, ^ref, _, _}, 300
+    assert renewals(env, spec) == 1
+  end
+
+  # Called inside the Memory Lease backend during a call: the backend suspends right after
+  # that call, before it takes the next one from its queue.
+  defp suspend_after_call(backend) do
+    spawn(fn -> :sys.suspend(backend, :infinity) end)
+    eventually(fn -> queued?(backend, &match?({:system, _, :suspend}, &1)) end)
+  end
+
+  defp queued?(pid, match) do
+    {:messages, messages} = Process.info(pid, :messages)
+    Enum.any?(messages, match)
+  end
+
+  # A process whose read of `key` waits in the Memory Lease backend's queue, other than those
+  # of `known`.
+  defp queued_reader!(backend, key, known) do
+    eventually(fn -> queued_readers(backend, key) -- known != [] end)
+    hd(queued_readers(backend, key) -- known)
+  end
+
+  defp queued_readers(backend, key) do
+    {:messages, messages} = Process.info(backend, :messages)
+    for {:"$gen_call", {pid, _}, {:read, ^key}} <- messages, do: pid
+  end
+
+  # The process that started `pid`: the renewal or expiry job of a lease reader.
+  defp parent(pid) do
+    {:dictionary, dictionary} = Process.info(pid, :dictionary)
+    hd(dictionary[:"$ancestors"])
+  end
+
+  # When the until of a lease's holder passes on a store clock that runs in real time, by a
+  # reading of the test's own: its sample comes between the node times taken around it, so
+  # the cutoff is between `from` and `by`.
+  defp passes(lease, key) do
+    before = now_ms()
+    {:ok, %{now: lease_now, holder: %{until: until}}} = Lease.status(lease, key)
+    left = div(until - lease_now, 1_000)
+    %{from: before + left, by: now_ms() + left}
+  end
+
+  # on_terminal, and an on_lost that sends the node time of each call.
+  defp timed(test \\ self()) do
+    [
+      on_terminal: fn ref, outcome -> send(test, {:terminal, ref, outcome}) end,
+      on_lost: fn ref, reason ->
+        send(test, {:lost, ref, reason, System.monotonic_time(:millisecond)})
+      end
+    ]
+  end
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
 
   defp pause_context(mode) do
     fn ->

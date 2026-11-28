@@ -392,6 +392,65 @@ defmodule Elzoo.RunHostTest do
       assert {:ok, %{status: :free}} = Lease.status(env.lease, "run/inherited")
       assert {:held, _} = Lease.claim(env.lease, "run/inherited", "other-node", 60_000)
     end
+
+    test "an unconfirmed release whose result reaches the host before its task exits: nothing is freed or handed over until that exit" do
+      test = self()
+      {:ok, hold} = Agent.start_link(fn -> false end)
+
+      hook = fn
+        :before_lock, %{key: "run/handed"} ->
+          if Agent.get_and_update(hold, &{&1, false}) do
+            send(test, {:releasing, self()})
+            receive do: (:fail -> raise("the release fails"))
+          end
+
+        _, _ ->
+          :ok
+      end
+
+      env = postgres(lease: [test_hook: hook])
+      {cell, proof} = proof_cell()
+      {host, specs} = host(env, max_runs: 1, fencing_proof: proof)
+      spec = spec("handed", stub([]))
+      remember(specs, :handed, spec)
+
+      assert :ok = attribute(host, fn -> RunHost.start_run(host, :handed, spec) end)
+      assert [_unit, _writer | _] = unit = unit_pids(state(host).units, "unit/handed")
+      %{token: token, worker: worker} = run(host, :handed)
+      Agent.update(hold, fn _ -> true end)
+      reap = Task.async(fn -> RunHost.reap(host, :handed) end)
+
+      # The release task waits in the Lease backend; a start of the Run waits behind it.
+      assert_receive {:releasing, releaser}, 5_000
+      start = Task.async(fn -> RunHost.start_run(host, :handed, spec) end)
+      eventually(fn -> length(run(host, :handed).deferred) == 1 end)
+      prove(cell, spawned() ++ unit, worker)
+
+      # The release's result, :unconfirmed, reaches the host while its task still runs (the
+      # test delivers it under the job's reference, as the task delivers its result, and
+      # the host has taken it once a later call returns).
+      [job] = for {ref, {:release, :handed, _}} <- state(host).jobs, do: ref
+      send(host, {job, :unconfirmed})
+      assert %{token: ^token, phase: :releasing, deferred: [_]} = run(host, :handed)
+
+      # Nothing frees the reservation or starts the next tenure while the task runs.
+      assert Task.yield(start, 300) == nil
+      assert Task.yield(reap, 0) == nil
+      assert %{token: ^token, phase: :releasing} = run(host, :handed)
+      assert Process.alive?(releaser)
+
+      # Once the task has exited, the reap is answered and the start takes the key over.
+      gone = Process.monitor(releaser)
+      send(releaser, :fail)
+      assert_receive {:DOWN, ^gone, :process, ^releaser, _}, 5_000
+      assert {:error, :release_unconfirmed} = Task.await(reap)
+      assert :ok = Task.await(start)
+      assert %{phase: :live, token: next} = run(host, :handed)
+      assert next != token
+
+      assert {:ok, %{status: :active, holder: %{owner: "node-a"}}} =
+               Lease.status(env.lease, "run/handed")
+    end
   end
 
   describe "callbacks" do

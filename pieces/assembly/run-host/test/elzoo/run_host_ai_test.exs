@@ -635,7 +635,9 @@ defmodule Elzoo.RunHostAiTest do
   end
 
   # A Run answered once and reaped, its every process gone (attributed without the
-  # host): a wake of it passes the predecessor check with that demonstrated proof.
+  # host): a wake of it passes the predecessor check with that demonstrated proof, whose
+  # list holds the Run's processes found by spawn tracing and its Unit with the Unit's
+  # Writer, taken from the directory's Registry while the Run was live.
   defp woken_once(name, opts \\ []) do
     env = postgres(Keyword.take(opts, [:harness]))
     stub = stub([answer("first")])
@@ -646,11 +648,12 @@ defmodule Elzoo.RunHostAiTest do
     remember(specs, ref, spec)
 
     assert :ok = attribute(host, fn -> RunHost.start_run(host, ref, spec) end)
+    assert [_unit, _writer | _] = unit = unit_pids(state(host).units, "unit/" <> name)
     worker = run(host, ref).worker
     assert {:ok, :applied} = RunHost.input(host, ref, "start", start_input(), verified(spec))
     assert_receive {:terminal, ^ref, :completed}, 5_000
     assert :ok = RunHost.reap(host, ref)
-    prove(cell, spawned(), worker)
+    prove(cell, spawned() ++ unit, worker)
     {host, env, spec}
   end
 

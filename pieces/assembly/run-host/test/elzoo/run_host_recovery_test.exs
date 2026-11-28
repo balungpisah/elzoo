@@ -78,20 +78,28 @@ defmodule Elzoo.RunHostRecoveryTest do
                RunHost.input(host_a, :remote, "start", start_input(), verified(spec))
 
       assert_receive {:stub_entered, stub_task}, 10_000
+      # Node A's Unit and its Writer, from the Registry of node A's directory, taken while
+      # the call keeps the Unit awake.
+      assert [_unit, _writer | _] = unit = unit_pids(state(host_a).units, "unit/remote")
       :erlang.suspend_process(host_a)
       stale!(env, spec)
 
       {cell, proof} = proof_cell()
       {host_b, _} = host(env, notify() ++ [specs: specs, owner_id: "node-b", fencing_proof: proof])
 
-      # The processes of node A, found through their group-leader chain: while they live,
-      # the proof refuses and no engine starts.
-      prove(cell, node_processes(leader), host_a)
+      # The proof's list: every process whose group-leader chain reaches node A's leader
+      # (host A, its infrastructure, its Run's processes and the Unit with its Writer, which
+      # the chain holds too), with the Registry's Unit and Writer named. While any of them
+      # lives the proof refuses and no engine starts.
+      chain = node_processes(leader)
+      assert host_a in chain and Enum.all?(unit, &(&1 in chain))
+      prove(cell, Enum.uniq(chain ++ unit), host_a)
       trace([{RunEngine, :start_link, 1}])
       assert [remote: {:error, :fencing_unproven}] = RunHost.wake(host_b, [:remote])
       refute_received {:trace, _, :call, {RunEngine, :start_link, _}}
 
-      # Node A is fenced: every one of them has ended, and the same proof now holds.
+      # The test, not the proof, fences node A: every one of them has ended, and the same
+      # proof, which only observes that, now holds.
       assert :ok = fence_node(leader)
       refute Process.alive?(stub_task)
       assert [remote: :woken] = RunHost.wake(host_b, [:remote])
