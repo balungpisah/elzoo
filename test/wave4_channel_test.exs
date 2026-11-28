@@ -7648,6 +7648,53 @@ defmodule Elzoo.Wave4ChannelTest do
   end
 
   @tag timeout: 300_000
+  test "a delivery window whose first input fails keeps its second input held: an outside acknowledgement of the second before the retry is fenced, never passed",
+       %{fixture: fixture} do
+    # Two inputs of the conversation commit as another writer's commands, so
+    # one delivery window returns both.
+    first =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "window-first",
+        "input_id" => "window-first-input"
+      })
+
+    second =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "window-second",
+        "input_id" => "window-second-input",
+        "expected_revision" => 1
+      })
+
+    assert {{:completed, %{revision: 1}}, _writes} = seed_input_command!(fixture, first, :allow)
+    assert {{:completed, %{revision: 2}}, _writes} = seed_input_command!(fixture, second, :allow)
+
+    assert {:ok, [first_item, second_item]} =
+             Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    first_key = first_item.idempotency_key
+    second_key = second_item.idempotency_key
+
+    # The first input's retained command cannot be read once, so the pass
+    # stops at it, before it reaches the second input.
+    fail_handle_read_within!(fixture, :input, [:deliver_item, :delivery_intent])
+    trace_conversation_appends(fixture.host)
+    assert {:unknown, :delivery} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery, ^first_key, :read} = :sys.get_state(fixture.host).poison
+    assert take_conversation_appends() == []
+
+    # A competing caller acknowledges the second input with its original
+    # nonce, without its row, before the retry. The window that returned it
+    # held it: the retry appends the first input only, then fences.
+    assert {:committed, _} = Outbox.ack(fixture.command_store, second_key, second_item.nonce)
+    assert {:blocked, :delivery_unproven} = Wave4ChannelExample.advance(fixture.host)
+    assert {:delivery_unproven, :input, ^second_key} = :sys.get_state(fixture.host).poison
+    appends = take_conversation_appends()
+
+    assert [{:append_input, %{message_id: "window-first-input"}}] =
+             appends_of(appends, :append_input)
+  end
+
+  @tag timeout: 300_000
   test "an association item read that fails in the answer preflight is retried without poison or native dispatch" do
     {fixture, primary_id, reply_key, revision, _association_key} =
       observed_reply_round!("preflight-item-read")

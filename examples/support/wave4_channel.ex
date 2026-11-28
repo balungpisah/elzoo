@@ -1591,30 +1591,32 @@ defmodule Elzoo.Wave4ChannelExample do
   # The unresolved item read pending: the retry's window must still show it
   # before any later item is consumed. A window that no longer shows it (an
   # acknowledgement landed between the two reads) consumes nothing: the key
-  # is read again, its receipt first, then its row.
-  defp retry_pending_delivery(%{poison: retry} = state, key) do
-    case Outbox.pending(state.command_store, checked_stream(state.profile.tenant), @outbox_limit) do
-      {:ok, items} ->
-        if Enum.any?(items, &(&1.idempotency_key == key)) do
-          case deliver_items(%{state | poison: nil}, items) do
-            {:ok, state} ->
-              advance_once(state)
+  # is read again, its receipt first, then its row. Either way the window's
+  # input items are held first (`pending_window/1`).
+  defp retry_pending_delivery(state, key) do
+    case pending_window(state) do
+      {:ok, items, state} -> retry_window(state, key, items)
+      {:error, _cause} -> {{:unknown, :delivery}, state}
+    end
+  end
 
-            {:error, %{poison: {:rediscover, _cause}} = failed, reply} ->
-              {reply, %{failed | poison: retry}}
+  defp retry_window(%{poison: retry} = state, key, items) do
+    if Enum.any?(items, &(&1.idempotency_key == key)) do
+      case deliver_items(%{state | poison: nil}, items) do
+        {:ok, state} ->
+          advance_once(state)
 
-            {:error, state, reply} ->
-              {reply, state}
-          end
-        else
-          case read_delivery_item(state, key) do
-            {:ok, %{state: :acked} = item} -> acked_delivery(state, key, item)
-            _ -> {{:unknown, :delivery}, state}
-          end
-        end
+        {:error, %{poison: {:rediscover, _cause}} = failed, reply} ->
+          {reply, %{failed | poison: retry}}
 
-      _ ->
-        {{:unknown, :delivery}, state}
+        {:error, state, reply} ->
+          {reply, state}
+      end
+    else
+      case read_delivery_item(state, key) do
+        {:ok, %{state: :acked} = item} -> acked_delivery(state, key, item)
+        _ -> {{:unknown, :delivery}, state}
+      end
     end
   rescue
     _ -> {{:unknown, :delivery}, state}
@@ -1873,33 +1875,25 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp deliver_pending(state) do
-    stream = checked_stream(state.profile.tenant)
-
     # The window holds the lowest pending sequences, so delivering what it
     # shows keeps command sequence order; a full window hides only later
     # intents. Admission and the observation step keep their own full-window
     # refusals. A window that cannot be read delivers nothing: the advance
     # keeps the read-only resume state `{:rediscover, cause}`.
-    case Outbox.pending(state.command_store, stream, @outbox_limit) do
-      {:ok, items} ->
-        deliver_items(state, items)
-
-      _ ->
-        fail_delivery(state, {:rediscover, :read}, {:unknown, :delivery})
+    case pending_window(state) do
+      {:ok, items, state} -> deliver_items(state, items)
+      {:error, cause} -> fail_delivery(state, {:rediscover, cause}, {:unknown, :delivery})
     end
-  rescue
-    _ -> fail_delivery(state, {:rediscover, :exception}, {:unknown, :delivery})
-  catch
-    _, _ -> fail_delivery(state, {:rediscover, :exit}, {:unknown, :delivery})
   end
 
-  # The window's items in order. The pass keeps the latest observation of
-  # each item that it knows (`seen`): the window shows its items pending,
-  # and a later read in this pass (custody discovery) replaces that entry;
-  # the older window never overrides a later observation. The items that
-  # the persisted custody of a round not yet restored names are discovered
-  # at most once per pass, and only when an item after that round's first
-  # item needs them (`pass_custody/3`).
+  # The window's items in order, its input items already held
+  # (`pending_window/1`). The pass keeps the latest observation of each item
+  # that it knows (`seen`): the window shows its items pending, and a later
+  # read in this pass (custody discovery) replaces that entry; the older
+  # window never overrides a later observation. The items that the persisted
+  # custody of a round not yet restored names are discovered at most once
+  # per pass, and only when an item after that round's first item needs
+  # them (`pass_custody/3`).
   defp deliver_items(state, window) do
     pass = %{
       window: window,
@@ -1908,6 +1902,10 @@ defmodule Elzoo.Wave4ChannelExample do
     }
 
     deliver_window(state, window, pass)
+  rescue
+    _ -> fail_delivery(state, {:rediscover, :exception}, {:unknown, :delivery})
+  catch
+    _, _ -> fail_delivery(state, {:rediscover, :exit}, {:unknown, :delivery})
   end
 
   defp deliver_window(state, [], _pass), do: {:ok, state}
@@ -1933,8 +1931,9 @@ defmodule Elzoo.Wave4ChannelExample do
   # bound digest and appended through the conversation owner. A well-formed
   # item of another conversation is not one of this conversation's intents:
   # it is neither delivered nor allowed to block them (admission skips it the
-  # same way), and the observation step keeps its own rules for it. An input
-  # item is held from this first observation on (`hold_input/2`). Each
+  # same way), and the observation step keeps its own rules for it. The
+  # window's input items were held when it was read (`pending_window/1`),
+  # also those that a failure here keeps this pass from reaching. Each
   # earlier held item of the conversation is then checked, in command order,
   # before the append; when a read fails, the retry is keyed on this item, so
   # an acknowledgement that removes it from the window meanwhile is
@@ -1942,8 +1941,6 @@ defmodule Elzoo.Wave4ChannelExample do
   defp deliver_item(state, item, pass) do
     case delivery_intent(state, item) do
       {:ok, mode, dto} ->
-        state = hold_input(state, item)
-
         case pass_custody(state, pass, item.sequence) do
           {:ok, pass, custody} ->
             case held_items_proven(state, item.sequence, custody, pass.seen) do
@@ -1959,11 +1956,7 @@ defmodule Elzoo.Wave4ChannelExample do
       {:error, :foreign} ->
         {:ok, state, pass}
 
-      # The item was read and its notice names this conversation: an input is
-      # held from this observation on, also when its intent cannot be
-      # rebuilt yet.
       {:error, reason} ->
-        state = if reason == :notice, do: state, else: hold_input(state, item)
         fail_delivery(state, {:delivery, item.idempotency_key, reason}, {:unknown, :delivery})
     end
   end
@@ -2031,9 +2024,9 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp pass_custody(_state, %{custody: {_root, items}} = pass, _before), do: {:ok, pass, items}
 
-  # An input item of this conversation is held from its first observation,
-  # by the delivery pass or by the observation step, until this host
-  # acknowledges it (`release_held/2`).
+  # An input item of this conversation is held from its first observation in
+  # a window of this host (`hold_window/2`) until this host acknowledges it
+  # (`release_held/2`).
   defp hold_input(state, %{destination: destination} = item)
        when destination in [@destination, @reply_destination],
        do: hold_item(state, {:input, destination, item.idempotency_key})
@@ -2046,6 +2039,37 @@ defmodule Elzoo.Wave4ChannelExample do
     do: %{state | held: Map.put(state.held, key, {kind, destination})}
 
   defp release_held(state, keys), do: %{state | held: Map.drop(state.held, keys)}
+
+  # One read of this host's outbox window: `{:ok, items, state}`, or
+  # `{:error, cause}` (`:read`, `:exception` or `:exit`) with nothing held.
+  # A successful read holds the window's input items of this conversation
+  # (`hold_window/2`) before the step that read it makes any other read or
+  # decision, so no failure or early exit of that step loses them.
+  defp pending_window(state) do
+    case Outbox.pending(state.command_store, checked_stream(state.profile.tenant), @outbox_limit) do
+      {:ok, items} -> {:ok, items, hold_window(state, items)}
+      _ -> {:error, :read}
+    end
+  rescue
+    _ -> {:error, :exception}
+  catch
+    _, _ -> {:error, :exit}
+  end
+
+  # Each primary or reply input item of the window whose notice verifies as
+  # this conversation's (`delivery_notice/2`) is held, at most one entry per
+  # key: once an acknowledgement removes it from the window, its own receipt
+  # and its row decide (`unseen_held_proven/2`, `held_items_proven/4`). An
+  # item of another conversation, or whose notice cannot be read, is not
+  # held here; the step that reads the window keeps its own rule for it.
+  defp hold_window(state, window) do
+    Enum.reduce(window, state, fn item, state ->
+      if item.destination in [@destination, @reply_destination] and
+           match?({:ok, _notice}, delivery_notice(item, state.profile)),
+         do: hold_input(state, item),
+         else: state
+    end)
+  end
 
   defp deliver_owner(state, item, mode, dto) do
     result =
@@ -2419,29 +2443,32 @@ defmodule Elzoo.Wave4ChannelExample do
   # window no longer shows is checked by its key (`unseen_held_proven/2`): a
   # proven append does not keep the host idle past another nonce's
   # acknowledgement. When that read fails, the keys stay held and discovery
-  # is retried, read first.
+  # is retried, read first. The window's input items are held first
+  # (`pending_window/1`).
   defp observe_input(state) do
-    stream = checked_stream(state.profile.tenant)
-
-    case Outbox.pending(state.command_store, stream, @outbox_limit) do
-      {:ok, items} ->
-        case unseen_held_proven(state, items) do
-          {:ok, state} ->
-            if reply_profile?(state.profile),
-              do: observe_reply_profile(state, items),
-              else: observe_pending_input(state, items)
-
-          {{:error, _reason}, state} ->
-            {{:unknown, :input_observation}, %{state | poison: {:rediscover, :held}}}
-
-          {failure, state} ->
-            unconfirmed_delivery(state, failure)
-        end
+    case pending_window(state) do
+      {:ok, items, state} ->
+        observe_window(state, items)
 
       # An unreadable window observes nothing: the next advance repeats
       # discovery, read first, instead of a terminal observation failure.
-      _ ->
-        {{:unknown, :input_observation}, %{state | poison: {:rediscover, :read}}}
+      {:error, cause} ->
+        {{:unknown, :input_observation}, %{state | poison: {:rediscover, cause}}}
+    end
+  end
+
+  defp observe_window(state, items) do
+    case unseen_held_proven(state, items) do
+      {:ok, state} ->
+        if reply_profile?(state.profile),
+          do: observe_reply_profile(state, items),
+          else: observe_pending_input(state, items)
+
+      {{:error, _reason}, state} ->
+        {{:unknown, :input_observation}, %{state | poison: {:rediscover, :held}}}
+
+      {failure, state} ->
+        unconfirmed_delivery(state, failure)
     end
   rescue
     _ -> {{:unknown, :input_observation}, %{state | poison: {:rediscover, :exception}}}
@@ -2527,24 +2554,17 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> {{:unknown, :input_observation}, %{state | poison: {:input_observation, :exit}}}
   end
 
+  # This conversation's input item was held when the window was read
+  # (`pending_window/1`), so a failed read here keeps it held.
   defp observe_primary_item(state, item) do
     item_result =
       if reply_profile?(state.profile),
         do: read_original_item(state, item.idempotency_key, @destination),
         else: {:ok, item}
 
-    # This conversation's input item, observed in the window, is held from
-    # now on, whatever the observation decides.
     with {:ok, item} <- item_result,
          {:ok, event, operation_id, resource_revision, intent} <- recover_input(state, item) do
-      observe_recovered_input(
-        hold_input(state, item),
-        item,
-        event,
-        operation_id,
-        resource_revision,
-        intent
-      )
+      observe_recovered_input(state, item, event, operation_id, resource_revision, intent)
     else
       failure -> observation_failure(state, failure)
     end
@@ -3777,15 +3797,22 @@ defmodule Elzoo.Wave4ChannelExample do
 
   # The reply observation reads the window, and each held item that it no
   # longer shows is checked by its key first, as in `observe_input/1`. The
-  # round's reply item, once observed, is held whatever the observation
-  # decides.
+  # window's input items, the round's reply item among them, are held when
+  # it is read (`pending_window/1`), whatever the observation decides.
   defp observe_reply(%{reply: reply, current: current} = state)
        when is_map(reply) and is_map(current) do
-    with {:ok, pending} <-
-           Outbox.pending(state.command_store, checked_stream(state.profile.tenant), @outbox_limit),
-         {:ok, state} <- unseen_held_proven(state, pending),
+    case pending_window(state) do
+      {:ok, pending, state} -> observe_reply_window(state, reply, current, pending)
+      {:error, _cause} -> reply_observation_failure(state, :unavailable)
+    end
+  end
+
+  defp observe_reply(state), do: {{:blocked, :reply_state}, state}
+
+  defp observe_reply_window(state, reply, current, pending) do
+    with {:ok, state} <- unseen_held_proven(state, pending),
          {:ok, item} <- observed_reply_item(state, reply, current, pending) do
-      adopt_reply(hold_input(state, item), reply, item)
+      adopt_reply(state, reply, item)
     else
       {{:error, _reason}, %{} = held} -> reply_observation_failure(held, :unavailable)
       {failure, %{} = held} -> reply_observation_failure(held, failure)
@@ -3796,8 +3823,6 @@ defmodule Elzoo.Wave4ChannelExample do
   catch
     _, _ -> reply_observation_failure(state, :unavailable)
   end
-
-  defp observe_reply(state), do: {{:blocked, :reply_state}, state}
 
   defp adopt_reply(state, reply, item) do
     with {:completed, result} <-
