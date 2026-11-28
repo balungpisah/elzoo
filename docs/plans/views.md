@@ -484,6 +484,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-433](https://github.com/balungpisah/elzoo/issues/1048) | V2 / later | ELZ-420 | published 2026-11-27 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-434](https://github.com/balungpisah/elzoo/issues/1055) | V2 / later | ELZ-433 | published 2026-11-27 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-435](https://github.com/balungpisah/elzoo/issues/1056) | V2 / later | none | published 2026-11-27 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-436](https://github.com/balungpisah/elzoo/issues/1062) | V2 / later | ELZ-419 | published 2026-11-28 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-437](https://github.com/balungpisah/elzoo/issues/1063) | V2 / later | ELZ-418, ELZ-419 | published 2026-11-28 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -5639,7 +5641,7 @@ Publication copy: [tasks/ELZ-419-conversation-on-event-log.md](../../tasks/ELZ-4
 
 **Product aims:** P09.
 
-**Acceptance:** state/conversation moves to one event-log stream per conversation with no message cap: three record kinds with their own retry identities, an owner process, owner-free page and tail reads, an offline v1 import, and the wave 4 channel delivering through its outbox. Affected gate, strongest other-family review.
+**Acceptance:** state/conversation moves to one event-log stream per conversation with no message cap: three record kinds with their own retry identities, an owner process, owner-free page and tail reads, an offline v1 import, and the wave 4 channel delivering through its outbox as the only acknowledger of its items: an acknowledged item with no row fences the channel (delivery_unproven) and is never appended by it. Affected gate, strongest other-family review.
 
 **Secondary contribution:** state/conversation — In-place breaking change under the same ID: one event-log stream per conversation.
 
@@ -5723,7 +5725,7 @@ Publication copy: [tasks/ELZ-418-checked-command-no-lifetime-cap.md](../../tasks
 
 **Product aims:** P09, P10.
 
-**Acceptance:** assembly/checked-command keeps one tenant stream with no lifetime cap: versioned rows with a v1 reader, one clock for admission and eviction, issuance bound to the operation, removal with a per-stream removal sequence, a bounded own checkpoint and a retention fence. Affected gate, strongest other-family review.
+**Acceptance:** assembly/checked-command keeps one tenant stream with no lifetime cap: versioned rows with a v1 reader, one clock for admission and eviction, issuance bound to the operation, removal with a per-stream removal sequence, a bounded own checkpoint and a retention fence; retention only through an explicit maintain/3, and the wave 4 channel on the version 2 interface with its command stream never retained (a Need). Affected gate, strongest other-family review.
 
 **Secondary contribution:** assembly/checked-command — In-place breaking change under the same ID: no lifetime cap, versioned rows, checkpoint and retention.
 
@@ -5735,7 +5737,7 @@ Publication copy: [tasks/ELZ-421-run-host.md](../../tasks/ELZ-421-run-host.md).
 
 **Product aims:** P09.
 
-**Acceptance:** New assembly/run-host: a supervised node host for engine Runs with renewal, reap, text AI bindings, a trusted outcome route, predecessor fencing, recovery and deadline wakes. Small gate including its own copied consumer, strongest other-family review.
+**Acceptance:** New assembly/run-host: a supervised node host for engine Runs with renewal, reap, text AI bindings, a trusted outcome route, predecessor fencing by the caller's attestation, recovery and deadline wakes; an oversized completion refused too_large. Small gate including its own copied consumer, strongest other-family review.
 
 ### ELZ-427
 
@@ -5787,7 +5789,7 @@ Publication copy: [tasks/ELZ-430-run-engine-stop-bound-to-attempt.md](../../task
 
 **Product aims:** P09.
 
-**Acceptance:** assembly/run-engine binds a completed stop and each lifecycle stop, its evidence row where written and the owner command to the Attempt that produced it; a stale owner answer or a restart after a new Attempt drops the stale stop without resetting Run-wide limits; during a retained-history read with a stop pending, records that end it or change the Attempt replay exactly; two crash cuts per stop, a transcript tamper case; the first pending stop wins over a later lifecycle stop (completed and cancelled cases, v1 and v2); negative controls; Piece gate, strongest other-family review.
+**Acceptance:** assembly/run-engine binds a completed stop and each lifecycle stop, its evidence row where written and the owner command to the Attempt that produced it; a stale owner answer or a restart after a new Attempt drops the stale stop without resetting Run-wide limits; during a retained-history read with a stop pending, records that end it or change the Attempt replay exactly; two crash cuts per stop, a transcript tamper case; the first pending stop wins over a later lifecycle stop (completed and cancelled cases, v1 and v2); the stop's mark {attempt_id, stop} with room kept at admission; times and the Run revision at most 2^63 - 1; every terminal Run view replayed; negative controls; Piece gate, strongest other-family review.
 
 **Secondary contribution:** assembly/run-engine — In-place fix under the same ID: every pending stop is bound to its Attempt, as ELZ-420 does for a root failure.
 
@@ -5844,3 +5846,25 @@ Publication copy: [tasks/ELZ-435-ci-runtime-fallback-ubuntu-sources-only.md](../
 **Product aims:** P09.
 
 **Acceptance:** The runtime-library fallback's update and install read only the rewritten official Ubuntu stanzas, from a temporary .sources file, with Error-Mode=any; stubbed apt tests of the exact arguments and of a third-party stanza left out, with a negative control; guard tests, full local gate and full hosted check; independent review.
+
+### ELZ-436
+
+ELZ-436 — state/conversation: a message text bound that holds every answer the engine can carry
+
+Publication copy: [tasks/ELZ-436-conversation-text-bound.md](../../tasks/ELZ-436-conversation-text-bound.md).
+
+**Product aims:** P09.
+
+**Acceptance:** state/conversation takes texts of 1-65,536 bytes for every record kind; the worst-case payload of 396,360 bytes; owner reads of at most 169 rows per Store read; a Store below the worst case refused, also on an empty stream; the wave 4 tests unchanged; a negative control; Piece gate, strongest other-family review.
+
+**Secondary contribution:** state/conversation — In-place breaking change under the same ID: texts of 1-65,536 bytes, so every answer that the engine can carry fits.
+
+### ELZ-437
+
+ELZ-437 — wave 4 channel: an unknown dispatch stays fenced until its own evidence, and a foreign command does not make a restored wait ambiguous
+
+Publication copy: [tasks/ELZ-437-wave4-unknown-dispatch-fences.md](../../tasks/ELZ-437-wave4-unknown-dispatch-fences.md).
+
+**Product aims:** P09.
+
+**Acceptance:** The wave 4 channel keeps an unknown reply-association or ASK-release dispatch fenced until its own terminal result, dispatches a contended request again, and decides a restored wait's ambiguity by a fail-closed scan of the rows after its cursor; negative controls; affected gate, strongest other-family review.
