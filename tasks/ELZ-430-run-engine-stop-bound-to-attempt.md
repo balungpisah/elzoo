@@ -76,9 +76,8 @@ ELZ-415).
   start fails with no write, and the host finishes such a Run on the
   earlier revision before it upgrades (README `## Changes`). Under
   `budget_rule: :pause` an input needs a pause deadline after the clock, so
-  a wake reaches a Run deadline of at most 2^63 − 2; a Run with a Run
-  deadline of 2^63 − 1 ends only by another stop, such as a cancel (a
-  README limit).
+  no wake reaches a Run deadline of 2^63 − 1; the largest that a wake
+  reaches is 2^63 − 2 (a README limit).
 - A state that an earlier revision recorded without that room takes its
   stop unmarked when the unmarked step fits, and that stop follows the rule
   for a stop that the earlier fold set. A step that does not fit even
