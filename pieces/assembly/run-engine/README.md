@@ -187,18 +187,26 @@ are a conflict, not another invocation. Applied/duplicate means the DU result
 committed, not merely that a message was sent. Other results are bounded error
 or indeterminate classifications; never choose another ID to evade uncertainty.
 An input whose step settles its own open slot at a positive actual (an answer, a
-model or tool call's outcome) is written only when the state after that step keeps
-the room for a stop that admission keeps (ELZ-430, below), with the charges that the
-slot's parents take later counted: otherwise `input/4` returns
-`{:error, :record_size}` and writes nothing, the actual is neither capped nor dropped
-from an applied step, and the slot stays open: the same input, sent again (nothing of
-it is recorded), is taken once the state has that room, and otherwise its deadline, a
-change of Attempt or the end of the Run settles the slot with no actual. A local work's
-outcome, which the engine takes from its mailbox at the work's estimate, is dropped by
-the same check with no write, and its slot stays open the same way. Only an actual
-whose growth (its bytes, stored twice in the Budget and once in the slot) passes what
-the settled slot frees (its reserve of 4,096 bytes and its wait) near the bound meets
-this.
+model or tool call's outcome), or that does so while the Run is paused, is written only
+when the state that its step writes fits and so does each charge that the slot's
+parents take later (counted at its largest, with no release that would come after it),
+and, while no stop was pending, the room for a stop that admission keeps (ELZ-430,
+below); a step that sets a Budget stop needs only the room for that stop's mark, and on
+a state that an earlier revision recorded without the room it is taken unmarked when
+the unmarked step fits. While the Run is paused the step must also keep the input as the
+slot's pending input for continue (in v2 it is retained only with the room); an answer
+that it could not keep is refused, never settled without it. Otherwise `input/4` returns
+`{:error, :record_size}` and appends no record of the input; a Run view that the call
+journaled first (when the owner had moved, before the check) stays. The actual is
+neither capped nor dropped from an applied step, and the slot stays open: the same
+input, sent again (nothing of it is recorded), is taken once the state has that room,
+and otherwise its deadline, a change of Attempt or the end of the Run settles the slot
+with no actual. A local work's outcome, which the engine takes from its mailbox at the
+work's estimate, is dropped by the same check with no append of it, and its slot stays
+open the same way. The step stores the actual twice in the Budget and once in the slot;
+a slot that the step settles frees its 4,096-byte reserve and its wait, but a slot that
+keeps the input as its pending input while paused stays active and frees neither, so
+near the bound a paused Run refuses a smaller actual than a running one.
 
 `control(engine, id, command, context)` routes begin-Attempt, Approval evidence
 or revocation through Run; pause/verified-person continue through lifecycle;
@@ -701,13 +709,21 @@ nested child's committed amount gives its parent action once the child's cost is
 the parent settled with no actual, as at a change of Attempt): that amount stored in
 the parent's Budget twice and in its slot, counted for every child whose parent holds
 no actual yet, at its committed amount so far, a child whose cost ends unknown
-included. A cancel records nothing for a listed wait. A fresh or rollover configuration
+included. Each such charge is counted at an upper bound of its growth (twice the
+amount's bytes and 32 in control; the amount's bytes and 16 in the parent slot and, for
+an open parent, 17 for its outcome, the largest record that the parent keeps as its
+pending input while paused, and 4,096 in control for that settlement), with no
+release counted (no reservation, slot reserve or kept finish freed), and an ancestor's
+charge counts every charge below it; the state that the step writes fits too, and so
+does each slot and the slots map with these charges. A cancel records nothing for a
+listed wait. A fresh or rollover configuration
 whose state leaves less (with a long Budget ID, for one) fails `start_link/1` with
 `{:error, :record_size}` and writes nothing; a Unit that an earlier revision configured
 starts as recorded. A Resource cursor transition is sized whole: the cursor record with
 the Budget settlement and the slot actual that its entry commits, so a same-width
-advance is admitted only when its Budget settlement and slot actual also fit; one that
-grows neither control nor the slots is always committed, and one whose projected step
+advance is admitted only when its Budget settlement, slot actual and the parent charges
+after them also fit; a cursor-only advance (no Budget command) that grows neither
+control nor the slots is always committed, and one whose projected step
 fails is never committed (the check fails closed). An input whose step settles its own
 open slot at a positive actual is checked with that step before it is written (see
 "Input and controls"). The 695 bytes cover what can grow with no such check from an
@@ -1596,7 +1612,9 @@ call where the first took one (its entry in `control.invocations` makes it a
 duplicate) and none in an older Attempt (it is late), but the second pair is written.
 A slot that waits on that Resource stays open past its own deadline (the expiry pass
 does not settle a Resource slot, and its outcome is in the unconsumed entries) at least
-until its entry is consumed or the Run stops. That is a lower boundary, not a
+until its entry is consumed, the Run stops or the Attempt changes (the Run view of a new
+Attempt settles it `unknown` as any older-Attempt slot, before the next pass reads the
+Resource), while the Attempt stays current. That is a lower boundary, not a
 settlement that every stop gives: a stop whose end of the Run settles every open slot
 (a cancel, the Run deadline, a Budget stop, a completion, a failure, an owner outcome)
 settles it as any open slot (`unknown` once its effect may have been sent, with no
@@ -2097,7 +2115,26 @@ room the same answer settles the ask at that actual and its step marks the
 of 695 bytes while no stop is pending, with the wait that each admitted model call, tool
 call or ask has not listed yet placed in control (in place of a shorter wait listed
 under its action ID), and not the charges of nested children (the test that needs
-them measures them); the tests that use it pass unchanged.
+them measures them); the tests that use it pass unchanged. The 32 KiB answer, refused
+at the limit, is refused again after the owner moved, appending only the Run view that
+the call journaled; the Unit reopens with the ask waiting after the refusal and, after
+the accepted settlement, delivers the marked stop. An answer whose actual spends the
+Budget is admitted at the least padding (found by bisection) where its unmarked step
+fits with none of the bound left, on a state without the room, and is taken unmarked
+there; one byte less it is refused and its step fails the bound; with the mark's bytes
+more it is admitted and marks the stop. A paused v2 answer is refused with no row and
+the ask waiting at a padding where the fold would settle it and drop its pending input
+(`record_size`); with room it is applied and continue gives it to the pattern once. A
+nested start with an estimate of 4 KiB and a 60,000-byte child Budget ID, and a child's
+Resource cursor, are each stepped at the least admitted padding and the 64 above it:
+each admitted step keeps the bound, and so does the parent's charge after it. On a state
+that keeps the room, a Budget-spending answer whose step and mark take part of the room
+(the smallest actual, by its bytes, that does) is admitted and marks its stop; and a
+nested start at request cap 1 with a fixed 300-byte child Budget ID, stepped at every
+padding from 64 bytes under its least admitted padding to 64 above (that least padding
+measured 68,815 bytes of headroom), is refused at each of the 64 paddings under it and
+admitted with its stop marked at it and each of the 64 above, and no padding admits it
+with its stop unmarked.
 
 `bounded_times`: a `run_deadline` start option of 2^63 fails the start with no row; on
 a running engine, a pause control with that `pause_deadline` and a continue control
@@ -2117,7 +2154,8 @@ a time, then the next, then 2^63, a fresh v2 outside event is applied: the Run v
 records the second time and the event the first, and the third is never read. A cancel
 control whose clock sample is `nil` gives `{:error, :invalid_control}` with no row and
 the local work's task alive; sent again with a time, it settles that work and its task
-is cancelled. An `ask_person` binding whose facts give a
+is cancelled. A fresh v2 outside event whose sample is `nil` or 0 gives
+`{:error, :invalid_input}` with no row. An `ask_person` binding whose facts give a
 `deadline_ms` of 2^63 halts the engine `:integrity_failure` with no admission record
 and the slot left `:allowed`; a pause control then, with a `pause_deadline` of 2^63 or a
 bounded one, gives that halt with no row, and a restart fails the same way with no row. A journal
@@ -2159,9 +2197,22 @@ actual: the Resource's next entry settles the child's held Budget at the 400-byt
 actual, after which the engine charges the parent that amount (`:nested_actual`). With
 room for that cursor transition alone (the size that the check before this revision
 took) the transition is not admitted, and by the fold alone the charge after it fails
-the bound; with room for both it is admitted and the charge leaves exactly the room;
-through the engine, with room for the cursor transition alone, the entry writes no row,
-no charge is written, and the Unit reopens with the cursor unchanged.
+the bound; with room for the transition and the charge's counted bound (twice the
+amount's bytes and 32) it is admitted, one byte less it is refused, and the charge
+keeps the bound; through the engine, with room for the cursor transition alone, the
+entry writes no row, no charge is written, and the Unit reopens with the cursor
+unchanged. The reported case: a child's Resource reservation of 2^40 settled at actual
+1 in a same-width advance whose step grows neither control nor the slots (the premise,
+checked) is refused at the admission limit, where a cursor-only advance with no Budget
+command is still admitted, and each admitted padding keeps the bound with the parent's
+charge after it. That charge's measured growth in this case is zero, within its counted
+bound: the test shows the refusal of a cursor with a Budget command that grows neither
+map and the cursor-only exemption, not a positive growth of that charge. The reported
+paused parent: in a v1 Run under
+`budget_rule: :pause`, a nested child that finished with a tool call still running,
+paused, gets the tool's result with a 70 KiB actual: `{:error, :record_size}` with no
+row and the tool slot open (the parent's outcome would keep the actual twice in its
+slot); an actual of 7 is applied and the parent keeps its outcome as its pending input.
 
 `completion_by_its_finish_record`: a root finish held for Approval, settled by its
 correlated outcome and named as the source of another root finish, completes the
@@ -2192,9 +2243,11 @@ the owner with the pending stop and its own reason (`"engine"`, `"pattern"` for 
 failure), the end of the Run settles `slow`, `ask` and `pay` with no charge stop, and
 the step kept the stop, its completion and its cancel record and closed no local work.
 
-Temporary edits were negative controls, all 45 run in one batch on this revision against
-this file and `test/elzoo/run_engine_read_failure_test.exs` (100 tests), the engine
-restored byte for byte after each (checked with `cmp`); each made the named tests fail:
+On the revision at commit 735214f8 (the round before the bounded charges), temporary
+edits were negative controls, all 45 run in one batch against this file and
+`test/elzoo/run_engine_read_failure_test.exs` (100 tests), the engine restored byte for
+byte after each (checked with `cmp`); each made the named tests fail (that batch's
+results, not evidence for this revision):
 admission with no room for the mark (11: the wake and the cancel after the Run view of a
 200-byte Attempt, the cursor decision, the opened Resource's entry, both configuration
 tests, both ask tests, the nested start at request cap 1 and three `cursor_transition`
@@ -2245,6 +2298,30 @@ fresh v2 outside event that reads the clock again when it is delivered (1: the
 one-sample test); a control that does not give a stored halt first (1: the binding
 deadline of 2^63); and a control's clock sample `nil` taken as a time (1: the cancel
 whose sample is `nil`). Listed finite scenarios, not a proof.
+
+On this revision, 52 temporary edits (the 45 above, ported to its engine by applying
+their diffs, three of them rebuilt by hand where the code moved, and seven more: the
+retained parent record not counted, the no-growth exemption for a cursor with a Budget
+command, the room demanded in full of a step that sets a stop, no unmarked stop on a
+state recorded without the room, the dropped-pending-input check removed, no check of
+an answer while paused, and no per-slot bound on the deferred charges) were run in one
+batch against the same two files (107 tests), each copied over the engine and the
+engine restored and checked with `cmp` after each. 48 made named tests fail. Two (the
+retained parent record not counted, and the answer's check always passing) failed to
+compile in that batch, which shows nothing; corrected so they compile, in a second run
+(109 tests) they made named tests fail (the paused v1 parent; four answer tests). One
+(the room demanded in full of a step that sets a stop) failed no test in the batch; the
+test of a Budget-spending answer whose step and mark take part of the room was added and
+it fails in the second run. One (a nested start admitted by the state after its step
+alone) failed no test in any run: with it the byte-by-byte nested start test also
+passes, because that test finds its own least admitted padding (measured 68,772 bytes
+with the edit and 68,815 on this revision, 43 bytes apart, values of that fixture, not
+a policy) and at every padding it admits the stop is marked. The outcome differs: at a
+fixed padding in that band the edit admits the nested start and marks its stop where
+this revision refuses it `record_size`. No test asserts the outcome at a fixed padding
+there, so the tests do not detect that edit (a limit of these tests). So 51 of the 52
+edits made named tests fail across the two runs, not in one run. Listed finite
+scenarios, not a proof.
 
 `test/elzoo/run_engine_deadlines_test.exs` exercises `deadlines/1` in four groups
 on disposable PostgreSQL, each read checked against the `phase` of `status/1`.
@@ -2469,8 +2546,13 @@ fail). Listed finite scenarios, not a proof.
   admitted model call, tool call or ask lists later and the charge that a nested child's
   committed amount gives its parent later, so the step that sets a stop marks it and
   never fails the bound after its input commits; an input whose step settles its slot at
-  a positive actual is written only when that step keeps the room (else `input/4` gives
-  `{:error, :record_size}`, and a local work's outcome is dropped, each with no write);
+  a positive actual, or while paused, is written only when the state that step writes and
+  every later parent charge fit with the room (an upper bound that counts no release; a
+  Budget stop needs only its mark's room, and an earlier revision's state near the bound
+  takes it unmarked when it fits), and only when a paused step keeps the input for
+  continue (else `input/4` gives `{:error, :record_size}`, and a local work's outcome is
+  dropped, each with no record of the input appended; a Run view that the call
+  journaled before the check stays);
   the engine refuses a time or a Run revision above 2^63 - 1 where it enters (a start
   option, a control, an input's context, a clock sample, a Run view), before any write
   that reconciles the owner's Run view, and reads one clock sample for an input, a
@@ -2527,7 +2609,8 @@ fail). Listed finite scenarios, not a proof.
   child's later charge to its parent), a nested start or finish, a pattern input, a
   retained or held input or an event activation is refused `record_size`; an input whose
   actual's growth would cut into the room gives `{:error, :record_size}` (a local work's
-  outcome is dropped) with no write and its slot stays open; a Resource entry whose
+  outcome is dropped) with no record of it appended and its slot stays open (a paused
+  slot keeps its 4,096-byte reserve, so it takes a smaller actual); a Resource entry whose
   cursor transition would cut into the room, or whose projected transition fails, stays
   unconsumed, and a slot that waits on that Resource stays open past its own deadline at
   least until the entry is consumed or the Run stops (a request-cap stop retains it, as

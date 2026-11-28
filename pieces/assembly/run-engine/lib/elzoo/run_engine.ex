@@ -30,7 +30,7 @@ defmodule Elzoo.RunEngine do
   # @max_time where it enters; and the lifecycle phase, `:active` to `:waiting` (1).
   # Admission counts the growth that admitted work adds later besides the room (the wait
   # that a model call, a tool call or an ask lists: future_waits/1; the charge that a
-  # nested child's committed amount gives its parent: deferred_charges/1), a Resource
+  # nested child's committed amount gives its parent: deferred_growth/1), a Resource
   # cursor transition is admitted whole as other growth is (cursor_admits?/2), and an
   # input's actual is admitted with its step before the input is written
   # (actual_admits?/2), so the room counts none of them. 468 + 199 + 27 + 1 = 695.
@@ -2437,18 +2437,21 @@ defmodule Elzoo.RunEngine do
              Map.get(wait, :event_source_version) == original_slot.event_source_version and
              source.id == original_slot.event_source_id and
              source.version == original_slot.event_source_version,
-         at when is_integer(at) and at > 0 and at <= @max_time <- sample.(),
+         {:ok, at} <- valid_sample(sample.()),
          true <- is_integer(Map.get(wait, :deadline_ms)) and at < Map.get(wait, :deadline_ms) do
       {:ok, s, wait, at}
     else
       false -> {:error, :invalid_correlation, s}
       nil -> {:error, :invalid_correlation, s}
       {:error, :invalid_correlation} -> {:error, :invalid_correlation, s}
-      # Only the clock sample can fail its clause with an integer.
-      at when is_integer(at) and at > @max_time -> {:error, :invalid_input, s}
+      # Any clock sample that is not a time from 1 to @max_time (nil, 0, above it).
+      {:error, :invalid_sample} -> {:error, :invalid_input, s}
       _ -> {:error, :source_unavailable, s}
     end
   end
+
+  defp valid_sample(at) when is_integer(at) and at > 0 and at <= @max_time, do: {:ok, at}
+  defp valid_sample(_), do: {:error, :invalid_sample}
 
   defp deliver_fresh_outside_event(s, id, neutral, context, original_slot, event, head, at) do
     case recheck_fresh_event(s, context, original_slot, fn -> at end) do
@@ -4458,52 +4461,58 @@ defmodule Elzoo.RunEngine do
   @doc false
   # Whether the :resource_cursor `record` may be committed on `state` (ELZ-430): its whole
   # step is projected, the cursor with the Budget settlement and the slot actual that its
-  # entry carries. One that grows control or the slots is admitted only when the state
-  # after it is (admits?/2, with the charge that a child's settled cost gives its parent
-  # later, deferred_charges/1); one that grows neither always is. One whose projected step
-  # fails is not admitted (fail-closed): the entry stays unconsumed, as one refused for room.
+  # entry carries, and admitted as other growth is (admits?/2, with the growth of the
+  # charges that follow it, deferred_growth/1). A cursor-only advance (no Budget command)
+  # that grows neither control nor the slots is always admitted; one with a Budget command
+  # is not exempt, since its settlement can change a deferred charge though neither map
+  # grows now. One whose projected step fails is not admitted (fail-closed): the entry
+  # stays unconsumed, as one refused for room.
   def cursor_admits?(state, record) do
     {next, _} = transition(state, record)
-    next = mark_stop(state, finalize_step_state(next))
+    next = finalize_step_state(next)
 
     admits?(state, next) or
-      (bytes(next.control) <= bytes(state.control) and bytes(next.slots) <= bytes(state.slots))
+      (is_nil(record.budget_command) and bytes(next.control) <= bytes(state.control) and
+         bytes(next.slots) <= bytes(state.slots))
   rescue
     _ -> false
   end
 
   @doc false
-  # Whether the protocol `record`, an input whose correlation carries an actual cost, may be
-  # written on `state` (ELZ-430). The actual is known only when the input comes (a verified
-  # answer's, a model or tool call's, a local work's estimate), and its step stores it in
-  # the action's Budget twice (its committed amount and the settled entry) and in the slot,
-  # with no check of its own. So when the step settles the input's own open slot at that
-  # actual, the step is projected without its pattern call (with its invocation entry, as
-  # the call records it) and the input is written only when the state after it is admitted
-  # (admits?/2: from a state with no stop pending, the room for a stop with the deferred
-  # charges, which count what the actual adds to a child's committed amount for its
-  # parent). Otherwise the input is refused before any write. An input that settles no
-  # slot at its actual (late, a duplicate, an incompatible answer, or an actual of 0 or
-  # none) is not checked here. A projection that fails is not admitted (fail-closed).
+  # Whether the protocol `record`, an input that settles its own open slot, may be written
+  # on `state` (ELZ-430): checked when its correlation carries a positive actual, or while
+  # the Run is paused. The actual is known only when the input comes (a verified answer's,
+  # a model or tool call's, a local work's estimate), and its step stores it in the action's
+  # Budget twice (its committed amount and the settled entry) and in the slot, with no
+  # check of its own; while paused the step also retains the input as the slot's pending
+  # input for continue. So the step is projected without its pattern call (with its
+  # invocation entry, as the call records it, and no callback) and the input is written
+  # only when the state that the step writes is admitted (admits?/2, with the growth of
+  # the charges that follow it) and the step kept every pending input that it must keep: a
+  # step that settles the slot but refuses its pending input for room (`record_size`) is
+  # not admitted, so the answer is refused unsettled rather than lost. Otherwise the input
+  # is refused before its write. An input that settles no slot (late, a duplicate, an
+  # incompatible answer) is not checked here. A projection that fails is not admitted.
   def actual_admits?(state, %{kind: :protocol, correlation: correlation} = record)
       when is_map(correlation) do
     actual = correlation[:actual]
     key = correlation[:occurrence]
     slot = state.slots[key]
 
-    if is_integer(actual) and actual > 0 and is_map(slot) and slot.phase != :settled do
+    if is_map(slot) and slot.phase != :settled and
+         ((is_integer(actual) and actual > 0) or state.control.lifecycle.phase == :paused) do
       entry = fn next, record, _callable ->
         {put_in(next.control.invocations[record.id], digest({record.input, record.correlation})),
          :none}
       end
 
       {next, _} = protocol_step(state, record, entry)
-      next = mark_stop(state, finalize_step_state(next))
+      next = finalize_step_state(next)
 
-      case next.slots[key] do
-        %{phase: :settled, actual: ^actual} -> admits?(state, next)
-        _ -> true
-      end
+      # Only a step whose own effect settles the slot (not its expiry pass) is checked.
+      if own_settlement?(state, record, key),
+        do: next.control.classification != :record_size and admits?(state, next),
+        else: true
     else
       true
     end
@@ -5393,58 +5402,165 @@ defmodule Elzoo.RunEngine do
 
   # Admission (ELZ-430): a state that admits work fits the bound with @stop_room bytes of
   # control left free while no stop is pending, and with the growth that admitted work
-  # adds later (future_waits/1 and deferred_charges/1), so a later step that sets a stop
+  # adds later (future_waits/1 and deferred_growth/1), so a later step that sets a stop
   # has room for its growth and its mark. The recorded-state invariant (fits?/1) keeps no
   # such room, so a state that an earlier revision recorded still replays. The fold before
   # ELZ-430 (its projection, legacy_fold) admitted up to the bound.
   defp admits?(state), do: admits?(state, state)
 
-  # The same check of `state`, the state that a step's check admits, decided by `before`,
-  # the state that the step starts from: while no stop is pending there, the room is kept
-  # also when the admitted growth itself asks for a stop (a nested start whose child's first
-  # request passes the cap, an outcome whose actual spends the Budget: actual_admits?/2),
-  # so the stop that the step sets first has room for its mark.
-  # With a stop pending before, the state fits the bound with the deferred charges.
-  defp admits?(before, state) do
+  # Whether `next`, the unmarked state that a step from `before` writes, is admitted: the
+  # state written fits and so does each deferred charge after it (deferred_fits?/2), with
+  # no future release counted. While no stop is pending before the step:
+  # - a step that sets no stop keeps the room (@stop_room and future_waits/1);
+  # - a step that sets a stop (a nested start whose child's first request passes the cap,
+  #   an outcome whose actual spends the Budget) needs room for its mark only, which the
+  #   room holds: the state with the mark fits. From a state that lacks the room (an earlier
+  #   revision recorded it near the bound), the stop is taken unmarked when that fits, as
+  #   mark_stop/2 then leaves it.
+  # With a stop pending before, the state fits the bound with its deferred charges.
+  defp admits?(before, next) do
     cond do
-      legacy_fold?(state) -> fits?(state)
-      is_nil(before.control.stop_pending) -> fits?(deferred_charges(state), admission_room(state))
-      true -> fits?(deferred_charges(state))
+      legacy_fold?(next) ->
+        fits?(next)
+
+      not is_nil(before.control.stop_pending) ->
+        deferred_fits?(next, 0)
+
+      is_nil(next.control.stop_pending) ->
+        deferred_fits?(next, admission_room(next))
+
+      true ->
+        marked = mark_stop(before, next)
+
+        (Map.has_key?(marked.control, :stop_attempt) and deferred_fits?(marked, 0)) or
+          (not admits?(before) and deferred_fits?(next, 0))
     end
   end
 
   defp admission_room(state), do: @stop_room + future_waits(state)
 
+  # `state` fits the bound with `room` bytes of control left free after the growth that the
+  # deferred charges add (deferred_growth/1), each slot within its bound and the slots map
+  # within its own after the growth of its slots.
+  defp deferred_fits?(state, room) do
+    {control, slots} = deferred_growth(state)
+
+    if slots == %{} do
+      fits?(state, room + control)
+    else
+      added = slots |> Map.values() |> Enum.sum()
+
+      fits?(state, room + control) and
+        Enum.all?(slots, fn {key, grow} -> bytes(state.slots[key]) + grow <= @slot_bytes end) and
+        bytes(state.slots) + added <= 8_388_608 and
+        bytes(state) + control + added + 171 <= @record_bytes
+    end
+  end
+
   # The charges that the engine records later for a nested child's cost with no check of
-  # its own (ELZ-430): once a child's cost is known, its parent action settles with the
-  # child Budget's committed amount, by an internal outcome while the parent is open, or by
-  # a :nested_actual record once the parent settled with no actual (at a change of Attempt,
-  # an expiry, the end of the Run), and that amount is stored in the parent's Budget twice
-  # (its committed amount and the settled entry) and in the parent slot. The projection
-  # applies each such charge now, deepest child first, so a grandparent's charge counts its
-  # parent's: every child whose parent slot holds no actual, at the child's committed
-  # amount so far. Every check that lets a committed amount grow (an outcome's actual, a
-  # Resource cursor transition, a child's own charge) runs on this projection, so the
-  # charge that follows it fits; a child whose cost ends unknown gives none and is counted
-  # all the same. The parent's slot reserve is not taken back here.
-  defp deferred_charges(state) do
+  # its own (ELZ-430), as an upper bound of their growth that counts no release (a freed
+  # reservation or slot reserve, a dropped kept finish): once a child's cost is known, its
+  # parent action settles with the child Budget's committed amount, by an internal outcome
+  # while the parent is open, or by a :nested_actual record once the parent settled with no
+  # actual (at a change of Attempt, an expiry, the end of the Run). The amount is stored in
+  # the parent's Budget twice and once in the parent slot. In ETF (the bound's encoding):
+  # the Budget's `committed` integer becomes old + amount, at most bytes(amount) - 1 + 1
+  # bytes more (the encoded payload of the larger addend and one carry byte); the parent's
+  # entry {:EntryRow, ref, entry} turns its held form, {:Open, estimate, expiry} or
+  # {:Expired, estimate}, into {:Settled, estimate, actual, late}: the tag `Settled` is 3
+  # bytes longer than `Open` (2 for `Expired`), the tuple gains 1 or 2 arity steps, the
+  # actual adds bytes(amount) - 1 and the late flag (`True`/`False`, 6 bytes) is added,
+  # while the dropped expiry is not counted back; so the Budget grows by at most
+  # 2 * bytes(amount) + 11, bounded here by 2 * bytes(amount) + 32. The slot gains the key
+  # `actual` (8 bytes) with the amount (bytes(amount) - 1), and an internal outcome's
+  # settlement replaces the open slot's fields by fewer of them (settled_event_slot/4) and
+  # adds `outcome` with a class of at most 9 bytes (17), not counted back: bounded by
+  # bytes(amount) + 16 + 17 with the outcome counted where the parent is open. An open
+  # parent's outcome can be retained in its slot as its pending input (a Run paused when
+  # the drain gives it): that record, built here at its largest form and times, is counted
+  # in the slot, and its settlement's growth in control (the tracker and the join, within
+  # the 4,096 bytes of a settling slot) is counted too, since a retained slot keeps its
+  # reserve. Siblings and ancestors: charges are applied deepest child first and each
+  # parent's amount adds to the Budget of its own callable (`extra`), so an ancestor's
+  # charge counts every charge below it; each charge's bound is a sum over its own bytes
+  # and counts no release, so every order in which the charges land, and every state
+  # between them, stays within the sum. Returns the control growth and the growth of each
+  # slot by its key.
+  defp deferred_growth(state) do
     state.control.callables
     |> Enum.filter(fn {_, node} -> is_map(node) and node[:parent] != nil end)
     |> Enum.sort_by(fn {id, node} -> {-node.depth, id} end)
-    |> Enum.reduce(state, fn {id, node}, acc ->
-      parent = acc.slots[node.parent]
-      budget = acc.control.budgets[id]
+    |> Enum.reduce({%{}, 0, %{}}, fn {id, node}, {extra, control, slots} ->
+      key = node.parent
+      parent = state.slots[key]
+      budget = state.control.budgets[id]
 
       with true <- is_map(parent) and not is_integer(parent[:actual]) and is_map(budget),
            {:Transition, _, {:some, {:status, %{committed: committed}}}} <-
              Budget.step(budget.state, {1, :status}) do
-        acc
-        |> settle_budget(node.parent, committed, 1)
-        |> put_in([:slots, node.parent, :actual], committed)
+        amount = committed + Map.get(extra, id, 0)
+        extra = Map.update(extra, parent.callable, amount, &(&1 + amount))
+        open = parent.phase != :settled
+        control = control + 2 * bytes(amount) + 32 + if(open, do: 4_096, else: 0)
+        retained = if open, do: retained_outcome_bytes(state, key, parent, node, amount), else: 0
+        grow = bytes(amount) + 16 + if(open, do: 17 + retained, else: 0)
+        {extra, control, Map.update(slots, key, grow, &(&1 + grow))}
       else
-        _ -> acc
+        _ -> {extra, control, slots}
       end
     end)
+    |> then(fn {_, control, slots} -> {control, slots} end)
+  end
+
+  # The bytes of the pending input that an open parent's internal outcome at `amount` keeps
+  # in its slot while the Run is paused, at the largest of its forms (the child's kept
+  # finish, a failed or a completed refusal), with the largest time and pause deadline.
+  defp retained_outcome_bytes(state, key, parent, child, amount) do
+    refusal = fn class, reason ->
+      outcome(
+        state.version,
+        parent.action_id,
+        class,
+        @refusal_schema,
+        refusal(state, key, reason),
+        @max_time
+      )
+    end
+
+    inputs = [
+      {refusal.("failed", "nested_result_invalid"), %{actual: amount, dispatch: "dispatched"}},
+      {refusal.("completed", "nested_completed"), %{actual: amount}}
+    ]
+
+    inputs =
+      case child[:finish] do
+        %{schema_id: id, schema_version: version, payload: payload} ->
+          finish =
+            outcome(state.version, parent.action_id, "completed", id, payload, @max_time)
+            |> Map.put("schema_version", version)
+
+          [{finish, %{actual: amount}} | inputs]
+
+        _ ->
+          inputs
+      end
+
+    inputs
+    |> Enum.map(fn {input, correlation} ->
+      record = %{
+        version: state.version,
+        kind: :protocol,
+        id: String.duplicate("0", 68),
+        run_id: state.control.run_id,
+        attempt_id: parent.attempt_id,
+        input: Jason.encode!(input),
+        correlation: Map.put(correlation, :occurrence, key),
+        context: %{pause_deadline: @max_time}
+      }
+
+      bytes({:pending_input, %{order: 2_147_483_647, record: record}})
+    end)
+    |> Enum.max()
   end
 
   # Whether the :configure `record` on `snapshot` (the empty state, or the terminal state
