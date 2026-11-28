@@ -1777,29 +1777,34 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> {{:unknown, :delivery}, state}
   end
 
-  # An acknowledged retry item is decided only after each earlier held item
-  # of its conversation, in command order (`held_items_proven/4`): an
-  # earlier breach fences first, and an earlier item that cannot be read
-  # keeps the retry.
+  # An acknowledged retry item is decided as a delivery pass decides an item
+  # that it observed acknowledged (`acked_decision/5`), after the same
+  # ordered prefix (`prefix_proven/3`): each earlier held item and each item
+  # that the custody of a round not yet restored names, in command order,
+  # from their latest observations. An earlier breach fences first; an
+  # earlier item or a discovery that cannot be read keeps the retry.
   defp acked_delivery(state, key, item) do
-    case held_items_proven(state, item_sequence(key), [], %{}) do
-      {:ok, state} -> acked_item(state, key, item)
-      {{:error, _reason}, state} -> {{:unknown, :delivery}, state}
-      {failure, state} -> unconfirmed_delivery(state, failure)
-    end
-  end
+    pass = %{window: [], seen: %{key => item}, custody: :unread}
 
-  defp acked_item(state, key, item) do
-    with {:ok, mode, intent} <- delivery_intent(state, item),
-         {:ok, kind, observed} <- custody_kind(state, key, mode, intent, %{}) do
-      decision =
-        with :ok <- observed_settled(state, observed),
-             do: intent_delivery(state, kind, item, mode, intent)
+    with {:ok, mode, intent} <- delivery_intent(state, item) do
+      case prefix_proven(state, pass, item.sequence) do
+        {:ok, state, pass} ->
+          case acked_decision(state, pass, Map.get(pass.seen, key, item), mode, intent) do
+            {:ok, _observed} ->
+              deliver_retry(%{state | delivered: Map.put(state.delivered, key, nil)})
 
-      case decision do
-        :ok -> deliver_retry(%{state | delivered: Map.put(state.delivered, key, nil)})
-        {:error, _reason} -> {{:unknown, :delivery}, state}
-        failure -> unconfirmed_delivery(state, failure)
+            {:error, _reason} ->
+              {{:unknown, :delivery}, state}
+
+            failure ->
+              unconfirmed_delivery(state, failure)
+          end
+
+        {{:error, _reason}, state} ->
+          {{:unknown, :delivery}, state}
+
+        {failure, state} ->
+          unconfirmed_delivery(state, failure)
       end
     else
       _ -> {{:unknown, :delivery}, state}
@@ -2158,24 +2163,18 @@ defmodule Elzoo.Wave4ChannelExample do
   # it is neither delivered nor allowed to block them (admission skips it the
   # same way), and the observation step keeps its own rules for it. The
   # window's input items were held when it was read (`pending_window/1`),
-  # also those that a failure here keeps this pass from reaching. Each
-  # earlier held item of the conversation is then checked, in command order,
-  # before the append; when a read fails, the retry is keyed on this item, so
-  # an acknowledgement that removes it from the window meanwhile is
-  # reconciled by its key (receipt first, then row) before anything else.
+  # also those that a failure here keeps this pass from reaching. The
+  # ordered prefix before it is then checked (`prefix_proven/3`) before the
+  # append; when a read fails, the retry is keyed on this item, so an
+  # acknowledgement that removes it from the window meanwhile is reconciled
+  # by its key, after the same prefix, before anything else.
   defp deliver_item(state, item, pass) do
     case delivery_intent(state, item) do
       {:ok, mode, dto} ->
-        case pass_custody(state, pass, item.sequence) do
-          {:ok, pass, custody} ->
-            case held_items_proven(state, item.sequence, custody, pass.seen) do
-              {:ok, state} -> deliver_current(state, item, mode, dto, pass)
-              {{:error, _reason}, state} -> held_unreadable(state, item)
-              {failure, state} -> fence_delivery(state, failure)
-            end
-
-          {:error, _reason} ->
-            held_unreadable(state, item)
+        case prefix_proven(state, pass, item.sequence) do
+          {:ok, state, pass} -> deliver_current(state, item, mode, dto, pass)
+          {{:error, _reason}, state} -> held_unreadable(state, item)
+          {failure, state} -> fence_delivery(state, failure)
         end
 
       {:error, :foreign} ->
@@ -2183,6 +2182,33 @@ defmodule Elzoo.Wave4ChannelExample do
 
       {:error, reason} ->
         fail_delivery(state, {:delivery, item.idempotency_key, reason}, {:unknown, :delivery})
+    end
+  end
+
+  # The ordered prefix before the command sequence `before`: each held item
+  # of the conversation and each item that the custody of a round not yet
+  # restored names (`pass_custody/3`), decided in command order from their
+  # latest observations (`held_items_proven/4`). When discovery cannot read
+  # everything, what it named and read is kept, and only the items before
+  # the first sequence at which an item it could not name can lie
+  # (`discovery_limit/4`) are decided: a breach among them fences, else the
+  # read is retried. `{:ok, state, pass}`, `{failure, state}`, or
+  # `{{:error, reason}, state}`.
+  defp prefix_proven(state, pass, before) do
+    case pass_custody(state, pass, before) do
+      {:ok, pass, custody} ->
+        case held_items_proven(state, before, custody, pass.seen) do
+          {:ok, state} -> {:ok, state, pass}
+          failure -> failure
+        end
+
+      {:error, reason, custody, seen, base} ->
+        limit = min(before, discovery_limit(state, base, custody, seen))
+
+        case held_items_proven(state, limit, custody, seen) do
+          {:ok, state} -> {{:error, reason}, state}
+          failure -> failure
+        end
     end
   end
 
@@ -2208,15 +2234,16 @@ defmodule Elzoo.Wave4ChannelExample do
 
     case Map.get(pass.seen, key, item) do
       %{state: :acked} = latest ->
-        with {:ok, kind, observed} <- pass_kind(state, pass, key, mode, dto),
-             :ok <- observed_settled(state, observed),
-             :ok <- intent_delivery(state, kind, latest, mode, dto) do
-          {:ok, %{state | delivered: Map.put(state.delivered, key, nil)},
-           %{pass | seen: Map.merge(pass.seen, observed)}}
-        else
-          :error -> fail_delivery(state, {:delivery, key, :acked}, {:unknown, :delivery})
-          {:error, _reason} -> fail_delivery(state, {:delivery, key, :acked}, {:unknown, :delivery})
-          failure -> fence_delivery(state, failure)
+        case acked_decision(state, pass, latest, mode, dto) do
+          {:ok, observed} ->
+            {:ok, %{state | delivered: Map.put(state.delivered, key, nil)},
+             %{pass | seen: Map.merge(pass.seen, observed)}}
+
+          {:error, _reason} ->
+            fail_delivery(state, {:delivery, key, :acked}, {:unknown, :delivery})
+
+          failure ->
+            fence_delivery(state, failure)
         end
 
       _pending ->
@@ -2224,6 +2251,29 @@ defmodule Elzoo.Wave4ChannelExample do
           {:ok, state} -> {:ok, state, pass}
           failure -> failure
         end
+    end
+  end
+
+  # An item observed acknowledged is never appended. Its own receipt
+  # decides first: another nonce's acknowledgement is the superseded fence,
+  # whatever its kind or row. Else its row decides, under the kind that the
+  # pass's custody discovery named it (`pass_kind/5`), after a primary that
+  # deriving the kind had to read. `{:ok, observed}` with that primary's
+  # read, a fence, or `{:error, reason}`.
+  defp acked_decision(state, pass, item, mode, dto) do
+    key = item.idempotency_key
+
+    if item.ack_nonce != item.nonce do
+      {:superseded, key, item.nonce}
+    else
+      with {:ok, kind, observed} <- pass_kind(state, pass, key, mode, dto),
+           :ok <- observed_settled(state, observed),
+           :ok <- intent_delivery(state, kind, item, mode, dto) do
+        {:ok, observed}
+      else
+        :error -> {:error, :kind}
+        failure -> failure
+      end
     end
   end
 
@@ -2250,16 +2300,22 @@ defmodule Elzoo.Wave4ChannelExample do
   # read (a version 1 primary read by its key) and discovery's reads are
   # later observations than the window and replace its entries in `seen`,
   # also for the root's first item itself. `{:ok, pass, items}` with the
-  # items that this item's check needs, or `{:error, reason}`.
+  # items that this item's check needs, or `{:error, reason, items, seen,
+  # base}` with what discovery named and read before a read failed
+  # (`custody_items/2`; `nil` base when the root could not be read).
   defp pass_custody(state, %{custody: :unread} = pass, before) do
-    with {:ok, root} <- custody_root(state, pass.window) do
-      seen =
-        case root do
-          {_first, {:primary, primary}} -> Map.put(pass.seen, primary.idempotency_key, primary)
-          _ -> pass.seen
-        end
+    case custody_root(state, pass.window) do
+      {:ok, root} ->
+        seen =
+          case root do
+            {_first, {:primary, primary}} -> Map.put(pass.seen, primary.idempotency_key, primary)
+            _ -> pass.seen
+          end
 
-      pass_custody(state, %{pass | custody: {root, :later}, seen: seen}, before)
+        pass_custody(state, %{pass | custody: {root, :later}, seen: seen}, before)
+
+      {:error, reason} ->
+        {:error, reason, [], pass.seen, nil}
     end
   end
 
@@ -2267,8 +2323,12 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp pass_custody(state, %{custody: {{first, _names} = root, :later}} = pass, before) do
     if before > first do
-      with {:ok, items, seen} <- custody_items(state, root) do
-        {:ok, %{pass | custody: {root, items}, seen: Map.merge(pass.seen, seen)}, items}
+      case custody_items(state, root) do
+        {:ok, items, seen} ->
+          {:ok, %{pass | custody: {root, items}, seen: Map.merge(pass.seen, seen)}, items}
+
+        {:error, reason, items, seen, base} ->
+          {:error, reason, items, Map.merge(pass.seen, seen), base}
       end
     else
       {:ok, pass, []}
@@ -5417,17 +5477,24 @@ defmodule Elzoo.Wave4ChannelExample do
   # shown is discovered in its turn. The unseen held items and the items
   # that the roots name are then decided together in command order
   # (`held_proven/3`), so the earliest breach fences. When a read of
-  # discovery fails, only the items before what it could still name are
-  # decided: a proven earlier failure fences, else the step is retried with
-  # everything held. A settled root is released; each item that an
-  # unsettled root names and that is not settled is held by its key, so
-  # that a round adopted later still checks it. `{:ok, state, window}` with
-  # the window as last observed, or `{failure, state}`.
+  # discovery fails, what it named and read is kept, and only the items
+  # before the first sequence at which an item it could not name can lie
+  # (`discovery_limit/4`) are decided: a breach among them fences, else the
+  # step is retried with everything held. A settled root is released; each
+  # item that an unsettled root names and that is not settled is held by
+  # its key, so that a round adopted later still checks it. `{:ok, state,
+  # window}` with the window as last observed, or `{failure, state}`.
   defp unseen_held_proven(state, window) do
     shown = Map.new(window, &{&1.idempotency_key, &1})
 
     {seen, frontier, settled, named} =
       discover_roots(state, unseen_roots(state), shown, %{}, [], [])
+
+    limit =
+      case frontier do
+        :complete -> nil
+        {base, _error} -> discovery_limit(state, base, named, Map.merge(shown, seen))
+      end
 
     window = Enum.map(window, &Map.get(seen, &1.idempotency_key, &1))
 
@@ -5437,7 +5504,9 @@ defmodule Elzoo.Wave4ChannelExample do
       |> Enum.reject(fn {_kind, _destination, key} -> shown?(shown, seen, key) end)
       |> Kernel.++(named)
       |> Enum.uniq_by(fn {_kind, _destination, key} -> key end)
-      |> Enum.filter(fn {_kind, _destination, key} -> before_frontier?(frontier, key) end)
+      |> Enum.filter(fn {_kind, _destination, key} ->
+        is_nil(limit) or item_sequence(key) < limit
+      end)
       |> held_proven(state, seen)
 
     case {decided, frontier} do
@@ -5445,7 +5514,7 @@ defmodule Elzoo.Wave4ChannelExample do
         state = release_held(state, settled)
         {:ok, Enum.reduce(named, state, &hold_unsettled(&2, &1, seen)), window}
 
-      {{:ok, state}, {_limit, error}} ->
+      {{:ok, state}, {_base, error}} ->
         {error, state}
 
       {failure, _frontier} ->
@@ -5461,8 +5530,30 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
-  defp before_frontier?(:complete, _key), do: true
-  defp before_frontier?({limit, _error}, key), do: item_sequence(key) < limit
+  # The first sequence after `base` at which an item that discovery could
+  # not name can lie (`nil` base: none is known). Such an item is a
+  # delivery item of a round, the row of its own command, so it never lies
+  # at the sequence of a known input item, the row of another command: an
+  # input that this host holds, that custody names or that a read observed.
+  # Every item before that sequence is known.
+  defp discovery_limit(_state, nil, _named, _seen), do: 0
+
+  defp discovery_limit(state, base, named, seen) do
+    occupied =
+      MapSet.new(
+        for(
+          {:input, _destination, key} <- round_items(state) ++ held_list(state) ++ named,
+          do: item_sequence(key)
+        ) ++
+          for(
+            {_key, %{destination: destination, sequence: sequence}} <- seen,
+            destination in [@destination, @reply_destination],
+            do: sequence
+          )
+      )
+
+    (base + 1) |> Stream.iterate(&(&1 + 1)) |> Enum.find(&(not MapSet.member?(occupied, &1)))
+  end
 
   # Version 1, before a round is restored: the held primaries in command
   # order. The first is the custody root (`held_primary/1`).
@@ -5487,10 +5578,9 @@ defmodule Elzoo.Wave4ChannelExample do
   # root and each item that it names acknowledged with its own nonce) lets
   # the next held primary be discovered; the first that is not ends
   # discovery and stays the custody root. `{seen, frontier, settled,
-  # named}`: the frontier is `:complete`, or `{limit, error}` when a read
-  # failed, and only items before the sequence `limit` are known: a root
-  # whose read failed is not, and a root whose custody could not be read is
-  # (its items lie after it).
+  # named}`: the frontier is `:complete`, or `{base, error}` when a read
+  # failed, with what discovery named and read before it kept: every item
+  # that it could not name lies after the sequence `base`.
   defp discover_roots(_state, [], _shown, seen, settled, named),
     do: {seen, :complete, settled, named}
 
@@ -5513,10 +5603,11 @@ defmodule Elzoo.Wave4ChannelExample do
                  do: discover_roots(state, roots, shown, seen, [key | settled], named),
                  else: {seen, :complete, settled, named}
 
-            error ->
-              {seen, {root.sequence + 1, error}, settled, named}
+            {:error, reason, items, found, base} ->
+              {Map.merge(seen, found), {base, {:error, reason}}, settled, items ++ named}
           end
 
+        # The held root itself is decided by its key with the held items.
         error ->
           {seen, {item_sequence(key), error}, settled, named}
       end
@@ -5605,38 +5696,81 @@ defmodule Elzoo.Wave4ChannelExample do
   # the primary's association and answer; in version 2, the custody facts'
   # primary and reply inputs and, through them and the retained commands,
   # the delivery items of the round's association, reply association and
-  # answer. `{:ok, items}` or `{:error, reason}`.
-  defp custody_items(state, {_first, names}) do
-    {primary, inputs} =
+  # answer. They are discovered in command order, each read newer than the
+  # one before it (a newer read of a key replaces an older one): the
+  # primary, its association's scan, the custody facts' inputs and their
+  # scan, then its answer's scan. `{:ok, items, seen}` with the items read
+  # on the way, or `{:error, reason, items, seen, base}` when a read fails:
+  # what was named and read before it is kept, and every item that could
+  # not be named lies after the sequence `base` (`nil` when the round could
+  # not be read at all).
+  defp custody_items(state, {first, names}) do
+    primary =
       case names do
-        {:primary, primary} ->
-          {{:ok, primary}, {:ok, [], %{}}}
-
-        {:facts, metadata} ->
-          {read_original_item(state, metadata.primary_key, @destination),
-           fact_items(state, metadata)}
+        {:primary, primary} -> {:ok, primary}
+        {:facts, metadata} -> read_original_item(state, metadata.primary_key, @destination)
       end
 
-    with {:ok, item} <- primary,
-         {:ok, event, operation, _revision, _intent} <- recover_input(state, item),
-         {:ok, receipts, receipt_seen} <- round_receipts(state, operation, event.input_id),
-         {:ok, inputs, input_seen} <- inputs do
-      # Oldest first: the primary's read, then the input items', then the
-      # receipts' scans; a newer read of a key replaces an older one.
-      seen =
-        %{item.idempotency_key => item}
-        |> Map.merge(input_seen)
-        |> Map.merge(receipt_seen)
-
-      {:ok, inputs ++ receipts, seen}
-    else
-      _ -> {:error, :custody}
+    case primary do
+      {:ok, item} -> round_custody(state, names, item)
+      _ -> {:error, :custody, [], %{}, first - 1}
     end
   rescue
-    _ -> {:error, :custody}
+    _ -> {:error, :custody, [], %{}, nil}
   catch
-    _, _ -> {:error, :custody}
+    _, _ -> {:error, :custody, [], %{}, nil}
   end
+
+  defp round_custody(state, names, item) do
+    found = {:ok, [], %{item.idempotency_key => item}, item.sequence}
+
+    with {:ok, event, operation, _revision, _intent} <- recover_input(state, item) do
+      input = event.input_id
+
+      [
+        fn ->
+          command_receipt(
+            state,
+            state.handles.association,
+            :association,
+            association_operation(operation, input, state.profile)
+          )
+        end,
+        fn -> fact_inputs(state, names) end,
+        fn ->
+          command_receipt(
+            state,
+            state.handles.answer,
+            :answer,
+            answer_operation(operation, input, state.profile)
+          )
+        end
+      ]
+      |> Enum.reduce_while(found, fn step, {:ok, items, seen, base} ->
+        case step.() do
+          {:ok, named, read} ->
+            base =
+              Enum.reduce(named, base, fn {_kind, _destination, key}, base ->
+                max(base, item_sequence(key))
+              end)
+
+            {:cont, {:ok, named ++ items, Map.merge(seen, read), base}}
+
+          _ ->
+            {:halt, {:error, :custody, items, seen, base}}
+        end
+      end)
+      |> case do
+        {:ok, items, seen, _base} -> {:ok, items, seen}
+        error -> error
+      end
+    else
+      _ -> {:error, :custody, [], elem(found, 2), item.sequence}
+    end
+  end
+
+  defp fact_inputs(_state, {:primary, _primary}), do: {:ok, [], %{}}
+  defp fact_inputs(state, {:facts, metadata}), do: fact_items(state, metadata)
 
   # The input items that version 2 custody facts name, and the reply
   # association's delivery item through the reply's retained commands, with
@@ -5666,27 +5800,6 @@ defmodule Elzoo.Wave4ChannelExample do
        Map.merge(%{key => item}, seen)}
     else
       _ -> {:error, :custody}
-    end
-  end
-
-  # The delivery items of a round's association and answer, by their
-  # commands' operations and committed revisions, with the items as read.
-  defp round_receipts(state, operation, input) do
-    with {:ok, association, association_seen} <-
-           command_receipt(
-             state,
-             state.handles.association,
-             :association,
-             association_operation(operation, input, state.profile)
-           ),
-         {:ok, answer, answer_seen} <-
-           command_receipt(
-             state,
-             state.handles.answer,
-             :answer,
-             answer_operation(operation, input, state.profile)
-           ) do
-      {:ok, association ++ answer, Map.merge(association_seen, answer_seen)}
     end
   end
 
