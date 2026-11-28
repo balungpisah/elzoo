@@ -221,18 +221,24 @@ is not claimed bounded (the Memory Store scans its map).
   fenced reopen; recovery then reads the row read-only, and only the row
   equal to the intent rebuilt from the retained command proves the delivery.
   An unreadable row is retried, a row with other content is the refusal
-  fence, decided with the owner's precedence (for an answer, a message ID
-  that another record holds is `duplicate_message_id` before
-  `already_answered`), and an acknowledgement under another nonce is the
-  superseded fence, also when the exact row exists. The channel detects the
-  breach for each item that it holds. Live, it holds an input item once it
-  observes the item in the outbox window, and the item of an association,
-  reply association or answer command that it issued, which it finds by
-  that command's operation and revision. Before it dispatches a later
-  append or native action of a conversation (a Run, an Attempt, an engine
-  start or a native input), it checks each earlier held item of that
-  conversation for the breach, in command order. After a fenced reopen it
-  holds the items that it can name from the custody that it persisted: in
+  fence, decided with the owner's precedence over one sampled history (for
+  an answer, a message ID that another record holds is
+  `duplicate_message_id` before `already_answered`), and an acknowledgement
+  under another nonce is the superseded fence, also when the exact row
+  exists. The channel detects the breach for each item that it holds.
+  Live, it holds an input item once it observes the item in the outbox
+  window, and the item of an association, reply association or answer
+  command that it issued, which it finds by that command's operation and
+  revision. Before it dispatches a later append or native action of a
+  conversation (a Run, an Attempt, an engine start or a native input,
+  expiry wakes and replies included), and before it idles or adopts an
+  item, it checks each earlier held item of that conversation in command
+  order, by its own receipt first (an append proven in this lifetime does
+  not prove the acknowledgement's nonce): the breach, a refusal or another
+  nonce's acknowledgement fences there, with nothing dispatched. After a
+  fenced reopen it holds the items that it can name from the custody that
+  it persisted, and checks them in the same order before its first
+  delivery pass dispatches a later item and before the engine restarts: in
   version 1, an association or an answer through its primary input, which
   recovery must find pending in the outbox window; in version 2, a primary
   or reply input through the custody facts of its Run, and an association,
