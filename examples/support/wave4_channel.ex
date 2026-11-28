@@ -1786,28 +1786,41 @@ defmodule Elzoo.Wave4ChannelExample do
   # Another nonce's acknowledgement is `{:superseded, key, nonce}`; anything
   # else is `{:error, :delivery_ack}`.
   defp delivery_receipt(state, operation, revision) do
+    case delivery_item(state, operation, revision) do
+      {:ok, item} -> item_receipt(state, item)
+      _ -> {:error, :delivery_ack}
+    end
+  end
+
+  # The delivery item of a command, by its operation and committed revision,
+  # as read now: `{:ok, item}` or `{:error, reason}`.
+  defp delivery_item(state, operation, revision) do
     stream = checked_stream(state.profile.tenant)
 
-    with {:ok, head} <- DurableLog.Store.read(state.command_store, :head, [stream]),
-         {:ok, item} <-
-           find_delivery_item(state, stream, operation, revision, head.revision, revision) do
-      key = item.idempotency_key
-      nonce = item.nonce
-      receipt = Elzoo.DurableLog.Codec.ack_receipt(key, nonce)
+    with {:ok, head} <- DurableLog.Store.read(state.command_store, :head, [stream]) do
+      find_delivery_item(state, stream, operation, revision, head.revision, revision)
+    end
+  rescue
+    _ -> {:error, :delivery_ack}
+  catch
+    _, _ -> {:error, :delivery_ack}
+  end
 
-      case item.state do
-        :pending ->
-          {:ok, key, nonce}
+  defp item_receipt(state, item) do
+    key = item.idempotency_key
+    nonce = item.nonce
+    receipt = Elzoo.DurableLog.Codec.ack_receipt(key, nonce)
 
-        :acked ->
-          case DurableLog.confirm_ack(state.command_store, receipt) do
-            {:committed, _} -> {:ok, key, nonce}
-            :superseded -> {:superseded, key, nonce}
-            _ -> {:error, :delivery_ack}
-          end
-      end
-    else
-      _ -> {:error, :delivery_ack}
+    case item.state do
+      :pending ->
+        {:ok, key, nonce}
+
+      :acked ->
+        case DurableLog.confirm_ack(state.command_store, receipt) do
+          {:committed, _} -> {:ok, key, nonce}
+          :superseded -> {:superseded, key, nonce}
+          _ -> {:error, :delivery_ack}
+        end
     end
   rescue
     _ -> {:error, :delivery_ack}
@@ -1880,15 +1893,17 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> fail_delivery(state, {:rediscover, :exit}, {:unknown, :delivery})
   end
 
-  # The window's items in order. The window is this pass's evidence that the
-  # items it shows are still pending. The items that the persisted custody
-  # of a round not yet restored names are discovered at most once per pass,
-  # and only when an item after that round's first item needs them
-  # (`pass_custody/3`).
+  # The window's items in order. The pass keeps the latest observation of
+  # each item that it knows (`seen`): the window shows its items pending,
+  # and a later read in this pass (custody discovery) replaces that entry;
+  # the older window never overrides a later observation. The items that
+  # the persisted custody of a round not yet restored names are discovered
+  # at most once per pass, and only when an item after that round's first
+  # item needs them (`pass_custody/3`).
   defp deliver_items(state, window) do
     pass = %{
       window: window,
-      shown: MapSet.new(window, & &1.idempotency_key),
+      seen: Map.new(window, &{&1.idempotency_key, &1}),
       custody: :unread
     }
 
@@ -1929,20 +1944,16 @@ defmodule Elzoo.Wave4ChannelExample do
       {:ok, mode, dto} ->
         state = hold_input(state, item)
 
-        with {:ok, custody, items} <-
-               pass_custody(state, pass, item.sequence),
-             :ok <- held_items_proven(state, item.sequence, items, pass.shown) do
-          case deliver_owner(state, item, mode, dto) do
-            {:ok, state} -> {:ok, state, %{pass | custody: custody}}
-            failure -> failure
-          end
-        else
-          {:error, _reason} ->
-            fail_delivery(state, {:delivery, item.idempotency_key, :held}, {:unknown, :delivery})
+        case pass_custody(state, pass, item.sequence) do
+          {:ok, pass, custody} ->
+            case held_items_proven(state, item.sequence, custody, pass.seen) do
+              {:ok, state} -> deliver_current(state, item, mode, dto, pass)
+              {{:error, _reason}, state} -> held_unreadable(state, item)
+              {failure, state} -> fence_delivery(state, failure)
+            end
 
-          failure ->
-            {reply, fenced} = unconfirmed_delivery(state, failure)
-            {:error, fenced, reply}
+          {:error, _reason} ->
+            held_unreadable(state, item)
         end
 
       {:error, :foreign} ->
@@ -1953,39 +1964,82 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
+  # A held check that could not be read: the retry is keyed on this item, and
+  # the exact held item that could not be read stays held (`held_proven/3`).
+  defp held_unreadable(state, item),
+    do: fail_delivery(state, {:delivery, item.idempotency_key, :held}, {:unknown, :delivery})
+
+  defp fence_delivery(state, failure) do
+    {reply, fenced} = unconfirmed_delivery(state, failure)
+    {:error, fenced, reply}
+  end
+
+  # The item itself, by its latest observation in this pass. Shown pending,
+  # it is appended: an acknowledgement that this host has not observed can
+  # only meet the append in flight. Seen acknowledged by a later read of this
+  # pass, it is never appended: its own receipt and its row decide, as for
+  # any acknowledged item of this channel.
+  defp deliver_current(state, item, mode, dto, pass) do
+    key = item.idempotency_key
+
+    case Map.get(pass.seen, key, item) do
+      %{state: :acked} = latest ->
+        with {:ok, kind} <- custody_kind(state, key, mode, dto),
+             :ok <- intent_delivery(state, kind, latest, mode, dto) do
+          {:ok, %{state | delivered: Map.put(state.delivered, key, nil)}, pass}
+        else
+          :error -> fail_delivery(state, {:delivery, key, :acked}, {:unknown, :delivery})
+          {:error, _reason} -> fail_delivery(state, {:delivery, key, :acked}, {:unknown, :delivery})
+          failure -> fence_delivery(state, failure)
+        end
+
+      _pending ->
+        case deliver_owner(state, item, mode, dto) do
+          {:ok, state} -> {:ok, state, pass}
+          failure -> failure
+        end
+    end
+  end
+
   # The pass's custody: `:unread`, then `{root, :later}` (`root` is `nil`, or
   # the round's first outbox sequence with what names its items, from
   # `custody_root/2`), then `{root, items}` once an item after that first
-  # sequence needed them: no custody item lies before it. `{:ok, custody,
-  # items}` with the items that this item's check needs, or `{:error,
-  # reason}`.
+  # sequence needed them: no custody item lies before it. Discovery's reads
+  # are later observations than the window and replace its entries in
+  # `seen`. `{:ok, pass, items}` with the items that this item's check
+  # needs, or `{:error, reason}`.
   defp pass_custody(state, %{custody: :unread} = pass, before) do
     with {:ok, root} <- custody_root(state, pass.window),
          do: pass_custody(state, %{pass | custody: {root, :later}}, before)
   end
 
-  defp pass_custody(_state, %{custody: {nil, _items} = custody}, _before),
-    do: {:ok, custody, []}
+  defp pass_custody(_state, %{custody: {nil, _items}} = pass, _before), do: {:ok, pass, []}
 
-  defp pass_custody(state, %{custody: {{first, _names} = root, :later} = custody}, before) do
+  defp pass_custody(state, %{custody: {{first, _names} = root, :later}} = pass, before) do
     if before > first do
-      with {:ok, items} <- custody_items(state, root), do: {:ok, {root, items}, items}
+      with {:ok, items, seen} <- custody_items(state, root) do
+        {:ok, %{pass | custody: {root, items}, seen: Map.merge(pass.seen, seen)}, items}
+      end
     else
-      {:ok, custody, []}
+      {:ok, pass, []}
     end
   end
 
-  defp pass_custody(_state, %{custody: {_root, items} = custody}, _before),
-    do: {:ok, custody, items}
+  defp pass_custody(_state, %{custody: {_root, items}} = pass, _before), do: {:ok, pass, items}
 
-  # An input item of this conversation is held from the delivery pass's
-  # first observation of it until this host acknowledges it
-  # (`release_held/2`).
+  # An input item of this conversation is held from its first observation,
+  # by the delivery pass or by the observation step, until this host
+  # acknowledges it (`release_held/2`).
   defp hold_input(state, %{destination: destination} = item)
        when destination in [@destination, @reply_destination],
-       do: %{state | held: Map.put(state.held, item.idempotency_key, destination)}
+       do: hold_item(state, {:input, destination, item.idempotency_key})
 
   defp hold_input(state, _item), do: state
+
+  # A held item whose check could not be read stays held by its exact key,
+  # whatever named it, until a later check settles it (`held_proven/3`).
+  defp hold_item(state, {kind, destination, key}),
+    do: %{state | held: Map.put(state.held, key, {kind, destination})}
 
   defp release_held(state, keys), do: %{state | held: Map.drop(state.held, keys)}
 
@@ -2363,15 +2417,15 @@ defmodule Elzoo.Wave4ChannelExample do
     case Outbox.pending(state.command_store, stream, @outbox_limit) do
       {:ok, items} ->
         case unseen_held_proven(state, items) do
-          :ok ->
+          {:ok, state} ->
             if reply_profile?(state.profile),
               do: observe_reply_profile(state, items),
               else: observe_pending_input(state, items)
 
-          {:error, _reason} ->
+          {{:error, _reason}, state} ->
             {{:unknown, :input_observation}, %{state | poison: {:rediscover, :held}}}
 
-          failure ->
+          {failure, state} ->
             unconfirmed_delivery(state, failure)
         end
 
@@ -2470,51 +2524,18 @@ defmodule Elzoo.Wave4ChannelExample do
         do: read_original_item(state, item.idempotency_key, @destination),
         else: {:ok, item}
 
+    # This conversation's input item, observed in the window, is held from
+    # now on, whatever the observation decides.
     with {:ok, item} <- item_result,
-         {:ok, event, operation_id, resource_revision, intent} <- recover_input(state, item),
-         {:ok, input, text, snapshot} <-
-           input_from_resource(state, event, resource_revision, item, intent) do
-      if reply_profile?(state.profile) and not before_deadline?(state) do
-        retained_event = %{event | text: text}
-
-        approval = %{
-          event: retained_event,
-          operation_id: operation_id,
-          request: input_request(retained_event, operation_id),
-          facts: input_facts(),
-          input_state: :committed_expired
-        }
-
-        {{:pending, :expired}, %{state | approval: approval}}
-      else
-        with {:ok, state} <- retire_previous_native(state),
-             {:ok, phase, current} <-
-               retained_phase(
-                 state,
-                 %{
-                   event: event,
-                   input_id: input,
-                   text: text,
-                   operation_id: operation_id,
-                   run_id: run_id(event, operation_id, state),
-                   resource_revision: resource_revision,
-                   item: %{
-                     key: item.idempotency_key,
-                     nonce: item.nonce,
-                     sequence: item.sequence
-                   },
-                   association_operation: association_operation(operation_id, input, state.profile),
-                   answer_operation: answer_operation(operation_id, input, state.profile),
-                   answer: nil,
-                   terminal: nil
-                 },
-                 snapshot
-               ) do
-          {{:observed, input}, %{state | current: current, phase: phase, approval: nil}}
-        else
-          failure -> observation_failure(state, failure)
-        end
-      end
+         {:ok, event, operation_id, resource_revision, intent} <- recover_input(state, item) do
+      observe_recovered_input(
+        hold_input(state, item),
+        item,
+        event,
+        operation_id,
+        resource_revision,
+        intent
+      )
     else
       failure -> observation_failure(state, failure)
     end
@@ -2522,6 +2543,57 @@ defmodule Elzoo.Wave4ChannelExample do
     _ -> {{:unknown, :input_observation}, %{state | poison: {:input_observation, :exception}}}
   catch
     _, _ -> {{:unknown, :input_observation}, %{state | poison: {:input_observation, :exit}}}
+  end
+
+  defp observe_recovered_input(state, item, event, operation_id, resource_revision, intent) do
+    case input_from_resource(state, event, resource_revision, item, intent) do
+      {:ok, input, text, snapshot} ->
+        if reply_profile?(state.profile) and not before_deadline?(state) do
+          retained_event = %{event | text: text}
+
+          approval = %{
+            event: retained_event,
+            operation_id: operation_id,
+            request: input_request(retained_event, operation_id),
+            facts: input_facts(),
+            input_state: :committed_expired
+          }
+
+          {{:pending, :expired}, %{state | approval: approval}}
+        else
+          with {:ok, state} <- retire_previous_native(state),
+               {:ok, phase, current} <-
+                 retained_phase(
+                   state,
+                   %{
+                     event: event,
+                     input_id: input,
+                     text: text,
+                     operation_id: operation_id,
+                     run_id: run_id(event, operation_id, state),
+                     resource_revision: resource_revision,
+                     item: %{
+                       key: item.idempotency_key,
+                       nonce: item.nonce,
+                       sequence: item.sequence
+                     },
+                     association_operation:
+                       association_operation(operation_id, input, state.profile),
+                     answer_operation: answer_operation(operation_id, input, state.profile),
+                     answer: nil,
+                     terminal: nil
+                   },
+                   snapshot
+                 ) do
+            {{:observed, input}, %{state | current: current, phase: phase, approval: nil}}
+          else
+            failure -> observation_failure(state, failure)
+          end
+        end
+
+      failure ->
+        observation_failure(state, failure)
+    end
   end
 
   # A delivery that its Conversation row contradicts, or that was
@@ -2545,6 +2617,12 @@ defmodule Elzoo.Wave4ChannelExample do
 
       {:error, :read} ->
         {{:unknown, :input_observation}, %{state | poison: {:rediscover, :recovery}}}
+
+      # A held item that the round names could not be read: it stays held by
+      # its exact key, whatever the window shows on the retry.
+      {:error, {:held, held}} ->
+        {{:unknown, :input_observation},
+         %{hold_item(state, held) | poison: {:rediscover, :recovery}}}
 
       _ ->
         {{:unknown, :input_observation}, %{state | poison: {:input_observation, :unknown}}}
@@ -2717,8 +2795,14 @@ defmodule Elzoo.Wave4ChannelExample do
           _ -> {:error, :answer}
         end
 
-      _ ->
+      # Still unreadable: recovery retries. Any other retained outcome (a
+      # denial, a refusal) settled with no outbox item: there is nothing to
+      # deliver, and the restored round meets that outcome again.
+      {:unknown, _reason} ->
         {:error, :answer}
+
+      _settled ->
+        {:ok, nil}
     end
   end
 
@@ -3030,16 +3114,27 @@ defmodule Elzoo.Wave4ChannelExample do
 
           true ->
             # The association's receipt first, then its row: an association
-            # acknowledged without its row is fenced and never appended here.
-            with {:ok, key, nonce} <-
-                   delivery_receipt(state, current.association_operation, revision),
-                 :ok <- carried_delivery(state, :association, key) do
-              current = carry_delivery(current, :association, key, nonce)
-              retained_answer_phase(state, current, snapshot)
-            else
-              {:undelivered, _kind} -> {:error, :read}
-              {:error, reason} when reason != :delivery_ack -> {:error, :read}
-              other -> other
+            # acknowledged without its row is fenced and never appended here,
+            # and one whose check cannot be read stays held by its key.
+            case delivery_receipt(state, current.association_operation, revision) do
+              {:ok, key, nonce} ->
+                case carried_delivery(state, :association, key) do
+                  :ok ->
+                    current = carry_delivery(current, :association, key, nonce)
+                    retained_answer_phase(state, current, snapshot)
+
+                  {:undelivered, _kind} ->
+                    {:error, :read}
+
+                  {:error, _reason} ->
+                    {:error, {:held, {:association, @delivery_destination, key}}}
+
+                  other ->
+                    other
+                end
+
+              other ->
+                other
             end
         end
 
@@ -3671,15 +3766,32 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
-  # The reply observation reads the window, and each held input that it no
-  # longer shows is checked by its key first, as in `observe_input/1`.
+  # The reply observation reads the window, and each held item that it no
+  # longer shows is checked by its key first, as in `observe_input/1`. The
+  # round's reply item, once observed, is held whatever the observation
+  # decides.
   defp observe_reply(%{reply: reply, current: current} = state)
        when is_map(reply) and is_map(current) do
     with {:ok, pending} <-
            Outbox.pending(state.command_store, checked_stream(state.profile.tenant), @outbox_limit),
-         :ok <- unseen_held_proven(state, pending),
-         {:ok, item} <- observed_reply_item(state, reply, current, pending),
-         {:completed, result} <-
+         {:ok, state} <- unseen_held_proven(state, pending),
+         {:ok, item} <- observed_reply_item(state, reply, current, pending) do
+      adopt_reply(hold_input(state, item), reply, item)
+    else
+      {{:error, _reason}, %{} = held} -> reply_observation_failure(held, :unavailable)
+      {failure, %{} = held} -> reply_observation_failure(held, failure)
+      failure -> reply_observation_failure(state, failure)
+    end
+  rescue
+    _ -> reply_observation_failure(state, :unavailable)
+  catch
+    _, _ -> reply_observation_failure(state, :unavailable)
+  end
+
+  defp observe_reply(state), do: {{:blocked, :reply_state}, state}
+
+  defp adopt_reply(state, reply, item) do
+    with {:completed, result} <-
            CheckedCommand.result(
              state.handles.reply_input,
              result_scope(state.profile),
@@ -3695,31 +3807,31 @@ defmodule Elzoo.Wave4ChannelExample do
       reply = Map.put(%{reply | item: item, text: intent.text}, :intent, intent)
       {{:reply_observed, item.idempotency_key}, %{state | reply: reply, phase: :reply_association}}
     else
+      failure -> reply_observation_failure(state, failure)
+    end
+  end
+
+  defp reply_observation_failure(state, failure) do
+    case failure do
       :unproven ->
         {{:blocked, :reply_observation}, %{state | poison: {:reply_observation, :unproven}}}
 
-      {:unproven, _kind, _key} = failure ->
+      {:unproven, _kind, _key} ->
         unconfirmed_delivery(state, failure)
 
-      {:conflict, _key, _code} = failure ->
+      {:conflict, _key, _code} ->
         unconfirmed_delivery(state, failure)
 
-      {:superseded, _key, _nonce} = failure ->
+      {:superseded, _key, _nonce} ->
         unconfirmed_delivery(state, failure)
 
-      {:missing, _kind} = failure ->
+      {:missing, _kind} ->
         unconfirmed_delivery(state, failure)
 
       _ ->
         {{:blocked, :reply_observation}, %{state | poison: {:reply_observation, :unavailable}}}
     end
-  rescue
-    _ -> {{:blocked, :reply_observation}, %{state | poison: {:reply_observation, :unavailable}}}
-  catch
-    _, _ -> {{:blocked, :reply_observation}, %{state | poison: {:reply_observation, :unavailable}}}
   end
-
-  defp observe_reply(state), do: {{:blocked, :reply_state}, state}
 
   # The round's reply item, by main's rule: the window shows this round's
   # primary item and exactly one reply item, whose notice names this
@@ -4085,6 +4197,7 @@ defmodule Elzoo.Wave4ChannelExample do
       # acknowledged without its row or under another nonce, or held by
       # another record, is fenced like the custody gate fences it.
       {:error, :record} -> {:error, :unreadable}
+      {:error, :read} -> {:error, :unreadable}
       {:undelivered, _kind} -> {:error, :undelivered}
       {:unproven, _kind, _key} = failure -> {:error, failure}
       {:conflict, _key, _code} = failure -> {:error, failure}
@@ -4855,47 +4968,60 @@ defmodule Elzoo.Wave4ChannelExample do
   # rules the item out, fences the round with nothing dispatched, and a read
   # that fails is retried with nothing dispatched.
   defp held_then(state, step) do
-    case held_items_proven(state, nil, [], MapSet.new()) do
-      :ok -> step.(state)
-      {:error, _reason} -> {{:error, :unavailable}, state}
-      failure -> unconfirmed_delivery(state, failure)
+    case held_items_proven(state, nil, [], %{}) do
+      {:ok, state} -> step.(state)
+      {{:error, _reason}, state} -> {{:error, :unavailable}, state}
+      {failure, state} -> unconfirmed_delivery(state, failure)
     end
   end
 
   # The held items of the conversation (before the command sequence `before`
-  # when given): the round's own items, the input items that the delivery
-  # pass observed, and `custody`, the items that the persisted custody of a
-  # round not yet restored names (`custody_items/2`). An item that the pass's
-  # window `shown` still shows pending, and whose append this host proved,
-  # is settled by that evidence; every other item is read by its key.
-  defp held_items_proven(state, before, custody, shown) do
-    (round_items(state) ++ held_inputs(state) ++ custody)
+  # when given): the round's own items, the host's held items (`state.held`)
+  # and `custody`, the items that the persisted custody of a round not yet
+  # restored names (`custody_items/2`), each decided from its latest
+  # observation in `seen`, else read by its key (`held_proven/3`).
+  defp held_items_proven(state, before, custody, seen) do
+    (round_items(state) ++ held_list(state) ++ custody)
     |> Enum.uniq_by(fn {_kind, _destination, key} -> key end)
     |> Enum.filter(fn {_kind, _destination, key} ->
       sequence = item_sequence(key)
-
-      is_integer(sequence) and (is_nil(before) or sequence < before) and
-        not (MapSet.member?(shown, key) and Map.has_key?(state.delivered, key))
+      is_integer(sequence) and (is_nil(before) or sequence < before)
     end)
-    |> held_proven(state)
+    |> held_proven(state, seen)
   end
 
-  # Held items in command order: `:ok` when each is settled (proven, or
-  # pending without its row: its own delivery comes in its turn), else the
-  # first failure: `{:unproven, kind, key}`, `{:superseded, key, nonce}` or
-  # `{:conflict, key, code}`, each a fence after which nothing later is
-  # dispatched, or `{:error, reason}` when a read fails.
-  defp held_proven(items, state) do
+  # Held items in command order, each decided by `item_decision/3` from its
+  # latest observation (`seen`, else a read by its key): `{:ok, state}` when
+  # each is settled (proven, or pending without its row: its own delivery
+  # comes in its turn), else `{failure, state}` with the first failure: a
+  # fence (`{:unproven, kind, key}`, `{:superseded, key, nonce}` or
+  # `{:conflict, key, code}`) after which nothing later is dispatched, or
+  # `{:error, reason}` when the item cannot be read. An unreadable item stays
+  # held by its exact key; a held item that a check proves is released,
+  # except an input, which stays held until this host acknowledges it.
+  defp held_proven(items, state, seen) do
     items
     |> Enum.sort_by(fn {_kind, _destination, key} -> item_sequence(key) end)
-    |> Enum.reduce_while(:ok, fn {kind, destination, key}, :ok ->
-      case held_item(state, kind, destination, key) do
-        :ok -> {:cont, :ok}
-        {:undelivered, _kind} -> {:cont, :ok}
-        failure -> {:halt, failure}
+    |> Enum.reduce_while({:ok, state}, fn {kind, destination, key} = held, {:ok, state} ->
+      decision =
+        case Map.fetch(seen, key) do
+          {:ok, item} -> item_decision(state, kind, item)
+          :error -> held_item(state, kind, destination, key)
+        end
+
+      case decision do
+        :ok -> {:cont, {:ok, settle_held(state, held)}}
+        {:undelivered, _kind} -> {:cont, {:ok, state}}
+        {:error, _reason} = error -> {:halt, {error, hold_item(state, held)}}
+        failure -> {:halt, {failure, state}}
       end
     end)
   end
+
+  defp settle_held(state, {:input, _destination, _key}), do: state
+
+  defp settle_held(state, {_kind, _destination, key}),
+    do: %{state | held: Map.delete(state.held, key)}
 
   # Live, the round's input items and the delivery-only items that it
   # carries.
@@ -4915,21 +5041,20 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp round_items(_state), do: []
 
-  defp held_inputs(state),
-    do: for({key, destination} <- state.held, do: {:input, destination, key})
+  defp held_list(state),
+    do: for({key, {kind, destination}} <- state.held, do: {kind, destination, key})
 
-  # Before an observation idles or adopts an item: each input item that the
-  # delivery pass observed and that this window no longer shows was
-  # acknowledged meanwhile. Its own receipt and its row decide, as for any
-  # held item; an append that this host proved does not settle an
-  # acknowledgement under another nonce.
+  # Before an observation idles or adopts an item: each held item that this
+  # window no longer shows was acknowledged meanwhile, and its own receipt
+  # and its row decide, read by its key: an append that this host proved
+  # does not settle an acknowledgement under another nonce.
   defp unseen_held_proven(state, window) do
     shown = MapSet.new(window, & &1.idempotency_key)
 
     state
-    |> held_inputs()
+    |> held_list()
     |> Enum.reject(fn {_kind, _destination, key} -> MapSet.member?(shown, key) end)
-    |> held_proven(state)
+    |> held_proven(state, %{})
   end
 
   # Before a round is restored (a restored round holds its own,
@@ -4982,7 +5107,7 @@ defmodule Elzoo.Wave4ChannelExample do
     {primary, inputs} =
       case names do
         {:primary, primary} ->
-          {{:ok, primary}, {:ok, []}}
+          {{:ok, primary}, {:ok, [], %{}}}
 
         {:facts, metadata} ->
           {read_original_item(state, metadata.primary_key, @destination),
@@ -4991,9 +5116,14 @@ defmodule Elzoo.Wave4ChannelExample do
 
     with {:ok, item} <- primary,
          {:ok, event, operation, _revision, _intent} <- recover_input(state, item),
-         {:ok, receipts} <- round_receipts(state, operation, event.input_id),
-         {:ok, inputs} <- inputs do
-      {:ok, inputs ++ receipts}
+         {:ok, receipts, receipt_seen} <- round_receipts(state, operation, event.input_id),
+         {:ok, inputs, input_seen} <- inputs do
+      seen =
+        input_seen
+        |> Map.merge(receipt_seen)
+        |> Map.put(item.idempotency_key, item)
+
+      {:ok, inputs ++ receipts, seen}
     else
       _ -> {:error, :custody}
     end
@@ -5004,9 +5134,10 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   # The input items that version 2 custody facts name, and the reply
-  # association's delivery item through the reply's retained commands.
+  # association's delivery item through the reply's retained commands, with
+  # the items read on the way.
   defp fact_items(_state, %{primary_key: primary, reply_key: nil}),
-    do: {:ok, [{:input, @destination, primary}]}
+    do: {:ok, [{:input, @destination, primary}], %{}}
 
   defp fact_items(state, %{primary_key: primary, reply_key: key}) do
     with {:ok, item} <- read_original_item(state, key, @reply_destination),
@@ -5018,43 +5149,45 @@ defmodule Elzoo.Wave4ChannelExample do
              {state.profile.tenant, state.profile.actor, operation}
            ),
          {:ok, ticket, _revision} <- receipt_input(response),
-         {:ok, association} <-
+         {:ok, association, seen} <-
            command_receipt(
              state,
              state.handles.reply_association,
              :reply_association,
              association_operation(operation, ticket, state.profile)
            ) do
-      {:ok, [{:input, @destination, primary}, {:input, @reply_destination, key} | association]}
+      {:ok, [{:input, @destination, primary}, {:input, @reply_destination, key} | association],
+       Map.put(seen, key, item)}
     else
       _ -> {:error, :custody}
     end
   end
 
   # The delivery items of a round's association and answer, by their
-  # commands' operations and committed revisions.
+  # commands' operations and committed revisions, with the items as read.
   defp round_receipts(state, operation, input) do
-    with {:ok, association} <-
+    with {:ok, association, association_seen} <-
            command_receipt(
              state,
              state.handles.association,
              :association,
              association_operation(operation, input, state.profile)
            ),
-         {:ok, answer} <-
+         {:ok, answer, answer_seen} <-
            command_receipt(
              state,
              state.handles.answer,
              :answer,
              answer_operation(operation, input, state.profile)
            ) do
-      {:ok, association ++ answer}
+      {:ok, association ++ answer, Map.merge(association_seen, answer_seen)}
     end
   end
 
-  # The delivery item of one committed command, whatever its
-  # acknowledgement (the check decides that); none while the command is not
-  # committed, or when it settled without one.
+  # The delivery item of one committed command, read now (an observation for
+  # the pass) whatever its acknowledgement: the check decides that. None
+  # while the command is not committed, or when it settled without one; a
+  # result that cannot be read is retried.
   defp command_receipt(state, handle, kind, operation) do
     case CheckedCommand.result(
            handle,
@@ -5062,37 +5195,47 @@ defmodule Elzoo.Wave4ChannelExample do
            {state.profile.tenant, state.profile.actor, operation}
          ) do
       {:completed, %{revision: revision}} ->
-        case delivery_receipt(state, operation, revision) do
-          {:ok, key, _nonce} -> {:ok, [{kind, @delivery_destination, key}]}
-          {:superseded, key, _nonce} -> {:ok, [{kind, @delivery_destination, key}]}
-          _ -> {:error, :receipt}
+        case delivery_item(state, operation, revision) do
+          {:ok, item} ->
+            {:ok, [{kind, @delivery_destination, item.idempotency_key}],
+             %{item.idempotency_key => item}}
+
+          _ ->
+            {:error, :receipt}
         end
 
       {:unknown, :not_observed} ->
-        {:ok, []}
+        {:ok, [], %{}}
 
       {:unknown, _reason} ->
         {:error, :command}
 
       _settled ->
-        {:ok, []}
+        {:ok, [], %{}}
     end
   end
 
-  # One held item by its original key. Its own receipt decides first: an
-  # append that this host proved in this lifetime does not prove that the
-  # item's acknowledgement still has its own nonce, and another nonce's is
-  # the superseded fence. Then that proven append, else the row.
+  # One held item, read by its key and decided (`item_decision/3`). A read
+  # that the store could not serve is `{:error, :read}` and is retried; an
+  # item that is absent, malformed or not this channel's is `{:error,
+  # :item}`, which a retry does not change.
   defp held_item(state, kind, destination, key) do
     case read_original_item(state, key, destination) do
-      {:ok, %{state: :acked, nonce: nonce, ack_nonce: ack_nonce}} when ack_nonce != nonce ->
-        {:superseded, key, nonce}
+      {:ok, item} -> item_decision(state, kind, item)
+      {:error, :read} -> {:error, :read}
+      _ -> {:error, :item}
+    end
+  end
 
-      {:ok, item} ->
-        if Map.has_key?(state.delivered, key), do: :ok, else: item_delivery(state, kind, item)
-
-      _ ->
-        {:error, :item}
+  # The one decision for a held item from an observation of it: its own
+  # receipt first (another nonce's acknowledgement is the superseded fence;
+  # an append that this host proved does not override it), then that proven
+  # append, else its row (`item_delivery/3`).
+  defp item_decision(state, kind, %{idempotency_key: key, nonce: nonce} = item) do
+    cond do
+      item.state == :acked and item.ack_nonce != nonce -> {:superseded, key, nonce}
+      Map.has_key?(state.delivered, key) -> :ok
+      true -> item_delivery(state, kind, item)
     end
   end
 
