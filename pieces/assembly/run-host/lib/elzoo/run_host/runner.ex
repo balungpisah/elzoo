@@ -208,7 +208,7 @@ defmodule Elzoo.RunHost.Runner do
   defp claim(s) do
     case Lease.claim(s.c.lease, s.stream, s.c.owner_id, s.c.lease_ttl_ms) do
       {:held, held} ->
-        {t0, read} = RunHost.lease_reading(s.c.lease, s.stream)
+        {t0, read} = RunHost.lease_reading(s.c.lease, s.stream, s.c.owner_id)
         :ok = host(s, {:held, held, t0, read})
         {:ok, %{s | held: held}}
 
@@ -258,10 +258,10 @@ defmodule Elzoo.RunHost.Runner do
   # taken here shows it held by this owner and live.
   defp authorize(s) do
     %{host: host, run_ref: run_ref, token: token, stream: key} = s
-    lease = s.c.lease
+    %{lease: lease, owner_id: owner} = s.c
 
     fn request, generation ->
-      {t0, read} = RunHost.lease_reading(lease, key)
+      {t0, read} = RunHost.lease_reading(lease, key, owner)
 
       case GenServer.call(host, {:authorize, run_ref, token, t0, read}) do
         :granted ->

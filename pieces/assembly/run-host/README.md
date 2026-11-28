@@ -201,11 +201,14 @@ the Run has exited, and a release's result (confirmed or not) is acted on only a
 `:DOWN` of the release task itself (not at the exit of another process of the Run, such as
 a callback whose `:DOWN` comes late), so a waiting start or wake takes the key over only
 then. A renewal's call ends once the owner is stopped, and each lease reading of a task
-runs in a reader process that the task spawns and monitors itself: the task takes the
-reader's reply until the reading's deadline (Leases), then kills the reader and awaits its
-`:DOWN`, also when the reader has replied but not exited, and starts no other process for
-the reading. So no task of the Run, and no reader of one, outlives it, and an
-indeterminate receipt that such a task brings back is still kept.
+runs in a reader process that the task spawns linked to itself, trapping exits only while
+it reads: the task takes the reader's reply until the reading's deadline (Leases), and the
+reader's exit with no reply at once as a failed reading; then it kills the reader and
+awaits its exit, also when the reader has replied but not exited, and starts no other
+process for the reading. A stop from the task's supervisor (the host stopping) kills the
+reader first, and a task that is killed takes its reader with it through the link. So no
+task of the Run, and no reader of one, outlives it, and an indeterminate receipt that such
+a task brings back is still kept.
 
 `on_terminal` and `on_lost` run as tasks of the Run, tracked by the host, and start only
 for a Run that is live (or starting): once a teardown began, no callback starts. A reap
@@ -435,21 +438,26 @@ newest reading of the lease that showed it live, and a deadline on the node's mo
 clock: the moment by which the earlier of the last confirmed `until` and the `until` that
 the newest reading shows passes at the latest, for a lease clock that runs no slower than
 the node's clock, taken from that reading's sample. A lease record is identified by its
-sequence in the Run's stream, not by its `until`: each reading takes `Lease.status/2` and
-`Lease.retention_bound/2` (whose `through` is the latest lease record's sequence less one)
-at the same head revision of the stream, both read again while the head moves between them
-(at most five times, else the reading fails). An ordinary write of the Run owner moves the
-head and keeps the record; a same-holder re-claim is another record, also with the same
-`until`. The claim's record is its revision; a renewal's is the revision that `renew/2`
-returns. Readings are ordered by the Store, not by their arrival at the host: the newest
-is the one at the highest head revision of the lease's stream, then the latest lease clock
-sample, then the latest node time taken before it (a lease clock that stood still while the
-node's moved on gives the later deadline), and an older reading that reaches the host
-later never replaces it. Every live reading counts, from a renewal, an expiry check, a
-caller's admission or an EffectIntent activation. So a renewal's confirmation that arrives
-after a newer reading of a lease that a same-holder re-claim shortened keeps the shorter
-deadline, such a newer reading that arrives after a confirmation still shortens it, and a
-re-claim that an admission or an activation reads moves the deadline as well.
+sequence in the Run's stream, not by its `until`. A reading takes `Lease.status/2` with the
+node time right before it; a status that shows another holder, none, an ambiguous or an
+inactive lease is a definite reading by itself and is judged at once, with no second read.
+A status that shows the lease active and held by this owner is correlated with its record
+by `Lease.retention_bound/2` (whose `through` is the latest lease record's sequence less
+one) at the same head revision of the stream: while the head moves between the two reads
+both are read again, each attempt with a node time of its own (at most five times, else
+the reading fails). An ordinary write of the Run owner moves the head and keeps the record;
+a same-holder re-claim is another record, also with the same `until`. The claim's record
+is its revision; a renewal's is the revision that `renew/2` returns. Readings are ordered
+by the Store, not by their arrival at the host: the newest is the one at the highest head
+revision of the lease's stream, then the latest lease clock sample, then the latest node
+time taken before it (a lease clock that stood still while the node's moved on gives the
+later deadline), and an older reading that reaches the host later never replaces it. Every
+live reading counts, from a renewal, an expiry check, a caller's admission or an
+EffectIntent activation. So a renewal's confirmation that arrives after a newer reading of
+a lease that a same-holder re-claim shortened keeps the shorter deadline, such a newer
+reading that arrives after a confirmation still shortens it, and a re-claim that an
+admission or an activation reads moves the deadline as well, earlier or, on a lease clock
+slower than the node's, later.
 **The renewal starts half the TTL before the deadline**, once for each confirmed record,
 through the live owner with `Elzoo.RunApprovalRelease.renew/2`, in a host task, so that a
 renewal that waits the whole 5,000 ms caller limit of `renew/2` still ends before it for a
@@ -484,13 +492,17 @@ ambiguous lease is a loss (`{:lease_lost, %{reason, holder}}`), and any other re
 `:expired`. So a lease clock that moves faster than the node's (a Memory manual clock, for
 example) stops admission and activation at once, and so does a lease that another owner
 seized. A definite no-write error (`{:error, _}`) of a renewal keeps the token: the renewal
-is tried again at a twelfth of the TTL. A renewal that replied counts only when a reading
-of the lease taken after its reply shows it live by the last confirmed `until`: its task
-reads the lease after the reply, again every 100 ms while that read fails, until the
-deadline at which the renewal started; when that brings no reading (also one given up at a
-deadline that a newer reading has since moved later), the host reads the lease again at
-once, and every 100 ms while that fails, until the Run's current deadline. The node's
-clock never stands in for a reading: a reading at or after the last confirmed `until`
+is tried again a twelfth of the TTL later, and no later reading brings that retry earlier
+(a reading that shortens the deadline can move it no earlier than that delay). A renewal
+that replied (or the claim) counts only when a live reading shows its record or a later
+one, which was therefore taken after its commit: a reading of its task, an expiry check,
+an admission or an activation, whichever comes first and in whatever order the readings
+arrive. Its task reads the lease after the reply, again every 100 ms while that read
+fails, until the deadline at which the renewal started; when that brings no reading (also
+one given up at a deadline that a newer reading has since moved later), the host reads the
+lease again at once, and every 100 ms while that fails, until the Run's current deadline.
+The node's clock never stands in for a reading: a reading at or after the last confirmed
+`until`
 stops the Run with `:expired`, no reading by the deadline leaves the fence to stop it with
 `:expired`, and a reading that shows another holder or none is that loss, at once. A
 confirmed renewal's record and `until` are the last confirmed ones, and its deadline counts
@@ -654,9 +666,25 @@ clock measurement.
   is confirmed with no loss; on PostgreSQL, a renewal held in the owner before its lock
   while the host observes a same-holder re-claim, which then appends a renewal onto the
   re-claim's record (its `until` extended) before the owner answers `:fenced` with that
-  record's revision, after which no other renewal starts; a lease reader that has replied
-  but not exited, its reply taken at once, the reader killed and its exit awaited, with no
-  process spawned by the reading (traced).
+  record's revision, after which no other renewal starts and `on_lost` was called once
+  (no second loss message once the Run and its callbacks are gone); on PostgreSQL, a
+  definite no-write renewal error (delivered by the test under the job's reference) whose
+  200 ms retry delay a later admission reading (the admission's cast, with a reading that
+  the test takes as admission does) leaves in place, the retry starting at that delay and
+  confirmed; on Memory, with the order fixed by suspending the backend and the
+  jobs: a renewal whose own reading failed (delivered by the test with the record that the
+  owner holds) confirmed by a caller's admission reading of its record while the host's
+  own re-read is held; a caller's correlation read again after a same-holder re-claim
+  moved the head between its two reads (the re-claim held 1 s), its reading timed at the
+  second attempt, after the re-claim; an activation whose status read shows an operator's
+  seizure, the key seized back under this owner before its record read: lost with that
+  holder, no activation record and no stub call; a lease reader that ends with its job
+  when the job is killed, and when the host stops while its reading is blocked; a lease
+  reader that has replied but not exited, its reply taken at once, the reader killed and
+  its exit awaited, with no process spawned by the reading (traced); a lease reader that
+  exits with no reply, a failed reading at once (under 1 s, its deadline 5 s away); and the
+  several-TTL failure report given a Store whose renewal count cannot be read, which still
+  carries the reply and the host observation.
 
 Negative controls (temporary edits, each failing its named test, then reverted) are
 listed in the task's pull request. These are finite scenarios, not proofs. No Cure
@@ -677,13 +705,15 @@ Cure outcome table and the engine's results.
   worker can reach the engine until the teardown stops it. A renewal that commits but
   whose reply comes after the Run's deadline, or whose lease cannot be read after its
   reply before that deadline, loses the Run (safe, not live). At the deadline the Run is
-  fenced with no reading: a lease clock slower than the node's gets more time only from
-  the expiry check's reading a margin before it. Once a newer reading shows another lease
+  fenced with no reading: a lease clock slower than the node's gets more time only from a
+  live reading taken before it (the expiry check's a margin before it, and any admission
+  or activation reading, which at an unchanged revision and lease time moves the deadline
+  later by its later node time). Once a newer reading shows another lease
   record of this owner (a re-claim), the host starts no renewal of it; a renewal already
   submitted to the owner is not recalled and can still append a renewal onto the
   re-claim's record before the owner reports `:fenced` (no write-time check of the
   expected record: that would need a change of `Elzoo.Lease` or `RunApprovalRelease`).
-  A reading is correlated with its record only while the stream's head holds still
+  A live reading is correlated with its record only while the stream's head holds still
   across its two reads (five tries).
 - A provider request already on the wire is not recalled by a teardown.
 - The keep-alive touches the Unit through the directory: a directory busy for longer
